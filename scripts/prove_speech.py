@@ -65,7 +65,7 @@ SETPRIV = "setpriv"
 LOCK_PATH = Path("/tmp/probe-stack.lock")  # noqa: S108 - the one machine-wide probe lock must keep this exact path whatever TMPDIR says
 LOCK_HELD_ENV = "SPEECH_PROOF_HOLDS_PROBE_LOCK"
 LOCK_DIRECTORY_PREFIX = "speech-lock-"
-LOCK_WAIT_SECONDS = 1200
+LOCK_WAIT_SECONDS = 3600
 FLOCK_TIMED_OUT_STATUS = 1
 FLOCK_COMMAND_UNAVAILABLE_STATUS = 69
 # The cap and the kill grace are the numbers this script owns inside the fleet

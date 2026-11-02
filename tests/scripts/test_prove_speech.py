@@ -78,7 +78,7 @@ def test_the_proof_runs_itself_inside_the_fleet_lock_form() -> None:
         "flock",
         "-o",
         "-w",
-        "1200",
+        str(PROVE.LOCK_WAIT_SECONDS),
         str(PROVE.LOCK_PATH),
     ]
     assert command[5:8] == ["setpriv", "--pdeathsig", "TERM"]
