@@ -184,9 +184,10 @@ The root is read-only, the user is not root, and the identity issuer's CA is
 mounted from `~/.secrets/step-ca/root_ca.crt`. The healthcheck requires
 `speaking.ready` and `hearing.ready`, because `/health` answers while the models
 load and the baked model makes a hearing that did not load a defect of the build.
-Starlette spools an upload above 1 MiB to `/tmp` before the hearing gate is
-asked, so the 128 MiB tmpfs holds the gate's four recordings at
-`SPEECH_MAX_RECORDING_BYTES`, not an unbounded number in flight.
+Starlette spools an upload above 1 MiB to `/tmp`; the service parses the form
+only once a request holds the decode, so one spool exists at a time, up to
+`SPEECH_MAX_RECORDING_BYTES`, while a waiting request holds its body in memory,
+not on `/tmp`.
 
 `scripts/prove_image.py` builds that image and starts the real `compose.yaml`
 on isolated networks with a test CA, a key-set server and a caller container.

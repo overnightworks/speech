@@ -17,16 +17,20 @@ TIMEOUT_SECONDS = 120
 
 
 def reply(request: urllib.request.Request) -> dict[str, object]:
-    """The status and body the server answered, or the error that stopped it."""
+    """The status, headers and body answered, or the error that stopped the request."""
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310 - the proof's own http URL
-            status, body = response.status, response.read()
+            status, body, headers = response.status, response.read(), response.headers
     except urllib.error.HTTPError as refusal:
-        status, body = refusal.code, refusal.read()
+        status, body, headers = refusal.code, refusal.read(), refusal.headers
     except OSError as error:
         # urlopen wraps a refused connection in a URLError that holds the cause.
         return {"error": type(getattr(error, "reason", error)).__name__}
-    return {"status": status, "body": base64.b64encode(body).decode("ascii")}
+    return {
+        "status": status,
+        "headers": dict(headers.items()),
+        "body": base64.b64encode(body).decode("ascii"),
+    }
 
 
 specification = json.load(sys.stdin)

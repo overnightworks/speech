@@ -6,7 +6,7 @@ import base64
 import json
 import os
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
@@ -62,6 +62,7 @@ class Reply:
 
     status: int
     body: bytes
+    headers: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -162,7 +163,7 @@ def send(
     if "error" in answer:
         message = f"no answer from {url}: {answer['error']}"
         raise SystemExit(message)
-    return Reply(answer["status"], base64.b64decode(answer["body"]))
+    return Reply(answer["status"], base64.b64decode(answer["body"]), answer["headers"])
 
 
 @dataclass(frozen=True)
@@ -206,7 +207,7 @@ class LiveOutcome:
     """How a live turn ended: its final and partials, or the error that stopped it."""
 
     final: str | None
-    partials: int
+    partials: tuple[str, ...]
     error: str | None
 
 
@@ -293,11 +294,11 @@ class Session:
         }
         answer = json.loads(run_in(self.compose, self.caller, "live.py", specification))
         return LiveOutcome(
-            answer.get("final"), answer.get("partials", 0), answer.get("error")
+            answer.get("final"), tuple(answer.get("partials", ())), answer.get("error")
         )
 
     def tmp_usage(self) -> TmpUsage:
-        """What the service's /tmp holds now."""
+        """The filesystem's own count of the service's /tmp now."""
         output = run_in(self.compose, SERVICE, "tmp_usage.py", None)
         return TmpUsage(**json.loads(output))
 

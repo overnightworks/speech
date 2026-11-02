@@ -218,15 +218,15 @@ class _TranscriptionRoute:
         raw = await _read_within(request, self._settings.max_recording_bytes)
         if raw is None:
             return _refused(RefusalCode.TOO_LARGE)
-        parsed = await self._parsed(_replayed(request, raw))
-        if isinstance(parsed, JSONResponse):
-            return parsed
-        recording, fields = parsed
         lease = await self._runtime.hearing.gate.acquire(
             deadline, self._settings.hearing_max_waiting_requests
         )
         if lease is None:
             return self._busy()
+        parsed = await self._parsed_within(lease, _replayed(request, raw))
+        if isinstance(parsed, JSONResponse):
+            return parsed
+        recording, fields = parsed
         return await self._answer(lease, recording, fields.language)
 
     async def _hearing_refusal(self, request: Request) -> JSONResponse | None:
@@ -238,6 +238,23 @@ class _TranscriptionRoute:
         if self._runtime.hearing.capture() is None:
             return _refused(RefusalCode.UNAVAILABLE)
         return None
+
+    async def _parsed_within(
+        self, lease: Lease, request: Request
+    ) -> tuple[bytes, TranscriptionRequest] | JSONResponse:
+        """The form of `request`, parsed while `lease` is held so one spool exists.
+
+        The lease is closed on a refusal and on any error; on success `_answer`
+        hands it on.
+        """
+        try:
+            parsed = await self._parsed(request)
+        except BaseException:
+            lease.close()
+            raise
+        if isinstance(parsed, JSONResponse):
+            lease.close()
+        return parsed
 
     async def _parsed(
         self, request: Request

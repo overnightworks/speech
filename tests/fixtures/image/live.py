@@ -3,7 +3,7 @@
 The turn arrives on standard input: a JSON object with `url`, `headers`, the
 `session_update` text, the audio `frames` (base64) and the seconds between
 two frames and to wait for the final. The outcome is the final transcript and the
-number of partials before it, or an `error` naming what ended the turn.
+texts of the partials before it, or an `error` naming what ended the turn.
 """
 
 # ruff: noqa: T201 - this script's output is the outcome the proof reads
@@ -29,12 +29,12 @@ async def send_frames(socket, frames: list[str], pace_seconds: float) -> None:  
 
 
 async def receive_turn(socket) -> dict[str, object]:  # noqa: ANN001 - the library's connection type
-    """The final of the turn, with the partials that came before it."""
-    partials = 0
+    """The final of the turn, with the texts of the partials before it."""
+    partials: list[str] = []
     async for message in socket:
         event = json.loads(message)
         if event["type"] == DELTA:
-            partials += 1
+            partials.append(event["delta"])
         elif event["type"] == COMPLETED:
             return {"final": event["transcript"], "partials": partials}
     return {"error": "ClosedBeforeFinal"}

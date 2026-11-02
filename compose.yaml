@@ -26,13 +26,12 @@ services:
     security_opt:
       - no-new-privileges:true
     read_only: true
-    # Starlette spools an upload above 1 MiB to /tmp, before the hearing gate is
-    # asked, so the gate's bound does not cover the spools. 128 MiB holds the
-    # one decode and the three waiting recordings at SPEECH_MAX_RECORDING_BYTES
-    # (25 MiB) if each were spooled at once; more uploads in flight than that
-    # can still fill it.
+    # Starlette spools an upload above 1 MiB to /tmp. The service parses the form
+    # only once a request holds the decode, so one spool exists at a time, up to
+    # SPEECH_MAX_RECORDING_BYTES (25 MiB); a waiting request holds its body in
+    # memory, not on /tmp.
     tmpfs:
-      - /tmp:size=128m,nr_inodes=1k,mode=1777,nosuid,nodev
+      - /tmp:size=64m,nr_inodes=1k,mode=1777,nosuid,nodev
     # /health answers while the models load, so ready decides. The model is baked,
     # so a hearing that did not load is a defect of the build, and a deployment
     # that cannot hear is not recorded.

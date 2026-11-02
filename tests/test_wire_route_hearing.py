@@ -255,6 +255,23 @@ def test_a_body_over_the_byte_cap_is_too_large_before_it_is_parsed(
     assert engine.heard == []
 
 
+@pytest.mark.parametrize(
+    ("cap_beyond_body", "status"),
+    [(0, HTTP_200_OK), (-1, HTTP_413_CONTENT_TOO_LARGE)],
+    ids=["at-the-cap", "one-byte-over"],
+)
+def test_a_body_of_exactly_the_byte_cap_is_read_and_one_byte_more_is_not(
+    cap_beyond_body: int, status: int
+) -> None:
+    body = _valid()
+
+    response = post_recording(
+        _client(max_recording_bytes=len(body) + cap_beyond_body), body
+    )
+
+    assert response.status_code == status
+
+
 def test_the_route_answers_the_wrong_version_before_anything_else() -> None:
     response = _client().post("/v2/audio/transcriptions", content=_valid())
 
@@ -310,6 +327,29 @@ def test_a_request_beyond_the_waiting_places_is_told_busy_at_once() -> None:
     assert_call_refusal(beyond, HTTP_429_TOO_MANY_REQUESTS, RefusalCode.BUSY, None)
     assert answered_after < SLACK_SECONDS
     assert engine.most_concurrent == 1
+
+
+def test_a_malformed_form_waits_for_the_decode_and_frees_it_for_the_one_behind() -> (
+    None
+):
+    async def scenario() -> tuple[bool, int, int]:
+        runtime = hear_runtime(FakeHearing())
+        app = hear_app(runtime, hearing_busy_wait_seconds=WAIT_SECONDS)
+        held = runtime.hearing.gate.try_acquire()
+        assert held is not None
+        malformed = hear_call(app, b"not a multipart body")
+        behind = hear_call(app)
+        await asyncio.sleep(SHORT_WAIT_SECONDS)
+        answered_while_held = malformed.status_code != 0
+        held.close()
+        await asyncio.gather(malformed.finish(), behind.finish())
+        return answered_while_held, malformed.status_code, behind.status_code
+
+    answered_while_held, malformed_status, behind_status = asyncio.run(scenario())
+
+    assert not answered_while_held
+    assert malformed_status == HTTP_422_UNPROCESSABLE_CONTENT
+    assert behind_status == HTTP_200_OK
 
 
 def test_speaking_and_hearing_run_side_by_side_each_under_its_own_bound() -> None:

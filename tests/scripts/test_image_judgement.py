@@ -246,12 +246,47 @@ def test_a_log_with_spoken_text_or_a_token_is_named() -> None:
 def test_a_log_with_heard_text_is_named_and_fails_the_proof() -> None:
     log = "INFO ok\ntranscript: Guten Tag zusammen"
 
-    assert judged.log_faults(log, [], ["Guten Tag zusammen"], [])[0].startswith(
-        "heard text"
-    )
+    assert "heard text" in judged.log_faults(log, [], ["Guten Tag zusammen"], [])[0]
     with pytest.raises(SystemExit, match="heard text"):
         judged.require_log_clean(log, [], ["Guten Tag zusammen"], [])
     judged.require_log_clean("INFO ok", [], ["Guten Tag zusammen"], [])
+
+
+def test_a_log_with_a_live_partial_that_differs_from_the_final_is_named() -> None:
+    turn = LiveOutcome("Guten Tag zusammen", ("Guten Tag zusamm",), None)
+    log = "INFO ok\npartial: Guten Tag zusamm"
+
+    with pytest.raises(SystemExit, match="heard text"):
+        judged.require_log_clean(log, [], judged.live_texts(turn), [])
+
+
+def test_a_log_names_the_count_of_heard_texts_and_never_their_words() -> None:
+    log = "Guten Tag zusammen and Auf Wiedersehen"
+
+    (fault,) = judged.log_faults(log, [], ["Guten Tag zusammen", "Auf Wiedersehen"], [])
+
+    assert fault == "2 heard text(s)"
+
+
+def test_a_live_turn_shows_its_partials_of_a_word_or_more_and_then_its_final() -> None:
+    turn = LiveOutcome("Guten Tag zusammen", ("Guten", " ", "Tag"), None)
+
+    assert judged.live_texts(turn) == ["Guten", "Guten Tag zusammen"]
+
+
+@pytest.mark.parametrize(
+    ("health", "alone"),
+    [
+        ({"speaking": {"ready": True}, "hearing": {"ready": False}}, True),
+        ({"speaking": {"ready": False}, "hearing": {"ready": False}}, False),
+        ({"speaking": {"ready": True}, "hearing": {"ready": True}}, False),
+    ],
+    ids=["speaking alone", "still loading", "both"],
+)
+def test_only_a_voice_ready_with_hearing_not_ready_is_speaking_alone(
+    health: dict[str, dict[str, bool]], *, alone: bool
+) -> None:
+    assert judged.is_speaking_alone(health) is alone
 
 
 def test_only_the_external_networks_of_a_rendered_compose_file_are_named() -> None:
@@ -329,17 +364,26 @@ def test_a_transcription_with_a_word_of_the_sentence_gives_its_text() -> None:
     )
 
 
+def too_large(param: str | None) -> Reply:
+    body = refusal(RefusalCode.TOO_LARGE, param).model_dump_json().encode()
+    return Reply(413, body)
+
+
+def busy(headers: dict[str, str]) -> Reply:
+    body = refusal(RefusalCode.BUSY).model_dump_json().encode()
+    return Reply(429, body, headers)
+
+
 @pytest.mark.parametrize(
     "reply",
     [
         pytest.param(transcription("anything"), id="text"),
-        pytest.param(
-            Reply(413, refusal(RefusalCode.TOO_LARGE).model_dump_json().encode()),
-            id="too large",
-        ),
+        pytest.param(too_large("file"), id="too long"),
     ],
 )
-def test_a_recording_at_the_limit_may_get_text_or_too_large(reply: Reply) -> None:
+def test_a_recording_at_the_limit_may_get_text_or_too_large_naming_the_file(
+    reply: Reply,
+) -> None:
     judged.require_limit_answer(reply)
 
 
@@ -347,11 +391,9 @@ def test_a_recording_at_the_limit_may_get_text_or_too_large(reply: Reply) -> Non
     ("reply", "fault"),
     [
         pytest.param(Reply(500, b"internal server error"), "no wire refusal", id="500"),
-        pytest.param(
-            Reply(429, refusal(RefusalCode.BUSY).model_dump_json().encode()),
-            "expected",
-            id="another refusal",
-        ),
+        pytest.param(Reply(200, b"{}"), "no transcription", id="200 without text"),
+        pytest.param(too_large(None), "byte limit", id="byte limit at the limit"),
+        pytest.param(busy({"Retry-After": "30"}), "expected", id="busy alone"),
     ],
 )
 def test_a_recording_at_the_limit_that_got_anything_else_fails_the_proof(
@@ -361,31 +403,42 @@ def test_a_recording_at_the_limit_that_got_anything_else_fails_the_proof(
         judged.require_limit_answer(reply)
 
 
+def test_a_burst_may_also_be_told_busy_with_a_retry_after() -> None:
+    judged.require_limit_answer(busy({"retry-after": "30"}), busy_allowed=True)
+
+
+def test_a_burst_told_busy_without_a_retry_after_fails_the_proof() -> None:
+    with pytest.raises(SystemExit, match="Retry-After"):
+        judged.require_limit_answer(busy({}), busy_allowed=True)
+
+
 @pytest.mark.parametrize(
-    ("usage", "fault"),
+    ("after", "fault"),
     [
-        pytest.param(judged.TmpUsage(1, 100), "spool is left", id="a spool is left"),
+        pytest.param(judged.TmpUsage(4096, 100), "spool is left", id="a spool is left"),
         pytest.param(judged.TmpUsage(0, 9), "smaller than one recording", id="small"),
     ],
 )
 def test_a_tmp_that_cannot_hold_a_recording_or_keeps_one_fails_the_proof(
-    usage: judged.TmpUsage, fault: str
+    after: judged.TmpUsage, fault: str
 ) -> None:
     with pytest.raises(SystemExit, match=fault):
-        judged.require_tmp_clean(usage, 10)
+        judged.require_tmp_clean(judged.TmpUsage(0, 100), after, 10)
 
 
-def test_an_empty_tmp_that_holds_a_recording_passes() -> None:
-    judged.require_tmp_clean(judged.TmpUsage(0, 10), 10)
+def test_a_tmp_back_at_its_start_passes() -> None:
+    judged.require_tmp_clean(judged.TmpUsage(4096, 10), judged.TmpUsage(4096, 10), 10)
 
 
 @pytest.mark.parametrize(
     ("outcome", "fault"),
     [
         pytest.param(
-            LiveOutcome(None, 0, "InvalidStatus"), "InvalidStatus", id="error"
+            LiveOutcome(None, (), "InvalidStatus"), "InvalidStatus", id="error"
         ),
-        pytest.param(LiveOutcome("Guten Tag zusammen", 2, None), "no word", id="text"),
+        pytest.param(
+            LiveOutcome("Guten Tag zusammen", ("Guten",), None), "no word", id="text"
+        ),
     ],
 )
 def test_a_live_turn_without_a_final_of_the_sentence_fails_the_proof(
@@ -396,7 +449,7 @@ def test_a_live_turn_without_a_final_of_the_sentence_fails_the_proof(
 
 
 def test_a_live_turn_with_a_final_of_the_sentence_passes() -> None:
-    judged.require_final(LiveOutcome("die Kamera", 0, None), SENTENCE)
+    judged.require_final(LiveOutcome("die Kamera", (), None), SENTENCE)
 
 
 @pytest.mark.parametrize(

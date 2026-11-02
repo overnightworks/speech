@@ -18,7 +18,9 @@ from speech_runtime_client.wire import (
     REFUSAL_STATUS,
     Refusal,
     RefusalCode,
+    RetryAfterError,
     Transcription,
+    busy_wait,
 )
 from speech_runtime_service.pcm import AI_MARK
 from speech_runtime_service.voices import VoiceId
@@ -81,9 +83,9 @@ def app_that(config: CallerConfig, *, hears: bool) -> str:
 
 @dataclass(frozen=True)
 class TmpUsage:
-    """What the service's /tmp holds and how large its tmpfs is."""
+    """The filesystem's own count of the service's /tmp: bytes in use, and its size."""
 
-    file_bytes: int
+    used_bytes: int
     size_bytes: int
 
 
@@ -273,7 +275,9 @@ def log_faults(
 ) -> list[str]:
     """The spoken texts, heard texts and tokens a service log holds."""
     leaked = [f"spoken text {text[:12]!r}" for text in spoken_in_log(log, spoken)]
-    leaked += [f"heard text {text[:12]!r}" for text in spoken_in_log(log, heard)]
+    heard_leaks = spoken_in_log(log, heard)
+    if heard_leaks:
+        leaked.append(f"{len(heard_leaks)} heard text(s)")
     return leaked + ["a token" for token in tokens if token in log]
 
 
@@ -315,31 +319,70 @@ def require_heard(text: str, sentence: str) -> None:
         raise SystemExit(message)
 
 
-def require_transcript(reply: Reply, sentence: str) -> str:
-    """The text of a 200 transcription that holds a word of `sentence`."""
+def _transcribed(reply: Reply) -> str:
+    """The text of a 200 transcription."""
     if reply.status != HTTPStatus.OK:
         message = f"the recording answered {reply.status}, not a transcription"
         raise SystemExit(message)
-    text = Transcription.model_validate_json(reply.body).text
+    try:
+        return Transcription.model_validate_json(reply.body).text
+    except ValueError:
+        message = "the 200 answer holds no transcription"
+        raise SystemExit(message) from None
+
+
+def require_transcript(reply: Reply, sentence: str) -> str:
+    """The text of a 200 transcription that holds a word of `sentence`."""
+    text = _transcribed(reply)
     require_heard(text, sentence)
     return text
 
 
-def require_limit_answer(reply: Reply) -> None:
-    """Fail unless a recording at the size limit got text or the wire's `too_large`."""
-    if reply.status != HTTPStatus.OK:
+def require_limit_answer(reply: Reply, *, busy_allowed: bool = False) -> None:
+    """Fail unless a recording at the byte limit was read through and answered.
+
+    A body of exactly the limit passes the byte check, so the answer is a
+    transcription or `too_large` naming the `file` (its length); `too_large`
+    without a field is the byte check refusing it. In a burst `busy` with
+    `Retry-After` is also an answer.
+    """
+    if reply.status == HTTPStatus.OK:
+        _transcribed(reply)
+    elif busy_allowed and reply.status == REFUSAL_STATUS[RefusalCode.BUSY]:
+        require_refusal(reply, RefusalCode.BUSY)
+        try:
+            busy_wait(reply.status, reply.headers)
+        except RetryAfterError as error:
+            raise SystemExit(str(error)) from None
+    else:
         require_refusal(reply, RefusalCode.TOO_LARGE)
+        if Refusal.model_validate_json(reply.body).error.param != "file":
+            message = "the byte limit refused a body of exactly the limit"
+            raise SystemExit(message)
 
 
-def require_tmp_clean(usage: TmpUsage, recording_bytes: int) -> None:
-    """Fail unless /tmp could hold a recording at the limit and holds none now."""
+def require_tmp_clean(before: TmpUsage, after: TmpUsage, recording_bytes: int) -> None:
+    """Fail unless /tmp could hold a recording at the limit and is back to `before`."""
     faults = []
-    if usage.size_bytes < recording_bytes:
+    if after.size_bytes < recording_bytes:
         faults.append("the tmpfs is smaller than one recording at the limit")
-    if usage.file_bytes:
+    if after.used_bytes > before.used_bytes:
         faults.append("a recording's spool is left in /tmp")
     if faults:
         raise SystemExit("; ".join(faults))
+
+
+def live_texts(outcome: LiveOutcome) -> list[str]:
+    """The texts a live turn showed that the log must lack: partials, then the final.
+
+    A partial shorter than a word of the sentence matches any log by accident.
+    """
+    shown = [
+        partial
+        for partial in outcome.partials
+        if len(partial.strip()) >= MIN_HEARD_WORD_LENGTH
+    ]
+    return [*shown, *([outcome.final] if outcome.final else [])]
 
 
 def require_final(outcome: LiveOutcome, sentence: str) -> None:
@@ -348,6 +391,13 @@ def require_final(outcome: LiveOutcome, sentence: str) -> None:
         message = f"the live turn ended without a final: {outcome.error}"
         raise SystemExit(message)
     require_heard(outcome.final, sentence)
+
+
+def is_speaking_alone(health: Mapping[str, Mapping[str, object]]) -> bool:
+    """Whether `/health` shows the voice ready and hearing not."""
+    return (
+        health["speaking"]["ready"] is True and health["hearing"]["ready"] is not True
+    )
 
 
 def require_hearing_ready(
