@@ -4,9 +4,10 @@ Starts the speech service once per hearing model and hears a German and an
 English question and a long turn, live over a WebSocket and from a file. On
 `cuda` it also measures the card's peak memory and starts the service on a card
 a second process holds. It writes one JSON record and prints its stage lines.
-It never downloads model weights, never starts or stops anything but its own
-processes, and takes the probe-stack lock as `prove_speech` does. Its clips are
-synthetic: German from the service's speak route, English from a Piper voice.
+It never downloads a hearing model and fetches only the English Piper voice,
+never starts or stops anything but its own processes, and takes the probe-stack
+lock as `prove_speech` does. Its clips are synthetic: German from the service's
+speak route, English from a Piper voice.
 """
 
 # ruff: noqa: T201 - the proof prints its stage lines as the command line output
@@ -307,9 +308,6 @@ def make_clips(
     return clips
 
 
-# -- hearing ------------------------------------------------------------------
-
-
 # -- the figures of one language ----------------------------------------------
 
 
@@ -554,10 +552,7 @@ def parse_arguments(arguments: list[str]) -> argparse.Namespace:
         help="where the English Piper voice is kept; fetched there when absent",
     )
     parser.add_argument("--runs", type=_runs, default=figures.MIN_RUNS)
-    namespace = parser.parse_args(arguments)
-    if namespace.english_voice_directory.resolve().is_relative_to(LOCK_PATH.parent):
-        parser.error(f"--english-voice-directory must not be under {LOCK_PATH.parent}")
-    return namespace
+    return parser.parse_args(arguments)
 
 
 def require_cached_models(models: Sequence[HearingModel]) -> None:

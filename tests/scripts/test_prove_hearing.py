@@ -51,14 +51,6 @@ def test_fewer_runs_than_a_median_needs_are_refused() -> None:
         HEARING.parse_arguments(arguments)
 
 
-def test_a_voice_directory_under_the_probe_lock_directory_is_refused() -> None:
-    arguments = command()
-    arguments[-1] = str(HEARING.LOCK_PATH.parent / "voices")
-
-    with pytest.raises(SystemExit):
-        HEARING.parse_arguments(arguments)
-
-
 @pytest.mark.parametrize("missing", ["--device", "--hearing-model", "--record"])
 def test_a_command_without_a_required_option_is_refused(missing: str) -> None:
     arguments = command()

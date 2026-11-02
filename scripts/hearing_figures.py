@@ -40,7 +40,6 @@ FRAME_SECONDS: Final = 0.1
 FRAME_BYTES: Final = int(LIVE_INPUT_RATE * FRAME_SECONDS) * BYTES_PER_SAMPLE
 TRAILING_SILENCE_SECONDS: Final = 2.0
 INT16_SCALE: Final = 32768.0
-MIB: Final = 1024 * 1024
 
 type LiveEvent = TranscriptDelta | TranscriptCompleted | TranscriptFailed | ErrorEvent
 
