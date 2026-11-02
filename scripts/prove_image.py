@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import tomllib
 from collections import Counter
@@ -441,13 +442,14 @@ def cell_recording_limit(session: Session, wav: bytes) -> None:
     require_limit_answer(at_limit)
     over = hearer.post_recording(headers, form_of_size(limit + 1, HEARING_LANGUAGE))
     require_refusal(over, RefusalCode.TOO_LARGE)
+    leave_together = threading.Barrier(BURST_SIZE)
+
+    def post_when_all_are_ready(_: int) -> Reply:
+        leave_together.wait()
+        return hearer.post_recording(headers, at_limit_form)
+
     with ThreadPoolExecutor(BURST_SIZE) as pool:
-        burst = list(
-            pool.map(
-                lambda _: hearer.post_recording(headers, at_limit_form),
-                range(BURST_SIZE),
-            )
-        )
+        burst = list(pool.map(post_when_all_are_ready, range(BURST_SIZE)))
     for reply in burst:
         require_limit_answer(reply, busy_allowed=True)
     after = hearer.tmp_usage()

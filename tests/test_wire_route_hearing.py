@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 from starlette.status import (
     HTTP_200_OK,
     HTTP_400_BAD_REQUEST,
@@ -67,6 +68,7 @@ if TYPE_CHECKING:
 
 SHORT_WAIT_SECONDS = 0.2
 SLACK_SECONDS = 0.5
+UNREADABLE_FORM = "the form cannot be read"
 ENGLISH = {"model": MODEL, "language": HearingLanguage.EN.value}
 
 
@@ -350,6 +352,31 @@ def test_a_malformed_form_waits_for_the_decode_and_frees_it_for_the_one_behind()
     assert not answered_while_held
     assert malformed_status == HTTP_422_UNPROCESSABLE_CONTENT
     assert behind_status == HTTP_200_OK
+
+
+def test_an_error_in_the_parse_frees_the_decode_for_the_next_recording(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unreadable_form(*_args: object, **_kwargs: object) -> None:
+        raise OSError(UNREADABLE_FORM)
+
+    async def scenario() -> tuple[bool, int]:
+        runtime = hear_runtime(FakeHearing())
+        app = hear_app(runtime)
+        with monkeypatch.context() as broken:
+            broken.setattr(Request, "form", unreadable_form)
+            failing = hear_call(app)
+            with pytest.raises(OSError, match=UNREADABLE_FORM):
+                await failing.finish()
+        free_again = hearing_gate_is_free(runtime)
+        next_one = hear_call(app)
+        await next_one.finish()
+        return free_again, next_one.status_code
+
+    free_again, next_status = asyncio.run(scenario())
+
+    assert free_again
+    assert next_status == HTTP_200_OK
 
 
 def test_speaking_and_hearing_run_side_by_side_each_under_its_own_bound() -> None:

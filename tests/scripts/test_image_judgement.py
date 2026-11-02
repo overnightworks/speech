@@ -255,9 +255,10 @@ def test_a_log_with_heard_text_is_named_and_fails_the_proof() -> None:
 def test_a_log_with_a_live_partial_that_differs_from_the_final_is_named() -> None:
     turn = LiveOutcome("Guten Tag zusammen", ("Guten Tag zusamm",), None)
     log = "INFO ok\npartial: Guten Tag zusamm"
+    heard = judged.live_texts(turn)
 
     with pytest.raises(SystemExit, match="heard text"):
-        judged.require_log_clean(log, [], judged.live_texts(turn), [])
+        judged.require_log_clean(log, [], heard, [])
 
 
 def test_a_log_names_the_count_of_heard_texts_and_never_their_words() -> None:
@@ -408,8 +409,10 @@ def test_a_burst_may_also_be_told_busy_with_a_retry_after() -> None:
 
 
 def test_a_burst_told_busy_without_a_retry_after_fails_the_proof() -> None:
+    without_retry_after = busy({})
+
     with pytest.raises(SystemExit, match="Retry-After"):
-        judged.require_limit_answer(busy({}), busy_allowed=True)
+        judged.require_limit_answer(without_retry_after, busy_allowed=True)
 
 
 @pytest.mark.parametrize(
@@ -422,8 +425,10 @@ def test_a_burst_told_busy_without_a_retry_after_fails_the_proof() -> None:
 def test_a_tmp_that_cannot_hold_a_recording_or_keeps_one_fails_the_proof(
     after: judged.TmpUsage, fault: str
 ) -> None:
+    before = judged.TmpUsage(0, 100)
+
     with pytest.raises(SystemExit, match=fault):
-        judged.require_tmp_clean(judged.TmpUsage(0, 100), after, 10)
+        judged.require_tmp_clean(before, after, 10)
 
 
 def test_a_tmp_back_at_its_start_passes() -> None:
