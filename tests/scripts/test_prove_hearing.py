@@ -108,7 +108,7 @@ def test_the_resident_memory_with_a_voice_includes_what_its_synthesis_took(
 
 
 class FakeCard:
-    """Replaces everything of `_prove` that needs a service or a card."""
+    """Replaces everything of `prove` that needs a service or a card."""
 
     def __init__(
         self, monkeypatch: pytest.MonkeyPatch, cache: Path, *, fails_in: str = ""
@@ -415,3 +415,61 @@ def test_a_proof_killed_after_its_first_model_has_left_that_model_on_disk(
     prove(tmp_path, "--hearing-model", "large-v3")
 
     assert on_disk[0]["models"]["small"]["status"] == "measured"
+    assert on_disk[0]["not_measured"] == [
+        "hearing model large-v3",
+        "stage gpu_memory",
+        "stage taken_card",
+    ]
+
+
+def test_a_language_that_fails_keeps_the_other_and_leaves_its_model_unfinished(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    FakeCard(monkeypatch, tmp_path)
+
+    def hear(_service: object, language: object, *_: object) -> dict[str, object]:
+        if language.code == HEARING.HearingLanguage.EN:
+            message = "english failed"
+            raise RuntimeError(message)
+        return {"figures": 1}
+
+    monkeypatch.setattr(HEARING, "measure_language", hear)
+
+    record = prove(tmp_path)
+
+    small = record["models"]["small"]
+    assert small["languages"] == {"de": {"figures": 1}}
+    assert small["status"] == "unfinished"
+    assert "hearing model small" in record["not_measured"]
+
+
+def test_the_record_is_on_disk_after_each_language_and_each_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    FakeCard(monkeypatch, tmp_path)
+    record_path = tmp_path / "record.json"
+    seen: list[dict[str, object]] = []
+
+    def read_then_hear(*_: object) -> dict[str, object]:
+        seen.append(json.loads(record_path.read_text()))
+        return {"figures": 1}
+
+    def read_then_peak(*_: object) -> dict[str, object]:
+        seen.append(json.loads(record_path.read_text()))
+        return {"peak_mib": 7}
+
+    def read_then_take(*_: object) -> dict[str, object]:
+        seen.append(json.loads(record_path.read_text()))
+        return {"failures": []}
+
+    monkeypatch.setattr(HEARING, "measure_language", read_then_hear)
+    monkeypatch.setattr(HEARING, "measure_peak", read_then_peak)
+    monkeypatch.setattr(HEARING, "prove_taken_card", read_then_take)
+
+    prove(tmp_path)
+
+    first_language, second_language, first_peak = seen[:3]
+    assert "stage gpu_memory" not in seen[-1]["not_measured"]
+    assert first_language["models"] == {}
+    assert list(second_language["models"]["small"]["languages"]) == ["de"]
+    assert first_peak["models"]["small"]["status"] == "measured"

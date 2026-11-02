@@ -673,8 +673,16 @@ def prove(
         "models": models,
         **stages,
     }
-    save = functools.partial(write_record, arguments.record, record)
     failures: list[str] = []
+    unmeasured: list[str] = []
+
+    def save() -> None:
+        unmeasured[:] = figures.not_measured(required_models(arguments), models, stages)
+        record["not_measured"] = list(unmeasured)
+        record["complete"] = not failures and not unmeasured
+        write_record(arguments.record, record)
+
+    save()
     try:
         clips = measure_models(arguments, models, save)
         run_stage(
@@ -695,11 +703,8 @@ def prove(
             ),
             save,
         )
-        failures = list(stages["taken_card"].get("failures", []))
+        failures.extend(stages["taken_card"].get("failures", []))
     finally:
-        unmeasured = figures.not_measured(required_models(arguments), models, stages)
-        record["not_measured"] = unmeasured
-        record["complete"] = not failures and not unmeasured
         save()
         print("record", arguments.record)
         print("gpu_released", card_line(arguments.device))
