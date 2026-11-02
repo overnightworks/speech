@@ -159,13 +159,17 @@ def test_silence_before_and_after_the_speech_is_not_a_pause() -> None:
 
 
 def test_a_clip_that_reaches_the_turn_cap_is_refused() -> None:
+    clip = tone(29.5)
+
     with pytest.raises(figures.ClipError, match="turn cap"):
-        figures.check_continuous_turn(tone(29.5))
+        figures.check_continuous_turn(clip)
 
 
 def test_a_clip_without_speech_is_refused() -> None:
+    clip = tone(3.0, amplitude=BARELY_AUDIBLE)
+
     with pytest.raises(figures.ClipError, match="no speech"):
-        figures.check_continuous_turn(tone(3.0, amplitude=BARELY_AUDIBLE))
+        figures.check_continuous_turn(clip)
 
 
 def test_resampling_gives_the_samples_of_the_wire_rate() -> None:

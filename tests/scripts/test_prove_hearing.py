@@ -45,8 +45,10 @@ def test_the_runs_default_to_the_fewest_a_median_needs() -> None:
 
 
 def test_fewer_runs_than_a_median_needs_are_refused() -> None:
+    arguments = command("--runs", "4")
+
     with pytest.raises(SystemExit):
-        HEARING.parse_arguments(command("--runs", "4"))
+        HEARING.parse_arguments(arguments)
 
 
 def test_a_voice_directory_under_the_probe_lock_directory_is_refused() -> None:
