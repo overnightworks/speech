@@ -290,6 +290,19 @@ def test_a_session_that_ended_takes_nothing_more() -> None:
     assert asyncio.run(scenario()) == []
 
 
+def test_an_item_whose_final_decode_is_empty_completes_once_with_empty_text() -> None:
+    async def scenario() -> FakeSocket:
+        session, socket = await started(loaded(FakeHearing(text=""), FakeClock()))
+        await _one_question(session)
+        await session.settled()
+        return socket
+
+    socket = asyncio.run(scenario())
+
+    assert [event["transcript"] for event in socket.of_type(COMPLETED)] == [""]
+    assert socket.of_type(FAILED) == []
+
+
 def test_a_decode_failure_fails_every_announced_item_then_errors_and_closes() -> None:
     async def scenario() -> FakeSocket:
         engine = FakeHearing(hold=True)
