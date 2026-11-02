@@ -7,11 +7,13 @@ updates:
     groups:
       actions:
         update-types: [minor, patch]
-  # Dependabot proposes nothing for webauth: Git-pinned and not on PyPI; it moves by its release work item
   - package-ecosystem: uv
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Our libraries move by their release work items; a PyPI package of the same name is not ours
+      - dependency-name: "overnightworks-*"
     groups:
       uv-speech:
         update-types: [minor, patch]
@@ -29,3 +31,4 @@ updates:
       # nemo-toolkit 3.0.0 caps omegaconf at 2.3; drop this once nemo-toolkit relaxes the cap
       - dependency-name: "omegaconf"
         versions: [">2.3"]
+      - dependency-name: "overnightworks-*"
