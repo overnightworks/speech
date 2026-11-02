@@ -1,5 +1,7 @@
 # Both images are held by digest, because a tag is a name its owner may move;
-# Dependabot's docker entry moves the digest through review.
+# Dependabot's docker entry moves the digest through review, and it reads only
+# FROM lines, so uv is a stage of its own.
+FROM ghcr.io/astral-sh/uv:0.10.9@sha256:10902f58a1606787602f303954cea099626a4adb02acbac4c69920fe9d278f82 AS uv
 FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS python-base
 ENV PATH=/opt/venv/bin:$PATH
 WORKDIR /app
@@ -7,7 +9,7 @@ WORKDIR /app
 # uv and git exist only in this stage, because uv needs git to fetch the
 # git-pinned webauth; the final stage copies the environment and carries neither.
 FROM python-base AS dependencies
-COPY --from=ghcr.io/astral-sh/uv:0.10.9@sha256:10902f58a1606787602f303954cea099626a4adb02acbac4c69920fe9d278f82 /uv /usr/local/bin/uv
+COPY --from=uv /uv /usr/local/bin/uv
 # The interpreter is the image's own, so uv never downloads another one.
 ENV UV_PYTHON_DOWNLOADS=never \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
@@ -42,7 +44,7 @@ RUN speech-runtime-fetch-voice de_DE-thorsten-medium
 FROM python-base
 COPY --from=dependencies /opt/venv /opt/venv
 COPY --from=voice /opt/voices /opt/voices
-COPY deploy deploy
+COPY deploy/speech.toml deploy/speech.toml
 RUN useradd --no-create-home --uid 1001 speech
 USER speech
 

@@ -24,7 +24,8 @@ def reply(request: urllib.request.Request) -> dict[str, object]:
     except urllib.error.HTTPError as refusal:
         status, body = refusal.code, refusal.read()
     except OSError as error:
-        return {"error": type(error).__name__}
+        # urlopen wraps a refused connection in a URLError that holds the cause.
+        return {"error": type(getattr(error, "reason", error)).__name__}
     return {"status": status, "body": base64.b64encode(body).decode("ascii")}
 
 

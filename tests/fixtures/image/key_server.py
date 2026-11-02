@@ -27,6 +27,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.minimum_version = ssl.TLSVersion.TLSv1_2
 context.load_cert_chain(DIRECTORY / "tls.crt", DIRECTORY / "tls.key")
 server = http.server.ThreadingHTTPServer(("0.0.0.0", HTTPS_PORT), Handler)  # noqa: S104 - the proof's isolated network
 server.socket = context.wrap_socket(server.socket, server_side=True)

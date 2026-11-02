@@ -12,31 +12,32 @@ audience, group and caller of the baked `deploy/speech.toml`. The proof takes
 from __future__ import annotations
 
 import base64
-import datetime as dt
 import json
 import os
 import re
 import shutil
-import ssl
 import subprocess
 import sys
 import tempfile
 import time
 import tomllib
-import urllib.request
 from dataclasses import dataclass, replace
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 from urllib.parse import urlsplit
 
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.x509.oid import NameOID
 from packaging.markers import Marker
 
-from proof_identity import Minting, TokenPair, load_minting, mint_pair, proof_identity
+from proof_identity import (
+    Minting,
+    TokenPair,
+    fetch_key_set,
+    issue_certificates,
+    load_minting,
+    mint_pair,
+    proof_identity,
+)
 from prove_speech import (
     LOCK_HELD_ENV,
     LOCK_PATH,
@@ -79,18 +80,15 @@ CALLER: Final = "caller"
 BUILD_LIMIT_SECONDS: Final = 900
 HEALTHY_TIMEOUT_SECONDS: Final = 120
 STOP_TIMEOUT_SECONDS: Final = 5
-CA_NAME: Final = "proof CA"
-CA_KEY_USAGE: Final = x509.KeyUsage(
-    digital_signature=False, content_commitment=False, key_encipherment=False,
-    data_encipherment=False, key_agreement=False, key_cert_sign=True,
-    crl_sign=False, encipher_only=False, decipher_only=False,
-)  # fmt: skip
 PUBLIC_ADDRESSES: Final = ("1.1.1.1:443", "huggingface.co:443")
 FORBIDDEN_EXECUTABLES: Final = ("git", "uv", "gcc", "cc")
 FORBIDDEN_PATH_PARTS: Final = frozenset({".git", "tests", "providers"})
 KEY_FILE_SUFFIXES: Final = (".pem", ".key")
 KEY_FILE_PREFIXES: Final = (".env", "id_")
+FORBIDDEN_DISTRIBUTION_PREFIX: Final = "nvidia-"
 MARK_CHUNK: Final = b"LIST"
+# What caller.py reports for a connection nothing listens on.
+REFUSED_CONNECTION: Final = "ConnectionRefusedError"
 
 
 @dataclass(frozen=True)
@@ -115,6 +113,7 @@ class ImageReport:
     application_files_with_private_keys: list[str]
     voice_hashes: dict[str, str]
     executables: dict[str, str | None]
+    nvidia_directories: list[str]
 
 
 @dataclass(frozen=True)
@@ -193,7 +192,10 @@ def require_marked_wav(wav: bytes) -> None:
     if ai_mark_of(wav) != AI_MARK:
         message = "the WAV does not carry the AI mark"
         raise SystemExit(message)
-    if len(wav) <= wav.find(b"data") + 8:
+    if not any(
+        chunk_id == b"data" and len(wav) > start + 8
+        for chunk_id, start, _ in _chunks(wav)
+    ):
         message = "the WAV holds no audio"
         raise SystemExit(message)
 
@@ -211,12 +213,15 @@ def require_refusal(reply: Reply, expected: RefusalCode) -> None:
         raise SystemExit(message)
 
 
-def require_fails(action: Callable[[], object], what: str) -> None:
-    """Fail unless `action` ends the proof's way, with a SystemExit."""
+def require_fails(action: Callable[[], object], what: str, *, naming: str) -> None:
+    """Fail unless `action` ends the proof's way, with a SystemExit naming `naming`."""
     try:
         action()
-    except SystemExit:
-        return
+    except SystemExit as stopped:
+        if naming in str(stopped.code):
+            return
+        message = f"the proof failed on {what}, but not as {naming}: {stopped.code}"
+        raise SystemExit(message) from None
     message = f"the proof did not fail on {what}"
     raise SystemExit(message)
 
@@ -244,6 +249,17 @@ def locked_distributions(export: str, project_name: Callable[[str], str]) -> set
     return names
 
 
+def _unwanted_files(application_files: Iterable[str]) -> list[str]:
+    """What the application tree holds that is a repository, test or key file."""
+    return [
+        f"holds {path}"
+        for path in map(Path, application_files)
+        if FORBIDDEN_PATH_PARTS & set(path.parts)
+        or path.name.startswith(KEY_FILE_PREFIXES)
+        or path.suffix in KEY_FILE_SUFFIXES
+    ]
+
+
 def image_faults(
     report: ImageReport, locked: set[str], voice_hashes: dict[str, str]
 ) -> list[str]:
@@ -251,16 +267,15 @@ def image_faults(
     installed = {distribution_name(name) for name in report.distributions}
     faults = [f"missing {name}" for name in sorted(locked - installed)]
     faults += [f"extra {name}" for name in sorted(installed - locked)]
+    faults += [
+        f"holds {name}"
+        for name in sorted(installed)
+        if name.startswith(FORBIDDEN_DISTRIBUTION_PREFIX)
+    ]
+    faults += [f"holds {name}" for name in report.nvidia_directories]
     if report.user == 0:
         faults.append("runs as root")
-    for path in map(Path, report.application_files):
-        forbidden = (
-            FORBIDDEN_PATH_PARTS & set(path.parts)
-            or path.name.startswith(KEY_FILE_PREFIXES)
-            or path.suffix in KEY_FILE_SUFFIXES
-        )
-        if forbidden:
-            faults.append(f"holds {path}")
+    faults += _unwanted_files(report.application_files)
     faults += [
         f"holds a private key in {name}"
         for name in report.application_files_with_private_keys
@@ -427,12 +442,15 @@ class Session:
 
 
 def cell_build(compose: Compose) -> None:
-    """Cell 1: a cold build, timed."""
+    """Cell 1: a build with no layer cache, timed."""
     started = time.monotonic()
-    compose.run("build", SERVICE)
+    compose.run("build", "--no-cache", SERVICE)
     seconds = time.monotonic() - started
     size = int(docker("image", "inspect", "--format", "{{.Size}}", IMAGE))
-    print(f"cell 1: build_seconds={seconds:.0f} image_mib={size // 2**20}")
+    print(
+        f"cell 1: build_seconds={seconds:.0f} image_mib={size // 2**20}"
+        " layer_cache=none (images already pulled on the host are still reused)"
+    )
     if seconds > BUILD_LIMIT_SECONDS:
         message = f"the build took {seconds:.0f} s, past {BUILD_LIMIT_SECONDS} s"
         raise SystemExit(message)
@@ -475,7 +493,10 @@ def cell_contents(plain: Compose) -> None:
     if faults:
         message = "the image is not as locked: " + "; ".join(faults)
         raise SystemExit(message)
-    print(f"cell 2: held; user={report.user} distributions={len(report.distributions)}")
+    print(
+        f"cell 2: held; user={report.user} distributions={len(report.distributions)}"
+        " no_nvidia=yes"
+    )
 
 
 def require_networks_absent(names: list[str]) -> None:
@@ -603,7 +624,7 @@ def cell_restart(session: Session) -> None:
 
 
 def cell_no_egress(session: Session) -> None:
-    """Cell 8: from inside the service only the key server answers."""
+    """Cell 8: from the service the key server answers and public hosts do not."""
     key_server = f"{session.baked.key_set_host}:{session.baked.key_set_port}"
     output = session.compose.run(
         "exec", "-T", SERVICE, "python", "-", key_server, *PUBLIC_ADDRESSES,
@@ -618,13 +639,18 @@ def cell_no_egress(session: Session) -> None:
     if not reached[key_server] or outside:
         message = f"reach is not the key server alone: {reached}"
         raise SystemExit(message)
-    print(f"cell 8: held; only {key_server} answers")
+    print(
+        f"cell 8: held; from the service {key_server} answers and "
+        f"{', '.join(PUBLIC_ADDRESSES)} do not"
+    )
 
 
 def cell_negatives(session: Session, wav: bytes) -> None:
     """Cell 10: a loopback-only bind and an unmarked WAV each fail the proof."""
     require_fails(
-        lambda: require_marked_wav(without_mark(wav)), "a WAV without the mark"
+        lambda: require_marked_wav(without_mark(wav)),
+        "a WAV without the mark",
+        naming="AI mark",
     )
     session.collect_log()
     loopback = replace(
@@ -632,7 +658,9 @@ def cell_negatives(session: Session, wav: bytes) -> None:
     )
     loopback.up(SERVICE, recreate=True)
     require_fails(
-        lambda: speak_marked(replace(session, compose=loopback)), "a loopback-only bind"
+        lambda: speak_marked(replace(session, compose=loopback)),
+        "a loopback-only bind",
+        naming=REFUSED_CONNECTION,
     )
     print("cell 10: held; both negatives failed the proof")
 
@@ -647,95 +675,41 @@ def cell_log(session: Session) -> None:
     print("cell 11: held; the log holds no spoken text and no token")
 
 
-def _certificate(
-    subject: str,
-    public_key: ec.EllipticCurvePublicKey,
-    signer: ec.EllipticCurvePrivateKey,
-    *,
-    host: str | None,
-) -> x509.Certificate:
-    """A CA certificate when `host` is None, else a server certificate for `host`."""
-    now = dt.datetime.now(tz=dt.UTC)
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, subject)])
-    authority = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, CA_NAME)])
-    builder = (
-        x509.CertificateBuilder()
-        .subject_name(name)
-        .issuer_name(authority)
-        .public_key(public_key)
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - dt.timedelta(minutes=5))
-        .not_valid_after(now + dt.timedelta(days=1))
-        .add_extension(
-            x509.SubjectKeyIdentifier.from_public_key(public_key), critical=False
-        )
-        .add_extension(
-            x509.BasicConstraints(ca=host is None, path_length=None), critical=True
-        )
-    )
-    if host is None:
-        builder = builder.add_extension(CA_KEY_USAGE, critical=True)
-    else:
-        builder = builder.add_extension(
-            x509.SubjectAlternativeName([x509.DNSName(host)]), critical=False
-        ).add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(signer.public_key()),
-            critical=False,
-        )
-    return builder.sign(signer, hashes.SHA256())
+def teardown(compose: Compose, *, failed: bool) -> list[str]:
+    """Remove the proof's containers, networks, volumes and image.
 
-
-def issue_certificates(directory: Path, host: str, key_set: bytes) -> None:
-    """Write a test CA, the key server's certificate for `host`, and the key set."""
-    authority_key = ec.generate_private_key(ec.SECP256R1())
-    server_key = ec.generate_private_key(ec.SECP256R1())
-    authority = _certificate(
-        CA_NAME, authority_key.public_key(), authority_key, host=None
-    )
-    server = _certificate(host, server_key.public_key(), authority_key, host=host)
-    pem = serialization.Encoding.PEM
-    files = {
-        directory / "ca" / "root_ca.crt": authority.public_bytes(pem),
-        directory / "key-server" / "tls.crt": server.public_bytes(pem),
-        directory / "key-server" / "tls.key": server_key.private_bytes(
-            pem, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
-        ),
-        directory / "key-server" / "key-set.json": key_set,
-    }
-    for path, content in files.items():
-        path.parent.mkdir(exist_ok=True)
-        path.write_bytes(content)
-        # The container's non-root user reads these throwaway files.
-        path.chmod(0o644)
-        path.parent.chmod(0o755)
-
-
-def fetch_key_set(url: str, trust: Path) -> bytes:
-    """The key set the proof identity serves, read once from the host."""
-    context = ssl.create_default_context(cafile=str(trust))
-    with urllib.request.urlopen(url, context=context, timeout=10) as response:  # noqa: S310 - the proof's own https URL
-        return response.read()
-
-
-def teardown(compose: Compose, *, failed: bool) -> None:
-    """Remove the proof's containers, networks, volumes and image."""
+    Every removal is tried; the ones that failed are named, and `torn_down` is
+    printed only when none did.
+    """
     if failed:
         tail = compose.run("logs", "--no-color", "--tail", "30", check=False)
         print(tail.stdout, tail.stderr, sep="\n")
-    compose.run(
-        "down",
-        "--volumes",
-        "--remove-orphans",
-        "--timeout",
-        str(STOP_TIMEOUT_SECONDS),
-        check=False,
-    )
-    subprocess.run(  # noqa: S603 - docker with fixed arguments
-        ["docker", "image", "rm", "--force", IMAGE],  # noqa: S607 - docker is the host's own client
-        capture_output=True,
-        check=False,
-    )
-    print("torn_down", PROJECT)
+    attempts = {
+        "compose down": compose.run(
+            "down",
+            "--volumes",
+            "--remove-orphans",
+            "--timeout",
+            str(STOP_TIMEOUT_SECONDS),
+            check=False,
+        ),
+        "docker image rm": subprocess.run(  # noqa: S603 - docker with fixed arguments
+            ["docker", "image", "rm", "--force", IMAGE],  # noqa: S607 - docker is the host's own client
+            capture_output=True,
+            text=True,
+            check=False,
+        ),
+    }
+    left = [
+        f"{what} failed: {done.stderr.strip()[-300:]}"
+        for what, done in attempts.items()
+        if done.returncode != 0
+    ]
+    if left:
+        print("teardown left something:", *left, sep="\n", file=sys.stderr)
+    else:
+        print("torn_down", PROJECT)
+    return left
 
 
 def _prove() -> None:
@@ -752,34 +726,39 @@ def _prove() -> None:
     compose = Compose((COMPOSE_FILE, PROOF_OVERRIDE), environment)
     failed = True
     try:
-        names = external_networks(
-            json.loads(plain.run("config", "--format", "json").stdout)
-        )
-        require_networks_absent(names)
-        with proof_identity(directory, baked.voice.value) as identity:
-            signing = load_minting(identity.minting_path)
-            issue_certificates(
-                directory,
-                baked.key_set_host,
-                fetch_key_set(identity.jwks_url, identity.ca_path),
+        try:
+            names = external_networks(
+                json.loads(plain.run("config", "--format", "json").stdout)
             )
-            session = Session(compose, config, baked, signing, [], [])
-            cell_build(compose)
-            cell_contents(plain)
-            cell_absent_networks(plain, names)
-            cell_start(session)
-            wav = cell_speak(session)
-            cell_refusals(session)
-            cell_key_server_stopped(session)
-            cell_restart(session)
-            cell_no_egress(session)
-            cell_negatives(session, wav)
-            cell_log(session)
-        print("PROOF_OK")
-        failed = False
+            require_networks_absent(names)
+            with proof_identity(directory, baked.voice.value) as identity:
+                signing = load_minting(identity.minting_path)
+                issue_certificates(
+                    directory,
+                    baked.key_set_host,
+                    fetch_key_set(identity.jwks_url, identity.ca_path),
+                )
+                session = Session(compose, config, baked, signing, [], [])
+                cell_build(compose)
+                cell_contents(plain)
+                cell_absent_networks(plain, names)
+                cell_start(session)
+                wav = cell_speak(session)
+                cell_refusals(session)
+                cell_key_server_stopped(session)
+                cell_restart(session)
+                cell_no_egress(session)
+                cell_negatives(session, wav)
+                cell_log(session)
+            failed = False
+        finally:
+            left = teardown(compose, failed=failed)
     finally:
-        teardown(compose, failed=failed)
         shutil.rmtree(directory, ignore_errors=True)
+    if left:
+        message = "teardown left something: " + "; ".join(left)
+        raise SystemExit(message)
+    print("PROOF_OK")
 
 
 def main() -> None:

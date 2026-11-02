@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import subprocess
 from typing import TYPE_CHECKING
 
 import jwt
@@ -59,6 +61,7 @@ def marked_wav() -> bytes:
         pytest.param(PROVE.without_mark(marked_wav()), id="no mark"),
         pytest.param(b"not audio at all", id="not a wav"),
         pytest.param(wav_header(SAMPLE_RATE), id="no audio"),
+        pytest.param(wav_header(SAMPLE_RATE)[:-8] + SILENCE, id="no data chunk"),
     ],
 )
 def test_a_wav_without_the_mark_or_the_audio_fails_the_proof(wav: bytes) -> None:
@@ -73,19 +76,34 @@ def test_a_marked_wav_with_audio_passes_and_loses_its_mark_when_cut() -> None:
 
 
 def test_the_proof_fails_when_an_action_that_must_fail_does_not() -> None:
-    PROVE.require_fails(lambda: PROVE.require_marked_wav(b""), "an empty answer")
+    PROVE.require_fails(
+        lambda: PROVE.require_marked_wav(b""), "an empty answer", naming="not a WAV"
+    )
 
     with pytest.raises(SystemExit):
-        PROVE.require_fails(lambda: None, "nothing")
+        PROVE.require_fails(lambda: None, "nothing", naming="")
+
+
+def test_the_proof_fails_when_an_action_fails_for_another_reason() -> None:
+    def docker_is_down() -> None:
+        message = "docker run failed"
+        raise SystemExit(message)
+
+    with pytest.raises(SystemExit, match="not as ConnectionRefusedError"):
+        PROVE.require_fails(
+            docker_is_down, "a loopback bind", naming="ConnectionRefusedError"
+        )
 
 
 def test_a_refusal_passes_only_as_the_expected_code_with_its_status() -> None:
     body = refusal(RefusalCode.FORBIDDEN).model_dump_json().encode()
     status = refusal(RefusalCode.FORBIDDEN).status
 
-    PROVE.require_refusal(PROVE.Reply(status, body), RefusalCode.FORBIDDEN)
+    reply = PROVE.Reply(status, body)
+
+    PROVE.require_refusal(reply, RefusalCode.FORBIDDEN)
     with pytest.raises(SystemExit):
-        PROVE.require_refusal(PROVE.Reply(status, body), RefusalCode.UNAUTHORIZED)
+        PROVE.require_refusal(reply, RefusalCode.UNAUTHORIZED)
 
 
 @pytest.mark.parametrize(
@@ -128,6 +146,7 @@ def clean_report() -> PROVE.ImageReport:
         application_files_with_private_keys=[],
         voice_hashes={"voice.onnx": "abc"},
         executables={"git": None},
+        nvidia_directories=[],
     )
 
 
@@ -142,6 +161,7 @@ def clean_report() -> PROVE.ImageReport:
         ({"application_files": ["deploy/token.key"]}, "holds"),
         ({"application_files_with_private_keys": ["a.txt"]}, "private key"),
         ({"executables": {"git": "/usr/bin/git"}}, "carries git"),
+        ({"nvidia_directories": ["nvidia"]}, "holds nvidia"),
         ({"voice_hashes": {"voice.onnx": "other"}}, "pinned bytes"),
     ],
 )
@@ -178,3 +198,89 @@ def test_only_the_external_networks_of_a_rendered_compose_file_are_named() -> No
     }
 
     assert PROVE.external_networks(rendered) == ["outside"]
+
+
+def test_an_nvidia_distribution_in_the_image_is_named_even_when_the_lock_lists_it() -> (
+    None
+):
+    report = PROVE.ImageReport(
+        **{**vars(clean_report()), "distributions": ["Some_Package", "nvidia-nccl"]}
+    )
+
+    faults = PROVE.image_faults(
+        report, {"some-package", "nvidia-nccl"}, {"voice.onnx": "abc"}
+    )
+
+    assert faults == ["holds nvidia-nccl"]
+
+
+class FakeDocker:
+    """The process boundary: every command ends with the code its name is given."""
+
+    def __init__(self, failing: set[str]) -> None:
+        """Fail the commands named in `failing`."""
+        self.failing = failing
+        self.commands: list[str] = []
+
+    def __call__(
+        self, command: list[str], **_: object
+    ) -> subprocess.CompletedProcess[str]:
+        """Answer one command with the code its name was given."""
+        name = next(word for word in ("image", "down", "logs") if word in command)
+        self.commands.append(name)
+        code = 1 if name in self.failing else 0
+        return subprocess.CompletedProcess(command, code, "", f"{name} broke")
+
+
+@pytest.mark.parametrize(
+    ("failing", "left"),
+    [
+        pytest.param(set(), [], id="clean"),
+        pytest.param({"down"}, ["compose down"], id="compose down fails"),
+        pytest.param({"image"}, ["docker image rm"], id="image removal fails"),
+        pytest.param({"down", "image"}, ["compose down", "docker image rm"], id="both"),
+    ],
+)
+def test_a_teardown_tries_both_removals_and_names_each_that_failed(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    failing: set[str],
+    left: list[str],
+) -> None:
+    fake = FakeDocker(failing)
+    monkeypatch.setattr(PROVE.subprocess, "run", fake)
+
+    result = PROVE.teardown(PROVE.Compose((PROVE.COMPOSE_FILE,), {}), failed=False)
+
+    assert fake.commands == ["down", "image"]
+    assert [line.split(" failed")[0] for line in result] == left
+    assert ("torn_down" in capsys.readouterr().out) is (not left)
+
+
+def test_every_job_the_quality_gate_waits_for_is_named_in_its_needs() -> None:
+    workflow = (PROVE.REPOSITORY / ".github" / "workflows" / "ci.yml").read_text()
+    jobs, _, gate = workflow.partition("\n  quality:\n")
+    jobs = jobs.partition("\njobs:\n")[2]
+    needs = set(re.findall(r"^      - (\S+)$", gate.split("if:")[0], re.MULTILINE))
+
+    assert needs == set(re.findall(r"^  ([a-z-]+):$", jobs, re.MULTILINE))
+
+
+def test_the_build_context_admits_only_files_the_image_copies() -> None:
+    admitted = [
+        line.removeprefix("!")
+        for line in (PROVE.REPOSITORY / ".dockerignore").read_text().splitlines()
+        if line.startswith("!")
+    ]
+    dockerfile = (PROVE.REPOSITORY / "Dockerfile").read_text()
+    copied = {
+        source
+        for line in re.findall(r"^COPY (?!--from)(.+)$", dockerfile, re.MULTILINE)
+        for source in line.split()[:-1]
+    }
+
+    assert all(path in copied for path in admitted)
+    assert all(
+        path.is_file() or path.name == "src"
+        for path in (PROVE.REPOSITORY / name for name in admitted)
+    )

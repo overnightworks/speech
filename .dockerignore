@@ -4,17 +4,16 @@
 !pyproject.toml
 !uv.lock
 !src
-!deploy
+!deploy/speech.toml
 !packages/client/pyproject.toml
 !packages/client/src
 !providers/provider-contract/pyproject.toml
 !providers/provider-contract/src
 
+# The source trees above are admitted whole, so what a working tree grows inside
+# them stays out: nested repositories, environments and tool caches.
+**/.git
+**/.venv
 **/__pycache__
-
-# The trees above are admitted whole, so what must never be in an image is named
-# again here: a secret or a key nested inside would otherwise ride in on its parent.
-**/.env*
-**/*.pem
-**/*.key
-**/id_*
+**/.*_cache
+**/node_modules

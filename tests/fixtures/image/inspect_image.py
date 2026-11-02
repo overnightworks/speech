@@ -8,11 +8,13 @@ import json
 import os
 import shutil
 import sys
+import sysconfig
 from pathlib import Path
 
 APPLICATION = Path.cwd()
 VOICES = Path(sys.argv[1])
 EXECUTABLES = sys.argv[2:]
+SITE_PACKAGES = Path(sysconfig.get_paths()["purelib"])
 PRIVATE_KEY_MARK = b"PRIVATE KEY"
 
 files = sorted(path for path in APPLICATION.rglob("*") if path.is_file())
@@ -35,6 +37,9 @@ print(
                 for path in sorted(VOICES.iterdir())
             },
             "executables": {name: shutil.which(name) for name in EXECUTABLES},
+            "nvidia_directories": sorted(
+                path.name for path in SITE_PACKAGES.glob("nvidia*")
+            ),
         }
     )
 )

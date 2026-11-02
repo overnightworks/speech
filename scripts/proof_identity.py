@@ -16,6 +16,7 @@ import os
 import ssl
 import threading
 import time
+import urllib.request
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Final
@@ -38,6 +39,14 @@ HANDSHAKE_TIMEOUT_SECONDS: Final = 5
 ALGORITHM: Final = "RS256"
 OWNER_ONLY_FILE: Final = 0o600
 OWNER_ONLY_DIRECTORY: Final = 0o700
+WORLD_READABLE_FILE: Final = 0o644
+WORLD_READABLE_DIRECTORY: Final = 0o755
+CA_NAME: Final = "proof CA"
+CA_KEY_USAGE: Final = x509.KeyUsage(
+    digital_signature=False, content_commitment=False, key_encipherment=False,
+    data_encipherment=False, key_agreement=False, key_cert_sign=True,
+    crl_sign=False, encipher_only=False, decipher_only=False,
+)  # fmt: skip
 APP: Final = "proof"
 KEY_IDENTIFIER: Final = "proof-key"
 
@@ -120,19 +129,31 @@ def _write_private(path: Path, content: str | bytes) -> None:
         stream.write(data)
 
 
-def _self_signed_certificate(
-    key: ec.EllipticCurvePrivateKey,
-) -> x509.Certificate:
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+def _common_name(text: str) -> x509.Name:
+    return x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, text)])
+
+
+def _certificate_builder(
+    subject: x509.Name, issuer: x509.Name, public_key: ec.EllipticCurvePublicKey
+) -> x509.CertificateBuilder:
     now = dt.datetime.now(tz=dt.UTC)
     return (
         x509.CertificateBuilder()
-        .subject_name(name)
-        .issuer_name(name)
-        .public_key(key.public_key())
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(public_key)
         .serial_number(x509.random_serial_number())
         .not_valid_before(now - dt.timedelta(minutes=5))
         .not_valid_after(now + dt.timedelta(days=CERTIFICATE_DAYS))
+    )
+
+
+def _self_signed_certificate(
+    key: ec.EllipticCurvePrivateKey,
+) -> x509.Certificate:
+    name = _common_name("localhost")
+    return (
+        _certificate_builder(name, name, key.public_key())
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
         .add_extension(
             x509.SubjectAlternativeName(
@@ -145,6 +166,73 @@ def _self_signed_certificate(
         )
         .sign(key, hashes.SHA256())
     )
+
+
+def _signed_certificate(
+    subject: str,
+    public_key: ec.EllipticCurvePublicKey,
+    signer: ec.EllipticCurvePrivateKey,
+    *,
+    host: str | None,
+) -> x509.Certificate:
+    """A CA certificate when `host` is None, else a server certificate for `host`."""
+    builder = (
+        _certificate_builder(_common_name(subject), _common_name(CA_NAME), public_key)
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(public_key), critical=False
+        )
+        .add_extension(
+            x509.BasicConstraints(ca=host is None, path_length=None), critical=True
+        )
+    )
+    if host is None:
+        return builder.add_extension(CA_KEY_USAGE, critical=True).sign(
+            signer, hashes.SHA256()
+        )
+    return (
+        builder.add_extension(
+            x509.SubjectAlternativeName([x509.DNSName(host)]), critical=False
+        )
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(signer.public_key()),
+            critical=False,
+        )
+        .sign(signer, hashes.SHA256())
+    )
+
+
+def issue_certificates(directory: Path, host: str, key_set: bytes) -> None:
+    """Write a test CA, a key server's certificate for `host`, and the key set.
+
+    The files are readable by the non-root user of the container that mounts them.
+    """
+    authority_key = ec.generate_private_key(ec.SECP256R1())
+    server_key = ec.generate_private_key(ec.SECP256R1())
+    authority = _signed_certificate(
+        CA_NAME, authority_key.public_key(), authority_key, host=None
+    )
+    server = _signed_certificate(
+        host, server_key.public_key(), authority_key, host=host
+    )
+    pem = serialization.Encoding.PEM
+    files = {
+        directory / "ca" / "root_ca.crt": authority.public_bytes(pem),
+        directory / "key-server" / "tls.crt": server.public_bytes(pem),
+        directory / "key-server" / "tls.key": _private_pem(server_key),
+        directory / "key-server" / "key-set.json": key_set,
+    }
+    for path, content in files.items():
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(content)
+        path.chmod(WORLD_READABLE_FILE)
+        path.parent.chmod(WORLD_READABLE_DIRECTORY)
+
+
+def fetch_key_set(url: str, trust: Path) -> bytes:
+    """The key set the proof identity serves, read once from the host."""
+    context = ssl.create_default_context(cafile=str(trust))
+    with urllib.request.urlopen(url, context=context, timeout=10) as response:  # noqa: S310 - the proof's own https URL
+        return response.read()
 
 
 def _key_server(
