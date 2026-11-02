@@ -39,7 +39,6 @@ class FakeDocker:
 )
 def test_a_teardown_tries_both_removals_and_names_each_that_failed(
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
     failing: set[str],
     left: list[str],
 ) -> None:
@@ -51,5 +50,5 @@ def test_a_teardown_tries_both_removals_and_names_each_that_failed(
     )
 
     assert fake.commands == ["down", "image"]
-    assert [line.split(" failed")[0] for line in result] == left
-    assert ("torn_down" in capsys.readouterr().out) is (not left)
+    assert [line.split(" failed")[0] for line in result.left] == left
+    assert result.tail is None

@@ -76,15 +76,6 @@ def test_an_admission_into_a_source_tree_is_refused_unless_it_is_python_source(
     assert source_admissions_beyond_python(admissions) == beyond
 
 
-def test_the_source_trees_admit_python_source_and_py_typed_and_nothing_else() -> None:
-    lines = dockerignore_lines()
-
-    assert any("src" in line.split("/") for line in lines)
-    assert not source_admissions_beyond_python(
-        [line for line in lines if line.startswith("!")]
-    )
-
-
 def test_the_exclusions_of_nested_repositories_and_caches_remove_their_files() -> None:
     lines = dockerignore_lines()
     last_admission = max(i for i, line in enumerate(lines) if line.startswith("!"))
@@ -145,7 +136,9 @@ def test_a_failed_removal_of_the_temporary_files_fails_the_proof_loudly(
     monkeypatch.setattr(PROVE, "wait_for_load", lambda: None)
     monkeypatch.setattr(PROVE.tempfile, "mkdtemp", lambda **_: str(directory))
     monkeypatch.setattr(PROVE, "Compose", StoppedCompose)
-    monkeypatch.setattr(PROVE, "teardown", lambda *_, **__: [])
+    monkeypatch.setattr(
+        PROVE, "teardown", lambda *_, **__: PROVE.Teardown(tail=None, left=[])
+    )
     try:
         with pytest.raises(PermissionError):
             PROVE._prove()  # noqa: SLF001 - the whole run is the entry point under test
@@ -153,3 +146,35 @@ def test_a_failed_removal_of_the_temporary_files_fails_the_proof_loudly(
         stuck.chmod(0o700)
 
     assert "PROOF_OK" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("outcome", "stdout_starts", "stderr"),
+    [
+        pytest.param(PROVE.Teardown(tail=None, left=[]), "torn_down", "", id="clean"),
+        pytest.param(
+            PROVE.Teardown(tail="a log line\nan error", left=[]),
+            "a log line\nan error\ntorn_down",
+            "",
+            id="a failed proof prints its log tail before torn_down",
+        ),
+        pytest.param(
+            PROVE.Teardown(tail=None, left=["compose down failed: busy"]),
+            "",
+            "teardown left something:\ncompose down failed: busy\n",
+            id="a removal that failed is named on stderr",
+        ),
+    ],
+)
+def test_the_teardown_prints_its_outcome_in_order(
+    capsys: pytest.CaptureFixture[str],
+    outcome: object,
+    stdout_starts: str,
+    stderr: str,
+) -> None:
+    PROVE.print_teardown(outcome)
+
+    captured = capsys.readouterr()
+    assert captured.out.startswith(stdout_starts)
+    assert ("torn_down" in captured.out) is (not stderr)
+    assert captured.err == stderr

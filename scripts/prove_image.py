@@ -42,11 +42,13 @@ from image_stack import (
     FIXTURES,
     IMAGE,
     KEY_SERVER,
+    PROJECT,
     REPOSITORY,
     SERVICE,
     STOP_TIMEOUT_SECONDS,
     Compose,
     Session,
+    Teardown,
     container_of,
     docker,
     teardown,
@@ -77,11 +79,6 @@ BAKED_CONFIG: Final = REPOSITORY / "deploy" / "speech.toml"
 PROOF_OVERRIDE: Final = FIXTURES / "compose.proof.yaml"
 LOOPBACK_OVERRIDE: Final = FIXTURES / "compose.loopback.yaml"
 
-THIS_SCRIPT: Final = Path(__file__).resolve()
-COMPOSE_FILE: Final = REPOSITORY / "compose.yaml"
-BAKED_CONFIG: Final = REPOSITORY / "deploy" / "speech.toml"
-PROOF_OVERRIDE: Final = FIXTURES / "compose.proof.yaml"
-LOOPBACK_OVERRIDE: Final = FIXTURES / "compose.loopback.yaml"
 # hal builds with a cap of 1800 s; a build past half of it is a finding.
 BUILD_LIMIT_SECONDS: Final = 900
 PUBLIC_ADDRESSES: Final = ("1.1.1.1:443", "huggingface.co:443")
@@ -324,6 +321,16 @@ def cell_log(session: Session) -> None:
     print("cell 11: held; the log holds no spoken text and no token")
 
 
+def print_teardown(outcome: Teardown) -> None:
+    """Print the log tail of a failed proof, then what teardown left or `torn_down`."""
+    if outcome.tail is not None:
+        print(outcome.tail)
+    if outcome.left:
+        print("teardown left something:", *outcome.left, sep="\n", file=sys.stderr)
+    else:
+        print("torn_down", PROJECT)
+
+
 def _prove() -> None:
     wait_for_load()
     config = load_caller_config(BAKED_CONFIG)
@@ -364,11 +371,12 @@ def _prove() -> None:
                 cell_log(session)
             failed = False
         finally:
-            left = teardown(compose, failed=failed)
+            outcome = teardown(compose, failed=failed)
+            print_teardown(outcome)
     finally:
         shutil.rmtree(directory)
-    if left:
-        message = "teardown left something: " + "; ".join(left)
+    if outcome.left:
+        message = "teardown left something: " + "; ".join(outcome.left)
         raise SystemExit(message)
     print("PROOF_OK")
 

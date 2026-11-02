@@ -1,14 +1,11 @@
 """What the image proof drives: Docker, Compose and the caller container."""
 
-# ruff: noqa: T201 - the teardown prints its outcome as the command line output
-
 from __future__ import annotations
 
 import base64
 import json
 import os
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
@@ -188,15 +185,23 @@ class Session:
         self.logs.append(self.compose.run("logs", "--no-color", SERVICE).stdout)
 
 
-def teardown(compose: Compose, *, failed: bool) -> list[str]:
+@dataclass(frozen=True)
+class Teardown:
+    """What teardown did: a failed proof's log tail and the removals that failed."""
+
+    tail: str | None
+    left: list[str]
+
+
+def teardown(compose: Compose, *, failed: bool) -> Teardown:
     """Remove the proof's containers, networks, volumes and image.
 
-    Every removal is tried; the ones that failed are named, and `torn_down` is
-    printed only when none did.
+    Every removal is tried; the ones that failed are named.
     """
+    tail = None
     if failed:
-        tail = compose.run("logs", "--no-color", "--tail", "30", check=False)
-        print(tail.stdout, tail.stderr, sep="\n")
+        logs = compose.run("logs", "--no-color", "--tail", "30", check=False)
+        tail = f"{logs.stdout}\n{logs.stderr}"
     attempts = {
         "compose down": compose.run(
             "down",
@@ -218,8 +223,4 @@ def teardown(compose: Compose, *, failed: bool) -> list[str]:
         for what, done in attempts.items()
         if done.returncode != 0
     ]
-    if left:
-        print("teardown left something:", *left, sep="\n", file=sys.stderr)
-    else:
-        print("torn_down", PROJECT)
-    return left
+    return Teardown(tail=tail, left=left)
