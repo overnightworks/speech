@@ -300,7 +300,7 @@ def taken_card_failures(seen: TakenCardObservation) -> list[str]:
 
 
 class StageStatus(StrEnum):
-    """Where a stage or model of the record stands; only the first two are finished."""
+    """Where a stage or model of the record stands; only the last two are finished."""
 
     UNFINISHED = "unfinished"
     MEASURED = "measured"
