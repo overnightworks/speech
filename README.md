@@ -104,7 +104,7 @@ Weights stay in:
   `speech-runtime-service` command) prints usage; any other argument is a usage
   error.
 
-The service never writes spoken or heard text to its log. A speaking failure is logged with its exception types and stack frames, never with an exception message.
+The service never writes spoken or heard text to its log. A speaking failure is logged with its exception types and stack frames, never with an exception message. A provider that ends before it is ready has seen no request, so its exit status and the tail of its stderr go to the log.
 
 ## Settings
 

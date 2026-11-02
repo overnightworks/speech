@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import io
 import os
 import struct
 import subprocess
@@ -222,11 +223,11 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
         "--cache",
         str(cache),
     ]
+    assert isinstance(launch.pop("stderr"), io.IOBase)
     assert launch == {
         "shell": False,
         "stdin": subprocess.PIPE,
         "stdout": subprocess.PIPE,
-        "stderr": subprocess.DEVNULL,
         "cwd": root / "chatterbox",
         "env": expected_environment,
         "bufsize": 0,
