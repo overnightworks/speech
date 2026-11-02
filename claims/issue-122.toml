@@ -1,0 +1,8 @@
+claim_id = "f3c75b14d5e74cbeabc5dcea27b54a1b"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "f97fdc6c0c941436e3d68051131a405db379a773"
+branch = "claude/issue-122-split-image-proof"
+scope = [".dockerignore", "scripts/image_judgement.py", "scripts/image_stack.py", "scripts/prove_image.py", "tests/fixtures/image/inspect_image.py", "tests/scripts"]
+opened_commit = "e7077cca1034ae2499743997387e5f14642bfdee"
+whole_reason = "One proof: its split and the gaps sit in the same lines, and two lanes over them would collide."
