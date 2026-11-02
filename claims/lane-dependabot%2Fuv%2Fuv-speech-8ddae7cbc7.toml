@@ -1,0 +1,7 @@
+claim_id = "0874edc127f048c380d63e96456928f2"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "5a8054473c40cf8df6b4ff78683c90de31dd027d"
+branch = "dependabot/uv/uv-speech-8ddae7cbc7"
+scope = ["packages/client/pyproject.toml", "pyproject.toml", "uv.lock"]
+opened_commit = "f4506752c8009b45a8fcf03f475c723f601139cb"
