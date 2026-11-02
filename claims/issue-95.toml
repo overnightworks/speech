@@ -1,7 +1,0 @@
-claim_id = "6132c5bf4bcd4f07b72676d0c5fd5786"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "19d0da8a36b267f36ccd309dfa49f9b825069648"
-branch = "claude/issue-95-pin-webauth-by-its-git-tag"
-scope = ["pyproject.toml", "uv.lock"]
-opened_commit = "b1b018a14f3771e0b8a8904e986f10fb5961237d"
