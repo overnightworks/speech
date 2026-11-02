@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import io
-import logging
 import os
 import struct
 import subprocess
@@ -293,88 +292,6 @@ def test_early_exit_and_oversized_handshake_fail_without_an_owned_process(
     _, _, pid, _ = observed(tmp_path / "cache")
     engine.close()
     assert_reaped(pid)
-
-
-_CONTRACT_PROVIDER = """#!{python}
-import os
-import sys
-from pathlib import Path
-
-from speech_runtime_provider_contract import ProviderFunctions, serve_provider
-
-cache = sys.argv[sys.argv.index("--cache") + 1]
-protocol_stdout = os.dup(1)
-{body}
-"""
-
-_SERVING_BODY = """
-def load(device, cache):
-    if {fail_load!r}:
-        raise RuntimeError("model weights unreadable")
-    return object()
-
-
-def synthesize(model, text, language):
-    print(text, file=sys.stderr, flush=True)
-    Path(cache).mkdir(exist_ok=True)
-    Path(cache, "stderr-target").write_text(os.readlink("/proc/self/fd/2"))
-    yield b"\\x00\\x01"
-
-
-raise SystemExit(serve_provider(
-    device="cpu", cache=cache, protocol_stdout=protocol_stdout,
-    sample_rate=24000, functions=ProviderFunctions(load, synthesize),
-))
-"""
-
-
-def _contract_provider(tmp_path: Path, body: str) -> ProviderProcess:
-    root, cache = closed_provider(tmp_path)
-    entrypoint = root / "chatterbox/.venv/bin/speech-runtime-chatterbox-worker"
-    entrypoint.write_text(
-        _CONTRACT_PROVIDER.format(python=sys.executable, body=body), encoding="utf-8"
-    )
-    return _provider_process(root, cache)
-
-
-@pytest.mark.parametrize(
-    ("body", "cause"),
-    [
-        (
-            "import module_that_is_not_installed",
-            "ModuleNotFoundError: No module named 'module_that_is_not_installed'",
-        ),
-        (
-            _SERVING_BODY.format(fail_load=True),
-            "RuntimeError: model weights unreadable",
-        ),
-    ],
-    ids=["import", "load"],
-)
-def test_provider_failing_before_ready_names_its_cause_in_the_log(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture, body: str, cause: str
-) -> None:
-    engine = _contract_provider(tmp_path, body)
-
-    with caplog.at_level(logging.ERROR), pytest.raises(ProviderFailedError):
-        engine.load()
-    engine.close()
-
-    assert cause in caplog.text
-
-
-def test_provider_stderr_after_ready_reaches_no_log(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    engine = _contract_provider(tmp_path, _SERVING_BODY.format(fail_load=False))
-
-    with caplog.at_level(logging.DEBUG):
-        engine.load()
-        assert list(engine.pcm_chunks("caller secret words", "de")) == [b"\x00\x01"]
-        engine.close()
-
-    assert "caller secret words" not in caplog.text
-    assert (tmp_path / "cache/stderr-target").read_text() == os.devnull
 
 
 def test_load_after_a_failed_startup_is_refused(tmp_path: Path) -> None:

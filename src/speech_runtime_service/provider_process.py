@@ -257,7 +257,6 @@ class ProviderProcess:
             self._set_failed()
         finally:
             self._ready.set()
-            own_exit_status = None if child is None else child.poll()
             try:
                 self._terminate_and_reap(child)
             except Exception:
@@ -265,7 +264,10 @@ class ProviderProcess:
                 lifecycle_failed = True
                 self._cleanup_failed = True
             if stderr is not None:
-                _close_stderr(child, own_exit_status, stderr)
+                try:
+                    _close_stderr(child, stderr)
+                except Exception:
+                    logger.exception("speech provider stderr cleanup failed")
             with self._state_lock:
                 self._process = None
                 self._response_decoder = None
@@ -469,14 +471,12 @@ class ProviderProcess:
                 stream.close()
 
 
-def _close_stderr(
-    child: subprocess.Popen[bytes] | None,
-    own_exit_status: int | None,
-    stderr: IO[bytes],
-) -> None:
+def _close_stderr(child: subprocess.Popen[bytes] | None, stderr: IO[bytes]) -> None:
     """Log what a provider that never became ready wrote, then close its file.
 
-    The status is the provider's own; None means the service had to stop it.
+    Call after the provider is reaped. The exit status is the provider's own
+    when it ended by itself; a negative number is the signal that stopped it,
+    which is -15 when the service stopped it.
     """
     try:
         if not stderr.closed and child is not None:
@@ -484,7 +484,7 @@ def _close_stderr(
             stderr.seek(max(0, size - _STDERR_TAIL_BYTES))
             logger.error(
                 "speech provider ended before ready, exit status %s, stderr tail:\n%s",
-                own_exit_status,
+                child.returncode,
                 stderr.read().decode("utf-8", errors="replace"),
             )
     finally:
