@@ -1,0 +1,7 @@
+claim_id = "03d97891e1194b65b82d82e3db0b8964"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "088422cc9b0b7b57085649fc366f1c1f32af2fd4"
+branch = "dependabot/uv/providers/chatterbox/pytest-9.2.0"
+scope = ["providers/chatterbox/pyproject.toml", "providers/chatterbox/uv.lock"]
+opened_commit = "0232f3b35d8c5befc8e05349058e4dbd28275380"
