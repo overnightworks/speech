@@ -124,7 +124,7 @@ All `SPEECH_*`:
 | `SPEECH_MAX_WAITING_REQUESTS` | `3` | How many speech requests may wait for the one synthesis; a request beyond them answers 429 `busy` at once. A whole number of at least 0, where 0 allows no waiting |
 | `SPEECH_MAX_BODY_BYTES` | `32768` | The largest speech request body; a larger one answers 413 `too_large` before it is parsed. A whole number of at least 1 |
 | `SPEECH_MAX_INPUT_CHARACTERS` | `4096` | The longest `input` a speech request may carry; a whole number of at least 1 |
-| `SPEECH_HEARING_MODEL` | none | The hearing model the process loads at start, on `SPEECH_DEVICE`: `large-v3` (recommended) or `small`. None: hearing answers 503 `unavailable`. A model that was not fetched stops the start naming this setting (fetch it with `speech-runtime-fetch-hearing-model <model>`); a card that is missing, taken or too small leaves hearing unavailable in `/health` while speaking stays up |
+| `SPEECH_HEARING_MODEL` | none | The hearing model the process loads at start, on `SPEECH_DEVICE`: `large-v3` (recommended) or `small`. None: hearing answers 503 `unavailable`. A model that was not fetched stops the start naming this setting (fetch it with `speech-runtime-fetch-hearing-model <model>`); a card that is missing, taken or too small, or a `cuda` device without the `gpu` extra, leaves hearing unavailable in `/health` while speaking stays up |
 | `SPEECH_HEARING_BUSY_WAIT_SECONDS` | `30.0` | How long a recording waits for the one decode before it answers 429 `busy`; at least 0, where 0 refuses at once |
 | `SPEECH_MAX_HEARING_SESSIONS` | `1` | How many live hearing sessions run at once; one more is refused at the upgrade with 429 `busy`. A whole number of at least 1 |
 | `SPEECH_HEARING_FINAL_WAIT_SECONDS` | `60.0` | How long a live turn's final may wait for the one decode, counted from the turn's end; past it the session ends with `busy`. Above 0 |
@@ -152,7 +152,7 @@ overnightworks-speech-runtime-service @ git+https://github.com/overnightworks/sp
 ```
 
 The service is an application, not a library: its pin installs the CPU path
-(Piper). Every GPU voice runs from its own provider environment.
+(Piper); GPU hearing needs the pin with `[gpu]`. Every GPU voice runs from its own provider environment.
 `scripts/check_release.py` holds the released distributions at one version, and the Release
 workflow runs it, and the pins' installs, before it creates the tag.
 
@@ -164,6 +164,8 @@ From the repository root:
 uv sync --group dev
 uv run speech-runtime-service
 ```
+
+For GPU hearing, sync with `uv sync --locked --extra gpu --group dev`.
 
 Stage proof (checks load, one heavy step at a time). The script runs itself as
 `flock -o -w 1200 /tmp/probe-stack.lock setpriv --pdeathsig TERM timeout -k 30 1800 …`, so it waits at most
