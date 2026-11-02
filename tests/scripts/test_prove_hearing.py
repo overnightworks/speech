@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import contextlib
 import json
+from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
+import httpx2
 import pytest
 
+from speech_runtime_client.wire import RefusalCode, refusal
 from speech_runtime_service.hearing_models import HearingModel
 from tests.support.script_support import script_module
 
@@ -215,3 +218,157 @@ def test_a_stage_that_does_not_apply_on_cpu_is_not_missing(
     HEARING._prove(arguments)  # noqa: SLF001 - the proof's one entry below main
 
     assert json.loads(record_path.read_text())["not_measured"] == []
+
+
+HELD_MIB = 512
+HEALTH_READY = {"speaking": {"ready": True}, "hearing": {"ready": True}}
+HEALTH_NO_HEARING = {"speaking": {"ready": True}, "hearing": {"ready": False}}
+HEALTH_LOADING = {"speaking": {"ready": False}, "hearing": {"ready": False}}
+
+
+def wait_loaded_with(
+    monkeypatch: pytest.MonkeyPatch, health: dict[str, object], *, speaks: bool
+) -> dict[str, object]:
+    monkeypatch.setattr(HEARING, "get_json", lambda *_: health)
+    monkeypatch.setattr(HEARING, "_speaks", lambda *_: speaks)
+    monkeypatch.setattr(HEARING, "READY_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(HEARING, "POLL_SECONDS", 0.01)
+    return HEARING.wait_loaded("http://127.0.0.1:1", None, "voice")
+
+
+@pytest.mark.parametrize(
+    ("health", "speaks"),
+    [(HEALTH_READY, False), (HEALTH_NO_HEARING, True)],
+    ids=["hearing ready", "speaking served after a load without hearing"],
+)
+def test_the_service_has_loaded_when_hearing_is_ready_or_speaking_is_served(
+    monkeypatch: pytest.MonkeyPatch, health: dict[str, object], *, speaks: bool
+) -> None:
+    assert wait_loaded_with(monkeypatch, health, speaks=speaks) == health
+
+
+@pytest.mark.parametrize(
+    ("health", "speaks"),
+    [(HEALTH_LOADING, True), (HEALTH_NO_HEARING, False)],
+    ids=["still loading", "speaking ready but not served"],
+)
+def test_a_service_that_never_finishes_loading_fails_the_wait(
+    monkeypatch: pytest.MonkeyPatch, health: dict[str, object], *, speaks: bool
+) -> None:
+    with pytest.raises(SystemExit, match="did not finish loading"):
+        wait_loaded_with(monkeypatch, health, speaks=speaks)
+
+
+def taken_card(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    health: dict[str, object],
+    file_response: httpx2.Response,
+    freed: bool,
+) -> dict[str, object]:
+    @contextlib.contextmanager
+    def held() -> Iterator[int]:
+        yield HELD_MIB
+
+    @contextlib.contextmanager
+    def service(*_: str) -> Iterator[object]:
+        yield SimpleNamespace(
+            base_url="http://127.0.0.1:1",
+            minting=None,
+            running=SimpleNamespace(health=health),
+        )
+
+    async def upgrade(_: object) -> int:
+        return HTTPStatus.SERVICE_UNAVAILABLE
+
+    monkeypatch.setattr(HEARING, "used_mib", lambda: 100)
+    monkeypatch.setattr(HEARING, "held_card", held)
+    monkeypatch.setattr(HEARING, "hearing_service", service)
+    monkeypatch.setattr(HEARING, "post_recording", lambda *_: file_response)
+    monkeypatch.setattr(HEARING, "upgrade_status", upgrade)
+    monkeypatch.setattr(HEARING, "speak_measured", lambda *_: (b"wav", 0.0, 0.0))
+    monkeypatch.setattr(HEARING, "card_is_freed", lambda _: freed)
+    clips = {HEARING.HearingLanguage.DE: HEARING.Clip(b"", b"")}
+    return HEARING.prove_taken_card("cuda", "small", clips)
+
+
+def unavailable() -> httpx2.Response:
+    return httpx2.Response(
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        content=refusal(RefusalCode.UNAVAILABLE).model_dump_json().encode(),
+    )
+
+
+def test_a_taken_card_that_behaves_as_cell_30_says_gives_no_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = taken_card(
+        monkeypatch,
+        health=HEALTH_NO_HEARING,
+        file_response=unavailable(),
+        freed=True,
+    )
+
+    assert result["failures"] == []
+    assert result["held_mib"] == HELD_MIB
+
+
+def test_a_taken_card_that_is_not_freed_afterwards_is_a_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = taken_card(
+        monkeypatch,
+        health=HEALTH_NO_HEARING,
+        file_response=unavailable(),
+        freed=False,
+    )
+
+    assert result["failures"] == ["the card was not freed"]
+
+
+def test_hearing_ready_on_a_taken_card_is_a_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = taken_card(
+        monkeypatch,
+        health=HEALTH_READY,
+        file_response=unavailable(),
+        freed=True,
+    )
+
+    assert result["failures"] == ["hearing is ready on a taken card"]
+
+
+def test_a_file_route_that_answers_ok_on_a_taken_card_is_a_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = taken_card(
+        monkeypatch,
+        health=HEALTH_NO_HEARING,
+        file_response=httpx2.Response(HTTPStatus.OK),
+        freed=True,
+    )
+
+    assert result["failures"] == ["the file route did not answer 503 unavailable"]
+
+
+def test_uncached_voices_are_named_not_measured_against(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cached = HEARING.GPU_SPEAKING_MODELS[0]
+    monkeypatch.setattr(
+        HEARING, "installed_voice_ids", lambda _: {HEARING.voice_for_model(cached)}
+    )
+    monkeypatch.setattr(HEARING, "measure_peak", lambda *_: {})
+    memory: dict[str, object] = {}
+    clips = {HEARING.HearingLanguage.DE: HEARING.Clip(b"", b"")}
+
+    HEARING.measure_memory("cuda", ["small"], clips, memory)
+
+    assert memory["voices_not_in_cache"] == [
+        HEARING.voice_for_model(model).value
+        for model in HEARING.GPU_SPEAKING_MODELS[1:]
+    ]
+    assert list(memory["models"]["small"]["with_voice"]) == [
+        HEARING.voice_for_model(cached).value
+    ]

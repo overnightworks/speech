@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -128,8 +129,9 @@ def test_the_holder_ends_when_the_proof_is_killed_outright(
     finally:
         proof.kill()
         proof.wait()
-        if holder.exists() and is_running(int(holder.read_text())):
-            os.kill(int(holder.read_text()), signal.SIGKILL)
+        if holder.exists():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(int(holder.read_text()), signal.SIGKILL)
 
 
 def test_a_failed_sample_fails_the_measurement_instead_of_shortening_it(
@@ -153,3 +155,23 @@ def test_the_samples_of_a_healthy_card_give_its_highest_reading(
         pass
 
     assert sampler.samples == [100]
+
+
+@pytest.mark.parametrize(
+    ("readings", "freed"),
+    [(["100, 1000"], True), (["900, 1000"] * 50, False)],
+    ids=["back at the baseline", "still held"],
+)
+def test_the_card_is_freed_once_it_is_back_at_the_baseline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    readings: list[str],
+    *,
+    freed: bool,
+) -> None:
+    fake_nvidia(tmp_path, readings)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(CARD, "FREED_WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(CARD, "FREED_POLL_SECONDS", 0.01)
+
+    assert CARD.card_is_freed(100) is freed
