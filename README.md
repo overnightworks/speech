@@ -167,6 +167,35 @@ uv run speech-runtime-service
 
 For GPU hearing, sync with `uv sync --locked --extra gpu --group dev`.
 
+### As a container
+
+`Dockerfile` and `compose.yaml` run the service on the CPU with the Piper voice,
+built from the locks: `uv sync --locked --no-dev` installs the CPU path, and the
+voice `de_DE-thorsten-medium` is fetched at build, at its pinned revision and
+checked against its hashes, so the container fetches nothing at start or
+restart. `deploy/speech.toml` is copied into the image and holds the issuer,
+the key set's internal address and the callers; a release tag fixes it. The
+service joins no default network, only the three external, internal networks
+`hal_speech_issuer`, `hal_speech_hopin` and `hal_speech_presentator`, which hal
+creates; without them `docker compose up` fails and nothing runs with egress.
+The root is read-only, the user is not root, and the identity issuer's CA is
+mounted from `~/.secrets/step-ca/root_ca.crt`. The healthcheck reads
+`speaking.ready`, because `/health` answers while the voice loads.
+
+`scripts/prove_image.py` builds that image and starts the real `compose.yaml`
+on isolated networks with a test CA, a key-set server and a caller container.
+It speaks as the baked table's caller, checks the refusals, a visible refusal
+with the key server stopped, the absence of egress and a restart, and ends with
+`PROOF_OK`. It takes the probe lock as the stage proof does, and removes its
+containers, networks and image on every exit; CI runs it as the job
+`Speech: image`:
+
+```sh
+uv run python scripts/prove_image.py
+```
+
+### Stage proofs
+
 Stage proof (checks load, one heavy step at a time). The script runs itself as
 `flock -o -w 1200 /tmp/probe-stack.lock setpriv --pdeathsig TERM timeout -k 30 1800 …`, so it waits at most
 20 minutes for `/tmp/probe-stack.lock` and fails the run, saying the lock is busy,

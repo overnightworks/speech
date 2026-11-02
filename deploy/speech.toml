@@ -1,0 +1,14 @@
+# Whom the service trusts; the image bakes this file, so a release tag fixes it.
+# It holds no secret. The issuer is the public name tokens carry; the key set is
+# fetched through hal's internal gateway.
+[identity]
+issuer = "https://auth.hallucinai.de/realms/hallucinai"
+jwks_url = "https://keycloak.mcp.internal/realms/hallucinai/protocol/openid-connect/certs"
+audience = "speech-service"
+workload_role = "speech-workload"
+group_claim = "groups"
+service_group = "/services/speech-service"
+
+[apps.hopin]
+workload_client = "hopin"
+voices = ["piper"]

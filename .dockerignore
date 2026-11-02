@@ -1,0 +1,21 @@
+# An allowlist: everything is out of the build context, and only what the image
+# is built from comes back in. From the source trees that is Python source and
+# the client's py.typed, so a key or credential lying beside the code never
+# reaches the wheels.
+*
+!pyproject.toml
+!uv.lock
+!src/**/*.py
+!deploy/speech.toml
+!packages/client/pyproject.toml
+!packages/client/src/**/*.py
+!packages/client/src/**/py.typed
+!providers/provider-contract/pyproject.toml
+!providers/provider-contract/src/**/*.py
+
+# Nested repositories, environments and tool caches can hold Python files too.
+**/.git
+**/.venv
+**/__pycache__
+**/.*_cache
+**/node_modules
