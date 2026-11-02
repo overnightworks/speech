@@ -1,0 +1,20 @@
+# An allowlist: everything is out of the build context, and only what the image
+# is built from comes back in.
+*
+!pyproject.toml
+!uv.lock
+!src
+!deploy
+!packages/client/pyproject.toml
+!packages/client/src
+!providers/provider-contract/pyproject.toml
+!providers/provider-contract/src
+
+**/__pycache__
+
+# The trees above are admitted whole, so what must never be in an image is named
+# again here: a secret or a key nested inside would otherwise ride in on its parent.
+**/.env*
+**/*.pem
+**/*.key
+**/id_*

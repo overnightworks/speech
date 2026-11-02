@@ -1,0 +1,47 @@
+# Laid over compose.yaml by scripts/prove_image.py. The three networks keep
+# their keys and become isolated ones under the proof's project name; a test CA
+# stands in the secret's place, and a key-set server and a caller container sit
+# on the issuer's and the app's network. Every path and name comes from the
+# environment the proof sets.
+
+services:
+  speech-runtime:
+    image: speech-runtime-proof
+  key-server:
+    image: speech-runtime-proof
+    pull_policy: never
+    command: [python, /key_server.py]
+    environment:
+      PROOF_KEY_SET_PATH: ${PROOF_KEY_SET_PATH}
+    volumes:
+      - ./tests/fixtures/image/key_server.py:/key_server.py:ro
+      - ${PROOF_DIRECTORY}/key-server:/key-server:ro
+    networks:
+      hal_speech_issuer:
+        aliases:
+          - ${PROOF_KEY_SET_HOST}
+  caller:
+    image: speech-runtime-proof
+    pull_policy: never
+    command: [python, -c, "import time; time.sleep(3600)"]
+    stop_grace_period: 1s
+    networks:
+      - hal_speech_hopin
+
+secrets:
+  step_ca_root:
+    file: ${PROOF_DIRECTORY}/ca/root_ca.crt
+
+networks:
+  hal_speech_issuer:
+    name: !reset null
+    external: !reset null
+    internal: true
+  hal_speech_hopin:
+    name: !reset null
+    external: !reset null
+    internal: true
+  hal_speech_presentator:
+    name: !reset null
+    external: !reset null
+    internal: true

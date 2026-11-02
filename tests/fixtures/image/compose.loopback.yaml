@@ -1,0 +1,6 @@
+# The proof's negative: the service listens on loopback only, which its own
+# healthcheck cannot tell from a reachable listener.
+services:
+  speech-runtime:
+    environment:
+      SPEECH_HOST: 127.0.0.1

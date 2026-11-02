@@ -1,0 +1,57 @@
+# The service runs behind hal's networks only: it joins no default network, so
+# it reaches the identity issuer's key set and each app, and nothing else.
+# Plain values stand here as literals, because hal runs Compose with the
+# caller's whole environment, which must not decide them.
+
+services:
+  speech-runtime:
+    build: .
+    restart: unless-stopped
+    environment:
+      SPEECH_CONFIG_FILE: /app/deploy/speech.toml
+      SPEECH_HOST: 0.0.0.0
+      SPEECH_DEVICE: cpu
+      SPEECH_VOICE_CACHE: /opt/voices
+      SSL_CERT_FILE: /run/secrets/step_ca_root
+    secrets:
+      - step_ca_root
+    networks:
+      - hal_speech_issuer
+      - hal_speech_hopin
+      - hal_speech_presentator
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,nr_inodes=1k,mode=1777,nosuid,nodev
+    # /health answers while the voice loads, so it is ready that decides.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json, urllib.request; ready = json.load(urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3))['speaking']['ready']; raise SystemExit(0 if ready is True else 1)"
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      start_interval: 2s
+      retries: 3
+
+secrets:
+  step_ca_root:
+    file: ${HOME}/.secrets/step-ca/root_ca.crt
+
+networks:
+  # hal's compose creates these as internal networks; an absent one stops the
+  # start, so no run has egress. A later app adds a hal_speech_<app> here.
+  hal_speech_issuer:
+    name: hal_speech_issuer
+    external: true
+  hal_speech_hopin:
+    name: hal_speech_hopin
+    external: true
+  hal_speech_presentator:
+    name: hal_speech_presentator
+    external: true

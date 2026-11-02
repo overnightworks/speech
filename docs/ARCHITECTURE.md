@@ -32,6 +32,9 @@ flowchart LR
   holds the resampler; `hearing_models.py` the pinned models; `recording.py` the
   incremental decode of an uploaded recording; `clock.py` the monotonic clock
   every gate deadline is read and waited on.
+- `Dockerfile`, `compose.yaml`, `deploy/speech.toml`: the container a release
+  tag brings, with the Piper voice and the caller table baked in; see
+  [Delivery](#delivery). `scripts/prove_image.py` proves it.
 - `packages/client`: the wire types an app and the service share.
 - `providers/*`: the voices that run in their own processes and environments.
 
@@ -71,6 +74,25 @@ flowchart LR
   started; the second's terminal waits for the first's.
   A session end sends a `failed` per announced unfinished item, then `error`, then
   closes; a disconnect sends nothing.
+
+## Delivery
+
+The platform builds the image on its host from the release tag, so the tag fixes
+the code, the locked dependencies, the voice and the caller table. Nothing is
+fetched at start or restart: the voice is in the image, and the service has no
+route to a registry or a hub.
+
+```mermaid
+flowchart LR
+    app[App container] -->|speak| service[speech-runtime]
+    service -->|key set, https, CA from a file secret| gateway[Internal gateway]
+    gateway --> issuer[Identity issuer]
+```
+
+The service sits on three external, internal networks and no default one: one
+shared with the gateway that carries the key set, and one per app, shared with
+that app only. An absent network stops the start, so a run never has egress.
+The root is read-only, the user is not root and no capability is kept.
 
 ## Crosscutting Concepts
 
