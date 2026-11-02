@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 SPEECH_LEVEL = 5000
 INPUT_RATE = 24_000
 WAIT_SECONDS = 5.0
+COMPLETED = "conversation.item.input_audio_transcription.completed"
+FAILED = "conversation.item.input_audio_transcription.failed"
 
 
 class FakeSocket:
@@ -127,3 +129,23 @@ async def started(
     )
     await session.start()
     return session, socket
+
+
+async def commit_a_turn(session: LiveSession, seconds: float = 0.3) -> None:
+    """Feed `seconds` of speech, then commit it."""
+    await session.on_message(append(audio(seconds)))
+    await session.on_message(commit())
+
+
+def end_is(socket: FakeSocket, code: str, failed: int) -> bool:
+    """Whether the session failed `failed` items, sent `error` `code` and closed."""
+    types = socket.types()
+    error = socket.of_type("error")[0]["error"]
+    assert isinstance(error, dict)
+    return (
+        types[-1] == "error"
+        and types.count(FAILED) == failed
+        and types[-1 - failed : -1] == [FAILED] * failed
+        and error["code"] == code
+        and socket.closed
+    )
