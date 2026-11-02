@@ -67,6 +67,7 @@ from prove_speech import (
     get_json,
     nvidia_memory,
     prove_under_lock,
+    require_running,
     run_under_lock,
     speak_measured,
     speech_environment,
@@ -207,20 +208,20 @@ def _loaded(health: dict[str, object], speaks: Callable[[], bool]) -> bool:
 
 def wait_loaded(
     base_url: str,
+    exit_status: Callable[[], int | None],
     speaks: Callable[[], bool],
     health_of: Callable[[str, str], dict[str, object]] = get_json,
-    clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, object]:
     """Wait until the service finished loading and return its health then.
 
     Hearing ready is the end of a good load. A load that found no room on the
     card ends with speaking served and hearing not ready, which the speak route
-    shows by answering once loading is over.
+    shows by answering once loading is over. A server that exited ends the wait.
     """
-    deadline = clock() + READY_TIMEOUT_SECONDS
     last: dict[str, object] | None = None
-    while clock() < deadline:
+    for _ in range(round(READY_TIMEOUT_SECONDS / POLL_SECONDS)):
+        require_running(exit_status, last)
         try:
             last = health_of(base_url, "/health")
             if _loaded(last, speaks):

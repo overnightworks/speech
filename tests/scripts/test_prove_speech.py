@@ -161,7 +161,7 @@ def test_term_stops_the_speech_server_through_its_teardown(tmp_path: Path) -> No
         {},
         tmp_path,
         start=lambda *_, **__: server,
-        wait_ready=lambda _base_url: {},
+        wait_ready=lambda *_: {},
     )
 
     def term_while_running() -> None:

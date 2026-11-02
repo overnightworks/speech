@@ -199,10 +199,28 @@ def get_json(base_url: str, target: str) -> dict[str, object]:
         return client.get(target, timeout=5).json()
 
 
-def _wait_ready(base_url: str) -> dict[str, object]:
+def require_running(
+    exit_status: Callable[[], int | None], last: dict[str, object] | None
+) -> None:
+    """End a wait at once when the server exited: a failed load exits it.
+
+    Health has no failure state, and `unavailable` also shows during a normal
+    load, so the exit of the process is the one final signal.
+    """
+    status = exit_status()
+    if status is not None:
+        detail = "" if last is None else f": {last}"
+        message = f"the service exited with status {status} before it was ready{detail}"
+        raise SystemExit(message)
+
+
+def _wait_ready(
+    base_url: str, exit_status: Callable[[], int | None]
+) -> dict[str, object]:
     deadline = time.monotonic() + READY_TIMEOUT_SECONDS
     last: dict[str, object] | None = None
     while time.monotonic() < deadline:
+        require_running(exit_status, last)
         try:
             last = get_json(base_url, "/health")
         except httpx2.HTTPError, json.JSONDecodeError:
@@ -380,7 +398,9 @@ def speech_server(
     env: dict[str, str],
     work_directory: Path,
     start: Callable[..., subprocess.Popen[str]] = start_with_parent_death,
-    wait_ready: Callable[[str], dict[str, object]] = _wait_ready,
+    wait_ready: Callable[
+        [str, Callable[[], int | None]], dict[str, object]
+    ] = _wait_ready,
 ) -> Iterator[RunningSpeech]:
     """Start speech, wait until it is ready, and stop it on the way out.
 
@@ -399,7 +419,7 @@ def speech_server(
     running: RunningSpeech | None = None
     try:
         started = time.monotonic()
-        health = wait_ready(base_url)
+        health = wait_ready(base_url, server.poll)
         running = RunningSpeech(server, health, time.monotonic() - started)
         yield running
         proof_failed = False

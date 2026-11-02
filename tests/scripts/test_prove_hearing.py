@@ -335,7 +335,11 @@ HEALTH_LOADING = {"speaking": {"ready": False}, "hearing": {"ready": False}}
 def wait_loaded_with(health: dict[str, object], *, speaks: bool) -> dict[str, object]:
     clock = FakeClock()
     return HEARING.wait_loaded(
-        "http://127.0.0.1:1", lambda: speaks, lambda *_: health, clock.now, clock.jump
+        "http://127.0.0.1:1",
+        lambda: None,
+        lambda: speaks,
+        lambda *_: health,
+        clock.jump,
     )
 
 
@@ -371,10 +375,30 @@ def test_a_wait_that_never_heard_the_service_names_no_health() -> None:
 
     with pytest.raises(SystemExit) as failure:
         HEARING.wait_loaded(
-            "http://127.0.0.1:1", lambda: True, unreachable, clock.now, clock.jump
+            "http://127.0.0.1:1",
+            lambda: None,
+            lambda: True,
+            unreachable,
+            clock.jump,
         )
 
     assert "None" not in str(failure.value)
+
+
+def test_a_wait_ends_at_once_with_the_last_health_when_the_server_exited() -> None:
+    clock = FakeClock()
+    polls = iter([None, None, 1])
+    with pytest.raises(SystemExit, match="exited with status 1") as failure:
+        HEARING.wait_loaded(
+            "http://127.0.0.1:1",
+            lambda: next(polls),
+            lambda: True,
+            lambda *_: HEALTH_LOADING,
+            clock.jump,
+        )
+
+    assert str(HEALTH_LOADING) in str(failure.value)
+    assert clock.now() < HEARING.READY_TIMEOUT_SECONDS
 
 
 @pytest.fixture
