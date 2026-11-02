@@ -1,7 +1,0 @@
-claim_id = "f5b1ba3ea0484de798c98082bbf8247f"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "af2a5adef7a54f57008ec5e058fceb1e3b227d7b"
-branch = "claude/issue-105-dependabot-ignore-own-names"
-scope = [".github/dependabot.yml"]
-opened_commit = "2a34485cc17b43a88294da4c2fc720ca2f8b10a4"
