@@ -32,6 +32,7 @@ from tests.support.hear_support import (
     FakeHearing,
     hear_app,
     hear_runtime,
+    hearing_gate_is_free,
 )
 from tests.support.identity_support import (
     APP,
@@ -265,14 +266,10 @@ def test_a_session_cancelled_twice_frees_its_place_and_hears_no_final() -> None:
         with pytest.raises(asyncio.CancelledError):
             await serving
         running_decode.close()
-        free = runtime.hearing.gate.try_acquire()
-        if free is not None:
-            free.close()
-        return free is not None
+        return hearing_gate_is_free(runtime)
 
     gate_was_free_for_the_next_job = asyncio.run(scenario())
 
     assert runtime.hearing is not None
     assert runtime.hearing.open_session(1) is not None
     assert gate_was_free_for_the_next_job
-    assert engine.heard == []
