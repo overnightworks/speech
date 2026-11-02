@@ -1,7 +1,0 @@
-claim_id = "cf5795356c204726b7a558a4a1c6998d"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "1cb36e234d960f8c092bd21c8fb8ef86b9786888"
-branch = "dependabot/uv/providers/magpie/hatchling-1.33.0"
-scope = ["providers/magpie/pyproject.toml"]
-opened_commit = "2f88649e01d8252af72b9d78f5bc54642835b623"
