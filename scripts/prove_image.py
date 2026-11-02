@@ -111,6 +111,8 @@ class ImageReport:
     user: int
     application_files: list[str]
     application_files_with_private_keys: list[str]
+    package_stray_files: list[str]
+    package_stray_files_with_private_keys: list[str]
     voice_hashes: dict[str, str]
     executables: dict[str, str | None]
     nvidia_directories: list[str]
@@ -184,6 +186,16 @@ def without_mark(wav: bytes) -> bytes:
     return wav
 
 
+def _audio_bytes(wav: bytes, data_start: int) -> int:
+    """The bytes inside a `data` chunk's payload, by its declared length.
+
+    The streaming length the service writes declares more than any answer
+    holds, so the bytes present are all there are.
+    """
+    declared = int.from_bytes(wav[data_start + 4 : data_start + 8], "little")
+    return min(declared, len(wav) - data_start - 8)
+
+
 def require_marked_wav(wav: bytes) -> None:
     """Fail unless `wav` is a WAV that carries the AI mark and some audio."""
     if wav[:4] != b"RIFF" or wav[8:12] != b"WAVE":
@@ -193,7 +205,7 @@ def require_marked_wav(wav: bytes) -> None:
         message = "the WAV does not carry the AI mark"
         raise SystemExit(message)
     if not any(
-        chunk_id == b"data" and len(wav) > start + 8
+        chunk_id == b"data" and _audio_bytes(wav, start) > 0
         for chunk_id, start, _ in _chunks(wav)
     ):
         message = "the WAV holds no audio"
@@ -279,6 +291,13 @@ def image_faults(
     faults += [
         f"holds a private key in {name}"
         for name in report.application_files_with_private_keys
+    ]
+    faults += [
+        f"holds {name} among the packages" for name in report.package_stray_files
+    ]
+    faults += [
+        f"holds a private key in {name}"
+        for name in report.package_stray_files_with_private_keys
     ]
     faults += [f"carries {name}" for name, found in report.executables.items() if found]
     if report.voice_hashes != voice_hashes:
@@ -754,7 +773,7 @@ def _prove() -> None:
         finally:
             left = teardown(compose, failed=failed)
     finally:
-        shutil.rmtree(directory, ignore_errors=True)
+        shutil.rmtree(directory)
     if left:
         message = "teardown left something: " + "; ".join(left)
         raise SystemExit(message)

@@ -15,6 +15,8 @@ from speech_runtime_service.pcm import wav_header
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from proof_identity import Minting
 
 PROVE = script_module("prove_image")
@@ -62,6 +64,13 @@ def marked_wav() -> bytes:
         pytest.param(b"not audio at all", id="not a wav"),
         pytest.param(wav_header(SAMPLE_RATE), id="no audio"),
         pytest.param(wav_header(SAMPLE_RATE)[:-8] + SILENCE, id="no data chunk"),
+        pytest.param(
+            wav_header(SAMPLE_RATE, 0)
+            + b"JUNK"
+            + len(SILENCE).to_bytes(4, "little")
+            + SILENCE,
+            id="empty data chunk before another chunk",
+        ),
     ],
 )
 def test_a_wav_without_the_mark_or_the_audio_fails_the_proof(wav: bytes) -> None:
@@ -144,6 +153,8 @@ def clean_report() -> PROVE.ImageReport:
         user=1000,
         application_files=["deploy/speech.toml"],
         application_files_with_private_keys=[],
+        package_stray_files=[],
+        package_stray_files_with_private_keys=[],
         voice_hashes={"voice.onnx": "abc"},
         executables={"git": None},
         nvidia_directories=[],
@@ -162,6 +173,14 @@ def clean_report() -> PROVE.ImageReport:
         ({"application_files_with_private_keys": ["a.txt"]}, "private key"),
         ({"executables": {"git": "/usr/bin/git"}}, "carries git"),
         ({"nvidia_directories": ["nvidia"]}, "holds nvidia"),
+        (
+            {"package_stray_files": ["speech_runtime_service/local.txt"]},
+            "among the packages",
+        ),
+        (
+            {"package_stray_files_with_private_keys": ["speech_runtime_x/a.key"]},
+            "private key",
+        ),
         ({"voice_hashes": {"voice.onnx": "other"}}, "pinned bytes"),
     ],
 )
@@ -279,8 +298,58 @@ def test_the_build_context_admits_only_files_the_image_copies() -> None:
         for source in line.split()[:-1]
     }
 
-    assert all(path in copied for path in admitted)
-    assert all(
-        path.is_file() or path.name == "src"
-        for path in (PROVE.REPOSITORY / name for name in admitted)
-    )
+    assert all(path.partition("/**/")[0] in copied for path in admitted)
+
+
+def test_the_source_trees_admit_python_source_and_py_typed_and_nothing_else() -> None:
+    lines = (PROVE.REPOSITORY / ".dockerignore").read_text().splitlines()
+    trees = [
+        line.removeprefix("!") for line in lines if "/src" in line or line == "!src"
+    ]
+
+    assert trees
+    assert all(tree.endswith(("/*.py", "/py.typed")) for tree in trees)
+
+
+def test_the_exclusions_of_nested_repositories_and_caches_follow_the_admissions() -> (
+    None
+):
+    lines = [
+        line
+        for line in (PROVE.REPOSITORY / ".dockerignore").read_text().splitlines()
+        if line and not line.startswith("#")
+    ]
+    last_admission = max(i for i, line in enumerate(lines) if line.startswith("!"))
+
+    assert {"**/.git", "**/.venv", "**/__pycache__"} <= set(lines[last_admission + 1 :])
+
+
+def test_a_failed_removal_of_the_temporary_files_fails_the_proof_loudly(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class StoppedCompose:
+        def __init__(self, *_: object) -> None:
+            pass
+
+        def run(self, *_: object, **__: object) -> object:
+            message = "stopped"
+            raise SystemExit(message)
+
+    directory = tmp_path / "proof"
+    stuck = directory / "stuck"
+    stuck.mkdir(parents=True)
+    (stuck / "file").write_text("x")
+    stuck.chmod(0o500)
+    monkeypatch.setattr(PROVE, "wait_for_load", lambda: None)
+    monkeypatch.setattr(PROVE.tempfile, "mkdtemp", lambda **_: str(directory))
+    monkeypatch.setattr(PROVE, "Compose", StoppedCompose)
+    monkeypatch.setattr(PROVE, "teardown", lambda *_, **__: [])
+    try:
+        with pytest.raises(PermissionError):
+            PROVE._prove()  # noqa: SLF001 - the whole run is the entry point under test
+    finally:
+        stuck.chmod(0o700)
+
+    assert "PROOF_OK" not in capsys.readouterr().out

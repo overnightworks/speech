@@ -17,7 +17,16 @@ EXECUTABLES = sys.argv[2:]
 SITE_PACKAGES = Path(sysconfig.get_paths()["purelib"])
 PRIVATE_KEY_MARK = b"PRIVATE KEY"
 
+SOURCE_SUFFIXES = {".py", ".pyc"}
+
 files = sorted(path for path in APPLICATION.rglob("*") if path.is_file())
+stray_package_files = sorted(
+    path
+    for package in SITE_PACKAGES.glob("speech_runtime_*")
+    if package.is_dir() and not package.name.endswith(".dist-info")
+    for path in package.rglob("*")
+    if path.is_file() and path.suffix not in SOURCE_SUFFIXES and path.name != "py.typed"
+)
 print(
     json.dumps(
         {
@@ -30,6 +39,14 @@ print(
             "application_files_with_private_keys": [
                 str(path.relative_to(APPLICATION))
                 for path in files
+                if PRIVATE_KEY_MARK in path.read_bytes()
+            ],
+            "package_stray_files": [
+                str(path.relative_to(SITE_PACKAGES)) for path in stray_package_files
+            ],
+            "package_stray_files_with_private_keys": [
+                str(path.relative_to(SITE_PACKAGES))
+                for path in stray_package_files
                 if PRIVATE_KEY_MARK in path.read_bytes()
             ],
             "voice_hashes": {
