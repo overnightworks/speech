@@ -153,7 +153,7 @@ overnightworks-speech-runtime-service @ git+https://github.com/overnightworks/sp
 
 The service is an application, not a library: its pin installs the CPU path
 (Piper). Every GPU voice runs from its own provider environment.
-`scripts/check_release.py` holds the three versions equal, and the Release
+`scripts/check_release.py` holds the released distributions at one version, and the Release
 workflow runs it, and the pins' installs, before it creates the tag.
 
 ## Run

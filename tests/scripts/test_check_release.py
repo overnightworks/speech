@@ -1,59 +1,162 @@
-"""The release check names the version fields that are off."""
+"""The release check names the version fields that are off in what the root declares."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
-from check_release import DISTRIBUTION_PROJECTS, REPOSITORY_ROOT, main
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from check_release import REPOSITORY_ROOT, main, release_faults, release_rows
 
 RELEASE = "3.4.5"
+OTHER = "9.9.9"
 
 
-def _write_tree(root: Path, versions: dict[str, str]) -> None:
-    for project, version in versions.items():
-        path = root / project
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(f'[project]\nname = "x"\nversion = "{version}"\n')
+def _write_project(root: Path, directory: str, name: str, version: str) -> None:
+    project = root / directory
+    project.mkdir(parents=True, exist_ok=True)
+    package = name.replace("-", "_")
+    (project / "pyproject.toml").write_text(
+        f'[project]\nname = "{name}"\nversion = "{version}"\n\n'
+        f'[tool.hatch.build.targets.wheel]\npackages = ["src/{package}"]\n'
+    )
+
+
+def _write_root(
+    root: Path,
+    version: str,
+    *,
+    members: tuple[str, ...] = (),
+    sources: tuple[str, ...] = (),
+) -> None:
+    _write_project(root, ".", "root-service", version)
+    declared = (root / "pyproject.toml").read_text()
+    declared += f"\n[tool.uv.workspace]\nmembers = {list(members)!r}\n".replace(
+        "'", '"'
+    )
+    declared += "\n[tool.uv.sources]\n"
+    declared += "".join(
+        f'{path.replace("/", "-")} = {{ path = "{path}", editable = true }}\n'
+        for path in sources
+    )
+    (root / "pyproject.toml").write_text(declared)
 
 
 @pytest.fixture
 def tree(tmp_path: Path) -> Path:
-    _write_tree(tmp_path, dict.fromkeys(DISTRIBUTION_PROJECTS, RELEASE))
+    _write_root(
+        tmp_path,
+        RELEASE,
+        members=("libs/client",),
+        sources=("libs/contract",),
+    )
+    _write_project(tmp_path, "libs/client", "the-client", RELEASE)
+    _write_project(tmp_path, "libs/contract", "the-contract", RELEASE)
     return tmp_path
 
 
-def test_the_three_distributions_of_this_repository_stand_in_lockstep() -> None:
-    assert main(["--root", str(REPOSITORY_ROOT)]) == 0
+def test_the_distributions_of_this_repository_stand_in_lockstep() -> None:
+    assert release_faults(REPOSITORY_ROOT, None) == []
+
+
+def test_a_wrong_input_fails_the_command_for_this_repository(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main([OTHER]) == 1
+    assert "pyproject.toml" in capsys.readouterr().out
+
+
+def test_the_rows_of_this_repository_name_a_package_that_exists() -> None:
+    rows = release_rows(REPOSITORY_ROOT)
+
+    assert len(rows) > 1
+    for row in rows:
+        assert (REPOSITORY_ROOT / row.directory / "src" / row.package).is_dir()
+
+
+def test_the_rows_print_for_the_workflow(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["--rows"]) == 0
+
+    printed = capsys.readouterr().out.splitlines()
+    assert printed == [
+        f"{row.name}|{row.directory}|{row.package}"
+        for row in release_rows(REPOSITORY_ROOT)
+    ]
 
 
 def test_a_tree_in_lockstep_passes_for_its_own_version(tree: Path) -> None:
-    assert main([RELEASE, "--root", str(tree)]) == 0
+    assert release_faults(tree, RELEASE) == []
+    assert release_faults(tree, None) == []
 
 
-@pytest.mark.parametrize("off", DISTRIBUTION_PROJECTS)
-def test_a_field_that_is_off_is_named(
-    tree: Path, off: str, capsys: pytest.CaptureFixture[str]
+def test_the_rows_hold_the_root_and_every_declared_project_once(tree: Path) -> None:
+    assert {(row.name, row.directory, row.package) for row in release_rows(tree)} == {
+        ("root-service", ".", "root_service"),
+        ("the-client", "libs/client", "the_client"),
+        ("the-contract", "libs/contract", "the_contract"),
+    }
+
+
+def test_a_project_declared_both_ways_is_one_row(tree: Path) -> None:
+    _write_root(
+        tree,
+        RELEASE,
+        members=("libs/client",),
+        sources=("libs/client", "libs/contract"),
+    )
+
+    names = [row.name for row in release_rows(tree)]
+    assert sorted(names) == sorted(set(names))
+    assert "the-client" in names
+
+
+@pytest.mark.parametrize("off", [".", "libs/client", "libs/contract"])
+def test_a_field_that_is_off_is_named(tree: Path, off: str) -> None:
+    if off == ".":
+        _write_root(tree, OTHER, members=("libs/client",), sources=("libs/contract",))
+    else:
+        _write_project(tree, off, Path(off).name, OTHER)
+
+    project_file = "pyproject.toml" if off == "." else f"{off}/pyproject.toml"
+    for expected in (None, RELEASE):
+        faults = release_faults(tree, expected)
+        assert any(fault.startswith(f"{project_file} ") for fault in faults)
+
+
+def test_a_wrong_input_names_every_field(tree: Path) -> None:
+    faults = release_faults(tree, OTHER)
+
+    assert all(
+        any(fault.startswith(f"{project} ") for fault in faults)
+        for project in (
+            "pyproject.toml",
+            "libs/client/pyproject.toml",
+            "libs/contract/pyproject.toml",
+        )
+    )
+
+
+@pytest.mark.parametrize("declaration", ["workspace member", "path source"])
+def test_a_further_project_at_another_version_is_named_and_listed(
+    tree: Path, declaration: str
 ) -> None:
-    _write_tree(tree, {off: "9.9.9"})
+    members = (
+        ("libs/client", "libs/extra")
+        if declaration == "workspace member"
+        else ("libs/client",)
+    )
+    sources = (
+        ("libs/contract",)
+        if declaration == "workspace member"
+        else ("libs/contract", "libs/extra")
+    )
+    _write_root(tree, RELEASE, members=members, sources=sources)
+    _write_project(tree, "libs/extra", "the-extra", OTHER)
 
-    assert main(["--root", str(tree)]) == 1
-    assert off in capsys.readouterr().out
-
-    assert main([RELEASE, "--root", str(tree)]) == 1
-    printed = capsys.readouterr().out
-    assert off in printed
-    assert len(printed.splitlines()) == 1
-
-
-def test_a_wrong_input_names_every_field(
-    tree: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main(["9.9.9", "--root", str(tree)]) == 1
-
-    printed = capsys.readouterr().out
-    assert all(project in printed for project in DISTRIBUTION_PROJECTS)
+    assert any(
+        "libs/extra/pyproject.toml" in fault for fault in release_faults(tree, None)
+    )
+    assert any(
+        "libs/extra/pyproject.toml" in fault for fault in release_faults(tree, RELEASE)
+    )
+    assert "the-extra" in {row.name for row in release_rows(tree)}
