@@ -15,6 +15,7 @@ from tests.support.hear_support import HEARD_TEXT, FakeHearing, loaded
 from tests.support.live_support import (
     WAIT_SECONDS,
     FakeSocket,
+    StallingSocket,
     append,
     audio,
     commit,
@@ -34,6 +35,7 @@ SETTLE_TURNS = 3
 BLOCKER_AND_MARKER = 2
 DELTA = "conversation.item.input_audio_transcription.delta"
 PCM_BYTES_PER_SECOND = 32_000
+FINALS = 2
 
 
 def _transcribe_silence(engine: HearingEngine) -> str:
@@ -538,6 +540,112 @@ def test_the_poll_runs_every_three_tenths_of_a_second() -> None:
     assert asyncio.run(scenario()) == [POLL_WAIT_SECONDS] * POLLS
 
 
+def test_a_second_ended_turn_decodes_before_a_waiting_file_job_and_follows() -> None:
+    async def scenario() -> tuple[FakeSocket, int]:
+        engine = FakeHearing(hold=True)
+        clock = FakeClock()
+        hearing = loaded(engine, clock)
+        session, socket = await started(hearing)
+        await _commit_a_turn(session, 0.3)
+        assert await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
+        heard_when_the_file_job_runs: list[int] = []
+
+        async def file_job() -> None:
+            lease = await hearing.gate.acquire(clock.now() + WAIT_SECONDS, 1)
+            assert lease is not None
+            heard_when_the_file_job_runs.append(len(engine.heard))
+            lease.close()
+
+        file = asyncio.create_task(file_job())
+        await asyncio.sleep(0)
+        await _commit_a_turn(session, 0.4)
+        engine.release.set()
+        await socket.until(lambda: len(socket.of_type(COMPLETED)) == FINALS)
+        await file
+        return socket, heard_when_the_file_job_runs[0]
+
+    socket, heard_when_the_file_job_runs = asyncio.run(scenario())
+
+    committed = socket.of_type("input_audio_buffer.committed")
+    assert heard_when_the_file_job_runs == FINALS
+    assert [done["item_id"] for done in socket.of_type(COMPLETED)] == [
+        turn["item_id"] for turn in committed
+    ]
+
+
+def test_a_final_of_another_session_stands_behind_the_second_ended_turn() -> None:
+    async def scenario() -> list[int]:
+        engine = FakeHearing(hold=True)
+        hearing = loaded(engine, FakeClock())
+        (first, first_socket), (other, other_socket) = [
+            await started(hearing) for _ in range(2)
+        ]
+        await _commit_a_turn(first, 0.3)
+        assert await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
+        await _commit_a_turn(first, 0.4)
+        await _commit_a_turn(other, 0.5)
+        engine.release.set()
+        await first_socket.until(lambda: len(first_socket.of_type(COMPLETED)) == FINALS)
+        await other_socket.until(lambda: bool(other_socket.of_type(COMPLETED)))
+        return [size for size, _ in engine.heard]
+
+    sizes = asyncio.run(scenario())
+
+    assert sizes == sorted(sizes)
+
+
+def test_a_stalled_send_of_the_first_completed_does_not_hold_the_second_decode() -> (
+    None
+):
+    async def scenario() -> tuple[FakeSocket, int]:
+        engine = FakeHearing(hold=True)
+        clock = FakeClock()
+        hearing = loaded(engine, clock)
+        socket = StallingSocket(COMPLETED)
+        session, _ = await started(hearing, socket=socket)
+        await _commit_a_turn(session)
+        assert await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
+        await _commit_a_turn(session)
+        engine.release.set()
+        await socket.stalled.wait()
+        lease = await asyncio.wait_for(
+            hearing.gate.acquire(clock.now() + WAIT_SECONDS, 1), WAIT_SECONDS
+        )
+        assert lease is not None
+        heard_when_the_gate_is_free = len(engine.heard)
+        lease.close()
+        socket.proceed.set()
+        await socket.until(lambda: len(socket.of_type(COMPLETED)) == FINALS)
+        return socket, heard_when_the_gate_is_free
+
+    socket, heard_when_the_gate_is_free = asyncio.run(scenario())
+
+    assert heard_when_the_gate_is_free == FINALS
+    assert len(socket.of_type(COMPLETED)) == FINALS
+
+
+def test_a_turn_that_ends_stands_in_the_gates_queue_before_a_waiting_file_job() -> None:
+    async def scenario() -> tuple[bool, bool]:
+        engine = FakeHearing()
+        clock = FakeClock()
+        hearing = loaded(engine, clock)
+        running = hearing.gate.try_acquire()
+        assert running is not None
+        file = asyncio.create_task(hearing.gate.acquire(clock.now() + WAIT_SECONDS, 1))
+        await asyncio.sleep(0)
+        session, socket = await started(hearing)
+        await _commit_a_turn(session)
+        running.close()
+        await socket.until(lambda: bool(socket.of_type(COMPLETED)))
+        file_lease = await asyncio.wait_for(file, WAIT_SECONDS)
+        return file_lease is not None, len(engine.heard) == 1
+
+    file_served, final_was_heard_first = asyncio.run(scenario())
+
+    assert file_served
+    assert final_was_heard_first
+
+
 def test_a_waiting_turn_is_heard_after_the_outstanding_final() -> None:
     async def scenario() -> FakeSocket:
         engine = FakeHearing(hold=True)
@@ -568,8 +676,9 @@ def test_a_waiting_turn_that_outlasts_its_wait_ends_the_session_as_busy() -> Non
         await _commit_a_turn(session)
         assert await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
         await _commit_a_turn(session)
+        await clock.until_a_wait_begins()
         clock.advance(2 * WAIT_SECONDS)
-        await session.on_tick()
+        await socket.until_closed()
         engine.release.set()
         await session.on_disconnect()
         return socket

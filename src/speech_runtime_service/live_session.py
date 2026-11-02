@@ -10,7 +10,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
 from speech_runtime_client.wire import (
@@ -59,6 +60,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["POLL_WAIT_SECONDS", "LiveSession", "poll_forever"]
 
 _PCM_BYTES_PER_SECOND: Final = 16_000 * BYTES_PER_SAMPLE
+_MAX_ENDED_TURNS: Final = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +68,7 @@ class _Final:
     item_id: str
     pcm: bytes
     deadline: float
+    emitted: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 def _samples_of(encoded: str) -> bytes | None:
@@ -115,8 +118,7 @@ class LiveSession:
         self._turn_number = 0
         self._previous_words: list[str] = []
         self._sent_words = 0
-        self._final_active = False
-        self._waiting: _Final | None = None
+        self._finals: deque[_Final] = deque()
 
     async def start(self) -> None:
         """Send `session.created`, the first event of every session."""
@@ -144,13 +146,9 @@ class LiveSession:
                 await self._on_commit(event)
 
     async def on_tick(self) -> None:
-        """Expire a waiting turn, end a silent turn, decode a partial when due."""
+        """End a silent turn, decode a partial when due."""
         async with self._lock:
             if self._ended:
-                return
-            waiting = self._waiting
-            if waiting is not None and waiting.deadline <= self._clock.now():
-                await self._end_locked(RefusalCode.BUSY)
                 return
             await self._apply(self._scheduler.poll())
             if not self._ended:
@@ -241,19 +239,15 @@ class LiveSession:
         await self._emit(
             ItemCreated(previous_item_id=previous, item=UserMessageItem(id=item_id))
         )
-        final = _Final(item_id, turn.pcm, deadline)
-        if not self._final_active:
-            self._start_final(final)
-        elif self._waiting is None:
-            self._waiting = final
-        else:
+        if len(self._finals) == _MAX_ENDED_TURNS:
             await self._end_locked(RefusalCode.BUSY)
+            return
+        final = _Final(item_id, turn.pcm, deadline)
+        ahead = self._finals[-1] if self._finals else None
+        self._finals.append(final)
+        self._spawn(self._run_final(final, ahead))
 
-    def _start_final(self, final: _Final) -> None:
-        self._final_active = True
-        self._spawn(self._run_final(final))
-
-    async def _run_final(self, final: _Final) -> None:
+    async def _run_final(self, final: _Final, ahead: _Final | None) -> None:
         lease = await self._hearing.gate.acquire_final(final.deadline)
         if lease is None:
             await self._end(RefusalCode.BUSY)
@@ -266,6 +260,8 @@ class LiveSession:
             log_failure(logger, "hearing failed", error)
             await self._end(RefusalCode.UNAVAILABLE)
             return
+        if ahead is not None:
+            await ahead.emitted.wait()
         async with self._lock:
             await self._complete(final, text)
 
@@ -279,10 +275,8 @@ class LiveSession:
                 usage=DurationUsage(seconds=seconds),
             )
         )
-        self._final_active = False
-        waiting, self._waiting = self._waiting, None
-        if waiting is not None:
-            self._start_final(waiting)
+        self._finals.popleft()
+        final.emitted.set()
 
     async def _run_partial(self, future: Future[str], turn_number: int) -> None:
         try:
@@ -345,7 +339,8 @@ class LiveSession:
                 task.cancel()
 
     def _spawn(self, work: Coroutine[object, object, None]) -> asyncio.Task[None]:
-        task = asyncio.create_task(work)
+        # Eager, so a final stands in the gate's queue before any release can pass it.
+        task = asyncio.create_task(work, eager_start=True)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return task

@@ -60,6 +60,24 @@ class FakeSocket:
         return [event for event in self.events if event["type"] == kind]
 
 
+class StallingSocket(FakeSocket):
+    """A socket whose send of the first event of one `type` stalls until released."""
+
+    def __init__(self, kind: str) -> None:
+        """Stall the first event of `kind`."""
+        super().__init__()
+        self._kind = kind
+        self.stalled = asyncio.Event()
+        self.proceed = asyncio.Event()
+
+    async def send(self, text: str) -> None:
+        """Record the event, after the stall if it is the stalled kind."""
+        if not self.stalled.is_set() and json.loads(text)["type"] == self._kind:
+            self.stalled.set()
+            await self.proceed.wait()
+        await super().send(text)
+
+
 def audio(seconds: float, level: int = SPEECH_LEVEL) -> str:
     """The base64 PCM16 at 24 kHz of a constant level `seconds` long."""
     count = int(seconds * INPUT_RATE)
@@ -90,10 +108,13 @@ def update(language: str = "de") -> str:
 
 
 async def started(
-    hearing: Hearing, *, final_wait_seconds: float = 30.0
+    hearing: Hearing,
+    *,
+    final_wait_seconds: float = 30.0,
+    socket: FakeSocket | None = None,
 ) -> tuple[LiveSession, FakeSocket]:
     """A session over `hearing` that has sent `session.created`."""
-    socket = FakeSocket()
+    socket = socket or FakeSocket()
     session = LiveSession(
         hearing,
         final_wait_seconds=final_wait_seconds,

@@ -65,9 +65,10 @@ flowchart LR
   into turns (C2: silence after speech, or the 30 s cap), and decodes run in the
   worker. One lock orders messages, polls and results, and the session alone
   decides each item's terminal event, once; a result that arrives after its item's
-  terminal is dropped. A session holds one outstanding final, one waiting ended
-  turn and the open turn. Finals queue in the gate ahead of recordings with a
-  deadline counted from the turn's end, and an expired final is never started.
+  terminal is dropped. A session holds two ended turns and the open turn. Both
+  ended turns queue as finals in the gate from their turn's end, ahead of
+  recordings, each with a deadline counted from it, and an expired final is never
+  started; the second's terminal waits for the first's.
   A session end sends a `failed` per announced unfinished item, then `error`, then
   closes; a disconnect sends nothing.
 
