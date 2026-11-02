@@ -26,7 +26,7 @@ import tempfile
 import threading
 import time
 from array import array
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
@@ -60,6 +60,8 @@ SENTENCE = (
     "die nächste Folie automatisch vorbereitet wird."
 )
 SECOND = "Die nächste Folie bitte."
+THIS_SCRIPT = Path(__file__).resolve()
+SETPRIV = "setpriv"
 LOCK_PATH = Path("/tmp/probe-stack.lock")  # noqa: S108 - the one machine-wide probe lock must keep this exact path whatever TMPDIR says
 LOCK_HELD_ENV = "SPEECH_PROOF_HOLDS_PROBE_LOCK"
 LOCK_DIRECTORY_PREFIX = "speech-lock-"
@@ -70,6 +72,8 @@ FLOCK_COMMAND_UNAVAILABLE_STATUS = 69
 # lock form; together they stay within 1830 s. The grace covers the teardown
 # `speech_server` runs after TERM: terminate, wait up to 10 s, then kill and wait
 # up to 5 s, so 15 s at worst, with the providers stopped through the server.
+# The hearing proof adds the card holder it stops after its server: up to 10 s
+# more, so 25 s at worst.
 # The proof speaks through the model named by SPEECH_SPEAKING_MODEL (Chatterbox
 # by default). A CPU Piper run needs only a small fraction of the cap, and the
 # server exits within the grace after the proof body ends.
@@ -112,15 +116,15 @@ def wait_for_load(
         sleep(15)
 
 
-def fleet_command(arguments: list[str]) -> list[str]:
-    """This script under the fleet's one form for taking the probe lock."""
+def fleet_command(arguments: list[str], script: Path = THIS_SCRIPT) -> list[str]:
+    """`script` under the fleet's one form for taking the probe lock."""
     return [
         "flock",
         "-o",
         "-w",
         str(LOCK_WAIT_SECONDS),
         str(LOCK_PATH),
-        "setpriv",
+        SETPRIV,
         "--pdeathsig",
         "TERM",
         "timeout",
@@ -128,7 +132,7 @@ def fleet_command(arguments: list[str]) -> list[str]:
         str(KILL_GRACE_SECONDS),
         str(CAP_SECONDS),
         sys.executable,
-        str(Path(__file__).resolve()),
+        str(script),
         *arguments,
     ]
 
@@ -136,12 +140,15 @@ def fleet_command(arguments: list[str]) -> list[str]:
 def run_under_lock(
     arguments: list[str],
     run: Callable[..., subprocess.CompletedProcess[bytes]] = subprocess.run,
+    script: Path = THIS_SCRIPT,
 ) -> int:
     """Run the proof under the lock; a lock still busy after the wait fails loudly."""
     with tempfile.TemporaryDirectory(prefix=LOCK_DIRECTORY_PREFIX) as directory:
         token = Path(directory) / "acquired"
         environment = {**os.environ, LOCK_HELD_ENV: str(token)}
-        status = run(fleet_command(arguments), env=environment, check=False).returncode
+        status = run(
+            fleet_command(arguments, script), env=environment, check=False
+        ).returncode
         lock_was_taken = token.exists()
     if status == FLOCK_TIMED_OUT_STATUS and not lock_was_taken:
         message = (
@@ -192,10 +199,28 @@ def get_json(base_url: str, target: str) -> dict[str, object]:
         return client.get(target, timeout=5).json()
 
 
-def _wait_ready(base_url: str) -> dict[str, object]:
+def require_running(
+    exit_status: Callable[[], int | None], last: dict[str, object] | None
+) -> None:
+    """End a wait at once when the server exited: a failed load exits it.
+
+    Health has no failure state, and `unavailable` also shows during a normal
+    load, so the exit of the process is the one final signal.
+    """
+    status = exit_status()
+    if status is not None:
+        detail = "" if last is None else f": {last}"
+        message = f"the service exited with status {status} before it was ready{detail}"
+        raise SystemExit(message)
+
+
+def _wait_ready(
+    base_url: str, exit_status: Callable[[], int | None]
+) -> dict[str, object]:
     deadline = time.monotonic() + READY_TIMEOUT_SECONDS
     last: dict[str, object] | None = None
     while time.monotonic() < deadline:
+        require_running(exit_status, last)
         try:
             last = get_json(base_url, "/health")
         except httpx2.HTTPError, json.JSONDecodeError:
@@ -213,7 +238,8 @@ def _wait_ready(base_url: str) -> dict[str, object]:
         if speaking["ready"] is True:
             return last
         time.sleep(0.5)
-    message = f"speaking not ready within {READY_TIMEOUT_SECONDS}s: {last}"
+    detail = "" if last is None else f": {last}"
+    message = f"speaking not ready within {READY_TIMEOUT_SECONDS}s{detail}"
     raise SystemExit(message)
 
 
@@ -289,7 +315,8 @@ def speak_measured(
     return body, first_byte_at - start, end - start
 
 
-def _voice_id(model: str) -> str:
+def voice_id(model: str) -> str:
+    """The catalogue id of the voice whose speaking model is `model`."""
     voice = voice_for_model(model)
     if voice is None:
         message = f"{model} is not a baseline speaking model"
@@ -297,7 +324,8 @@ def _voice_id(model: str) -> str:
     return voice.value
 
 
-def _query_nvidia(*arguments: str) -> str:
+def query_nvidia(*arguments: str) -> str:
+    """Run `nvidia-smi` with `arguments`; a note starting `unavailable:` on failure."""
     nvidia = shutil.which("nvidia-smi")
     if nvidia is None:
         return "unavailable: nvidia-smi not found"
@@ -313,14 +341,13 @@ def _query_nvidia(*arguments: str) -> str:
     return completed.stdout.strip()
 
 
-def _nvidia_memory() -> str:
-    return _query_nvidia(
-        "--query-gpu=memory.used,memory.total", "--format=csv,noheader"
-    )
+def nvidia_memory() -> str:
+    """The card's used and total memory as one line."""
+    return query_nvidia("--query-gpu=memory.used,memory.total", "--format=csv,noheader")
 
 
 def _nvidia_compute_pids() -> str:
-    pids = _query_nvidia("--query-compute-apps=pid", "--format=csv,noheader")
+    pids = query_nvidia("--query-compute-apps=pid", "--format=csv,noheader")
     if pids.startswith("unavailable:"):
         return pids
     return " ".join(pids.split()) or "none"
@@ -336,14 +363,33 @@ def peak_rss_mib(status: str) -> float:
 
 
 @dataclass(frozen=True)
-class _RunningSpeech:
+class RunningSpeech:
+    """A started speech service: process, first health, texts it must not log."""
+
     process: subprocess.Popen[str]
     health: dict[str, object]
     ready_seconds: float
+    spoken_texts: list[str] = field(default_factory=list)
 
     def peak_rss_mib(self) -> float:
+        """The service process's peak resident set in MiB."""
         status = Path(f"/proc/{self.process.pid}/status")
         return peak_rss_mib(status.read_text(encoding="utf-8"))
+
+
+def start_with_parent_death(
+    command: list[str], **options: object
+) -> subprocess.Popen[str]:
+    """Start `command` under `setpriv` so the kernel sends it TERM with its parent.
+
+    The signal follows the thread that spawned the child, not the process: call
+    this from the thread that lives as long as the proof, never from a worker
+    thread, or the child dies when that worker returns. A proof killed outright
+    then leaves no child holding the card.
+    """
+    return subprocess.Popen(  # noqa: S603 - argv is setpriv with the caller's own command
+        [SETPRIV, "--pdeathsig", "TERM", *command], **options
+    )
 
 
 @contextlib.contextmanager
@@ -351,10 +397,16 @@ def speech_server(
     base_url: str,
     env: dict[str, str],
     work_directory: Path,
-    start: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
-    wait_ready: Callable[[str], dict[str, object]] = _wait_ready,
-) -> Iterator[_RunningSpeech]:
-    """Start speech, wait until it speaks, and stop it on the way out."""
+    start: Callable[..., subprocess.Popen[str]] = start_with_parent_death,
+    wait_ready: Callable[
+        [str, Callable[[], int | None]], dict[str, object]
+    ] = _wait_ready,
+) -> Iterator[RunningSpeech]:
+    """Start speech, wait until it is ready, and stop it on the way out.
+
+    The log must hold neither of the proof's own sentences nor any text the
+    caller adds to `spoken_texts`.
+    """
     server = start(
         [sys.executable, "-m", "speech_runtime_service"],
         cwd=work_directory,
@@ -364,10 +416,12 @@ def speech_server(
         text=True,
     )
     proof_failed = True
+    running: RunningSpeech | None = None
     try:
         started = time.monotonic()
-        health = wait_ready(base_url)
-        yield _RunningSpeech(server, health, time.monotonic() - started)
+        health = wait_ready(base_url, server.poll)
+        running = RunningSpeech(server, health, time.monotonic() - started)
+        yield running
         proof_failed = False
     finally:
         server.terminate()
@@ -381,7 +435,7 @@ def speech_server(
             print("server_log_tail:")
             print(log[-4000:])
         print("server_exit", server.returncode)
-        texts = [SENTENCE, SECOND]
+        texts = [SENTENCE, SECOND, *(running.spoken_texts if running else [])]
         if proof_failed:
             _report_log_text(log, texts)
         else:
@@ -523,7 +577,7 @@ def _prove_speak(base_url: str, model: str, minting: Minting) -> bytes:
     german, _ttfa, _rtf = _prove_speak_medians(
         functools.partial(speak_measured, base_url, minting=minting),
         SENTENCE,
-        _voice_id(model),
+        voice_id(model),
         limit=_first_byte_limit(model),
         label="speak_wire_de",
     )
@@ -532,7 +586,7 @@ def _prove_speak(base_url: str, model: str, minting: Minting) -> bytes:
 
 def _prove_concurrent_speak(base_url: str, model: str, minting: Minting) -> None:
     limit = _first_byte_limit(model)
-    voice = _voice_id(model)
+    voice = voice_id(model)
     results: dict[str, tuple[bytes, float, float]] = {}
     errors: list[str] = []
 
@@ -603,7 +657,7 @@ def _prove_contract(
     completed = subprocess.run(  # noqa: S603 - argv is this interpreter and this repository's client script with no shell
         contract_client_command(
             base_url,
-            _voice_id(env["SPEECH_SPEAKING_MODEL"]),
+            voice_id(env["SPEECH_SPEAKING_MODEL"]),
             minting_path,
         ),
         check=False,
@@ -630,29 +684,44 @@ def free_local_port() -> int:
         return probe.getsockname()[1]
 
 
+def add_cuda_library_path(env: dict[str, str]) -> None:
+    """Put the bundled CUDA libraries on `env`'s loader path."""
+    cuda_dirs = ":".join(str(path) for path in cuda_library_dirs())
+    if cuda_dirs:
+        existing = env.get("LD_LIBRARY_PATH", "")
+        env["LD_LIBRARY_PATH"] = f"{cuda_dirs}:{existing}" if existing else cuda_dirs
+
+
 def speech_environment(
-    port: int, speaking_model: str, identity: ProofIdentity
+    port: int,
+    speaking_model: str,
+    identity: ProofIdentity,
+    device: str | None = None,
+    hearing_model: str | None = None,
 ) -> dict[str, str]:
-    """Return the process environment binding the loopback port with the model."""
+    """Return the process environment binding the loopback port with the model.
+
+    `device` defaults to `SPEECH_DEVICE` from the caller's environment, else
+    `cuda`; `hearing_model` is left unset when absent.
+    """
     env = os.environ.copy()
     env["SPEECH_CONFIG_FILE"] = str(identity.configuration_path)
     env["SSL_CERT_FILE"] = str(identity.ca_path)
     env["SPEECH_HOST"] = LOOPBACK_HOST
     env["SPEECH_PORT"] = str(port)
     env.setdefault("SPEECH_PROVIDER_ROOT", str(PROVIDER_ROOT))
-    env["SPEECH_DEVICE"] = os.environ.get("SPEECH_DEVICE", "cuda")
+    env["SPEECH_DEVICE"] = device or os.environ.get("SPEECH_DEVICE", "cuda")
     if env["SPEECH_DEVICE"] == "cpu":
         env["CUDA_VISIBLE_DEVICES"] = ""
     env["SPEECH_SPEAKING_MODEL"] = speaking_model
+    if hearing_model is not None:
+        env["SPEECH_HEARING_MODEL"] = hearing_model
     env["SPEECH_BUSY_WAIT_SECONDS"] = str(
         _first_byte_limit(speaking_model) + CONCURRENT_EXTRA_WAIT_SECONDS
     )
     env.setdefault("HF_HUB_OFFLINE", "1")
     env.setdefault("TRANSFORMERS_OFFLINE", "1")
-    cuda_dirs = ":".join(str(path) for path in cuda_library_dirs())
-    if cuda_dirs:
-        existing = env.get("LD_LIBRARY_PATH", "")
-        env["LD_LIBRARY_PATH"] = f"{cuda_dirs}:{existing}" if existing else cuda_dirs
+    add_cuda_library_path(env)
     return env
 
 
@@ -667,7 +736,7 @@ def parse_arguments(arguments: list[str]) -> argparse.Namespace:
 
 def _prove() -> None:
     wait_for_load()
-    print("gpu_before", _nvidia_memory())
+    print("gpu_before", nvidia_memory())
     work_directory = Path(tempfile.mkdtemp(prefix="speech-"))
     port = free_local_port()
     base_url = f"http://{LOOPBACK_HOST}:{port}"
@@ -676,7 +745,7 @@ def _prove() -> None:
         CHATTERBOX_SPEAKING_MODEL,
     )
     try:
-        with proof_identity(work_directory, _voice_id(speaking_model)) as identity:
+        with proof_identity(work_directory, voice_id(speaking_model)) as identity:
             minting = load_minting(identity.minting_path)
             env = speech_environment(port, speaking_model, identity)
             with speech_server(base_url, env, work_directory) as running:
@@ -688,7 +757,7 @@ def _prove() -> None:
                     f"speech_pid={running.process.pid}",
                 )
                 _require_speaking(running.health, speaking_model)
-                print("gpu_resident", _nvidia_memory())
+                print("gpu_resident", nvidia_memory())
                 print("chatterbox_cache", CHATTERBOX_CACHE)
                 print("piper_cache", PIPER_CACHE)
                 german = _prove_speak(base_url, speaking_model, minting)
@@ -700,7 +769,7 @@ def _prove() -> None:
                 _prove_concurrent_speak(base_url, speaking_model, minting)
                 _prove_contract(base_url, env, identity.minting_path, work_directory)
                 print("peak_rss_mib", f"{running.peak_rss_mib():.0f}")
-        print("gpu_after", _nvidia_memory())
+        print("gpu_after", nvidia_memory())
         print("caches_kept")
         print("  huggingface:", HF_CACHE)
         print("  chatterbox:", CHATTERBOX_CACHE)
@@ -708,7 +777,7 @@ def _prove() -> None:
         print("PROOF_OK")
     finally:
         shutil.rmtree(work_directory)
-        print("gpu_released", _nvidia_memory())
+        print("gpu_released", nvidia_memory())
 
 
 def main() -> None:

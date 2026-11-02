@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import Mock
@@ -92,6 +93,15 @@ def test_the_proof_runs_itself_inside_the_fleet_lock_form() -> None:
     assert command[14:] == ["--help"]
 
 
+def test_another_script_runs_under_the_same_fleet_form() -> None:
+    other = Path("/scripts/other_proof.py")
+
+    command = PROVE.fleet_command(["--device", "cpu"], other)
+
+    assert Path(command[13]) == other
+    assert command[14:] == ["--device", "cpu"]
+
+
 def test_the_cap_and_kill_grace_fit_the_fleet_budget() -> None:
     assert PROVE.CAP_SECONDS + PROVE.KILL_GRACE_SECONDS <= FLEET_BUDGET_SECONDS
 
@@ -111,8 +121,10 @@ def test_a_run_outside_the_lock_hands_over_to_the_fleet_form(
         environments.append(env)
         return subprocess.CompletedProcess(command, 0)
 
-    assert PROVE.run_under_lock(["--help"], run) == 0
-    assert started == [PROVE.fleet_command(["--help"])]
+    other = Path("/scripts/other_proof.py")
+
+    assert PROVE.run_under_lock(["--help"], run, other) == 0
+    assert started == [PROVE.fleet_command(["--help"], other)]
     assert PROVE.LOCK_HELD_ENV in environments[0]
 
 
@@ -141,6 +153,24 @@ def test_a_failed_proof_under_the_lock_keeps_its_own_exit_status() -> None:
     assert PROVE.run_under_lock([], run_returning(status, takes_lock=True)) == status
 
 
+def test_the_default_wait_ends_at_once_when_the_server_exited(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def never_waits(_: float) -> None:
+        pytest.fail("the wait went on after the server exited")
+
+    monkeypatch.setattr(PROVE, "get_json", lambda *_: {"speaking": {"ready": False}})
+    monkeypatch.setattr(PROVE.time, "sleep", never_waits)
+    server = Mock(stdout=None, returncode=3)
+    server.poll.return_value = 3
+    running = PROVE.speech_server(
+        "http://127.0.0.1:1", {}, tmp_path, start=lambda *_, **__: server
+    )
+
+    with pytest.raises(SystemExit, match="exited with status 3"), running:
+        pass
+
+
 @pytest.mark.usefixtures("terminate_handler")
 def test_term_stops_the_speech_server_through_its_teardown(tmp_path: Path) -> None:
     server = Mock(stdout=None, returncode=0)
@@ -149,7 +179,7 @@ def test_term_stops_the_speech_server_through_its_teardown(tmp_path: Path) -> No
         {},
         tmp_path,
         start=lambda *_, **__: server,
-        wait_ready=lambda _base_url: {},
+        wait_ready=lambda *_: {},
     )
 
     def term_while_running() -> None:
@@ -200,3 +230,28 @@ def test_a_lock_marker_outside_a_lock_directory_is_refused(tmp_path: Path) -> No
         PROVE.announce_lock_held({PROVE.LOCK_HELD_ENV: str(marker)})
 
     assert not marker.exists()
+
+
+def test_a_service_ends_when_the_thread_that_started_it_ends() -> None:
+    sleeps_until_told = "import time; print('up', flush=True); time.sleep(600)"
+    started: list[subprocess.Popen[str]] = []
+
+    def start_and_wait_until_up() -> None:
+        child = PROVE.start_with_parent_death(
+            [sys.executable, "-c", sleeps_until_told],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        started.append(child)
+        child.stdout.readline()
+
+    thread = threading.Thread(target=start_and_wait_until_up)
+    thread.start()
+    thread.join()
+    child = started[0]
+    try:
+        assert child.wait(timeout=30) == -signal.SIGTERM
+    finally:
+        child.kill()
+        child.wait()
+        child.stdout.close()
