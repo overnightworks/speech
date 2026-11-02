@@ -153,8 +153,8 @@ With server turn detection a client need not commit.
 
 **Turns.** The service ends a turn after speech followed by 0.7 s of silence, or
 at 30 s of audio; the rest of the audio opens the next turn. A session holds at
-most one final being heard, one ended turn waiting behind it and the open turn,
-so at most 90 s of audio.
+most two ended turns, both queued to be heard from their turn's end, and the
+open turn, so at most 90 s of audio.
 
 **Server events**, in the order one turn produces them:
 
@@ -172,14 +172,14 @@ so at most 90 s of audio.
 | `error` (`error.type`, `error.code`, `error.message`, `error.param`, `error.event_id`) | the session ends after it |
 
 Every server event has a fresh `event_id`. Correlate by `item_id`: OpenAI does not
-order completions across items; here, with one final per session, they come in turn
-order, but do not depend on it.
+order completions across items; here the second ended turn's `completed` waits
+for the first's, so they come in turn order, but do not depend on it.
 
 **Every announced item ends once.** An item is announced by its `speech_started`,
 its first delta or its `committed`. While connected it ends with exactly one
 `completed` or one `failed`. When the service ends a session (a decode fails or
 the engine is lost, a final waited longer than `SPEECH_HEARING_FINAL_WAIT_SECONDS`,
-a second ended turn while one waits, or a protocol violation) it sends one `failed`
+a third ended turn while two are outstanding, or a protocol violation) it sends one `failed`
 per announced unfinished item, then one `error`, then closes. The `error`'s `code`
 is `invalid_request` (`param` the field at fault), `busy` or `unavailable`. A client
 that disconnects gets nothing.
