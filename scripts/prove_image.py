@@ -23,19 +23,29 @@ import tomllib
 from dataclasses import replace
 from http import HTTPStatus
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 from image_judgement import (
     ImageReport,
+    TmpUsage,
+    app_that,
     baked_caller,
     external_networks,
+    heard_words,
     image_faults,
     locked_distributions,
-    log_faults,
     minting_for,
     require_fails,
+    require_final,
+    require_heard,
+    require_hearing_ready,
+    require_limit_answer,
+    require_log_clean,
     require_marked_wav,
+    require_ready_within,
     require_refusal,
+    require_tmp_clean,
+    require_transcript,
     without_mark,
 )
 from image_stack import (
@@ -47,10 +57,14 @@ from image_stack import (
     SERVICE,
     STOP_TIMEOUT_SECONDS,
     Compose,
+    Reply,
     Session,
     Teardown,
     container_of,
     docker,
+    form_of_size,
+    healthcheck_passes,
+    seconds_until_healthy,
     teardown,
 )
 from proof_identity import (
@@ -68,8 +82,12 @@ from prove_speech import (
     run_under_lock,
     wait_for_load,
 )
-from speech_runtime_client.wire import RefusalCode, speech_request_headers
-from speech_runtime_service.config import load_caller_config
+from speech_runtime_client.wire import (
+    RefusalCode,
+    refusal,
+    speech_request_headers,
+)
+from speech_runtime_service.config import Settings, load_caller_config
 from speech_runtime_service.piper_voices import PINS, PinnedVoice
 from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL
 
@@ -78,6 +96,8 @@ COMPOSE_FILE: Final = REPOSITORY / "compose.yaml"
 BAKED_CONFIG: Final = REPOSITORY / "deploy" / "speech.toml"
 PROOF_OVERRIDE: Final = FIXTURES / "compose.proof.yaml"
 LOOPBACK_OVERRIDE: Final = FIXTURES / "compose.loopback.yaml"
+NO_MODEL_OVERRIDE: Final = FIXTURES / "compose.no-model.yaml"
+MISSING_MODEL_OVERRIDE: Final = FIXTURES / "compose.missing-model.yaml"
 
 # hal builds with a cap of 1800 s; a build past half of it is a finding.
 BUILD_LIMIT_SECONDS: Final = 900
@@ -85,6 +105,13 @@ PUBLIC_ADDRESSES: Final = ("1.1.1.1:443", "huggingface.co:443")
 FORBIDDEN_EXECUTABLES: Final = ("git", "uv", "gcc", "cc")
 # What caller.py reports for a connection nothing listens on.
 REFUSED_CONNECTION: Final = "ConnectionRefusedError"
+# What live.py reports for an upgrade the service refused.
+REFUSED_UPGRADE: Final = "InvalidStatus"
+HEARING_LANGUAGE: Final = "de"
+FOREIGN_LANGUAGE: Final = "fr"
+# The setting a missing model is reported under, in the environment and the log.
+HEARING_MODEL_SETTING: Final = "SPEECH_HEARING_MODEL"
+ANSWER_WAIT_SECONDS: Final = 60
 
 
 def cell_build(compose: Compose) -> None:
@@ -119,11 +146,15 @@ def _locked_set() -> set[str]:
     return locked_distributions(export, _project_name)
 
 
+def service_config(compose: Compose) -> dict[str, Any]:
+    """The service as `compose` renders it."""
+    rendered = json.loads(compose.run("config", "--format", "json").stdout)
+    return rendered["services"][SERVICE]
+
+
 def cell_contents(plain: Compose) -> None:
-    """Cell 2: the image holds the locked set and the pinned voice, no more."""
-    environment = json.loads(plain.run("config", "--format", "json").stdout)[
-        "services"
-    ][SERVICE]["environment"]
+    """Cell 2: the image holds the locked set, the pinned voice and hearing model."""
+    environment = service_config(plain)["environment"]
     pin = PINS[PinnedVoice(DEFAULT_SPEAKING_MODEL)]
     voice_hashes = {
         Path(file.path).name: file.sha256 for file in (pin.model, pin.metadata)
@@ -131,7 +162,9 @@ def cell_contents(plain: Compose) -> None:
     script = (FIXTURES / "inspect_image.py").read_text()
     output = docker(
         "run", "--rm", "--interactive", "--network", "none", "--entrypoint", "python",
-        IMAGE, "-", environment["SPEECH_VOICE_CACHE"], *FORBIDDEN_EXECUTABLES,
+        IMAGE, "-", environment["SPEECH_VOICE_CACHE"],
+        environment["SPEECH_HUGGINGFACE_CACHE"], environment[HEARING_MODEL_SETTING],
+        *FORBIDDEN_EXECUTABLES,
         stdin=script,
     )  # fmt: skip
     report = ImageReport(**json.loads(output))
@@ -141,7 +174,7 @@ def cell_contents(plain: Compose) -> None:
         raise SystemExit(message)
     print(
         f"cell 2: held; user={report.user} distributions={len(report.distributions)}"
-        " no_nvidia=yes"
+        " no_nvidia=yes hearing_model=pinned_revision"
     )
 
 
@@ -166,10 +199,14 @@ def cell_absent_networks(plain: Compose, names: list[str]) -> None:
     print("cell 4: held; compose up refused the absent networks")
 
 
-def cell_start(session: Session) -> None:
-    """Cell 3: the stack starts healthy, read-only and non-root, and writes nothing."""
+def cell_start(session: Session) -> float:
+    """Cell 3: the stack starts healthy, read-only and non-root, and writes nothing.
+
+    Returns the seconds from the service's start to its first passing check.
+    """
     compose = session.compose
     compose.up()
+    seconds = seconds_until_healthy(compose)
     container = container_of(compose, SERVICE)
     inspected = json.loads(docker("inspect", container))[0]
     user = compose.run("exec", "-T", SERVICE, "id", "-u").stdout.strip()
@@ -185,6 +222,7 @@ def cell_start(session: Session) -> None:
         message = f"start is not as shipped: user={user} ready={ready} {writable=}"
         raise SystemExit(message)
     print(f"cell 3: held; healthy read_only user={user} ready={ready} root_writable=no")
+    return seconds
 
 
 def can_write_root(compose: Compose) -> bool:
@@ -266,29 +304,250 @@ def cell_restart(session: Session) -> None:
     if can_write_root(compose):
         message = "the restarted service can write outside tmpfs"
         raise SystemExit(message)
-    print("cell 9: held; healthy again, speaks, root_writable=no")
+    print(
+        "cell 9: held; healthy again after"
+        f" {seconds_until_healthy(compose):.0f}s, speaks, root_writable=no"
+    )
+
+
+def reached(session: Session, addresses: list[str]) -> dict[str, bool]:
+    """Which of `addresses` the service container can open a connection to."""
+    output = session.compose.run(
+        "exec", "-T", SERVICE, "python", "-", *addresses,
+        stdin=(FIXTURES / "reach.py").read_text(),
+    ).stdout  # fmt: skip
+    return json.loads(output)
 
 
 def cell_no_egress(session: Session) -> None:
     """Cell 8: from the service the key server answers and public hosts do not."""
     key_server = f"{session.baked.key_set_host}:{session.baked.key_set_port}"
-    output = session.compose.run(
-        "exec", "-T", SERVICE, "python", "-", key_server, *PUBLIC_ADDRESSES,
-        stdin=(FIXTURES / "reach.py").read_text(),
-    ).stdout  # fmt: skip
-    reached = json.loads(output)
+    reach = reached(session, [key_server, *PUBLIC_ADDRESSES])
     outside = [
         address
-        for address, answered in reached.items()
+        for address, answered in reach.items()
         if answered and address != key_server
     ]
-    if not reached[key_server] or outside:
-        message = f"reach is not the key server alone: {reached}"
+    if not reach[key_server] or outside:
+        message = f"reach is not the key server alone: {reach}"
         raise SystemExit(message)
     print(
         f"cell 8: held; from the service {key_server} answers and "
         f"{', '.join(PUBLIC_ADDRESSES)} do not"
     )
+
+
+def hearer_of(session: Session) -> Session:
+    """The session as the app that may hear."""
+    return replace(session, baked=session.hearer)
+
+
+def cell_hearing_ready(session: Session, plain: Compose, seconds: float) -> None:
+    """Cell 13: hearing is ready, the healthcheck passes, and it did so in time.
+
+    `seconds` is cell 3's measure of the first start.
+    """
+    service = service_config(plain)
+    model = service["environment"][HEARING_MODEL_SETTING]
+    passes = healthcheck_passes(session.compose, service["healthcheck"])
+    require_hearing_ready(session.health(), model, healthcheck_passes=passes)
+    start_period = service["healthcheck"]["start_period"]
+    require_ready_within(seconds, start_period)
+    print(
+        f"cell 13: held; hearing.ready model={model} healthcheck=passes"
+        f" healthy_after={seconds:.0f}s start_period={start_period}"
+    )
+
+
+def cell_recording(session: Session, wav: bytes) -> None:
+    """Cell 14: the app that may hear gets text from one recording."""
+    hearer = hearer_of(session)
+    reply = hearer.hear(hearer.admitted_headers(), wav, HEARING_LANGUAGE)
+    text = require_transcript(reply, SENTENCE)
+    session.heard.append(text)
+    print(
+        f"cell 14: held; {hearer.baked.app} status=200"
+        f" spoken_words_heard={len(heard_words(text, SENTENCE))}"
+    )
+
+
+def cell_not_enabled(session: Session, wav: bytes) -> None:
+    """Cell 15: the same recording from an app without `hear` is refused."""
+    reply = session.hear(session.admitted_headers(), wav, HEARING_LANGUAGE)
+    require_refusal(reply, RefusalCode.NOT_ENABLED)
+    print(f"cell 15: held; {session.baked.app} refused as {RefusalCode.NOT_ENABLED}")
+
+
+def cell_hearing_refusals(session: Session, wav: bytes) -> None:
+    """Cell 16: no token, a foreign group and a foreign language are refused."""
+    hearer = hearer_of(session)
+    admitted = hearer.admitted_headers()
+    outside = replace(
+        minting_for(session.config, hearer.baked, session.signing),
+        service_group=f"{session.config.identity.service_group}-outside",
+    )
+    pair = hearer.pair(outside)
+    cases = [
+        ("no token", {}, HEARING_LANGUAGE, RefusalCode.UNAUTHORIZED),
+        (
+            "a token outside the group",
+            speech_request_headers(
+                workload_token=pair.workload, person_token=pair.person
+            ),
+            HEARING_LANGUAGE,
+            RefusalCode.FORBIDDEN,
+        ),
+        (
+            "a language outside de and en",
+            admitted,
+            FOREIGN_LANGUAGE,
+            RefusalCode.INVALID_REQUEST,
+        ),
+    ]
+    for what, headers, language, code in cases:
+        reply = hearer.hear(headers, wav, language)
+        require_refusal(reply, code)
+        print(f"cell 16: held; {what} refused as {code}")
+
+
+def cell_live_turn(session: Session, wav: bytes) -> None:
+    """Cell 17: a live turn over the WebSocket ends in a final."""
+    hearer = hearer_of(session)
+    outcome = hearer.hear_live(hearer.admitted_headers(), wav)
+    require_final(outcome, SENTENCE)
+    session.heard.append(outcome.final or "")
+    print(f"cell 17: held; final arrived after {outcome.partials} partials")
+
+
+def cell_recording_limit(session: Session) -> None:
+    """Cell 18: a recording at the size limit never becomes a 500 or a full /tmp."""
+    hearer = hearer_of(session)
+    limit = Settings.model_fields["max_recording_bytes"].default
+    at_limit = hearer.post_recording(
+        hearer.admitted_headers(), form_of_size(limit, HEARING_LANGUAGE)
+    )
+    require_limit_answer(at_limit)
+    over = hearer.post_recording(
+        hearer.admitted_headers(), form_of_size(limit + 1, HEARING_LANGUAGE)
+    )
+    require_refusal(over, RefusalCode.TOO_LARGE)
+    usage = hearer.tmp_usage()
+    require_tmp_clean(usage, limit)
+    if hearer.health()["hearing"]["ready"] is not True:
+        message = "hearing is not ready after the recording at the limit"
+        raise SystemExit(message)
+    print(
+        f"cell 18: held; at the limit answered {at_limit.status}, one byte over"
+        f" {over.status}, tmp_files={usage.file_bytes}B"
+        f" of {usage.size_bytes // 2**20}MiB"
+    )
+
+
+def cell_hearing_restart(session: Session, wav: bytes, plain: Compose) -> None:
+    """Cell 19: a restart with no way to a hub ends with both ready and hearing."""
+    compose = session.compose
+    session.collect_log()
+    compose.run("restart", "--timeout", str(STOP_TIMEOUT_SECONDS), SERVICE)
+    compose.up(SERVICE)
+    hearer = hearer_of(session)
+    service = service_config(plain)
+    require_hearing_ready(
+        hearer.health(),
+        service["environment"][HEARING_MODEL_SETTING],
+        healthcheck_passes=healthcheck_passes(compose, service["healthcheck"]),
+    )
+    health = hearer.health()
+    reply = hearer.hear(hearer.admitted_headers(), wav, HEARING_LANGUAGE)
+    session.heard.append(require_transcript(reply, SENTENCE))
+    if any(reached(session, [PUBLIC_ADDRESSES[1]]).values()) or can_write_root(compose):
+        message = "after the restart the service can reach the hub or write its root"
+        raise SystemExit(message)
+    print(
+        f"cell 19: held; healthy_after={seconds_until_healthy(compose):.0f}s"
+        f" speaking_ready={health['speaking']['ready']}"
+        f" hearing_ready={health['hearing']['ready']} heard, hub_reachable=no,"
+        f" root_writable=no, memory_peak_mib={hearer.memory_peak_mib()}"
+    )
+
+
+def wait_until_answering(session: Session) -> None:
+    """Wait for /health to answer, whatever it says."""
+    for _ in range(ANSWER_WAIT_SECONDS):
+        try:
+            session.health()
+        except SystemExit:
+            time.sleep(1)
+        else:
+            return
+    message = "the service did not answer /health"
+    raise SystemExit(message)
+
+
+def start_with(session: Session, override: Path) -> Compose:
+    """Recreate the service with `override` over the proof's files, without waiting."""
+    session.collect_log()
+    stack = replace(session.compose, files=(*session.compose.files, override))
+    stack.run("up", "--detach", "--no-build", "--no-deps", "--force-recreate", SERVICE)
+    return stack
+
+
+def cell_hearing_negatives(session: Session, wav: bytes) -> None:
+    """Cell 20: each hearing check fails, for its own reason, on a wrong subject."""
+    hearer = hearer_of(session)
+    require_fails(
+        lambda: require_heard("Guten Tag zusammen", SENTENCE),
+        "a text that holds no word of the sentence",
+        naming="no word",
+    )
+    wrong_code = refusal(RefusalCode.FORBIDDEN).model_dump_json().encode()
+    require_fails(
+        lambda: require_refusal(Reply(403, wrong_code), RefusalCode.NOT_ENABLED),
+        "a refusal with another code",
+        naming="expected",
+    )
+    server_error = Reply(500, b"internal server error")
+    require_fails(
+        lambda: require_limit_answer(server_error),
+        "a 500 at the size limit",
+        naming="no wire refusal",
+    )
+    require_fails(
+        lambda: require_tmp_clean(TmpUsage(file_bytes=1, size_bytes=2**40), 1),
+        "a spool left in /tmp",
+        naming="spool",
+    )
+    require_fails(
+        lambda: require_final(
+            session.hear_live(session.admitted_headers(), wav), SENTENCE
+        ),
+        "a live turn of an app that may not hear",
+        naming=REFUSED_UPGRADE,
+    )
+    plain = replace(session.compose, files=session.compose.files[:1])
+    model = service_config(plain)["environment"][HEARING_MODEL_SETTING]
+    without = start_with(session, NO_MODEL_OVERRIDE)
+    wait_until_answering(hearer)
+    passes = healthcheck_passes(without, service_config(without)["healthcheck"])
+    require_fails(
+        lambda: require_hearing_ready(
+            hearer.health(), model, healthcheck_passes=passes
+        ),
+        "a compose file without the model",
+        naming="hearing is not ready",
+    )
+    if passes:
+        message = "the healthcheck passes without a hearing model"
+        raise SystemExit(message)
+    missing = start_with(session, MISSING_MODEL_OVERRIDE)
+    require_fails(
+        lambda: missing.up(SERVICE),
+        "a hearing model missing from the image",
+        naming="unhealthy",
+    )
+    if HEARING_MODEL_SETTING not in missing.run("logs", "--no-color", SERVICE).stdout:
+        message = "the service did not stop for want of the hearing model"
+        raise SystemExit(message)
+    print("cell 20: held; the checks of cells 13 to 19 failed on their own reasons")
 
 
 def cell_negatives(session: Session, wav: bytes) -> None:
@@ -314,11 +573,25 @@ def cell_negatives(session: Session, wav: bytes) -> None:
 def cell_log(session: Session) -> None:
     """Cell 11: the logs hold no spoken text and no token."""
     session.collect_log()
-    faults = log_faults("\n".join(session.logs), [SENTENCE], session.tokens)
-    if faults:
-        message = "the service log holds " + ", ".join(faults)
-        raise SystemExit(message)
+    require_log_clean("\n".join(session.logs), [SENTENCE], [], session.tokens)
     print("cell 11: held; the log holds no spoken text and no token")
+
+
+def cell_hearing_log(session: Session) -> None:
+    """Cell 21: the log after the hearing cells holds no heard text either."""
+    log = "\n".join(session.logs)
+    require_log_clean(log, [SENTENCE], session.heard, session.tokens)
+    require_fails(
+        lambda: require_log_clean(
+            f"{log}\n{session.heard[0]}", [SENTENCE], session.heard, session.tokens
+        ),
+        "a log with a heard text",
+        naming="heard text",
+    )
+    print(
+        f"cell 21: held; the log of {len(session.logs)} runs holds no heard text,"
+        " no spoken text and no token"
+    )
 
 
 def print_teardown(outcome: Teardown) -> None:
@@ -334,7 +607,8 @@ def print_teardown(outcome: Teardown) -> None:
 def _prove() -> None:
     wait_for_load()
     config = load_caller_config(BAKED_CONFIG)
-    baked = baked_caller(config)
+    baked = baked_caller(config, app_that(config, hears=False))
+    hearer = baked_caller(config, app_that(config, hears=True))
     directory = Path(tempfile.mkdtemp(prefix="speech-image-"))
     environment = {
         "PROOF_DIRECTORY": str(directory),
@@ -357,18 +631,27 @@ def _prove() -> None:
                     baked.key_set_host,
                     fetch_key_set(identity.jwks_url, identity.ca_path),
                 )
-                session = Session(compose, config, baked, signing, [], [])
+                session = Session(compose, config, baked, hearer, signing, [], [], [])
                 cell_build(compose)
                 cell_contents(plain)
                 cell_absent_networks(plain, names)
-                cell_start(session)
+                started_after = cell_start(session)
                 wav = cell_speak(session)
                 cell_refusals(session)
                 cell_key_server_stopped(session)
                 cell_restart(session)
                 cell_no_egress(session)
+                cell_hearing_ready(session, plain, started_after)
+                cell_recording(session, wav)
+                cell_not_enabled(session, wav)
+                cell_hearing_refusals(session, wav)
+                cell_live_turn(session, wav)
+                cell_recording_limit(session)
+                cell_hearing_restart(session, wav, plain)
+                cell_hearing_negatives(session, wav)
                 cell_negatives(session, wav)
                 cell_log(session)
+                cell_hearing_log(session)
             failed = False
         finally:
             outcome = teardown(compose, failed=failed)

@@ -1,6 +1,6 @@
 """Send one request from inside the proof's caller container; print the reply as JSON.
 
-The request arrives as the one argument: a JSON object with `url`, `method`,
+The request arrives on standard input: a JSON object with `url`, `method`,
 `headers` and `body` (base64, empty for none). A refused or failed connection is
 a reply with an `error`.
 """
@@ -29,7 +29,7 @@ def reply(request: urllib.request.Request) -> dict[str, object]:
     return {"status": status, "body": base64.b64encode(body).decode("ascii")}
 
 
-specification = json.loads(sys.argv[1])
+specification = json.load(sys.stdin)
 print(
     json.dumps(
         reply(

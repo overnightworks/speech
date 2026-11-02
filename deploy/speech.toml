@@ -12,3 +12,8 @@ service_group = "/services/speech-service"
 [apps.hopin]
 workload_client = "hopin"
 voices = ["piper"]
+
+[apps.presentator]
+workload_client = "presentator"
+voices = ["piper"]
+hear = true

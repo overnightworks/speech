@@ -1,0 +1,6 @@
+# The proof's negative: a compose file that names no hearing model, which the
+# service starts with and its healthcheck must not call healthy.
+services:
+  speech-runtime:
+    environment:
+      SPEECH_HEARING_MODEL: !reset null

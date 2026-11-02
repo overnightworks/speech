@@ -1,0 +1,6 @@
+# The proof's negative: the hearing model is not where the service looks, as in
+# an image built without it. The service must not start.
+services:
+  speech-runtime:
+    environment:
+      SPEECH_HUGGINGFACE_CACHE: /tmp/no-model

@@ -169,24 +169,31 @@ For GPU hearing, sync with `uv sync --locked --extra gpu --group dev`.
 
 ### As a container
 
-`Dockerfile` and `compose.yaml` run the service on the CPU with the Piper voice,
-built from the locks: `uv sync --locked --no-dev` installs the CPU path, and the
-voice `de_DE-thorsten-medium` is fetched at build, at its pinned revision and
-checked against its hashes, so the container fetches nothing at start or
-restart. `deploy/speech.toml` is copied into the image and holds the issuer,
-the key set's internal address and the callers; a release tag fixes it. The
+`Dockerfile` and `compose.yaml` run the service on the CPU with the Piper voice
+and hearing with `small` (`int8`, four threads), built from the locks:
+`uv sync --locked --no-dev` installs the CPU path, and the voice
+`de_DE-thorsten-medium` (checked against its hashes) and the `small` model are
+fetched at build, each at its pinned revision, so the container fetches nothing
+at start or restart. `deploy/speech.toml` is copied into the image and holds the
+issuer, the key set's internal address and the callers, presentator with `hear`
+and hopin without; a release tag fixes it. The
 service joins no default network, only the three external, internal networks
 `hal_speech_issuer`, `hal_speech_hopin` and `hal_speech_presentator`, which hal
 creates; without them `docker compose up` fails and nothing runs with egress.
 The root is read-only, the user is not root, and the identity issuer's CA is
-mounted from `~/.secrets/step-ca/root_ca.crt`. The healthcheck reads
-`speaking.ready`, because `/health` answers while the voice loads.
+mounted from `~/.secrets/step-ca/root_ca.crt`. The healthcheck requires
+`speaking.ready` and `hearing.ready`, because `/health` answers while the models
+load and the baked model makes a hearing that did not load a defect of the build.
+Starlette spools an upload above 1 MiB to `/tmp` before the hearing gate is
+asked, so the 128 MiB tmpfs holds the gate's four recordings at
+`SPEECH_MAX_RECORDING_BYTES`, not an unbounded number in flight.
 
 `scripts/prove_image.py` builds that image and starts the real `compose.yaml`
 on isolated networks with a test CA, a key-set server and a caller container.
-It speaks as the baked table's caller, checks the refusals, a visible refusal
-with the key server stopped, the absence of egress and a restart, and ends with
-`PROOF_OK`. It takes the probe lock as the stage proof does, and removes its
+It speaks as the baked table's callers, hears a recording and a live turn as the
+app that may hear, refuses the one that may not, checks the refusals, a visible
+refusal with the key server stopped, the absence of egress, a restart and the
+negatives that make each check able to fail, and ends with `PROOF_OK`. It takes the probe lock as the stage proof does, and removes its
 containers, networks and image on every exit; CI runs it as the job
 `Speech: image`:
 

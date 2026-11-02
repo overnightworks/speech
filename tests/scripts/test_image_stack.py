@@ -52,3 +52,18 @@ def test_a_teardown_tries_both_removals_and_names_each_that_failed(
     assert fake.commands == ["down", "image"]
     assert [line.split(" failed")[0] for line in result.left] == left
     assert result.tail is None
+
+
+@pytest.mark.parametrize("size", [4096, 25 * 1024 * 1024, 25 * 1024 * 1024 + 1])
+def test_a_form_of_a_size_has_a_body_of_exactly_that_many_bytes(size: int) -> None:
+    form = image_stack.form_of_size(size, "de")
+
+    assert len(form.body) == size
+    assert form.content_type.startswith("multipart/form-data; boundary=")
+
+
+def test_a_recording_form_carries_the_language_it_is_given_even_a_foreign_one() -> None:
+    form = image_stack.recording_form(b"audio", "fr")
+
+    assert b'name="language"\r\n\r\nfr' in form.body
+    assert b'name="file"; filename="recording.wav"' in form.body

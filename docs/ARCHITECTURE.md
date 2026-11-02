@@ -78,9 +78,11 @@ flowchart LR
 ## Delivery
 
 The platform builds the image on its host from the release tag, so the tag fixes
-the code, the locked dependencies, the voice and the caller table. Nothing is
-fetched at start or restart: the voice is in the image, and the service has no
-route to a registry or a hub.
+the code, the locked dependencies, the voice, the hearing model and the caller
+table. Nothing is fetched at start or restart: the voice and the `small` hearing
+model are in the image, and the service has no route to a registry or a hub. The
+healthcheck requires both to be ready, so a deployment that cannot hear is not
+recorded.
 
 ```mermaid
 flowchart LR
