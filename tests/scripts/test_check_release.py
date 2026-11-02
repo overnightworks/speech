@@ -77,10 +77,9 @@ def test_the_rows_of_this_repository_name_a_package_that_exists() -> None:
 def test_the_rows_print_for_the_workflow(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["--rows"]) == 0
 
-    printed = capsys.readouterr().out.splitlines()
+    printed = [line.split("|") for line in capsys.readouterr().out.splitlines()]
     assert printed == [
-        f"{row.name}|{row.directory}|{row.package}"
-        for row in release_rows(REPOSITORY_ROOT)
+        [row.name, row.directory, row.package] for row in release_rows(REPOSITORY_ROOT)
     ]
 
 

@@ -102,7 +102,7 @@ jobs:
             exit 1
           fi
 
-      - name: Refuse unless the three version fields equal the version
+      - name: Refuse unless every distribution's version equals the version
         run: python3 scripts/check_release.py "$VERSION"
 
       - name: Install each distribution by its Git pin into an empty project
