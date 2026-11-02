@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling==1.32.4"]
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -10,14 +10,14 @@ requires-python = ">=3.14"
 dependencies = [
     "fastapi==0.162.0",
     "faster-whisper==1.2.1",
-    "huggingface-hub==2.3.0",
+    "huggingface-hub==2.4.0",
     "overnightworks-webauth @ git+https://github.com/overnightworks/webauth@v0.27.0",
     "nvidia-cublas-cu12==12.9.2.10",
     "nvidia-cudnn-cu12==9.27.0.42",
     "numpy==2.5.4",
     "piper-tts==1.8.0",
     "python-multipart==0.0.32",
-    "pydantic-settings==2.16.1",
+    "pydantic-settings==2.16.2",
     "uvicorn==0.54.0",
     "overnightworks-speech-runtime-client",
     "overnightworks-speech-runtime-provider-contract",
@@ -33,9 +33,9 @@ dev = [
     "cryptography==50.0.2",
     "httpx2==2.16.0",
     "pyjwt[crypto]==2.15.1",
-    "pytest==9.1.1",
+    "pytest==9.2.0",
     "pytest-cov==7.1.0",
-    "ruff==0.17.2",
+    "ruff==0.17.3",
 ]
 
 [tool.hatch.metadata]
