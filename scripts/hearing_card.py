@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
 
+SETPRIV = "setpriv"
 CARD_HOLDER = Path(__file__).resolve().with_name("hold_card.py")
 MEMORY_SAMPLE_SECONDS = 0.25
 FREED_TOLERANCE_MIB = 64
@@ -42,14 +43,18 @@ class MemorySampler:
     def __init__(self) -> None:
         """Prepare to sample; nothing runs before entry."""
         self.samples: list[int] = []
+        self._failure: Exception | None = None
         self._stopped = threading.Event()
         self._thread = threading.Thread(target=self._sample, daemon=True)
 
     def _sample(self) -> None:
-        while True:
-            self.samples.append(used_mib())
-            if self._stopped.wait(MEMORY_SAMPLE_SECONDS):
-                return
+        try:
+            while True:
+                self.samples.append(used_mib())
+                if self._stopped.wait(MEMORY_SAMPLE_SECONDS):
+                    return
+        except Exception as failure:  # noqa: BLE001 - kept and raised from __exit__
+            self._failure = failure
 
     def __enter__(self) -> Self:
         """Start sampling."""
@@ -62,18 +67,24 @@ class MemorySampler:
         error: BaseException | None,
         trace: TracebackType | None,
     ) -> None:
-        """Stop sampling."""
+        """Stop sampling; a failed sample would understate the peak, so raise it."""
         self._stopped.set()
         self._thread.join()
+        if self._failure is not None and error is None:
+            raise self._failure
 
 
 @contextlib.contextmanager
 def held_card() -> Iterator[int]:
-    """Hold the card's memory in a second process; always end that process."""
+    """Hold the card's memory in a second process; always end that process.
+
+    The holder asks the kernel for TERM when this process dies, so a proof killed
+    outright cannot leave the card full.
+    """
     environment = os.environ.copy()
     add_cuda_library_path(environment)
-    holder = subprocess.Popen(  # noqa: S603 - argv is this interpreter and the shipped holder script
-        [sys.executable, str(CARD_HOLDER)],
+    holder = subprocess.Popen(  # noqa: S603 - argv is setpriv, this interpreter and the shipped holder script
+        [SETPRIV, "--pdeathsig", "TERM", sys.executable, str(CARD_HOLDER)],
         env=environment,
         stdout=subprocess.PIPE,
         text=True,
