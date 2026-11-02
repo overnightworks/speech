@@ -76,15 +76,24 @@ def test_the_median_takes_the_middle_run_of_each_figure() -> None:
     )
 
 
-def test_the_median_of_partials_skips_runs_that_had_none() -> None:
+@pytest.mark.parametrize(
+    ("deltas", "partials", "first_partial"),
+    [
+        ([(1.0,), (), (3.0,), (), (2.0,)], 3, None),
+        ([(1.0,), (), (3.0,), (2.0,), (), (5.0,), (4.0,)], 5, 3.0),
+    ],
+    ids=["three of five runs had a partial", "five of seven runs had a partial"],
+)
+def test_a_first_partial_median_needs_five_runs_that_had_a_partial(
+    deltas: list[tuple[float, ...]], partials: int, first_partial: float | None
+) -> None:
     timings = [
         figures.timing_of(turn(question=3.0, deltas=delta, final=5.0))
-        for delta in [(1.0,), (), (3.0,), (), (2.0,)]
+        for delta in deltas
     ]
 
-    median = figures.median_timing(timings)
-
-    assert median.first_partial_from_start == pytest.approx(2.0)
+    assert figures.partial_runs(timings) == partials
+    assert figures.median_timing(timings).first_partial_from_start == first_partial
 
 
 def test_fewer_than_five_runs_give_no_median() -> None:
@@ -110,7 +119,7 @@ def test_only_deltas_that_add_words_are_counted(
 
 
 @pytest.mark.parametrize(
-    ("reference", "heard", "errors", "reference_words"),
+    ("reference", "heard", "errors", "reference_words_total"),
     [
         ("Wie spät ist es?", "wie spät ist es", 0, 4),
         ("Wie spät ist es", "Wie spät ist das", 1, 4),
@@ -121,11 +130,14 @@ def test_only_deltas_that_add_words_are_counted(
     ],
 )
 def test_word_errors_count_the_edits_against_the_known_sentence(
-    reference: str, heard: str, errors: int, reference_words: int
+    reference: str, heard: str, errors: int, reference_words_total: int
 ) -> None:
     found = figures.word_errors(reference, heard)
 
-    assert (found.errors, found.reference_words) == (errors, reference_words)
+    assert (found.errors, found.reference_words_total) == (
+        errors,
+        reference_words_total,
+    )
 
 
 def test_word_errors_of_several_runs_add_up_to_one_rate() -> None:
@@ -311,6 +323,31 @@ def test_a_figure_that_is_null_in_every_run_is_named_not_measured() -> None:
     ]
 
 
+def test_a_long_turn_without_growing_deltas_or_timing_is_not_measured() -> None:
+    timed = figures.timing_record(figures.Timing(1.0, 0.5, 4.0, 3.5))
+    untimed = figures.timing_record(figures.Timing(None, None, 4.0, 3.5))
+
+    def model(growing: int, timing: dict[str, float | None]) -> dict[str, object]:
+        live = {"growing_deltas": growing, "timing": timing}
+        return {
+            "status": figures.StageStatus.MEASURED,
+            "languages": {"de": {"long_turn": {"live": live}}},
+        }
+
+    models = {
+        "small": model(3, timed),
+        "base": model(1, timed),
+        "tiny": model(0, untimed),
+    }
+
+    assert figures.not_measured(list(models), models, {}) == [
+        "base languages de long_turn live growing_deltas",
+        "tiny languages de long_turn live growing_deltas",
+        "tiny languages de long_turn live first_partial_from_start",
+        "tiny languages de long_turn live first_partial_after_end",
+    ]
+
+
 def test_timing_and_error_records_carry_plain_numbers() -> None:
     timing = figures.Timing(1.0, 0.5, 4.0, 3.5)
 
@@ -322,6 +359,6 @@ def test_timing_and_error_records_carry_plain_numbers() -> None:
     }
     assert figures.error_record(figures.WordErrors(1, 4)) == {
         "errors": 1,
-        "reference_words": 4,
+        "reference_words_total": 4,
         "rate": 0.25,
     }

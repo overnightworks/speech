@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
 
 MIN_RUNS: Final = 5
+MIN_GROWING_DELTAS: Final = 2
 FRAME_SECONDS: Final = 0.1
 FRAME_BYTES: Final = int(LIVE_INPUT_RATE * FRAME_SECONDS) * BYTES_PER_SAMPLE
 TRAILING_SILENCE_SECONDS: Final = 2.0
@@ -100,15 +101,22 @@ def count_growing_deltas(deltas: Sequence[str]) -> int:
     return sum(1 for delta in deltas if delta.strip())
 
 
+def partial_runs(timings: Sequence[Timing]) -> int:
+    """How many of the runs had a first partial."""
+    return sum(1 for timing in timings if timing.first_partial_from_start is not None)
+
+
 def _median_of_present(values: Sequence[float | None]) -> float | None:
+    """The median over the runs that have it; `None` below `MIN_RUNS` of them."""
     present = [value for value in values if value is not None]
-    return statistics.median(present) if present else None
+    return statistics.median(present) if len(present) >= MIN_RUNS else None
 
 
 def median_timing(timings: Sequence[Timing]) -> Timing:
     """The median of each figure over `MIN_RUNS` runs or more.
 
-    Raises `ValueError` for fewer runs: a median of fewer is no measurement.
+    Raises `ValueError` for fewer runs: a median of fewer is no measurement. A
+    first partial that fewer than `MIN_RUNS` runs had is `None` for that reason.
     """
     if len(timings) < MIN_RUNS:
         message = f"a median needs at least {MIN_RUNS} runs, got {len(timings)}"
@@ -132,20 +140,25 @@ def words(text: str) -> list[str]:
 
 @dataclass(frozen=True)
 class WordErrors:
-    """Edits (substitutions, insertions, deletions) against a reference text."""
+    """Edits (substitutions, insertions, deletions) against a reference text.
+
+    `reference_words_total` counts the reference's words once per comparison, so
+    the errors of several runs added together have the words of all of them.
+    """
 
     errors: int
-    reference_words: int
+    reference_words_total: int
 
     @property
     def rate(self) -> float:
         """Errors per reference word."""
-        return self.errors / self.reference_words
+        return self.errors / self.reference_words_total
 
     def plus(self, other: WordErrors) -> WordErrors:
         """The errors of both comparisons taken together."""
         return WordErrors(
-            self.errors + other.errors, self.reference_words + other.reference_words
+            self.errors + other.errors,
+            self.reference_words_total + other.reference_words_total,
         )
 
 
@@ -325,16 +338,22 @@ def _is_finished(entry: object) -> bool:
 
 
 def _null_figures(entry: object, path: tuple[str, ...] = ()) -> Iterator[str]:
-    """The paths of every `median` figure of the record that is null."""
+    """The paths of every null `median` or long-turn `timing` figure of the record.
+
+    A long turn with fewer than `MIN_GROWING_DELTAS` growing deltas is named too.
+    """
     if not isinstance(entry, dict):
         return
     for key, value in entry.items():
-        if key == "median" and isinstance(value, dict):
+        if key in ("median", "timing") and isinstance(value, dict):
             yield from (
                 " ".join((*path, figure))
                 for figure, number in value.items()
                 if number is None
             )
+        elif key == "growing_deltas":
+            if value < MIN_GROWING_DELTAS:
+                yield " ".join((*path, key))
         else:
             yield from _null_figures(value, (*path, str(key)))
 
@@ -365,6 +384,6 @@ def error_record(errors: WordErrors) -> dict[str, float | int]:
     """Word errors as record fields."""
     return {
         "errors": errors.errors,
-        "reference_words": errors.reference_words,
+        "reference_words_total": errors.reference_words_total,
         "rate": errors.rate,
     }

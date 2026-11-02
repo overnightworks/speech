@@ -23,6 +23,7 @@ import json
 import os
 import shutil
 import statistics
+import subprocess
 import sys
 import tempfile
 import time
@@ -41,6 +42,7 @@ from speech_runtime_provider_contract import (
 
 import hearing_figures as figures
 from hearing_card import (
+    SETPRIV,
     MemorySampler,
     card_is_freed,
     held_card,
@@ -226,10 +228,23 @@ def wait_loaded(
         except httpx2.HTTPError, json.JSONDecodeError:
             pass
         sleep(POLL_SECONDS)
+    detail = "" if last is None else f": {last}"
     message = (
-        f"the service did not finish loading within {READY_TIMEOUT_SECONDS}s: {last}"
+        f"the service did not finish loading within {READY_TIMEOUT_SECONDS}s{detail}"
     )
     raise SystemExit(message)
+
+
+def start_with_parent_death(
+    command: list[str], **options: object
+) -> subprocess.Popen[str]:
+    """Start `command` so that the kernel sends it TERM when this process dies.
+
+    A proof killed outright then leaves no service holding models on the card.
+    """
+    return subprocess.Popen(  # noqa: S603 - argv is setpriv with the service's own command
+        [SETPRIV, "--pdeathsig", "TERM", *command], **options
+    )
 
 
 @contextlib.contextmanager
@@ -252,7 +267,11 @@ def hearing_service(
                 speaks=functools.partial(_speaks, base_url, minting, voice),
             )
             with speech_server(
-                base_url, environment, directory, wait_ready=wait_ready
+                base_url,
+                environment,
+                directory,
+                start=start_with_parent_death,
+                wait_ready=wait_ready,
             ) as running:
                 running.spoken_texts.extend(spoken_texts())
                 yield Service(base_url, minting, running)
@@ -353,6 +372,7 @@ def _live_record(reference: str, turns: Sequence[LiveTurn]) -> dict[str, object]
     return {
         "runs": len(turns),
         "median": figures.timing_record(figures.median_timing(timings)),
+        "runs_with_partial": figures.partial_runs(timings),
         "timings": [figures.timing_record(timing) for timing in timings],
         "word_errors": figures.error_record(_errors_of(reference, heard)),
         "heard": sorted(set(heard)),
@@ -583,6 +603,14 @@ def _runs(text: str) -> int:
     return runs
 
 
+def _record_path(text: str) -> Path:
+    path = Path(text)
+    if not path.parent.is_dir():
+        message = f"the record's directory {path.parent} does not exist"
+        raise argparse.ArgumentTypeError(message)
+    return path
+
+
 def parse_arguments(arguments: list[str]) -> argparse.Namespace:
     """Read the command line before anything starts; `--help` and typos exit here."""
     parser = argparse.ArgumentParser(
@@ -599,7 +627,7 @@ def parse_arguments(arguments: list[str]) -> argparse.Namespace:
         required=True,
         help="a hearing model to measure; give it once per model",
     )
-    parser.add_argument("--record", type=Path, required=True)
+    parser.add_argument("--record", type=_record_path, required=True)
     parser.add_argument(
         "--english-voice-directory",
         type=Path,

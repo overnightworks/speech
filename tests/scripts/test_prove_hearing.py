@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import contextlib
 import json
+import signal
+import subprocess
+import sys
+import threading
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
@@ -51,6 +55,15 @@ def test_the_device_the_models_and_the_paths_come_from_the_command_line() -> Non
     assert arguments.record == Path("record.json")
     assert arguments.english_voice_directory == VOICES
     assert arguments.runs == int(RUNS)
+
+
+def test_a_record_in_a_missing_directory_is_refused_before_anything_starts(
+    tmp_path: Path,
+) -> None:
+    arguments = command("--record", str(tmp_path / "missing" / "record.json"))
+
+    with pytest.raises(SystemExit):
+        HEARING.parse_arguments(arguments)
 
 
 def test_the_runs_default_to_the_fewest_a_median_needs() -> None:
@@ -277,6 +290,46 @@ def test_a_service_that_never_finishes_loading_fails_the_wait(
 ) -> None:
     with pytest.raises(SystemExit, match="did not finish loading"):
         wait_loaded_with(health, speaks=speaks)
+
+
+def test_a_wait_that_never_heard_the_service_names_no_health() -> None:
+    clock = FakeClock()
+
+    def unreachable(*_: object) -> dict[str, object]:
+        message = "refused"
+        raise httpx2.ConnectError(message)
+
+    with pytest.raises(SystemExit) as failure:
+        HEARING.wait_loaded(
+            "http://127.0.0.1:1", lambda: True, unreachable, clock.now, clock.jump
+        )
+
+    assert "None" not in str(failure.value)
+
+
+def test_a_service_ends_when_the_thread_that_started_it_ends() -> None:
+    sleeps_until_told = "import time; print('up', flush=True); time.sleep(600)"
+    started: list[subprocess.Popen[str]] = []
+
+    def start_and_wait_until_up() -> None:
+        child = HEARING.start_with_parent_death(
+            [sys.executable, "-c", sleeps_until_told],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        started.append(child)
+        child.stdout.readline()
+
+    thread = threading.Thread(target=start_and_wait_until_up)
+    thread.start()
+    thread.join()
+    child = started[0]
+    try:
+        assert child.wait(timeout=30) == -signal.SIGTERM
+    finally:
+        child.kill()
+        child.wait()
+        child.stdout.close()
 
 
 def taken_card(

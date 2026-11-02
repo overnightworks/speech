@@ -120,8 +120,10 @@ def test_a_run_outside_the_lock_hands_over_to_the_fleet_form(
         environments.append(env)
         return subprocess.CompletedProcess(command, 0)
 
-    assert PROVE.run_under_lock(["--help"], run) == 0
-    assert started == [PROVE.fleet_command(["--help"])]
+    other = Path("/scripts/other_proof.py")
+
+    assert PROVE.run_under_lock(["--help"], run, other) == 0
+    assert started == [PROVE.fleet_command(["--help"], other)]
     assert PROVE.LOCK_HELD_ENV in environments[0]
 
 
