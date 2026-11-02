@@ -1,8 +1,0 @@
-claim_id = "0b0c47b3cbe7464694a76f39edef7893"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "19d0da8a36b267f36ccd309dfa49f9b825069648"
-branch = "claude/issue-91-h1c-hear-on-the-gpu-with-numbers-and-a-d"
-scope = ["README.md", "docs", "scripts", "tests"]
-opened_commit = "437b5f3c63c2d39d6a2f37e9b69afc2ae2a0c486"
-whole_reason = "One stage proof: its script, the recorded numbers and the declared budget change together."
