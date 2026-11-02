@@ -33,6 +33,7 @@ THREE_TURNS_SECONDS = 4 * 30 + 1
 SETTLE_TURNS = 3
 BLOCKER_AND_MARKER = 2
 DELTA = "conversation.item.input_audio_transcription.delta"
+PCM_BYTES_PER_SECOND = 32_000
 
 
 def _transcribe_silence(engine: HearingEngine) -> str:
@@ -291,15 +292,20 @@ def test_a_session_that_ended_takes_nothing_more() -> None:
 
 
 def test_an_item_whose_final_decode_is_empty_completes_once_with_empty_text() -> None:
-    async def scenario() -> FakeSocket:
-        session, socket = await started(loaded(FakeHearing(text=""), FakeClock()))
+    async def scenario() -> tuple[FakeSocket, FakeHearing]:
+        engine = FakeHearing(text="")
+        session, socket = await started(loaded(engine, FakeClock()))
         await _one_question(session)
         await session.settled()
-        return socket
+        return socket, engine
 
-    socket = asyncio.run(scenario())
+    socket, engine = asyncio.run(scenario())
 
-    assert [event["transcript"] for event in socket.of_type(COMPLETED)] == [""]
+    completed = socket.of_type(COMPLETED)
+    assert [event["transcript"] for event in completed] == [""]
+    assert [event["usage"] for event in completed] == [
+        {"type": "duration", "seconds": engine.heard[0][0] / PCM_BYTES_PER_SECOND}
+    ]
     assert socket.of_type(FAILED) == []
 
 

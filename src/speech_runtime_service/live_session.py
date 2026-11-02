@@ -228,6 +228,7 @@ class LiveSession:
         return self._open_item
 
     async def _finish_turn(self, turn: TurnEnd) -> None:
+        deadline = self._clock.now() + self._final_wait_seconds
         item_id = self._open_item_id()
         self._open_item = None
         self._turn_number += 1
@@ -240,7 +241,6 @@ class LiveSession:
         await self._emit(
             ItemCreated(previous_item_id=previous, item=UserMessageItem(id=item_id))
         )
-        deadline = self._clock.now() + self._final_wait_seconds
         final = _Final(item_id, turn.pcm, deadline)
         if not self._final_active:
             self._start_final(final)

@@ -94,7 +94,7 @@ def test_a_final_handed_the_gate_after_its_deadline_is_not_started() -> None:
         waiting = asyncio.create_task(gate.acquire_final(clock.now() + WAIT_SECONDS))
         await clock.until_a_wait_begins()
         running.close()
-        clock.advance(2 * WAIT_SECONDS)
+        clock.jump(2 * WAIT_SECONDS)
         lease = await waiting
         return lease, gate.try_acquire() is not None
 

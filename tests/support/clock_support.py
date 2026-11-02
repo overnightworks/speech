@@ -18,9 +18,13 @@ class FakeClock:
         """The time now."""
         return self._now
 
+    def jump(self, seconds: float) -> None:
+        """Move time forward without waking any wait."""
+        self._now += seconds
+
     def advance(self, seconds: float) -> None:
         """Move time forward and wake every wait whose deadline has come."""
-        self._now += seconds
+        self.jump(seconds)
         for deadline, sleeper in self._sleepers:
             if deadline <= self._now and not sleeper.done():
                 sleeper.set_result(None)
