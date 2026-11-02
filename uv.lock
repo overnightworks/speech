@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.14"
 
 [manifest]
@@ -625,8 +625,6 @@ dependencies = [
     { name = "faster-whisper" },
     { name = "huggingface-hub" },
     { name = "numpy" },
-    { name = "nvidia-cublas-cu12" },
-    { name = "nvidia-cudnn-cu12" },
     { name = "overnightworks-speech-runtime-client" },
     { name = "overnightworks-speech-runtime-provider-contract" },
     { name = "overnightworks-webauth" },
@@ -635,6 +633,12 @@ dependencies = [
     { name = "python-multipart" },
     { name = "uvicorn" },
     { name = "websockets" },
+]
+
+[package.optional-dependencies]
+gpu = [
+    { name = "nvidia-cublas-cu12" },
+    { name = "nvidia-cudnn-cu12" },
 ]
 
 [package.dev-dependencies]
@@ -653,8 +657,8 @@ requires-dist = [
     { name = "faster-whisper", specifier = "==1.2.1" },
     { name = "huggingface-hub", specifier = "==2.4.0" },
     { name = "numpy", specifier = "==2.5.4" },
-    { name = "nvidia-cublas-cu12", specifier = "==12.9.2.10" },
-    { name = "nvidia-cudnn-cu12", specifier = "==9.27.0.42" },
+    { name = "nvidia-cublas-cu12", marker = "extra == 'gpu'", specifier = "==12.9.2.10" },
+    { name = "nvidia-cudnn-cu12", marker = "extra == 'gpu'", specifier = "==9.27.0.42" },
     { name = "overnightworks-speech-runtime-client", editable = "packages/client" },
     { name = "overnightworks-speech-runtime-provider-contract", editable = "providers/provider-contract" },
     { name = "overnightworks-webauth", git = "https://github.com/overnightworks/webauth?rev=v0.27.0" },
@@ -664,6 +668,7 @@ requires-dist = [
     { name = "uvicorn", specifier = "==0.54.0" },
     { name = "websockets", specifier = "==17.4" },
 ]
+provides-extras = ["gpu"]
 
 [package.metadata.requires-dev]
 dev = [

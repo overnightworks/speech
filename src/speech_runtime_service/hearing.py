@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from speech_runtime_service.admission_gate import AdmissionGate, Lease
-from speech_runtime_service.cuda_libs import prepare_cuda_libraries
+from speech_runtime_service.cuda_libs import cuda_library_dirs, prepare_cuda_libraries
 from speech_runtime_service.hearing_models import model_directory
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ _DEVICES: Final = frozenset({"cpu", "cuda"})
 
 
 class ResourceUnavailableError(Exception):
-    """The load failed for want of the resource: no CUDA device, or the card is full."""
+    """The load failed for want of a resource: a card, its libraries or room on it."""
 
 
 class HearingEngine(Protocol):
@@ -55,10 +55,11 @@ def _is_resource_failure(error: RuntimeError) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class HearingLibraries:
-    """The two entry points of the inference libraries that hearing needs."""
+    """The inference libraries' entry points that hearing needs."""
 
     model_factory: Callable[..., Any]
     cuda_device_count: Callable[[], int]
+    cuda_library_dirs: Callable[[], list[Path]]
 
 
 def installed_libraries() -> HearingLibraries:
@@ -67,7 +68,9 @@ def installed_libraries() -> HearingLibraries:
     import ctranslate2  # noqa: PLC0415 - heavy and loaded only once hearing is configured
     from faster_whisper import WhisperModel  # noqa: PLC0415 - as above
 
-    return HearingLibraries(WhisperModel, ctranslate2.get_cuda_device_count)
+    return HearingLibraries(
+        WhisperModel, ctranslate2.get_cuda_device_count, cuda_library_dirs
+    )
 
 
 class WhisperHearing:
@@ -98,9 +101,13 @@ class WhisperHearing:
     def load(self) -> None:
         """Load the CTranslate2 weights from the local directory, never the network."""
         libraries = self._libraries()
-        if self._cuda and libraries.cuda_device_count() == 0:
-            message = "no CUDA device"
-            raise ResourceUnavailableError(message)
+        if self._cuda:
+            if libraries.cuda_device_count() == 0:
+                message = "no CUDA device"
+                raise ResourceUnavailableError(message)
+            if not libraries.cuda_library_dirs():
+                message = "the gpu extra is not installed: CUDA libraries are missing"
+                raise ResourceUnavailableError(message)
         try:
             self._model = libraries.model_factory(
                 str(self._directory),
