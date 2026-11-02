@@ -4,10 +4,10 @@ Starts the speech service once per hearing model and hears a German and an
 English question and a long turn, live over a WebSocket and from a file. On
 `cuda` it also measures the card's peak memory and starts the service on a card
 a second process holds. It writes one JSON record and prints its stage lines.
-It never downloads a hearing model and fetches only the English Piper voice,
-never starts or stops anything but its own processes, and takes the probe-stack
-lock as `prove_speech` does. Its clips are synthetic: German from the service's
-speak route, English from a Piper voice.
+It never downloads a hearing model and fetches only the English Piper voice
+at its pin, never starts or stops anything but its own processes, and takes the
+probe-stack lock as `prove_speech` does. Its clips are synthetic: German from the
+service's speak route, English from a Piper voice.
 """
 
 # ruff: noqa: T201 - the proof prints its stage lines as the command line output
@@ -89,6 +89,7 @@ from speech_runtime_service.hearing_models import (
     model_directory,
 )
 from speech_runtime_service.pcm import pcm_from_wav
+from speech_runtime_service.piper_voices import PinnedVoice, fetch_voice_files
 from speech_runtime_service.voices import (
     CHATTERBOX_SPEAKING_MODEL,
     DEFAULT_SPEAKING_MODEL,
@@ -113,7 +114,6 @@ if TYPE_CHECKING:
 
 
 THIS_SCRIPT = Path(__file__).resolve()
-ENGLISH_VOICE = "en_US-lessac-medium"
 GPU_SPEAKING_MODELS = (
     CHATTERBOX_SPEAKING_MODEL,
     QWEN_MODEL_ID,
@@ -312,14 +312,7 @@ def german_clip(service: Service, text: str) -> bytes:
 
 def english_voice_path(directory: Path) -> Path:
     """The English Piper voice in `directory`, fetched there once if absent."""
-    from piper.download_voices import download_voice
-
-    onnx = directory / f"{ENGLISH_VOICE}.onnx"
-    if not onnx.is_file():
-        print("fetching_english_voice", ENGLISH_VOICE, directory)
-        directory.mkdir(parents=True, exist_ok=True)
-        download_voice(ENGLISH_VOICE, directory)
-    return onnx
+    return fetch_voice_files(PinnedVoice.LESSAC, directory)
 
 
 def english_clip(voice: PiperVoice, text: str) -> bytes:
@@ -738,7 +731,7 @@ def prove(
         "runs": arguments.runs,
         "clips": (
             "synthetic: German from the service's speak route, English from the"
-            f" Piper voice {ENGLISH_VOICE}"
+            f" Piper voice {PinnedVoice.LESSAC.value}"
         ),
         "gpu_before": card_line(arguments.device),
         "models": models,
