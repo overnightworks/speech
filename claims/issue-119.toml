@@ -3,6 +3,6 @@ agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
 role = "builder"
 base = "35ae5745aa28dc57fb19c2448aef6a534db1089f"
 branch = "claude/issue-119-image-and-compose"
-scope = [".dockerignore", ".github/dependabot.yml", ".github/workflows/ci.yml", "Dockerfile", "README.md", "compose.yaml", "deploy", "docs/ARCHITECTURE.md", "pyproject.toml", "quality/config.toml", "scripts/prove_image.py", "tests/fixtures/image", "tests/scripts"]
+scope = [".dockerignore", ".github/dependabot.yml", ".github/workflows/ci.yml", "Dockerfile", "README.md", "compose.yaml", "deploy", "docs/ARCHITECTURE.md", "pyproject.toml", "quality/config.toml", "scripts/proof_identity.py", "scripts/prove_image.py", "tests/fixtures/image", "tests/scripts"]
 opened_commit = "b5b9845d81fa7aa2e399cf6d96f1da8ddb062b47"
 whole_reason = "One delivery path: the image, the compose file, the settings it bakes and the proof that drives them prove nothing apart."
