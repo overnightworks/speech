@@ -177,3 +177,21 @@ speaking held. On the CPU with Piper:
 SPEECH_DEVICE=cpu SPEECH_SPEAKING_MODEL=de_DE-thorsten-medium \
   OMP_NUM_THREADS=4 uv run python scripts/prove_speech.py
 ```
+
+Hearing stage proof, under the same lock form. It hears a German and an English
+question and one long turn per language, live over the Realtime WebSocket and
+from a file, with the medians of at least five runs, the word errors against the
+known sentence and the growing deltas of the long turn. On `cuda` it also
+records the card's peak memory per hearing model, alone and with each GPU voice
+already in the cache, and starts the service on a card a second process holds.
+On `cpu` those two stages are recorded as not applicable. The clips are
+synthetic: German from the service's speak route, English from a Piper voice
+fetched into `--english-voice-directory` when absent. It never downloads a
+hearing model (fetch it with `speech-runtime-fetch-hearing-model`) and never
+starts or stops anything but its own processes, so the caller makes the card
+free first. It writes the JSON record to `--record`:
+
+```sh
+CUDA_VISIBLE_DEVICES= uv run python scripts/prove_hearing.py --device cpu \
+  --hearing-model small --record record.json --english-voice-directory ~/.cache/piper-en
+```
