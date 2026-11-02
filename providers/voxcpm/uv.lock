@@ -2008,7 +2008,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/df/b5/f2cb1950dda46ac22
 
 [[package]]
 name = "overnightworks-speech-runtime-provider-contract"
-version = "0.0.0"
+version = "0.1.0"
 source = { editable = "../provider-contract" }
 
 [[package]]

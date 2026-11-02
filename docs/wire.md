@@ -208,7 +208,8 @@ sentence per code and never echoes the request. `type` is
 `invalid_request_error` for a 4xx and `server_error` for a 5xx. `param` is one
 of `file`, `model`, `input`, `voice`, `language`, `response_format`, `intent`, or `null`
 when no request field is at fault (an unknown field, a body that is not a JSON
-object). Apps read `code`.
+object). Apps read `code`. With several faults in one request, which field `param`
+names is not part of the contract.
 
 | `code` | Status | When | Header |
 |---|---|---|---|
