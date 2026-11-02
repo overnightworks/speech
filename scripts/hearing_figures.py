@@ -34,7 +34,7 @@ from speech_runtime_service.hearing_session import (
 from speech_runtime_service.pcm import BYTES_PER_SAMPLE, LIVE_INPUT_RATE
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
 
 MIN_RUNS: Final = 5
 FRAME_SECONDS: Final = 0.1
@@ -324,12 +324,27 @@ def _is_finished(entry: object) -> bool:
     )
 
 
+def _null_figures(entry: object, path: tuple[str, ...] = ()) -> Iterator[str]:
+    """The paths of every `median` figure of the record that is null."""
+    if not isinstance(entry, dict):
+        return
+    for key, value in entry.items():
+        if key == "median" and isinstance(value, dict):
+            yield from (
+                " ".join((*path, figure))
+                for figure, number in value.items()
+                if number is None
+            )
+        else:
+            yield from _null_figures(value, (*path, str(key)))
+
+
 def not_measured(
     required_models: Iterable[str],
     models: Mapping[str, object],
     stages: Mapping[str, object],
 ) -> list[str]:
-    """What the record lacks: required models and stages that did not finish."""
+    """What the record lacks: unfinished models and stages, and null medians."""
     return [
         *(
             f"hearing model {model}"
@@ -337,6 +352,7 @@ def not_measured(
             if not _is_finished(models.get(model))
         ),
         *(f"stage {name}" for name, stage in stages.items() if not _is_finished(stage)),
+        *_null_figures(models),
     ]
 
 

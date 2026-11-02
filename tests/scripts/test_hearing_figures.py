@@ -292,6 +292,25 @@ def test_only_unfinished_or_missing_models_and_stages_are_not_measured() -> None
     ]
 
 
+def test_a_figure_that_is_null_in_every_run_is_named_not_measured() -> None:
+    silent = figures.timing_record(figures.Timing(None, None, 4.0, 3.5))
+    heard = figures.timing_record(figures.Timing(1.0, 0.5, 4.0, 3.5))
+    models = {
+        "small": {
+            "status": figures.StageStatus.MEASURED,
+            "languages": {
+                "de": {"question": {"live": {"median": silent}}},
+                "en": {"question": {"live": {"median": heard}}},
+            },
+        }
+    }
+
+    assert figures.not_measured(["small"], models, {}) == [
+        "small languages de question live first_partial_from_start",
+        "small languages de question live first_partial_after_end",
+    ]
+
+
 def test_timing_and_error_records_carry_plain_numbers() -> None:
     timing = figures.Timing(1.0, 0.5, 4.0, 3.5)
 
