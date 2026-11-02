@@ -292,6 +292,7 @@ class TakenCardObservation:
     file_status: int
     file_code: str | None
     live_status: int | None
+    live_code: str | None
     spoke_bytes: int
 
 
@@ -304,8 +305,9 @@ def taken_card_failures(seen: TakenCardObservation) -> list[str]:
             seen.file_status == HTTPStatus.SERVICE_UNAVAILABLE
             and seen.file_code == RefusalCode.UNAVAILABLE
         ),
-        "the live upgrade did not answer 503": (
+        "the live upgrade did not answer 503 unavailable": (
             seen.live_status == HTTPStatus.SERVICE_UNAVAILABLE
+            and seen.live_code == RefusalCode.UNAVAILABLE
         ),
         "speaking returned no audio": seen.spoke_bytes > 0,
     }
@@ -337,10 +339,19 @@ def _is_finished(entry: object) -> bool:
     )
 
 
-def _null_figures(entry: object, path: tuple[str, ...] = ()) -> Iterator[str]:
-    """The paths of every null `median` or long-turn `timing` figure of the record.
+def _heard_nothing(heard: object) -> bool:
+    """True for a heard text, or a list of them, that holds a blank text."""
+    texts = [heard] if isinstance(heard, str) else heard
+    return isinstance(texts, list) and any(not text.strip() for text in texts)
 
-    A long turn with fewer than `MIN_GROWING_DELTAS` growing deltas is named too.
+
+def _unmeasured_figures(entry: object, path: tuple[str, ...] = ()) -> Iterator[str]:
+    """The paths of the figures of the record that measure nothing.
+
+    A null `median` or long-turn `timing` figure (fewer than `MIN_RUNS` runs had
+    it), a long turn with fewer than `MIN_GROWING_DELTAS` growing deltas, and a
+    `heard` text that is empty, which would score a word error rate of 1.0 yet
+    prove no hearing.
     """
     if not isinstance(entry, dict):
         return
@@ -354,8 +365,11 @@ def _null_figures(entry: object, path: tuple[str, ...] = ()) -> Iterator[str]:
         elif key == "growing_deltas":
             if value < MIN_GROWING_DELTAS:
                 yield " ".join((*path, key))
+        elif key == "heard":
+            if _heard_nothing(value):
+                yield " ".join((*path, key))
         else:
-            yield from _null_figures(value, (*path, str(key)))
+            yield from _unmeasured_figures(value, (*path, str(key)))
 
 
 def not_measured(
@@ -363,7 +377,10 @@ def not_measured(
     models: Mapping[str, object],
     stages: Mapping[str, object],
 ) -> list[str]:
-    """What the record lacks: unfinished models and stages, and null medians."""
+    """What the record lacks: unfinished models and stages, and unmeasured figures.
+
+    The figures are those `_unmeasured_figures` names.
+    """
     return [
         *(
             f"hearing model {model}"
@@ -371,7 +388,7 @@ def not_measured(
             if not _is_finished(models.get(model))
         ),
         *(f"stage {name}" for name, stage in stages.items() if not _is_finished(stage)),
-        *_null_figures(models),
+        *_unmeasured_figures(models),
     ]
 
 

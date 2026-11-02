@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import Mock
@@ -211,3 +212,28 @@ def test_a_lock_marker_outside_a_lock_directory_is_refused(tmp_path: Path) -> No
         PROVE.announce_lock_held({PROVE.LOCK_HELD_ENV: str(marker)})
 
     assert not marker.exists()
+
+
+def test_a_service_ends_when_the_thread_that_started_it_ends() -> None:
+    sleeps_until_told = "import time; print('up', flush=True); time.sleep(600)"
+    started: list[subprocess.Popen[str]] = []
+
+    def start_and_wait_until_up() -> None:
+        child = PROVE.start_with_parent_death(
+            [sys.executable, "-c", sleeps_until_told],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        started.append(child)
+        child.stdout.readline()
+
+    thread = threading.Thread(target=start_and_wait_until_up)
+    thread.start()
+    thread.join()
+    child = started[0]
+    try:
+        assert child.wait(timeout=30) == -signal.SIGTERM
+    finally:
+        child.kill()
+        child.wait()
+        child.stdout.close()

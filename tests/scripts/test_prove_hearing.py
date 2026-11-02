@@ -4,10 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import signal
-import subprocess
-import sys
-import threading
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
@@ -119,6 +115,84 @@ def test_the_resident_memory_with_a_voice_includes_what_its_synthesis_took(
     )
 
     assert peak["warmed_resident_over_baseline_mib"] == synthesis_mib
+
+
+@contextlib.contextmanager
+def sampled_before_and_after() -> Iterator[object]:
+    """A sampler that saw the card only before the allocation and after teardown."""
+    yield SimpleNamespace(samples=[1010, 1005])
+
+
+def test_the_peak_is_never_below_the_warmed_resident_reading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    card = FakeNvidiaSmi(tmp_path, monkeypatch)
+    card.use(1000)
+    synthesis_mib = 700
+
+    @contextlib.contextmanager
+    def serve(*_: str) -> Iterator[object]:
+        yield HEARING.Service("http://127.0.0.1:1", None, None)  # type: ignore[arg-type]
+
+    def speak(*_: object) -> tuple[bytes, float, float]:
+        card.use(1000 + synthesis_mib)
+        return b"", 0.0, 0.0
+
+    ports = HEARING.Ports(
+        serve=serve,
+        speak=speak,
+        hear=lambda *_: (0.0, ""),
+        sample=sampled_before_and_after,
+    )
+
+    peak = HEARING.measure_peak(
+        "cuda", "small", HEARING.DEFAULT_SPEAKING_MODEL, b"", ports
+    )
+
+    assert peak["peak_over_baseline_mib"] == synthesis_mib
+    assert peak["peak_sampled_every_seconds"] == HEARING.MEMORY_SAMPLE_SECONDS
+
+
+def test_a_language_measured_with_one_delta_in_its_long_turn_is_not_measured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runs = 5
+    question, long_turn = b"question", b"long turn"
+    german = HEARING.LANGUAGES[0]
+
+    async def hear_turn(_: object, __: object, pcm: bytes) -> HEARING.LiveTurn:
+        deltas = ("Wie",) if pcm == long_turn else ("Wie", "spät")
+        return HEARING.LiveTurn(
+            2.0,
+            tuple(2.5 + index for index in range(len(deltas))),
+            deltas,
+            6.0,
+            "Wie spät",
+        )
+
+    def hear_recording(_: object, __: object, ___: bytes) -> tuple[float, str]:
+        return 0.5, "Wie spät"
+
+    monkeypatch.setattr(HEARING, "hear_live", hear_turn)
+    monkeypatch.setattr(HEARING, "hear_file", hear_recording)
+
+    record = HEARING.measure_language(
+        SimpleNamespace(),  # type: ignore[arg-type]
+        german,
+        HEARING.Clip(question, long_turn),
+        runs,
+    )
+    models = {
+        "small": {
+            "status": HEARING.figures.StageStatus.MEASURED,
+            "languages": {german.code.value: record},
+        }
+    }
+
+    assert record["question"]["live"]["runs_with_partial"] == runs
+    assert HEARING.figures.not_measured(["small"], models, {}) == [
+        f"small languages {german.code.value} long_turn live growing_deltas"
+    ]
 
 
 class FakeCard:
@@ -307,31 +381,6 @@ def test_a_wait_that_never_heard_the_service_names_no_health() -> None:
     assert "None" not in str(failure.value)
 
 
-def test_a_service_ends_when_the_thread_that_started_it_ends() -> None:
-    sleeps_until_told = "import time; print('up', flush=True); time.sleep(600)"
-    started: list[subprocess.Popen[str]] = []
-
-    def start_and_wait_until_up() -> None:
-        child = HEARING.start_with_parent_death(
-            [sys.executable, "-c", sleeps_until_told],
-            stdout=subprocess.PIPE,
-            text=True,
-        )
-        started.append(child)
-        child.stdout.readline()
-
-    thread = threading.Thread(target=start_and_wait_until_up)
-    thread.start()
-    thread.join()
-    child = started[0]
-    try:
-        assert child.wait(timeout=30) == -signal.SIGTERM
-    finally:
-        child.kill()
-        child.wait()
-        child.stdout.close()
-
-
 def taken_card(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -354,8 +403,10 @@ def taken_card(
             running=SimpleNamespace(health=health),
         )
 
-    async def upgrade(_: object) -> int:
-        return HTTPStatus.SERVICE_UNAVAILABLE
+    async def upgrade(_: object) -> object:
+        return HEARING.UpgradeRefusal(
+            HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE
+        )
 
     ports = HEARING.Ports(
         hold=hold,

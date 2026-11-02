@@ -11,6 +11,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 import httpx2
+from pydantic import ValidationError
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
@@ -28,6 +29,7 @@ from speech_runtime_client.wire import (
     AudioAppend,
     ErrorEvent,
     HearingLanguage,
+    Refusal,
     SessionAudio,
     SessionInput,
     SessionUpdate,
@@ -70,6 +72,24 @@ def token_headers(minting: Minting) -> dict[str, str]:
         WORKLOAD_TOKEN_HEADER: pair.workload,
         AUTHORIZATION_HEADER: f"Bearer {pair.person}",
     }
+
+
+def refusal_code(status: int, body: bytes) -> str | None:
+    """The error code of a 503 answer's contract body; `None` for any other answer."""
+    if status != HTTPStatus.SERVICE_UNAVAILABLE:
+        return None
+    try:
+        return Refusal.model_validate_json(body).error.code
+    except ValidationError:
+        return None
+
+
+@dataclass(frozen=True)
+class UpgradeRefusal:
+    """The HTTP answer that refused a live upgrade."""
+
+    status: int
+    code: str | None
 
 
 def post_recording(
@@ -187,13 +207,13 @@ async def hear_live(
                 await sender
 
 
-async def upgrade_status(
+async def upgrade_refusal(
     service: Service,
     open_connection: Callable[
         ..., contextlib.AbstractAsyncContextManager[object]
     ] = connect,
-) -> int | None:
-    """The HTTP status that refuses a live upgrade, or `None` if it was accepted."""
+) -> UpgradeRefusal | None:
+    """The answer that refuses a live upgrade, or `None` if it was accepted."""
     try:
         async with open_connection(
             live_url(service.base_url),
@@ -201,4 +221,7 @@ async def upgrade_status(
         ):
             return None
     except InvalidStatus as refused:
-        return refused.response.status_code
+        answer = refused.response
+        return UpgradeRefusal(
+            answer.status_code, refusal_code(answer.status_code, answer.body or b"")
+        )

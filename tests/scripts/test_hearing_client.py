@@ -1,4 +1,4 @@
-"""The hearing proof's client reads the status that refuses a live upgrade."""
+"""The hearing proof's client reads the answer that refuses a live upgrade."""
 
 from __future__ import annotations
 
@@ -6,10 +6,12 @@ import asyncio
 from http import HTTPStatus
 from types import SimpleNamespace
 
+import pytest
 from websockets.datastructures import Headers
 from websockets.exceptions import InvalidStatus
 from websockets.http11 import Response
 
+from speech_runtime_client.wire import RefusalCode, refusal
 from tests.support.identity_support import MINTING
 from tests.support.script_support import script_module
 
@@ -35,21 +37,55 @@ class Upgrade:
 SERVICE = SimpleNamespace(base_url="http://127.0.0.1:1", minting=MINTING)
 
 
-def refused_with(status: HTTPStatus) -> InvalidStatus:
-    return InvalidStatus(Response(status, status.phrase, Headers()))
+def refused_with(status: HTTPStatus, body: bytes = b"") -> InvalidStatus:
+    return InvalidStatus(Response(status, status.phrase, Headers(), body))
 
 
-def test_a_refused_upgrade_gives_the_status_that_refused_it() -> None:
+def unavailable_body() -> bytes:
+    return refusal(RefusalCode.UNAVAILABLE).model_dump_json().encode()
+
+
+def test_a_refused_upgrade_gives_the_status_and_the_code_that_refused_it() -> None:
+    refused = Upgrade(refused_with(HTTPStatus.SERVICE_UNAVAILABLE, unavailable_body()))
+
+    answer = asyncio.run(CLIENT.upgrade_refusal(SERVICE, lambda *_, **__: refused))
+
+    assert answer == CLIENT.UpgradeRefusal(
+        HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE
+    )
+
+
+def test_a_refused_upgrade_without_the_contract_body_gives_no_code() -> None:
     refused = Upgrade(refused_with(HTTPStatus.SERVICE_UNAVAILABLE))
 
-    status = asyncio.run(CLIENT.upgrade_status(SERVICE, lambda *_, **__: refused))
+    answer = asyncio.run(CLIENT.upgrade_refusal(SERVICE, lambda *_, **__: refused))
 
-    assert status == HTTPStatus.SERVICE_UNAVAILABLE
+    assert answer == CLIENT.UpgradeRefusal(HTTPStatus.SERVICE_UNAVAILABLE, None)
 
 
-def test_an_accepted_upgrade_gives_no_status() -> None:
+@pytest.mark.parametrize(
+    ("status", "body", "code"),
+    [
+        (HTTPStatus.SERVICE_UNAVAILABLE, unavailable_body(), RefusalCode.UNAVAILABLE),
+        (
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            refusal(RefusalCode.BUSY).model_dump_json().encode(),
+            RefusalCode.BUSY,
+        ),
+        (HTTPStatus.SERVICE_UNAVAILABLE, b"", None),
+        (HTTPStatus.SERVICE_UNAVAILABLE, b"not json", None),
+        (HTTPStatus.OK, unavailable_body(), None),
+    ],
+)
+def test_only_a_503_with_the_contract_body_gives_a_refusal_code(
+    status: HTTPStatus, body: bytes, code: RefusalCode | None
+) -> None:
+    assert CLIENT.refusal_code(status, body) == code
+
+
+def test_an_accepted_upgrade_gives_no_refusal() -> None:
     accepted = Upgrade(None)
 
     assert (
-        asyncio.run(CLIENT.upgrade_status(SERVICE, lambda *_, **__: accepted)) is None
+        asyncio.run(CLIENT.upgrade_refusal(SERVICE, lambda *_, **__: accepted)) is None
     )

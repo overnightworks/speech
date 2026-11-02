@@ -246,6 +246,7 @@ def taken(**changes: object) -> list[str]:
         "file_status": 503,
         "file_code": RefusalCode.UNAVAILABLE.value,
         "live_status": 503,
+        "live_code": RefusalCode.UNAVAILABLE.value,
         "spoke_bytes": 4096,
     }
     return figures.taken_card_failures(
@@ -260,7 +261,9 @@ def taken(**changes: object) -> list[str]:
         ({"hearing_ready": True}, "hearing is ready on a taken card"),
         ({"file_status": 200}, "the file route did not answer 503 unavailable"),
         ({"file_code": "busy"}, "the file route did not answer 503 unavailable"),
-        ({"live_status": 101}, "the live upgrade did not answer 503"),
+        ({"live_status": 101}, "the live upgrade did not answer 503 unavailable"),
+        ({"live_code": "busy"}, "the live upgrade did not answer 503 unavailable"),
+        ({"live_code": None}, "the live upgrade did not answer 503 unavailable"),
         ({"spoke_bytes": 0}, "speaking returned no audio"),
     ],
 )
@@ -337,6 +340,7 @@ def test_a_long_turn_without_growing_deltas_or_timing_is_not_measured() -> None:
     models = {
         "small": model(3, timed),
         "base": model(1, timed),
+        "edge": model(figures.MIN_GROWING_DELTAS, timed),
         "tiny": model(0, untimed),
     }
 
@@ -345,6 +349,30 @@ def test_a_long_turn_without_growing_deltas_or_timing_is_not_measured() -> None:
         "tiny languages de long_turn live growing_deltas",
         "tiny languages de long_turn live first_partial_from_start",
         "tiny languages de long_turn live first_partial_after_end",
+    ]
+
+
+def test_an_empty_heard_text_is_not_measured() -> None:
+    def model(question: list[str], long_turn: str) -> dict[str, object]:
+        return {
+            "status": figures.StageStatus.MEASURED,
+            "languages": {
+                "de": {
+                    "question": {"file": {"heard": question}},
+                    "long_turn": {"file": {"heard": long_turn}},
+                }
+            },
+        }
+
+    models = {
+        "small": model(["Hallo Welt"], "Guten Tag"),
+        "base": model(["Hallo Welt", "  "], "Guten Tag"),
+        "tiny": model(["Hallo Welt"], ""),
+    }
+
+    assert figures.not_measured(list(models), models, {}) == [
+        "base languages de question file heard",
+        "tiny languages de long_turn file heard",
     ]
 
 

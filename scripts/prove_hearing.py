@@ -23,7 +23,6 @@ import json
 import os
 import shutil
 import statistics
-import subprocess
 import sys
 import tempfile
 import time
@@ -42,7 +41,7 @@ from speech_runtime_provider_contract import (
 
 import hearing_figures as figures
 from hearing_card import (
-    SETPRIV,
+    MEMORY_SAMPLE_SECONDS,
     MemorySampler,
     card_is_freed,
     held_card,
@@ -50,10 +49,12 @@ from hearing_card import (
 )
 from hearing_client import (
     Service,
+    UpgradeRefusal,
     hear_file,
     hear_live,
     post_recording,
-    upgrade_status,
+    refusal_code,
+    upgrade_refusal,
 )
 from hearing_figures import LiveTurn, WordErrors
 from proof_identity import Minting, load_minting, mint_pair, proof_identity
@@ -76,7 +77,6 @@ from prove_speech import (
 from speech_runtime_client.wire import (
     SPEECH_PATH,
     HearingLanguage,
-    Refusal,
     speech_request_body,
     speech_request_headers,
 )
@@ -235,18 +235,6 @@ def wait_loaded(
     raise SystemExit(message)
 
 
-def start_with_parent_death(
-    command: list[str], **options: object
-) -> subprocess.Popen[str]:
-    """Start `command` so that the kernel sends it TERM when this process dies.
-
-    A proof killed outright then leaves no service holding models on the card.
-    """
-    return subprocess.Popen(  # noqa: S603 - argv is setpriv with the service's own command
-        [SETPRIV, "--pdeathsig", "TERM", *command], **options
-    )
-
-
 @contextlib.contextmanager
 def hearing_service(
     device: str, hearing_model: str, speaking_model: str
@@ -270,7 +258,6 @@ def hearing_service(
                 base_url,
                 environment,
                 directory,
-                start=start_with_parent_death,
                 wait_ready=wait_ready,
             ) as running:
                 running.spoken_texts.extend(spoken_texts())
@@ -281,15 +268,16 @@ def hearing_service(
 
 @dataclass(frozen=True)
 class Ports:
-    """What the card stages do outside the proof: hold, serve, ask, speak, hear."""
+    """What the card stages do outside the proof, from holding to sampling it."""
 
     hold: Callable[[], AbstractContextManager[int]] = held_card
     serve: Callable[..., AbstractContextManager[Service]] = hearing_service
     post: Callable[..., httpx2.Response] = post_recording
-    upgrade: Callable[[Service], Awaitable[int | None]] = upgrade_status
+    upgrade: Callable[[Service], Awaitable[UpgradeRefusal | None]] = upgrade_refusal
     speak: Callable[..., tuple[bytes, float, float]] = speak_measured
     hear: Callable[..., tuple[float, str]] = hear_file
     freed: Callable[[int], bool] = card_is_freed
+    sample: Callable[[], AbstractContextManager[MemorySampler]] = MemorySampler
 
 
 PORTS = Ports()
@@ -394,7 +382,9 @@ def _file_record(
 
 
 def _long_turn_record(
-    service: Service, language: Language, clip: Clip
+    service: Service,
+    language: Language,
+    clip: Clip,
 ) -> dict[str, object]:
     turn = asyncio.run(hear_live(service, language.code, clip.long_turn))
     seconds, text = hear_file(service, language.code, clip.long_turn)
@@ -420,7 +410,10 @@ def _long_turn_record(
 
 
 def measure_language(
-    service: Service, language: Language, clip: Clip, runs: int
+    service: Service,
+    language: Language,
+    clip: Clip,
+    runs: int,
 ) -> dict[str, object]:
     """One language's short question, live and from a file, and its long turn."""
     hear_file(service, language.code, clip.question)
@@ -485,12 +478,6 @@ def measure_models(
 # -- the card -----------------------------------------------------------------
 
 
-def _refusal_code(response: httpx2.Response) -> str | None:
-    if response.status_code != HTTPStatus.SERVICE_UNAVAILABLE:
-        return None
-    return Refusal.model_validate_json(response.content).error.code
-
-
 def measure_peak(
     device: str,
     hearing_model: str,
@@ -500,12 +487,16 @@ def measure_peak(
 ) -> dict[str, object]:
     """The card's peak over its baseline from service start, a synthesis, a long decode.
 
+    The peak is the highest of the samples and the warmed resident reading. It is a
+    sampled maximum: a spike shorter than the sampling period can fall between two
+    samples, so the record names that period beside the peak.
+
     The voice has synthesised before memory is read, as speaking and hearing run
     side by side and the allocations of synthesis belong to the peak.
     """
     baseline = used_mib()
     with (
-        MemorySampler() as sampler,
+        ports.sample() as sampler,
         ports.serve(device, hearing_model, speaking_model) as service,
     ):
         ports.speak(
@@ -515,7 +506,10 @@ def measure_peak(
         resident = used_mib()
     return {
         "baseline_mib": baseline,
-        "peak_over_baseline_mib": figures.peak_over_baseline(baseline, sampler.samples),
+        "peak_over_baseline_mib": figures.peak_over_baseline(
+            baseline, [*sampler.samples, resident]
+        ),
+        "peak_sampled_every_seconds": MEMORY_SAMPLE_SECONDS,
         "warmed_resident_over_baseline_mib": resident - baseline,
     }
 
@@ -563,7 +557,7 @@ def prove_taken_card(
         with ports.serve(device, hearing_model, DEFAULT_SPEAKING_MODEL) as service:
             health = service.running.health
             file_answer = ports.post(service, HearingLanguage.DE, german.question)
-            live_status = asyncio.run(ports.upgrade(service))
+            live = asyncio.run(ports.upgrade(service))
             wav, _, _ = ports.speak(
                 service.base_url,
                 GERMAN_QUESTION,
@@ -577,8 +571,9 @@ def prove_taken_card(
             speaking_ready=isinstance(speaking, dict) and speaking["ready"] is True,
             hearing_ready=isinstance(hearing, dict) and hearing["ready"] is True,
             file_status=file_answer.status_code,
-            file_code=_refusal_code(file_answer),
-            live_status=live_status,
+            file_code=refusal_code(file_answer.status_code, file_answer.content),
+            live_status=None if live is None else live.status,
+            live_code=None if live is None else live.code,
             spoke_bytes=len(wav),
         )
     )

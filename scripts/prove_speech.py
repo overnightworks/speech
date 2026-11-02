@@ -219,7 +219,8 @@ def _wait_ready(base_url: str) -> dict[str, object]:
         if speaking["ready"] is True:
             return last
         time.sleep(0.5)
-    message = f"speaking not ready within {READY_TIMEOUT_SECONDS}s: {last}"
+    detail = "" if last is None else f": {last}"
+    message = f"speaking not ready within {READY_TIMEOUT_SECONDS}s{detail}"
     raise SystemExit(message)
 
 
@@ -357,12 +358,30 @@ class RunningSpeech:
         return peak_rss_mib(status.read_text(encoding="utf-8"))
 
 
+SETPRIV = "setpriv"
+
+
+def start_with_parent_death(
+    command: list[str], **options: object
+) -> subprocess.Popen[str]:
+    """Start `command` under `setpriv` so the kernel sends it TERM with its parent.
+
+    The signal follows the thread that spawned the child, not the process: call
+    this from the thread that lives as long as the proof, never from a worker
+    thread, or the child dies when that worker returns. A proof killed outright
+    then leaves no child holding the card.
+    """
+    return subprocess.Popen(  # noqa: S603 - argv is setpriv with the caller's own command
+        [SETPRIV, "--pdeathsig", "TERM", *command], **options
+    )
+
+
 @contextlib.contextmanager
 def speech_server(
     base_url: str,
     env: dict[str, str],
     work_directory: Path,
-    start: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
+    start: Callable[..., subprocess.Popen[str]] = start_with_parent_death,
     wait_ready: Callable[[str], dict[str, object]] = _wait_ready,
 ) -> Iterator[RunningSpeech]:
     """Start speech, wait until it is ready, and stop it on the way out.

@@ -12,14 +12,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
 import hearing_figures as figures
-from prove_speech import add_cuda_library_path, query_nvidia
+from prove_speech import (
+    add_cuda_library_path,
+    query_nvidia,
+    start_with_parent_death,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from types import TracebackType
 
 
-SETPRIV = "setpriv"
 CARD_HOLDER = Path(__file__).resolve().with_name("hold_card.py")
 MEMORY_SAMPLE_SECONDS = 0.25
 FREED_TOLERANCE_MIB = 64
@@ -78,13 +81,14 @@ class MemorySampler:
 def held_card() -> Iterator[int]:
     """Hold the card's memory in a second process; always end that process.
 
-    The holder asks the kernel for TERM when this process dies, so a proof killed
-    outright cannot leave the card full.
+    The holder asks the kernel for TERM when the thread that entered this ends, so
+    a proof killed outright cannot leave the card full. Enter it on the proof's
+    main thread.
     """
     environment = os.environ.copy()
     add_cuda_library_path(environment)
-    holder = subprocess.Popen(  # noqa: S603 - argv is setpriv with this interpreter and the shipped holder script
-        [SETPRIV, "--pdeathsig", "TERM", sys.executable, str(CARD_HOLDER)],
+    holder = start_with_parent_death(
+        [sys.executable, str(CARD_HOLDER)],
         env=environment,
         stdout=subprocess.PIPE,
         text=True,
