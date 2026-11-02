@@ -33,7 +33,7 @@ from speech_runtime_service.hearing_session import (
 from speech_runtime_service.pcm import BYTES_PER_SAMPLE, LIVE_INPUT_RATE
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 
 MIN_RUNS: Final = 5
 FRAME_SECONDS: Final = 0.1
@@ -305,6 +305,27 @@ def stage_record(
     if device != applies_on:
         return {"status": "not applicable", "reason": f"the device is {device}"}
     return {"status": "measured", **measure()}
+
+
+def not_measured(
+    required_models: Iterable[str],
+    measured_models: Collection[str],
+    stages: Mapping[str, object],
+) -> list[str]:
+    """What the record lacks: required models without figures, stages not finished."""
+    finished = ("measured", "not applicable")
+    return [
+        *(
+            f"hearing model {model}"
+            for model in required_models
+            if model not in measured_models
+        ),
+        *(
+            f"stage {name}"
+            for name, stage in stages.items()
+            if not isinstance(stage, dict) or stage.get("status") not in finished
+        ),
+    ]
 
 
 def timing_record(timing: Timing) -> dict[str, float | None]:

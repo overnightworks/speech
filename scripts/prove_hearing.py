@@ -93,7 +93,7 @@ from speech_runtime_service.voices import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
     from piper import PiperVoice
 
@@ -124,6 +124,7 @@ ENGLISH_LONG_TURN = (
     "Finally we decide who greets the guests at the entrance and who shows "
     "them the way to the rooms."
 )
+CARD_STAGES = ("gpu_memory", "taken_card")
 PROBE_TEXT = "Bereit."
 SPEAK_WAIT_SECONDS = 30.0
 POLL_SECONDS = 0.5
@@ -391,11 +392,10 @@ def measure_language(
 
 
 def measure_models(
-    arguments: argparse.Namespace,
-) -> tuple[dict[str, object], dict[HearingLanguage, Clip]]:
-    """Every hearing model's figures, and the clips made on the way."""
+    arguments: argparse.Namespace, models: dict[str, object]
+) -> dict[HearingLanguage, Clip]:
+    """Fill `models` with each hearing model's figures as it ends; return the clips."""
     clips: dict[HearingLanguage, Clip] | None = None
-    models: dict[str, object] = {}
     for model in arguments.hearing_models:
         with hearing_service(
             arguments.device, model, DEFAULT_SPEAKING_MODEL
@@ -419,7 +419,7 @@ def measure_models(
     if clips is None:
         message = "no hearing model was given"
         raise SystemExit(message)
-    return models, clips
+    return clips
 
 
 # -- the card -----------------------------------------------------------------
@@ -457,31 +457,32 @@ def measure_peak(
 
 
 def measure_memory(
-    device: str, hearing_models: Sequence[str], clips: dict[HearingLanguage, Clip]
-) -> dict[str, object]:
-    """Peak memory per hearing model, alone and with each cached GPU voice resident."""
+    device: str,
+    hearing_models: Sequence[str],
+    clips: dict[HearingLanguage, Clip],
+    memory: dict[str, object],
+) -> None:
+    """Fill `memory` with each model's peak, alone and with each cached voice."""
     installed = installed_voice_ids(load_settings())
     cached = [m for m in GPU_SPEAKING_MODELS if voice_for_model(m) in installed]
     warm_clip = clips[HearingLanguage.DE].long_turn
-    return {
-        "voices_not_in_cache": [
-            voice_for_model(m).value for m in GPU_SPEAKING_MODELS if m not in cached
-        ],
-        "models": {
-            model: {
-                "hearing_alone": measure_peak(
-                    device, model, DEFAULT_SPEAKING_MODEL, warm_clip
-                ),
-                "with_voice": {
-                    voice_for_model(speaking).value: measure_peak(
-                        device, model, speaking, warm_clip
-                    )
-                    for speaking in cached
-                },
-            }
-            for model in hearing_models
-        },
-    }
+    memory["voices_not_in_cache"] = [
+        voice_for_model(m).value for m in GPU_SPEAKING_MODELS if m not in cached
+    ]
+    models: dict[str, object] = {}
+    memory["models"] = models
+    for model in hearing_models:
+        peaks: dict[str, object] = {}
+        models[model] = peaks
+        peaks["hearing_alone"] = measure_peak(
+            device, model, DEFAULT_SPEAKING_MODEL, warm_clip
+        )
+        with_voice: dict[str, object] = {}
+        peaks["with_voice"] = with_voice
+        for speaking in cached:
+            with_voice[voice_for_model(speaking).value] = measure_peak(
+                device, model, speaking, warm_clip
+            )
 
 
 def prove_taken_card(
@@ -572,14 +573,37 @@ def require_cached_models(models: Sequence[HearingModel]) -> None:
             raise SystemExit(str(missing)) from None
 
 
+def required_models(arguments: argparse.Namespace) -> list[str]:
+    """Every catalogue model on `cuda`, where the item asks for both; else the given."""
+    if arguments.device == "cuda":
+        return [str(model) for model in HearingModel]
+    return [str(model) for model in arguments.hearing_models]
+
+
 def card_line(device: str) -> str:
     """The card's memory line on `cuda`; the card is not asked about otherwise."""
     return nvidia_memory() if device == "cuda" else "not applicable"
 
 
+def run_stage(
+    record: dict[str, object],
+    name: str,
+    device: str,
+    measure: Callable[[dict[str, object]], None],
+) -> None:
+    """Run a `cuda` stage into `record[name]`; a failure leaves what it measured."""
+    stage: dict[str, object] = figures.stage_record(device, "cuda", dict)
+    record[name] = stage
+    if stage["status"] == "measured":
+        stage["status"] = "unfinished"
+        measure(stage)
+        stage["status"] = "measured"
+
+
 def _prove(arguments: argparse.Namespace) -> None:
     require_cached_models(arguments.hearing_models)
     wait_for_load()
+    models: dict[str, object] = {}
     record: dict[str, object] = {
         "device": arguments.device,
         "runs": arguments.runs,
@@ -589,32 +613,45 @@ def _prove(arguments: argparse.Namespace) -> None:
         ),
         "complete": False,
         "gpu_before": card_line(arguments.device),
+        "models": models,
     }
     failures: list[str] = []
     try:
-        record["models"], clips = measure_models(arguments)
-        record["gpu_memory"] = figures.stage_record(
+        clips = measure_models(arguments, models)
+        run_stage(
+            record,
+            "gpu_memory",
             arguments.device,
-            "cuda",
-            lambda: measure_memory(arguments.device, arguments.hearing_models, clips),
+            lambda stage: measure_memory(
+                arguments.device, arguments.hearing_models, clips, stage
+            ),
         )
-        record["taken_card"] = figures.stage_record(
+        run_stage(
+            record,
+            "taken_card",
             arguments.device,
-            "cuda",
-            lambda: prove_taken_card(
-                arguments.device, arguments.hearing_models[0], clips
+            lambda stage: stage.update(
+                prove_taken_card(arguments.device, arguments.hearing_models[0], clips)
             ),
         )
         taken = record["taken_card"]
         if isinstance(taken, dict):
             failures = list(taken.get("failures", []))
-        record["complete"] = not failures
     finally:
+        unmeasured = figures.not_measured(
+            required_models(arguments),
+            models,
+            {name: record.get(name) for name in CARD_STAGES},
+        )
+        record["not_measured"] = unmeasured
+        record["complete"] = not failures and not unmeasured
         arguments.record.write_text(json.dumps(record, indent=2), encoding="utf-8")
         print("record", arguments.record)
         print("gpu_released", card_line(arguments.device))
     if failures:
         raise SystemExit("the taken card differs from cell 30: " + "; ".join(failures))
+    if unmeasured:
+        raise SystemExit("not measured: " + "; ".join(unmeasured))
     print("PROOF_OK")
 
 
