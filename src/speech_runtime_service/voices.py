@@ -72,10 +72,13 @@ def installed_voice_ids(settings: Settings) -> frozenset[VoiceId]:
     return frozenset(installed)
 
 
+def piper_voice_paths(directory: Path, model: str) -> tuple[Path, Path]:
+    """The `.onnx` and `.onnx.json` paths of the Piper voice `model` in `directory`."""
+    return directory / f"{model}.onnx", directory / f"{model}.onnx.json"
+
+
 def _piper_is_present(cache: Path, model: str) -> bool:
-    return all(
-        (cache / f"{model}{suffix}").is_file() for suffix in (".onnx", ".onnx.json")
-    )
+    return all(path.is_file() for path in piper_voice_paths(cache, model))
 
 
 def _chatterbox_is_present(cache: Path) -> bool:

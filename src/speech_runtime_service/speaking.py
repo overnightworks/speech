@@ -24,6 +24,7 @@ from speech_runtime_service.voices import (
     CHATTERBOX_SPEAKING_MODEL,
     DEFAULT_SPEAKING_MODEL,
     VoiceId,
+    piper_voice_paths,
 )
 
 if TYPE_CHECKING:
@@ -50,8 +51,8 @@ class PiperSpeaking:
         """Load the exact local Piper artifacts and keep them resident."""
         from piper import PiperVoice
 
-        onnx = self._cache / f"{self.model_name}.onnx"
-        if not onnx.is_file() or not onnx.with_suffix(".onnx.json").is_file():
+        onnx, metadata = piper_voice_paths(self._cache, self.model_name)
+        if not onnx.is_file() or not metadata.is_file():
             raise FileNotFoundError
         voice = PiperVoice.load(onnx)
         self._voice = voice
