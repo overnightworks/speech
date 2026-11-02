@@ -9,6 +9,8 @@ from tests.support.live_support import (
     WAIT_SECONDS,
     FakeSocket,
     StallingSocket,
+    append,
+    audio,
     commit_a_turn,
     end_is,
     started,
@@ -16,6 +18,7 @@ from tests.support.live_support import (
 
 FINALS = 2
 THREE_FINALS = 3
+CAP_PLUS_SECONDS = 31
 
 
 def test_finals_of_several_sessions_are_served_in_arrival_order_before_file_jobs() -> (
@@ -143,6 +146,35 @@ def test_a_stalled_send_at_the_second_turns_end_lets_nothing_pass_its_decode() -
 
     assert sizes == sorted(sizes)
     assert heard_when_the_file_job_runs == THREE_FINALS
+
+
+def test_a_capped_turn_behind_a_stalled_send_queues_before_a_file_job() -> None:
+    async def scenario() -> int:
+        engine = FakeHearing()
+        clock = FakeClock()
+        hearing = loaded(engine, clock)
+        running = hearing.gate.try_acquire()
+        assert running is not None
+        file = asyncio.create_task(
+            hearing.gate.acquire(clock.now() + WAIT_SECONDS, 1), eager_start=True
+        )
+        socket = StallingSocket("input_audio_buffer.speech_started")
+        session, _ = await started(hearing, socket=socket)
+        append_past_the_cap = asyncio.create_task(
+            session.on_message(append(audio(CAP_PLUS_SECONDS)))
+        )
+        await socket.stalled.wait()
+        running.close()
+        file_lease = await asyncio.wait_for(file, WAIT_SECONDS)
+        assert file_lease is not None
+        heard_when_the_file_job_runs = len(engine.heard)
+        file_lease.close()
+        socket.proceed.set()
+        await append_past_the_cap
+        await session.on_disconnect()
+        return heard_when_the_file_job_runs
+
+    assert asyncio.run(scenario()) == 1
 
 
 def test_a_final_whose_turn_end_send_stalls_past_its_wait_is_never_heard() -> None:

@@ -204,20 +204,30 @@ class LiveSession:
         if turn is None:
             await self._end_locked(RefusalCode.INVALID_REQUEST, None, event.event_id)
             return
-        await self._finish_turn(turn)
+        await self._apply([turn])
 
     async def _apply(self, events: Sequence[SpeechStart | TurnEnd]) -> None:
+        """Settle every ended turn of `events` before the first send suspends."""
+        outgoing: list[BaseModel] = []
+        backlog = False
         for event in events:
-            if self._ended:
-                return
             if isinstance(event, SpeechStart):
-                await self._emit(
+                outgoing.append(
                     SpeechStarted(
                         item_id=self._open_item_id(), audio_start_ms=event.audio_ms
                     )
                 )
-            else:
-                await self._finish_turn(event)
+                continue
+            ended, backlog = self._end_turn(event)
+            outgoing += ended
+            if backlog:
+                break
+        for message in outgoing:
+            if self._ended:
+                return
+            await self._emit(message)
+        if backlog and not self._ended:
+            await self._end_locked(RefusalCode.BUSY)
 
     def _open_item_id(self) -> str:
         if self._open_item is None:
@@ -225,7 +235,8 @@ class LiveSession:
             self._unfinished[self._open_item] = None
         return self._open_item
 
-    async def _finish_turn(self, turn: TurnEnd) -> None:
+    def _end_turn(self, turn: TurnEnd) -> tuple[list[BaseModel], bool]:
+        """Queue the turn's final; return what to send and whether the queue is full."""
         deadline = self._clock.now() + self._final_wait_seconds
         item_id = self._open_item_id()
         self._open_item = None
@@ -235,15 +246,15 @@ class LiveSession:
         backlog = len(self._finals) == _MAX_ENDED_TURNS
         if not backlog:
             self._queue_final(_Final(item_id, turn.pcm, deadline))
-        if not turn.by_client:
-            await self._emit(SpeechStopped(item_id=item_id, audio_end_ms=turn.end_ms))
         previous, self._last_item = self._last_item, item_id
-        await self._emit(AudioCommitted(item_id=item_id, previous_item_id=previous))
-        await self._emit(
+        outgoing: list[BaseModel] = []
+        if not turn.by_client:
+            outgoing.append(SpeechStopped(item_id=item_id, audio_end_ms=turn.end_ms))
+        outgoing.append(AudioCommitted(item_id=item_id, previous_item_id=previous))
+        outgoing.append(
             ItemCreated(previous_item_id=previous, item=UserMessageItem(id=item_id))
         )
-        if backlog:
-            await self._end_locked(RefusalCode.BUSY)
+        return outgoing, backlog
 
     def _queue_final(self, final: _Final) -> None:
         ahead = self._finals[-1] if self._finals else None
