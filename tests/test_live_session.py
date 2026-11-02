@@ -659,6 +659,32 @@ def test_a_stalled_send_at_the_second_turns_end_lets_nothing_pass_its_decode() -
     assert heard_when_the_file_job_runs == THREE_FINALS
 
 
+def test_a_final_whose_turn_end_send_stalls_past_its_wait_is_never_heard() -> None:
+    async def scenario() -> tuple[FakeSocket, FakeHearing]:
+        engine = FakeHearing()
+        clock = FakeClock()
+        hearing = loaded(engine, clock)
+        running = hearing.gate.try_acquire()
+        assert running is not None
+        socket = StallingSocket("input_audio_buffer.committed")
+        session, _ = await started(
+            hearing, final_wait_seconds=WAIT_SECONDS, socket=socket
+        )
+        commit_turn = asyncio.create_task(_commit_a_turn(session))
+        await socket.stalled.wait()
+        clock.advance(2 * WAIT_SECONDS)
+        socket.proceed.set()
+        await commit_turn
+        await socket.until_closed()
+        running.close()
+        return socket, engine
+
+    socket, engine = asyncio.run(scenario())
+
+    assert _end_is(socket, "busy", failed=1)
+    assert engine.heard == []
+
+
 def test_a_turn_that_ends_stands_in_the_gates_queue_before_a_waiting_file_job() -> None:
     async def scenario() -> tuple[bool, bool]:
         engine = FakeHearing()
