@@ -41,7 +41,7 @@ when both tokens are valid and belong together:
 - Both come from the configured issuer, name the service in `aud`, and are
   unexpired. The app requests the service's audience scope in its workload
   grant and at the person's sign-in.
-- The workload token carries the configured realm role, comes from the app's
+- The workload token carries the configured realm role and comes from the app's
   registered client (`azp` and `client_id`).
 - The person's token has the same `azp`, a different subject, membership of
   `/apps/<app>` or a group below it, and membership of exactly the configured

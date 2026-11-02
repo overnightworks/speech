@@ -112,7 +112,7 @@ The root is read-only, the user is not root and no capability is kept.
   card, and the service keeps no lock per card.
 - The speak route admits only a person call. Both tokens are verified by
   webauth against the issuer's key set (signature, issuer, audience, lifetime);
-  the workload token must carry the realm role, come from a registered app's
+  the workload token must carry the realm role and come from a registered app's
   client; the person's token must come from the
   same client, name another subject, belong to the app's group or a group below
   it and belong exactly to the configured service group. A call an app makes as itself is refused.
