@@ -61,20 +61,24 @@ class FakeSocket:
 
 
 class StallingSocket(FakeSocket):
-    """A socket whose send of the first event of one `type` stalls until released."""
+    """A socket whose send of one event of one `type` stalls until released."""
 
-    def __init__(self, kind: str) -> None:
-        """Stall the first event of `kind`."""
+    def __init__(self, kind: str, occurrence: int = 1) -> None:
+        """Stall the `occurrence`th event of `kind`."""
         super().__init__()
         self._kind = kind
+        self._skipped = occurrence - 1
         self.stalled = asyncio.Event()
         self.proceed = asyncio.Event()
 
     async def send(self, text: str) -> None:
         """Record the event, after the stall if it is the stalled kind."""
         if not self.stalled.is_set() and json.loads(text)["type"] == self._kind:
-            self.stalled.set()
-            await self.proceed.wait()
+            if self._skipped:
+                self._skipped -= 1
+            else:
+                self.stalled.set()
+                await self.proceed.wait()
         await super().send(text)
 
 

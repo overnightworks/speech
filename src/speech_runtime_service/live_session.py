@@ -232,6 +232,9 @@ class LiveSession:
         self._turn_number += 1
         self._previous_words = []
         self._sent_words = 0
+        backlog = len(self._finals) == _MAX_ENDED_TURNS
+        if not backlog:
+            self._queue_final(_Final(item_id, turn.pcm, deadline))
         if not turn.by_client:
             await self._emit(SpeechStopped(item_id=item_id, audio_end_ms=turn.end_ms))
         previous, self._last_item = self._last_item, item_id
@@ -239,10 +242,10 @@ class LiveSession:
         await self._emit(
             ItemCreated(previous_item_id=previous, item=UserMessageItem(id=item_id))
         )
-        if len(self._finals) == _MAX_ENDED_TURNS:
+        if backlog:
             await self._end_locked(RefusalCode.BUSY)
-            return
-        final = _Final(item_id, turn.pcm, deadline)
+
+    def _queue_final(self, final: _Final) -> None:
         ahead = self._finals[-1] if self._finals else None
         self._finals.append(final)
         self._spawn(self._run_final(final, ahead))

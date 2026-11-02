@@ -35,6 +35,7 @@ SETTLE_TURNS = 3
 BLOCKER_AND_MARKER = 2
 DELTA = "conversation.item.input_audio_transcription.delta"
 FINALS = 2
+THREE_FINALS = 3
 
 
 def _transcribe_silence(engine: HearingEngine) -> str:
@@ -620,6 +621,42 @@ def test_a_stalled_send_of_the_first_completed_does_not_hold_the_second_decode()
 
     assert heard_when_the_gate_is_free == FINALS
     assert len(socket.of_type(COMPLETED)) == FINALS
+
+
+def test_a_stalled_send_at_the_second_turns_end_lets_nothing_pass_its_decode() -> None:
+    async def scenario() -> tuple[list[int], int]:
+        engine = FakeHearing(hold=True)
+        clock = FakeClock()
+        hearing = loaded(engine, clock)
+        socket = StallingSocket("input_audio_buffer.committed", occurrence=2)
+        session, _ = await started(hearing, socket=socket)
+        other, other_socket = await started(hearing)
+        await _commit_a_turn(session, 0.3)
+        assert await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
+        heard_when_the_file_job_runs: list[int] = []
+
+        async def file_job() -> None:
+            lease = await hearing.gate.acquire(clock.now() + WAIT_SECONDS, 1)
+            assert lease is not None
+            heard_when_the_file_job_runs.append(len(engine.heard))
+            lease.close()
+
+        file = asyncio.create_task(file_job())
+        await asyncio.sleep(0)
+        second = asyncio.create_task(_commit_a_turn(session, 0.4))
+        await socket.stalled.wait()
+        await _commit_a_turn(other, 0.5)
+        engine.release.set()
+        await asyncio.wait_for(file, WAIT_SECONDS)
+        socket.proceed.set()
+        await second
+        await other_socket.until(lambda: bool(other_socket.of_type(COMPLETED)))
+        return [size for size, _ in engine.heard], heard_when_the_file_job_runs[0]
+
+    sizes, heard_when_the_file_job_runs = asyncio.run(scenario())
+
+    assert sizes == sorted(sizes)
+    assert heard_when_the_file_job_runs == THREE_FINALS
 
 
 def test_a_turn_that_ends_stands_in_the_gates_queue_before_a_waiting_file_job() -> None:
