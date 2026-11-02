@@ -1,7 +1,0 @@
-claim_id = "8d8b64c971094c81923bb4a06b1deaf4"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "a8aa47757c48e5b3395f0e74551303425a183a06"
-branch = "dependabot/github_actions/actions-7313d4f700"
-scope = [".github/workflows/ci.yml"]
-opened_commit = "6c90f36689a52c955786a48c71158a950a0fc8b6"
