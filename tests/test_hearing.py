@@ -6,7 +6,9 @@ import pytest
 
 from speech_runtime_client.wire import HearingLanguage
 from speech_runtime_service import hearing
+from speech_runtime_service.clock import LoopClock
 from speech_runtime_service.hearing import (
+    Hearing,
     HearingLibraries,
     ResourceUnavailableError,
     WhisperHearing,
@@ -53,8 +55,14 @@ def _engine(
     directory: Path,
     library: type[_FakeWhisperModel] | None = None,
     device: str = "cpu",
+    cuda_devices: int = 0,
+    cuda_library_dirs: list[Path] | None = None,
 ) -> WhisperHearing:
-    libraries = HearingLibraries(library or _FakeWhisperModel, lambda: 0)
+    libraries = HearingLibraries(
+        library or _FakeWhisperModel,
+        lambda: cuda_devices,
+        lambda: cuda_library_dirs or [],
+    )
     return WhisperHearing(HearingModel.SMALL, directory, device, lambda: libraries)
 
 
@@ -86,6 +94,41 @@ def test_a_cuda_device_that_is_not_there_is_a_missing_resource(
         engine.load()
 
     assert library.built == []
+
+
+def test_a_cuda_device_without_the_gpu_extra_is_refused_naming_the_extra(
+    library: type[_FakeWhisperModel], tmp_path: Path
+) -> None:
+    engine = _engine(tmp_path, library, "cuda", cuda_devices=1)
+
+    with pytest.raises(ResourceUnavailableError, match="gpu extra"):
+        engine.load()
+
+    assert library.built == []
+
+
+def test_without_the_gpu_extra_hearing_is_not_ready(
+    library: type[_FakeWhisperModel], tmp_path: Path
+) -> None:
+    engine = _engine(tmp_path, library, "cuda", cuda_devices=1)
+    loading = Hearing(engine, LoopClock())
+
+    loading.load()
+
+    assert loading.health()["ready"] is False
+    assert loading.capture() is None
+
+
+def test_a_cuda_device_with_the_libraries_loads_on_the_card(
+    library: type[_FakeWhisperModel], tmp_path: Path
+) -> None:
+    engine = _engine(
+        tmp_path, library, "cuda", cuda_devices=1, cuda_library_dirs=[tmp_path]
+    )
+
+    engine.load()
+
+    assert library.built[0]["device"] == "cuda"
 
 
 def test_a_full_card_is_a_missing_resource(

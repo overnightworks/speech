@@ -83,7 +83,7 @@ sentence is already in budget — a cold first request before that warmup
 existed took 1.362 s. `scripts/prove_speech.py` writes the German WAV of the run it
 just proved to `german.wav` in a private temporary directory the script prints for a listening judgment.
 
-The service installs `nvidia-cublas-cu12` and `nvidia-cudnn-cu12` and preloads them at start.
+Hearing on the GPU needs `nvidia-cublas-cu12` and `nvidia-cudnn-cu12`, which the `gpu` extra installs (`uv sync --locked --extra gpu`) and the service preloads at start. Without the extra, a `cuda` device leaves hearing unavailable and speaking stays up.
 
 Weights stay in:
 
