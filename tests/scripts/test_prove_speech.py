@@ -92,6 +92,15 @@ def test_the_proof_runs_itself_inside_the_fleet_lock_form() -> None:
     assert command[14:] == ["--help"]
 
 
+def test_another_script_runs_under_the_same_fleet_form() -> None:
+    other = Path("/scripts/other_proof.py")
+
+    command = PROVE.fleet_command(["--device", "cpu"], other)
+
+    assert Path(command[13]) == other
+    assert command[14:] == ["--device", "cpu"]
+
+
 def test_the_cap_and_kill_grace_fit_the_fleet_budget() -> None:
     assert PROVE.CAP_SECONDS + PROVE.KILL_GRACE_SECONDS <= FLEET_BUDGET_SECONDS
 

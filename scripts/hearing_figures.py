@@ -168,6 +168,11 @@ def word_errors(reference: str, heard: str) -> WordErrors:
     return WordErrors(previous[-1], len(known))
 
 
+def seconds_of(pcm: bytes) -> float:
+    """The length of 24 kHz PCM16 mono in seconds."""
+    return len(pcm) / (LIVE_INPUT_RATE * BYTES_PER_SAMPLE)
+
+
 class ClipError(ValueError):
     """A clip that cannot serve as one continuous turn."""
 
@@ -187,7 +192,7 @@ def check_continuous_turn(pcm: bytes) -> float:
     clip with the silence that ends it must stay below the turn cap. Returns
     the clip's seconds.
     """
-    seconds = len(pcm) / (LIVE_INPUT_RATE * BYTES_PER_SAMPLE)
+    seconds = seconds_of(pcm)
     if seconds + SILENCE_SECONDS >= MAX_TURN_SECONDS:
         message = (
             f"the clip is {seconds:.1f} s; with the closing silence it must stay"

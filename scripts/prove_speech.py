@@ -645,6 +645,14 @@ def free_local_port() -> int:
         return probe.getsockname()[1]
 
 
+def add_cuda_library_path(env: dict[str, str]) -> None:
+    """Put the bundled CUDA libraries on `env`'s loader path."""
+    cuda_dirs = ":".join(str(path) for path in cuda_library_dirs())
+    if cuda_dirs:
+        existing = env.get("LD_LIBRARY_PATH", "")
+        env["LD_LIBRARY_PATH"] = f"{cuda_dirs}:{existing}" if existing else cuda_dirs
+
+
 def speech_environment(
     port: int,
     speaking_model: str,
@@ -674,10 +682,7 @@ def speech_environment(
     )
     env.setdefault("HF_HUB_OFFLINE", "1")
     env.setdefault("TRANSFORMERS_OFFLINE", "1")
-    cuda_dirs = ":".join(str(path) for path in cuda_library_dirs())
-    if cuda_dirs:
-        existing = env.get("LD_LIBRARY_PATH", "")
-        env["LD_LIBRARY_PATH"] = f"{cuda_dirs}:{existing}" if existing else cuda_dirs
+    add_cuda_library_path(env)
     return env
 
 

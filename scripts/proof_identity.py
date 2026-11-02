@@ -216,9 +216,9 @@ def _configuration_text(minting: Minting, jwks_url: str, voice: str) -> str:
 def proof_identity(directory: Path, voice: str) -> Iterator[ProofIdentity]:
     """Serve a throwaway key set over local HTTPS and write the files that use it.
 
-    The proof app may hear and may name exactly `voice`, a catalogue id the caller passes in
-    because this module imports nothing of the service. Everything lands in a
-    private subdirectory of `directory`. The key server
+    The proof app may hear and may name exactly `voice`, a catalogue id the
+    caller passes in because this module imports nothing of the service.
+    Everything lands in a private subdirectory of `directory`. The key server
     stops on exit; removing `directory` is the caller's.
     """
     identity_directory = directory / "identity"
