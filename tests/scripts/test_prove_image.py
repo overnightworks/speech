@@ -76,18 +76,13 @@ def test_an_admission_into_a_source_tree_is_refused_unless_it_is_python_source(
     assert source_admissions_beyond_python(admissions) == beyond
 
 
-def test_the_exclusions_of_nested_repositories_and_caches_remove_their_files() -> None:
+def test_the_source_trees_admit_python_source_and_py_typed_and_nothing_else() -> None:
     lines = dockerignore_lines()
-    last_admission = max(i for i, line in enumerate(lines) if line.startswith("!"))
-    excluded = {
-        "**/.git/**",
-        "**/.venv/**",
-        "**/__pycache__/**",
-        "**/.*_cache/**",
-        "**/node_modules/**",
-    }
 
-    assert excluded <= set(lines[last_admission + 1 :])
+    assert any("src" in line.split("/") for line in lines)
+    assert not source_admissions_beyond_python(
+        [line for line in lines if line.startswith("!")]
+    )
 
 
 def test_a_private_key_in_a_python_file_of_the_packages_is_reported(
