@@ -653,17 +653,18 @@ def write_record(path: Path, record: dict[str, object]) -> None:
 def record_writer(
     arguments: argparse.Namespace,
     record: dict[str, object],
-    failures: list[str],
-    unmeasured: list[str],
 ) -> Callable[[], None]:
     """A save that recomputes `not_measured` and `complete` before each write."""
     models = record["models"]
     stages = {name: record[name] for name in CARD_STAGES}
 
+    def taken_card_failures() -> list[str]:
+        return stages["taken_card"].get("failures", [])
+
     def save() -> None:
-        unmeasured[:] = figures.not_measured(required_models(arguments), models, stages)
-        record["not_measured"] = list(unmeasured)
-        record["complete"] = not failures and not unmeasured
+        unmeasured = figures.not_measured(required_models(arguments), models, stages)
+        record["not_measured"] = unmeasured
+        record["complete"] = not taken_card_failures() and not unmeasured
         write_record(arguments.record, record)
 
     return save
@@ -687,14 +688,11 @@ def prove(
             "synthetic: German from the service's speak route, English from the"
             f" Piper voice {ENGLISH_VOICE}"
         ),
-        "complete": False,
         "gpu_before": card_line(arguments.device),
         "models": models,
         **stages,
     }
-    failures: list[str] = []
-    unmeasured: list[str] = []
-    save = record_writer(arguments, record, failures, unmeasured)
+    save = record_writer(arguments, record)
     save()
     try:
         clips = measure_models(arguments, models, save)
@@ -716,14 +714,13 @@ def prove(
             ),
             save,
         )
-        failures.extend(stages["taken_card"].get("failures", []))
     finally:
         save()
         print("record", arguments.record)
         print("gpu_released", card_line(arguments.device))
-    if failures:
+    if failures := stages["taken_card"].get("failures", []):
         raise SystemExit("the taken card differs from cell 30: " + "; ".join(failures))
-    if unmeasured:
+    if unmeasured := record["not_measured"]:
         raise SystemExit("not measured: " + "; ".join(unmeasured))
     print("PROOF_OK")
 

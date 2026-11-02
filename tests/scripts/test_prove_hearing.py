@@ -19,7 +19,7 @@ from tests.support.nvidia_support import FakeNvidiaSmi
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 HEARING = script_module("prove_hearing")
 VOICES = Path.home() / "voices"
@@ -167,6 +167,35 @@ def test_every_model_and_stage_measured_makes_the_record_complete(
 
     assert record["not_measured"] == []
     assert record["complete"] is True
+
+
+def test_a_taken_card_that_differs_is_never_written_as_complete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    FakeCard(monkeypatch, tmp_path)
+    monkeypatch.setattr(HEARING, "prove_taken_card", lambda *_: {"failures": ["x"]})
+    written: list[object] = []
+    write = HEARING.write_record
+    monkeypatch.setattr(
+        HEARING,
+        "write_record",
+        lambda path, record: (written.append(record["complete"]), write(path, record)),
+    )
+    arguments = HEARING.parse_arguments(
+        command(
+            "--record",
+            str(tmp_path / "record.json"),
+            "--device",
+            "cuda",
+            "--hearing-model",
+            "large-v3",
+        )
+    )
+
+    with pytest.raises(SystemExit, match="differs from cell 30: x"):
+        HEARING.prove(arguments, lambda: None)
+
+    assert True not in written
 
 
 def test_a_failing_second_model_leaves_the_figures_of_the_first_and_names_the_rest(
@@ -450,21 +479,16 @@ def test_the_record_is_on_disk_after_each_language_and_each_stage(
     record_path = tmp_path / "record.json"
     seen: list[dict[str, object]] = []
 
-    def read_then_hear(*_: object) -> dict[str, object]:
-        seen.append(json.loads(record_path.read_text()))
-        return {"figures": 1}
+    def read_then(value: dict[str, object]) -> Callable[..., dict[str, object]]:
+        def measure(*_: object) -> dict[str, object]:
+            seen.append(json.loads(record_path.read_text()))
+            return value
 
-    def read_then_peak(*_: object) -> dict[str, object]:
-        seen.append(json.loads(record_path.read_text()))
-        return {"peak_mib": 7}
+        return measure
 
-    def read_then_take(*_: object) -> dict[str, object]:
-        seen.append(json.loads(record_path.read_text()))
-        return {"failures": []}
-
-    monkeypatch.setattr(HEARING, "measure_language", read_then_hear)
-    monkeypatch.setattr(HEARING, "measure_peak", read_then_peak)
-    monkeypatch.setattr(HEARING, "prove_taken_card", read_then_take)
+    monkeypatch.setattr(HEARING, "measure_language", read_then({"figures": 1}))
+    monkeypatch.setattr(HEARING, "measure_peak", read_then({"peak_mib": 7}))
+    monkeypatch.setattr(HEARING, "prove_taken_card", read_then({"failures": []}))
 
     prove(tmp_path)
 
