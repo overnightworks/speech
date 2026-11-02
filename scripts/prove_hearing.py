@@ -207,12 +207,18 @@ def _loaded(health: dict[str, object], speaks: Callable[[], bool]) -> bool:
     return isinstance(speaking, dict) and speaking["ready"] is True and speaks()
 
 
+@dataclass(frozen=True)
+class LoadWait:
+    """What a wait for the service's load asks and how it tells the time."""
+
+    speaks: Callable[[], bool]
+    health_of: Callable[[str, str], dict[str, object]] = get_json
+    sleep: Callable[[float], None] = time.sleep
+    monotonic: Callable[[], float] = time.monotonic
+
+
 def wait_loaded(
-    base_url: str,
-    exit_status: Callable[[], int | None],
-    speaks: Callable[[], bool],
-    health_of: Callable[[str, str], dict[str, object]] = get_json,
-    sleep: Callable[[float], None] = time.sleep,
+    base_url: str, exit_status: Callable[[], int | None], wait: LoadWait
 ) -> dict[str, object]:
     """Wait until the service finished loading and return its health then.
 
@@ -220,16 +226,17 @@ def wait_loaded(
     card ends with speaking served and hearing not ready, which the speak route
     shows by answering once loading is over. A server that exited ends the wait.
     """
+    deadline = wait.monotonic() + READY_TIMEOUT_SECONDS
     last: dict[str, object] | None = None
-    for _ in range(round(READY_TIMEOUT_SECONDS / POLL_SECONDS)):
+    while wait.monotonic() < deadline:
         require_running(exit_status, last)
         try:
-            last = health_of(base_url, "/health")
-            if _loaded(last, speaks):
-                return health_of(base_url, "/health")
+            last = wait.health_of(base_url, "/health")
+            if _loaded(last, wait.speaks):
+                return wait.health_of(base_url, "/health")
         except httpx2.HTTPError, json.JSONDecodeError:
             pass
-        sleep(POLL_SECONDS)
+        wait.sleep(POLL_SECONDS)
     detail = "" if last is None else f": {last}"
     message = (
         f"the service did not finish loading within {READY_TIMEOUT_SECONDS}s{detail}"
@@ -254,7 +261,9 @@ def hearing_service(
             )
             wait_ready = functools.partial(
                 wait_loaded,
-                speaks=functools.partial(_speaks, base_url, minting, voice),
+                wait=LoadWait(
+                    speaks=functools.partial(_speaks, base_url, minting, voice)
+                ),
             )
             with speech_server(
                 base_url,

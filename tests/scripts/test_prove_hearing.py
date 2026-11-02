@@ -166,8 +166,12 @@ def test_the_record_names_the_clips_a_language_was_measured_with() -> None:
         )
         return record["clip_sha256"]
 
-    assert clips_recorded(b"one") == clips_recorded(b"one")
-    assert clips_recorded(b"one") != clips_recorded(b"another")
+    first = clips_recorded(b"one")
+    again = clips_recorded(b"one")
+    other = clips_recorded(b"another")
+
+    assert again == first
+    assert other != first
 
 
 async def _one_delta_turn(_: object, __: object, ___: bytes) -> HEARING.LiveTurn:
@@ -358,9 +362,7 @@ def wait_loaded_with(health: dict[str, object], *, speaks: bool) -> dict[str, ob
     return HEARING.wait_loaded(
         "http://127.0.0.1:1",
         lambda: None,
-        lambda: speaks,
-        lambda *_: health,
-        clock.jump,
+        HEARING.LoadWait(lambda: speaks, lambda *_: health, clock.jump, clock.now),
     )
 
 
@@ -387,6 +389,24 @@ def test_a_service_that_never_finishes_loading_fails_the_wait(
         wait_loaded_with(health, speaks=speaks)
 
 
+def test_a_wait_with_slow_health_answers_still_ends_at_its_time_limit() -> None:
+    clock = FakeClock()
+    slow_seconds = 35.0
+
+    def slow_health(*_: object) -> dict[str, object]:
+        clock.jump(slow_seconds)
+        return HEALTH_LOADING
+
+    with pytest.raises(SystemExit, match="did not finish loading"):
+        HEARING.wait_loaded(
+            "http://127.0.0.1:1",
+            lambda: None,
+            HEARING.LoadWait(lambda: True, slow_health, clock.jump, clock.now),
+        )
+
+    assert clock.now() < HEARING.READY_TIMEOUT_SECONDS + slow_seconds + 1
+
+
 def test_a_wait_that_never_heard_the_service_names_no_health() -> None:
     clock = FakeClock()
 
@@ -398,9 +418,7 @@ def test_a_wait_that_never_heard_the_service_names_no_health() -> None:
         HEARING.wait_loaded(
             "http://127.0.0.1:1",
             lambda: None,
-            lambda: True,
-            unreachable,
-            clock.jump,
+            HEARING.LoadWait(lambda: True, unreachable, clock.jump, clock.now),
         )
 
     assert "None" not in str(failure.value)
@@ -413,9 +431,9 @@ def test_a_wait_ends_at_once_with_the_last_health_when_the_server_exited() -> No
         HEARING.wait_loaded(
             "http://127.0.0.1:1",
             lambda: next(polls),
-            lambda: True,
-            lambda *_: HEALTH_LOADING,
-            clock.jump,
+            HEARING.LoadWait(
+                lambda: True, lambda *_: HEALTH_LOADING, clock.jump, clock.now
+            ),
         )
 
     assert str(HEALTH_LOADING) in str(failure.value)

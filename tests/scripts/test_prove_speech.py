@@ -153,6 +153,24 @@ def test_a_failed_proof_under_the_lock_keeps_its_own_exit_status() -> None:
     assert PROVE.run_under_lock([], run_returning(status, takes_lock=True)) == status
 
 
+def test_the_default_wait_ends_at_once_when_the_server_exited(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def never_waits(_: float) -> None:
+        pytest.fail("the wait went on after the server exited")
+
+    monkeypatch.setattr(PROVE, "get_json", lambda *_: {"speaking": {"ready": False}})
+    monkeypatch.setattr(PROVE.time, "sleep", never_waits)
+    server = Mock(stdout=None, returncode=3)
+    server.poll.return_value = 3
+    running = PROVE.speech_server(
+        "http://127.0.0.1:1", {}, tmp_path, start=lambda *_, **__: server
+    )
+
+    with pytest.raises(SystemExit, match="exited with status 3"), running:
+        pass
+
+
 @pytest.mark.usefixtures("terminate_handler")
 def test_term_stops_the_speech_server_through_its_teardown(tmp_path: Path) -> None:
     server = Mock(stdout=None, returncode=0)

@@ -208,9 +208,10 @@ runs of one short question per language on the RTX 3090 with a quiet machine
 (load average about 1), through the hearing stage proof, with synthetic, clean
 clips. Seconds; the first partial is counted from the start of the question and
 the final from its end. A negative time means the partial arrived while the
-question was still being spoken. The final includes the 0.7 s of silence the
-service waits for before it ends a turn, and the first partial needs two
-agreeing decodes.
+question was still being spoken. The end is the end of the clip, so the silence
+at the clip's own tail lies inside the final's wait, next to the 0.7 s the
+service waits for before it ends a turn; the final is not that wait alone. The
+first partial needs two agreeing decodes.
 
 | Model | Language | First partial | Final | File route |
 | --- | --- | --- | --- | --- |
@@ -219,8 +220,15 @@ agreeing decodes.
 | `small` | German | 1.26 (−1.26) | 0.58 | 0.14 |
 | `small` | English | 1.25 (−1.56) | 0.89 | 0.13 |
 
-The CPU reference was 6.8 s to the first partial and 13.9 s to the final after
-the end. A 16 to 19 s turn on the GPU gives 22 to 26 growing deltas about 0.6 s
+The reference numbers are 6.8 s to the first partial and 13.9 s to the final
+after the end on the CPU, and 1.1 s and 9.6 s on the GPU; the GPU pair comes
+from a single measurement. Whether the reference counts its first partial from
+the start of the question or from its end is not settled by the item that names
+it, so both of our figures stand in the table: 1.26 to 1.38 s from the start,
+or −1.14 to −1.56 s from the end. The final is counted from the end in both. On
+the GPU `large-v3` gives 0.73 to 1.01 s against 9.6 s.
+
+A 16 to 19 s turn on the GPU gives 22 to 26 growing deltas about 0.6 s
 apart. On the same card under a machine load of about 18 the final took 0.9 to
 1.2 s and the file route 0.4 to 0.7 s.
 
@@ -230,18 +238,21 @@ die nächste Sitzung?", 14 word errors of 70 and a different question, so a clea
 run is no proof for it; clips are drawn anew in each proof. That is why
 `large-v3` is the model to use.
 
-Declared budget, GPU memory over the card's idle use of about 0.7 GiB, peak over
-the warmed service:
+Declared budget, GPU memory over the card's idle use of about 0.7 to 0.9 GiB.
+The sampled peak is the highest of the card's use taken every 0.25 s over the
+warmed service, over the card's use before the service started, the highest of two runs (a quiet machine and a load of about
+18). The budget is that peak plus 5 %, rounded up to 256 MiB; it holds for both
+runs, with a margin of 6 to 9 % over the peak (30 % for `small` alone):
 
-| Resident next to hearing | `large-v3` | `small` |
+| Next to hearing | `large-v3` budget (sampled peak) | `small` budget (sampled peak) |
 | --- | --- | --- |
-| Piper (CPU) | 4.2 GiB (4266 MiB) | 0.96 GiB (982 MiB) |
-| Qwen3-TTS 0.6B | 6.7 GiB (6832 MiB) | 3.5 GiB (3569 MiB) |
-| Chatterbox | 7.8 GiB (7993 MiB) | 4.6 GiB (4678 MiB) |
+| Piper (CPU) | 4608 MiB (4282) | 1280 MiB (983) |
+| Qwen3-TTS 0.6B | 7424 MiB (6832) | 3840 MiB (3593) |
+| Chatterbox | 8448 MiB (7993) | 5120 MiB (4678) |
 
 VoxCPM2 and Magpie are not in the budget: their weights were not in the cache,
 so nothing was measured. Speaking and hearing were measured one after the other,
-never at the same moment, so the table is the memory the two hold resident and
+never at the same moment, so the table is the memory the two hold loaded and
 not the peak of both working at once.
 
 When a second process holds the card, the service starts, `/health` names
