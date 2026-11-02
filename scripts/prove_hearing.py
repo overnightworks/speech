@@ -98,6 +98,7 @@ if TYPE_CHECKING:
         Callable,
         Collection,
         Iterator,
+        Mapping,
         Sequence,
     )
     from contextlib import AbstractContextManager
@@ -650,6 +651,11 @@ def write_record(path: Path, record: dict[str, object]) -> None:
     partial.replace(path)
 
 
+def recorded_failures(stages: Mapping[str, dict[str, object]]) -> list[str]:
+    """The failures the taken-card stage has written into the record so far."""
+    return stages["taken_card"].get("failures", [])
+
+
 def record_writer(
     arguments: argparse.Namespace,
     record: dict[str, object],
@@ -658,13 +664,10 @@ def record_writer(
     models = record["models"]
     stages = {name: record[name] for name in CARD_STAGES}
 
-    def taken_card_failures() -> list[str]:
-        return stages["taken_card"].get("failures", [])
-
     def save() -> None:
         unmeasured = figures.not_measured(required_models(arguments), models, stages)
         record["not_measured"] = unmeasured
-        record["complete"] = not taken_card_failures() and not unmeasured
+        record["complete"] = not recorded_failures(stages) and not unmeasured
         write_record(arguments.record, record)
 
     return save
@@ -718,7 +721,7 @@ def prove(
         save()
         print("record", arguments.record)
         print("gpu_released", card_line(arguments.device))
-    if failures := stages["taken_card"].get("failures", []):
+    if failures := recorded_failures(stages):
         raise SystemExit("the taken card differs from cell 30: " + "; ".join(failures))
     if unmeasured := record["not_measured"]:
         raise SystemExit("not measured: " + "; ".join(unmeasured))

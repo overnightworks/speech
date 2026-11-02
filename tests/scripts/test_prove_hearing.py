@@ -19,6 +19,7 @@ from tests.support.nvidia_support import FakeNvidiaSmi
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
+    import argparse
     from collections.abc import Callable, Iterator
 
 HEARING = script_module("prove_hearing")
@@ -137,11 +138,15 @@ class FakeCard:
         yield SimpleNamespace(running=running)
 
 
+def cuda_arguments(tmp_path: Path, *changes: str) -> argparse.Namespace:
+    return HEARING.parse_arguments(
+        command("--record", str(tmp_path / "record.json"), "--device", "cuda", *changes)
+    )
+
+
 def prove(tmp_path: Path, *changes: str) -> dict[str, object]:
     record = tmp_path / "record.json"
-    arguments = HEARING.parse_arguments(
-        command("--record", str(record), "--device", "cuda", *changes)
-    )
+    arguments = cuda_arguments(tmp_path, *changes)
     with contextlib.suppress(SystemExit, RuntimeError):
         HEARING.prove(arguments, lambda: None)
     return json.loads(record.read_text())
@@ -176,21 +181,13 @@ def test_a_taken_card_that_differs_is_never_written_as_complete(
     monkeypatch.setattr(HEARING, "prove_taken_card", lambda *_: {"failures": ["x"]})
     written: list[object] = []
     write = HEARING.write_record
-    monkeypatch.setattr(
-        HEARING,
-        "write_record",
-        lambda path, record: (written.append(record["complete"]), write(path, record)),
-    )
-    arguments = HEARING.parse_arguments(
-        command(
-            "--record",
-            str(tmp_path / "record.json"),
-            "--device",
-            "cuda",
-            "--hearing-model",
-            "large-v3",
-        )
-    )
+
+    def write_noting_completeness(path: Path, record: dict[str, object]) -> None:
+        written.append(record["complete"])
+        write(path, record)
+
+    monkeypatch.setattr(HEARING, "write_record", write_noting_completeness)
+    arguments = cuda_arguments(tmp_path, "--hearing-model", "large-v3")
 
     with pytest.raises(SystemExit, match="differs from cell 30: x"):
         HEARING.prove(arguments, lambda: None)
