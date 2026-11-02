@@ -61,6 +61,7 @@ SENTENCE = (
 )
 SECOND = "Die nächste Folie bitte."
 THIS_SCRIPT = Path(__file__).resolve()
+SETPRIV = "setpriv"
 LOCK_PATH = Path("/tmp/probe-stack.lock")  # noqa: S108 - the one machine-wide probe lock must keep this exact path whatever TMPDIR says
 LOCK_HELD_ENV = "SPEECH_PROOF_HOLDS_PROBE_LOCK"
 LOCK_DIRECTORY_PREFIX = "speech-lock-"
@@ -123,7 +124,7 @@ def fleet_command(arguments: list[str], script: Path = THIS_SCRIPT) -> list[str]
         "-w",
         str(LOCK_WAIT_SECONDS),
         str(LOCK_PATH),
-        "setpriv",
+        SETPRIV,
         "--pdeathsig",
         "TERM",
         "timeout",
@@ -356,9 +357,6 @@ class RunningSpeech:
         """The service process's peak resident set in MiB."""
         status = Path(f"/proc/{self.process.pid}/status")
         return peak_rss_mib(status.read_text(encoding="utf-8"))
-
-
-SETPRIV = "setpriv"
 
 
 def start_with_parent_death(

@@ -348,9 +348,9 @@ def _heard_nothing(heard: object) -> bool:
 def _unmeasured_figures(entry: object, path: tuple[str, ...] = ()) -> Iterator[str]:
     """The paths of the figures of the record that measure nothing.
 
-    A null `median` or long-turn `timing` figure (fewer than `MIN_RUNS` runs had
-    it), a long turn with fewer than `MIN_GROWING_DELTAS` growing deltas, and a
-    `heard` text that is empty, which would score a word error rate of 1.0 yet
+    A null `median` (fewer than `MIN_RUNS` runs had it) or long-turn `timing`
+    figure, a long turn with fewer than `MIN_GROWING_DELTAS` growing deltas, and
+    a `heard` text that is empty, which would score a word error rate of 1.0 yet
     prove no hearing.
     """
     if not isinstance(entry, dict):

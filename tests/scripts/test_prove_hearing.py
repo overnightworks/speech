@@ -153,9 +153,7 @@ def test_the_peak_is_never_below_the_warmed_resident_reading(
     assert peak["peak_sampled_every_seconds"] == HEARING.MEMORY_SAMPLE_SECONDS
 
 
-def test_a_language_measured_with_one_delta_in_its_long_turn_is_not_measured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_language_measured_with_one_delta_in_its_long_turn_is_not_measured() -> None:
     runs = 5
     question, long_turn = b"question", b"long turn"
     german = HEARING.LANGUAGES[0]
@@ -173,14 +171,12 @@ def test_a_language_measured_with_one_delta_in_its_long_turn_is_not_measured(
     def hear_recording(_: object, __: object, ___: bytes) -> tuple[float, str]:
         return 0.5, "Wie spät"
 
-    monkeypatch.setattr(HEARING, "hear_live", hear_turn)
-    monkeypatch.setattr(HEARING, "hear_file", hear_recording)
-
     record = HEARING.measure_language(
         SimpleNamespace(),  # type: ignore[arg-type]
         german,
         HEARING.Clip(question, long_turn),
         runs,
+        HEARING.Ports(live=hear_turn, hear=hear_recording),
     )
     models = {
         "small": {
@@ -381,15 +377,20 @@ def test_a_wait_that_never_heard_the_service_names_no_health() -> None:
     assert "None" not in str(failure.value)
 
 
+@pytest.fixture
+def smi(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeNvidiaSmi:
+    return FakeNvidiaSmi(tmp_path, monkeypatch)
+
+
 def taken_card(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    smi: FakeNvidiaSmi,
     *,
     health: dict[str, object],
     file_response: httpx2.Response,
     freed: bool,
+    accepts_upgrade: bool = False,
 ) -> dict[str, object]:
-    FakeNvidiaSmi(tmp_path, monkeypatch).use(100)
+    smi.use(100)
 
     @contextlib.contextmanager
     def hold() -> Iterator[int]:
@@ -404,6 +405,8 @@ def taken_card(
         )
 
     async def upgrade(_: object) -> object:
+        if accepts_upgrade:
+            return None
         return HEARING.UpgradeRefusal(
             HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE
         )
@@ -428,12 +431,10 @@ def unavailable() -> httpx2.Response:
 
 
 def test_a_taken_card_that_behaves_as_cell_30_says_gives_no_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    smi: FakeNvidiaSmi,
 ) -> None:
     result = taken_card(
-        tmp_path,
-        monkeypatch,
+        smi,
         health=HEALTH_NO_HEARING,
         file_response=unavailable(),
         freed=True,
@@ -444,12 +445,10 @@ def test_a_taken_card_that_behaves_as_cell_30_says_gives_no_failure(
 
 
 def test_a_taken_card_that_is_not_freed_afterwards_is_a_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    smi: FakeNvidiaSmi,
 ) -> None:
     result = taken_card(
-        tmp_path,
-        monkeypatch,
+        smi,
         health=HEALTH_NO_HEARING,
         file_response=unavailable(),
         freed=False,
@@ -458,13 +457,25 @@ def test_a_taken_card_that_is_not_freed_afterwards_is_a_failure(
     assert result["failures"] == ["the card was not freed"]
 
 
-def test_hearing_ready_on_a_taken_card_is_a_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_a_taken_card_that_accepts_the_live_upgrade_is_a_failure(
+    smi: FakeNvidiaSmi,
 ) -> None:
     result = taken_card(
-        tmp_path,
-        monkeypatch,
+        smi,
+        health=HEALTH_NO_HEARING,
+        file_response=unavailable(),
+        freed=True,
+        accepts_upgrade=True,
+    )
+
+    assert result["failures"] == ["the live upgrade did not answer 503 unavailable"]
+
+
+def test_hearing_ready_on_a_taken_card_is_a_failure(
+    smi: FakeNvidiaSmi,
+) -> None:
+    result = taken_card(
+        smi,
         health=HEALTH_READY,
         file_response=unavailable(),
         freed=True,
@@ -474,12 +485,10 @@ def test_hearing_ready_on_a_taken_card_is_a_failure(
 
 
 def test_a_file_route_that_answers_ok_on_a_taken_card_is_a_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    smi: FakeNvidiaSmi,
 ) -> None:
     result = taken_card(
-        tmp_path,
-        monkeypatch,
+        smi,
         health=HEALTH_NO_HEARING,
         file_response=httpx2.Response(HTTPStatus.OK),
         freed=True,

@@ -275,6 +275,7 @@ class Ports:
     post: Callable[..., httpx2.Response] = post_recording
     upgrade: Callable[[Service], Awaitable[UpgradeRefusal | None]] = upgrade_refusal
     speak: Callable[..., tuple[bytes, float, float]] = speak_measured
+    live: Callable[..., Awaitable[LiveTurn]] = hear_live
     hear: Callable[..., tuple[float, str]] = hear_file
     freed: Callable[[int], bool] = card_is_freed
     sample: Callable[[], AbstractContextManager[MemorySampler]] = MemorySampler
@@ -385,9 +386,10 @@ def _long_turn_record(
     service: Service,
     language: Language,
     clip: Clip,
+    ports: Ports,
 ) -> dict[str, object]:
-    turn = asyncio.run(hear_live(service, language.code, clip.long_turn))
-    seconds, text = hear_file(service, language.code, clip.long_turn)
+    turn = asyncio.run(ports.live(service, language.code, clip.long_turn))
+    seconds, text = ports.hear(service, language.code, clip.long_turn)
     return {
         "clip_seconds": turn.question_seconds,
         "live": {
@@ -414,14 +416,15 @@ def measure_language(
     language: Language,
     clip: Clip,
     runs: int,
+    ports: Ports = PORTS,
 ) -> dict[str, object]:
     """One language's short question, live and from a file, and its long turn."""
-    hear_file(service, language.code, clip.question)
+    ports.hear(service, language.code, clip.question)
     live = [
-        asyncio.run(hear_live(service, language.code, clip.question))
+        asyncio.run(ports.live(service, language.code, clip.question))
         for _ in range(runs)
     ]
-    files = [hear_file(service, language.code, clip.question) for _ in range(runs)]
+    files = [ports.hear(service, language.code, clip.question) for _ in range(runs)]
     print("question", language.code.value, f"runs={runs}")
     return {
         "question": {
@@ -429,7 +432,7 @@ def measure_language(
             "live": _live_record(language.question, live),
             "file": _file_record(language.question, files),
         },
-        "long_turn": _long_turn_record(service, language, clip),
+        "long_turn": _long_turn_record(service, language, clip, ports),
     }
 
 

@@ -223,5 +223,5 @@ async def upgrade_refusal(
     except InvalidStatus as refused:
         answer = refused.response
         return UpgradeRefusal(
-            answer.status_code, refusal_code(answer.status_code, answer.body or b"")
+            answer.status_code, refusal_code(answer.status_code, answer.body)
         )
