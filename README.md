@@ -140,6 +140,22 @@ platform starts one instance per card. The service holds no lock per card.
 
 If the voice cannot be loaded the process exits and names the model. The hearing model is loaded after the voice: a missing resource leaves hearing unavailable and the process up.
 
+## Install
+
+Three distributions are released together at one version, as the Git tag
+`vX.Y.Z`, and go to no registry. A host installs each by its Git pin:
+
+```text
+overnightworks-speech-runtime-client @ git+https://github.com/overnightworks/speech-runtime@vX.Y.Z#subdirectory=packages/client
+overnightworks-speech-runtime-provider-contract @ git+https://github.com/overnightworks/speech-runtime@vX.Y.Z#subdirectory=providers/provider-contract
+overnightworks-speech-runtime-service @ git+https://github.com/overnightworks/speech-runtime@vX.Y.Z
+```
+
+The service is an application, not a library: its pin installs the CPU path
+(Piper). Every GPU voice runs from its own provider environment.
+`scripts/check_release.py` holds the released distributions at one version, and the Release
+workflow runs it, and the pins' installs, before it creates the tag.
+
 ## Run
 
 From the repository root:
