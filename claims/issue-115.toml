@@ -1,0 +1,8 @@
+claim_id = "0ddac42a9b1b4b6cb7eed76b39e150fe"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "96ba7b41eb197f8dba1f925110adb84ee82efded"
+branch = "claude/issue-115-piper-voices-one-owner"
+scope = ["README.md", "docs/ARCHITECTURE.md", "pyproject.toml", "scripts/prove_hearing.py", "src/speech_runtime_service/fetch_voice.py", "src/speech_runtime_service/piper_voices.py", "tests/scripts/test_prove_hearing.py", "tests/test_fetch_voice.py"]
+opened_commit = "b9f1c035d3933ef2856b26f507321f362b96a9f9"
+whole_reason = "One owner of Piper's weights: the table, its command, the proof's move to it and the sentences naming it only hold together."
