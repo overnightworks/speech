@@ -24,11 +24,11 @@ from speech_runtime_client.wire import (
     WORKLOAD_TOKEN_HEADER,
     RefusalCode,
 )
-from speech_runtime_service import wire_route
 from speech_runtime_service.config import Settings
 from speech_runtime_service.control import create_control_app
 from tests.support.hear_support import (
     HEARD_TEXT,
+    WAIT_SECONDS,
     FakeHearing,
     hear_app,
     hear_runtime,
@@ -210,35 +210,38 @@ def test_a_session_beyond_the_bound_is_denied_as_busy_until_one_leaves() -> None
     assert reopened["type"] == "session.created"
 
 
-def test_a_session_cancelled_again_while_it_winds_down_still_frees_its_place(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    runtime = hear_runtime(FakeHearing())
+def test_a_session_cancelled_twice_frees_its_place_and_hears_no_final() -> None:
+    engine = FakeHearing()
+    runtime = hear_runtime(engine)
     app = hear_app(runtime, max_hearing_sessions=1)
-    connect = {"type": "websocket.connect"}
+    messages = [
+        {"type": "websocket.connect"},
+        {"type": "websocket.receive", "text": append(audio(0.5))},
+        {"type": "websocket.receive", "text": commit()},
+    ]
 
-    async def scenario() -> None:
-        received: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+    async def scenario() -> bool:
+        inbox: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+        for message in messages:
+            inbox.put_nowait(message)
         accepted = asyncio.Event()
+        waiting_for_the_client = asyncio.Event()
         serving: asyncio.Task[None] | None = None
 
-        async def poll_that_cancels_the_session_when_it_is_stopped(_: object) -> None:
+        async def receive() -> dict[str, object]:
+            if inbox.empty():
+                waiting_for_the_client.set()
             try:
-                await asyncio.Event().wait()
+                return await inbox.get()
             except asyncio.CancelledError:
                 assert serving is not None
-                serving.cancel()
+                asyncio.get_running_loop().call_soon(serving.cancel)
                 raise
 
         async def send(message: dict[str, object]) -> None:
             if message["type"] == "websocket.accept":
                 accepted.set()
 
-        monkeypatch.setattr(
-            wire_route,
-            "poll_forever",
-            poll_that_cancels_the_session_when_it_is_stopped,
-        )
         scope = {
             "type": "websocket",
             "path": REALTIME_PATH,
@@ -249,14 +252,24 @@ def test_a_session_cancelled_again_while_it_winds_down_still_frees_its_place(
             ],
             "subprotocols": [],
         }
-        await received.put(connect)
-        serving = asyncio.create_task(app(scope, received.get, send))
-        await accepted.wait()
+        running_decode = runtime.hearing.gate.try_acquire()
+        assert running_decode is not None
+        serving = asyncio.create_task(app(scope, receive, send))
+        async with asyncio.timeout(WAIT_SECONDS):
+            await accepted.wait()
+            await waiting_for_the_client.wait()
         serving.cancel()
         with pytest.raises(asyncio.CancelledError):
             await serving
+        running_decode.close()
+        free = runtime.hearing.gate.try_acquire()
+        if free is not None:
+            free.close()
+        return free is not None
 
-    asyncio.run(scenario())
+    gate_was_free_for_the_next_job = asyncio.run(scenario())
 
     assert runtime.hearing is not None
     assert runtime.hearing.open_session(1) is not None
+    assert gate_was_free_for_the_next_job
+    assert engine.heard == []
