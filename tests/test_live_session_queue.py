@@ -16,7 +16,6 @@ from tests.support.live_support import (
 
 FINALS = 2
 THREE_FINALS = 3
-SETTLE_TURNS = 3
 
 
 def test_finals_of_several_sessions_are_served_in_arrival_order_before_file_jobs() -> (
@@ -28,14 +27,12 @@ def test_finals_of_several_sessions_are_served_in_arrival_order_before_file_jobs
         running = hearing.gate.try_acquire()
         assert running is not None
         file_job = asyncio.create_task(
-            hearing.gate.acquire(hearing.gate.clock.now() + WAIT_SECONDS, 1)
+            hearing.gate.acquire(hearing.gate.clock.now() + WAIT_SECONDS, 1),
+            eager_start=True,
         )
         sessions = [(await started(hearing)) for _ in range(2)]
-        await asyncio.sleep(0)
         for (session, _), seconds in zip(sessions, (0.3, 0.4), strict=True):
             await commit_a_turn(session, seconds)
-        for _ in range(SETTLE_TURNS):
-            await asyncio.sleep(0)
         running.close()
         for _, socket in sessions:
             await socket.until(lambda socket=socket: bool(socket.of_type(COMPLETED)))
@@ -67,8 +64,7 @@ def test_a_second_ended_turn_decodes_before_a_waiting_file_job_and_follows() -> 
             heard_when_the_file_job_runs.append(len(engine.heard))
             lease.close()
 
-        file = asyncio.create_task(file_job())
-        await asyncio.sleep(0)
+        file = asyncio.create_task(file_job(), eager_start=True)
         await commit_a_turn(session, 0.4)
         engine.release.set()
         await socket.until(lambda: len(socket.of_type(COMPLETED)) == FINALS)
@@ -132,8 +128,7 @@ def test_a_stalled_send_at_the_second_turns_end_lets_nothing_pass_its_decode() -
             heard_when_the_file_job_runs.append(len(engine.heard))
             lease.close()
 
-        file = asyncio.create_task(file_job())
-        await asyncio.sleep(0)
+        file = asyncio.create_task(file_job(), eager_start=True)
         second = asyncio.create_task(commit_a_turn(session, 0.4))
         await socket.stalled.wait()
         await commit_a_turn(other, 0.5)
@@ -183,8 +178,9 @@ def test_a_turn_that_ends_stands_in_the_gates_queue_before_a_waiting_file_job() 
         hearing = loaded(engine, clock)
         running = hearing.gate.try_acquire()
         assert running is not None
-        file = asyncio.create_task(hearing.gate.acquire(clock.now() + WAIT_SECONDS, 1))
-        await asyncio.sleep(0)
+        file = asyncio.create_task(
+            hearing.gate.acquire(clock.now() + WAIT_SECONDS, 1), eager_start=True
+        )
         session, socket = await started(hearing)
         await commit_a_turn(session)
         running.close()
