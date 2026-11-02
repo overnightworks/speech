@@ -41,7 +41,7 @@ flowchart LR
   inference in a worker thread off the event loop. It loads at start from the
   pinned snapshot in the Hugging Face cache (`local_files_only`) on
   `SPEECH_DEVICE`; the command `speech-runtime-fetch-hearing-model` is the only
-  thing that downloads. The compute type follows the device. Decoding is
+  thing that downloads a hearing model. The compute type follows the device. Decoding is
   deterministic (greedy, temperature 0).
 - **Load isolation.** A load that fails for want of the resource (no CUDA
   device, a card too full) frees what it allocated and leaves the process up:
