@@ -12,7 +12,7 @@ updates:
     schedule:
       interval: weekly
     ignore:
-      # Our libraries move by their release work items; a PyPI package of the same name is not ours
+      # Our libraries come from Git or this repository; a PyPI package of the same name is not ours
       - dependency-name: "overnightworks-*"
     groups:
       uv-speech:
