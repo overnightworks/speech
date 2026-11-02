@@ -1,4 +1,4 @@
-"""The hearing proof refuses a bad command line and a missing model before it starts."""
+"""The hearing proof: its command line, record, wait, memory peak and taken card."""
 
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ import pytest
 
 from speech_runtime_client.wire import RefusalCode, refusal
 from speech_runtime_service.hearing_models import HearingModel
+from tests.support.clock_support import FakeClock
+from tests.support.nvidia_support import FakeNvidiaSmi
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
@@ -81,26 +83,26 @@ def test_a_model_missing_from_the_cache_names_the_command_that_fetches_it(
 
 
 def test_the_resident_memory_with_a_voice_includes_what_its_synthesis_took(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    card = {"used_mib": 1000}
+    card = FakeNvidiaSmi(tmp_path, monkeypatch)
+    card.use(1000)
     service = HEARING.Service("http://127.0.0.1:1", None, None)  # type: ignore[arg-type]
     synthesis_mib = 700
 
     @contextlib.contextmanager
-    def fake_service(*_: str) -> Iterator[HEARING.Service]:
+    def serve(*_: str) -> Iterator[HEARING.Service]:
         yield service
 
-    def fake_speak(*_: object) -> tuple[bytes, float, float]:
-        card["used_mib"] += synthesis_mib
+    def speak(*_: object) -> tuple[bytes, float, float]:
+        card.use(1000 + synthesis_mib)
         return b"", 0.0, 0.0
 
-    monkeypatch.setattr(HEARING, "hearing_service", fake_service)
-    monkeypatch.setattr(HEARING, "speak_measured", fake_speak)
-    monkeypatch.setattr(HEARING, "hear_file", lambda *_: (0.0, ""))
-    monkeypatch.setattr(HEARING, "used_mib", lambda: card["used_mib"])
+    ports = HEARING.Ports(serve=serve, speak=speak, hear=lambda *_: (0.0, ""))
 
-    peak = HEARING.measure_peak("cuda", "small", HEARING.DEFAULT_SPEAKING_MODEL, b"")
+    peak = HEARING.measure_peak(
+        "cuda", "small", HEARING.DEFAULT_SPEAKING_MODEL, b"", ports
+    )
 
     assert peak["warmed_resident_over_baseline_mib"] == synthesis_mib
 
@@ -108,25 +110,22 @@ def test_the_resident_memory_with_a_voice_includes_what_its_synthesis_took(
 class FakeCard:
     """Replaces everything of `_prove` that needs a service or a card."""
 
-    def __init__(self, monkeypatch: pytest.MonkeyPatch, *, fails_in: str = "") -> None:
+    def __init__(
+        self, monkeypatch: pytest.MonkeyPatch, cache: Path, *, fails_in: str = ""
+    ) -> None:
         """Patch the proof to start no service; `fails_in` names a failing model."""
         self.fails_in = fails_in
         clips = {
             language: HEARING.Clip(b"", b"") for language in HEARING.HearingLanguage
         }
-        for name in ("require_cached_models", "wait_for_load"):
-            monkeypatch.setattr(HEARING, name, lambda *_: None)
+        monkeypatch.setenv("SPEECH_HUGGINGFACE_CACHE", str(cache))
+        monkeypatch.setattr(HEARING, "require_cached_models", lambda *_: None)
         monkeypatch.setattr(HEARING, "card_line", lambda _: "card")
         monkeypatch.setattr(HEARING, "hearing_service", self.service)
         monkeypatch.setattr(HEARING, "make_clips", lambda *_: clips)
         monkeypatch.setattr(HEARING, "measure_language", lambda *_: {"figures": 1})
         monkeypatch.setattr(HEARING, "measure_peak", lambda *_: {"peak_mib": 7})
         monkeypatch.setattr(HEARING, "prove_taken_card", lambda *_: {"failures": []})
-        monkeypatch.setattr(
-            HEARING,
-            "installed_voice_ids",
-            lambda _: {HEARING.voice_for_model(m) for m in HEARING.GPU_SPEAKING_MODELS},
-        )
 
     @contextlib.contextmanager
     def service(self, _device: str, model: str, _speaking: str) -> Iterator[object]:
@@ -144,14 +143,14 @@ def prove(tmp_path: Path, *changes: str) -> dict[str, object]:
         command("--record", str(record), "--device", "cuda", *changes)
     )
     with contextlib.suppress(SystemExit, RuntimeError):
-        HEARING._prove(arguments)  # noqa: SLF001 - the proof's one entry below main
+        HEARING.prove(arguments, lambda: None)
     return json.loads(record.read_text())
 
 
 def test_a_run_of_one_model_on_cuda_names_the_other_as_not_measured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    FakeCard(monkeypatch)
+    FakeCard(monkeypatch, tmp_path)
 
     record = prove(tmp_path)
 
@@ -162,7 +161,7 @@ def test_a_run_of_one_model_on_cuda_names_the_other_as_not_measured(
 def test_every_model_and_stage_measured_makes_the_record_complete(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    FakeCard(monkeypatch)
+    FakeCard(monkeypatch, tmp_path)
 
     record = prove(tmp_path, "--hearing-model", "large-v3")
 
@@ -173,7 +172,7 @@ def test_every_model_and_stage_measured_makes_the_record_complete(
 def test_a_failing_second_model_leaves_the_figures_of_the_first_and_names_the_rest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    FakeCard(monkeypatch, fails_in="large-v3")
+    FakeCard(monkeypatch, tmp_path, fails_in="large-v3")
 
     record = prove(tmp_path, "--hearing-model", "large-v3")
 
@@ -189,7 +188,7 @@ def test_a_failing_second_model_leaves_the_figures_of_the_first_and_names_the_re
 def test_a_stage_that_fails_keeps_what_it_measured_before(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    FakeCard(monkeypatch)
+    FakeCard(monkeypatch, tmp_path)
     calls = []
 
     def peak(*_: object) -> dict[str, object]:
@@ -201,21 +200,20 @@ def test_a_stage_that_fails_keeps_what_it_measured_before(
 
     monkeypatch.setattr(HEARING, "measure_peak", peak)
 
-    record = prove(tmp_path)
+    record = prove(tmp_path, "--hearing-model", "large-v3")
 
     assert record["gpu_memory"]["models"]["small"]["hearing_alone"] == {"peak_mib": 7}
-    assert "stage gpu_memory" in record["not_measured"]
-    assert "stage taken_card" in record["not_measured"]
+    assert record["not_measured"] == ["stage gpu_memory", "stage taken_card"]
 
 
 def test_a_stage_that_does_not_apply_on_cpu_is_not_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    FakeCard(monkeypatch)
+    FakeCard(monkeypatch, tmp_path)
     record_path = tmp_path / "record.json"
     arguments = HEARING.parse_arguments(command("--record", str(record_path)))
 
-    HEARING._prove(arguments)  # noqa: SLF001 - the proof's one entry below main
+    HEARING.prove(arguments, lambda: None)
 
     assert json.loads(record_path.read_text())["not_measured"] == []
 
@@ -226,14 +224,11 @@ HEALTH_NO_HEARING = {"speaking": {"ready": True}, "hearing": {"ready": False}}
 HEALTH_LOADING = {"speaking": {"ready": False}, "hearing": {"ready": False}}
 
 
-def wait_loaded_with(
-    monkeypatch: pytest.MonkeyPatch, health: dict[str, object], *, speaks: bool
-) -> dict[str, object]:
-    monkeypatch.setattr(HEARING, "get_json", lambda *_: health)
-    monkeypatch.setattr(HEARING, "_speaks", lambda *_: speaks)
-    monkeypatch.setattr(HEARING, "READY_TIMEOUT_SECONDS", 0.2)
-    monkeypatch.setattr(HEARING, "POLL_SECONDS", 0.01)
-    return HEARING.wait_loaded("http://127.0.0.1:1", None, "voice")
+def wait_loaded_with(health: dict[str, object], *, speaks: bool) -> dict[str, object]:
+    clock = FakeClock()
+    return HEARING.wait_loaded(
+        "http://127.0.0.1:1", lambda: speaks, lambda *_: health, clock.now, clock.jump
+    )
 
 
 @pytest.mark.parametrize(
@@ -242,9 +237,9 @@ def wait_loaded_with(
     ids=["hearing ready", "speaking served after a load without hearing"],
 )
 def test_the_service_has_loaded_when_hearing_is_ready_or_speaking_is_served(
-    monkeypatch: pytest.MonkeyPatch, health: dict[str, object], *, speaks: bool
+    health: dict[str, object], *, speaks: bool
 ) -> None:
-    assert wait_loaded_with(monkeypatch, health, speaks=speaks) == health
+    assert wait_loaded_with(health, speaks=speaks) == health
 
 
 @pytest.mark.parametrize(
@@ -253,25 +248,28 @@ def test_the_service_has_loaded_when_hearing_is_ready_or_speaking_is_served(
     ids=["still loading", "speaking ready but not served"],
 )
 def test_a_service_that_never_finishes_loading_fails_the_wait(
-    monkeypatch: pytest.MonkeyPatch, health: dict[str, object], *, speaks: bool
+    health: dict[str, object], *, speaks: bool
 ) -> None:
     with pytest.raises(SystemExit, match="did not finish loading"):
-        wait_loaded_with(monkeypatch, health, speaks=speaks)
+        wait_loaded_with(health, speaks=speaks)
 
 
 def taken_card(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
     health: dict[str, object],
     file_response: httpx2.Response,
     freed: bool,
 ) -> dict[str, object]:
+    FakeNvidiaSmi(tmp_path, monkeypatch).use(100)
+
     @contextlib.contextmanager
-    def held() -> Iterator[int]:
+    def hold() -> Iterator[int]:
         yield HELD_MIB
 
     @contextlib.contextmanager
-    def service(*_: str) -> Iterator[object]:
+    def serve(*_: str) -> Iterator[object]:
         yield SimpleNamespace(
             base_url="http://127.0.0.1:1",
             minting=None,
@@ -281,15 +279,16 @@ def taken_card(
     async def upgrade(_: object) -> int:
         return HTTPStatus.SERVICE_UNAVAILABLE
 
-    monkeypatch.setattr(HEARING, "used_mib", lambda: 100)
-    monkeypatch.setattr(HEARING, "held_card", held)
-    monkeypatch.setattr(HEARING, "hearing_service", service)
-    monkeypatch.setattr(HEARING, "post_recording", lambda *_: file_response)
-    monkeypatch.setattr(HEARING, "upgrade_status", upgrade)
-    monkeypatch.setattr(HEARING, "speak_measured", lambda *_: (b"wav", 0.0, 0.0))
-    monkeypatch.setattr(HEARING, "card_is_freed", lambda _: freed)
+    ports = HEARING.Ports(
+        hold=hold,
+        serve=serve,
+        post=lambda *_: file_response,
+        upgrade=upgrade,
+        speak=lambda *_: (b"wav", 0.0, 0.0),
+        freed=lambda _: freed,
+    )
     clips = {HEARING.HearingLanguage.DE: HEARING.Clip(b"", b"")}
-    return HEARING.prove_taken_card("cuda", "small", clips)
+    return HEARING.prove_taken_card("cuda", "small", clips, ports)
 
 
 def unavailable() -> httpx2.Response:
@@ -300,9 +299,11 @@ def unavailable() -> httpx2.Response:
 
 
 def test_a_taken_card_that_behaves_as_cell_30_says_gives_no_failure(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     result = taken_card(
+        tmp_path,
         monkeypatch,
         health=HEALTH_NO_HEARING,
         file_response=unavailable(),
@@ -314,9 +315,11 @@ def test_a_taken_card_that_behaves_as_cell_30_says_gives_no_failure(
 
 
 def test_a_taken_card_that_is_not_freed_afterwards_is_a_failure(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     result = taken_card(
+        tmp_path,
         monkeypatch,
         health=HEALTH_NO_HEARING,
         file_response=unavailable(),
@@ -327,9 +330,11 @@ def test_a_taken_card_that_is_not_freed_afterwards_is_a_failure(
 
 
 def test_hearing_ready_on_a_taken_card_is_a_failure(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     result = taken_card(
+        tmp_path,
         monkeypatch,
         health=HEALTH_READY,
         file_response=unavailable(),
@@ -340,9 +345,11 @@ def test_hearing_ready_on_a_taken_card_is_a_failure(
 
 
 def test_a_file_route_that_answers_ok_on_a_taken_card_is_a_failure(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     result = taken_card(
+        tmp_path,
         monkeypatch,
         health=HEALTH_NO_HEARING,
         file_response=httpx2.Response(HTTPStatus.OK),
@@ -356,14 +363,13 @@ def test_uncached_voices_are_named_not_measured_against(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cached = HEARING.GPU_SPEAKING_MODELS[0]
-    monkeypatch.setattr(
-        HEARING, "installed_voice_ids", lambda _: {HEARING.voice_for_model(cached)}
-    )
     monkeypatch.setattr(HEARING, "measure_peak", lambda *_: {})
     memory: dict[str, object] = {}
     clips = {HEARING.HearingLanguage.DE: HEARING.Clip(b"", b"")}
 
-    HEARING.measure_memory("cuda", ["small"], clips, memory)
+    HEARING.measure_memory(
+        "cuda", ["small"], clips, memory, {HEARING.voice_for_model(cached)}
+    )
 
     assert memory["voices_not_in_cache"] == [
         HEARING.voice_for_model(model).value
@@ -372,3 +378,40 @@ def test_uncached_voices_are_named_not_measured_against(
     assert list(memory["models"]["small"]["with_voice"]) == [
         HEARING.voice_for_model(cached).value
     ]
+
+
+def test_a_cpu_run_that_fails_names_no_stage_that_never_applied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    FakeCard(monkeypatch, tmp_path, fails_in="small")
+    record_path = tmp_path / "record.json"
+    arguments = HEARING.parse_arguments(command("--record", str(record_path)))
+
+    with pytest.raises(RuntimeError, match="small failed"):
+        HEARING.prove(arguments, lambda: None)
+
+    assert json.loads(record_path.read_text())["not_measured"] == [
+        "hearing model small"
+    ]
+
+
+def test_a_proof_killed_after_its_first_model_has_left_that_model_on_disk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeCard(monkeypatch, tmp_path)
+    record_path = tmp_path / "record.json"
+    on_disk: list[dict[str, object]] = []
+    started = fake.service
+
+    @contextlib.contextmanager
+    def second_model_starts(device: str, model: str, speaking: str) -> Iterator[object]:
+        if model == "large-v3":
+            on_disk.append(json.loads(record_path.read_text()))
+        with started(device, model, speaking) as service:
+            yield service
+
+    monkeypatch.setattr(HEARING, "hearing_service", second_model_starts)
+
+    prove(tmp_path, "--hearing-model", "large-v3")
+
+    assert on_disk[0]["models"]["small"]["status"] == "measured"

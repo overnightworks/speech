@@ -93,9 +93,18 @@ from speech_runtime_service.voices import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Sequence
+    from collections.abc import (
+        Awaitable,
+        Callable,
+        Collection,
+        Iterator,
+        Sequence,
+    )
+    from contextlib import AbstractContextManager
 
     from piper import PiperVoice
+
+    from speech_runtime_service.voices import VoiceId
 
 
 THIS_SCRIPT = Path(__file__).resolve()
@@ -185,37 +194,37 @@ def _speaks(base_url: str, minting: Minting, voice: str) -> bool:
     return response.status_code == HTTPStatus.OK
 
 
-def _loaded(
-    base_url: str, minting: Minting, voice: str, health: dict[str, object]
-) -> bool:
+def _loaded(health: dict[str, object], speaks: Callable[[], bool]) -> bool:
     hearing = health["hearing"]
     speaking = health["speaking"]
     if isinstance(hearing, dict) and hearing["ready"] is True:
         return True
-    return (
-        isinstance(speaking, dict)
-        and speaking["ready"] is True
-        and _speaks(base_url, minting, voice)
-    )
+    return isinstance(speaking, dict) and speaking["ready"] is True and speaks()
 
 
-def wait_loaded(base_url: str, minting: Minting, voice: str) -> dict[str, object]:
+def wait_loaded(
+    base_url: str,
+    speaks: Callable[[], bool],
+    health_of: Callable[[str, str], dict[str, object]] = get_json,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, object]:
     """Wait until the service finished loading and return its health then.
 
     Hearing ready is the end of a good load. A load that found no room on the
     card ends with speaking served and hearing not ready, which the speak route
     shows by answering once loading is over.
     """
-    deadline = time.monotonic() + READY_TIMEOUT_SECONDS
+    deadline = clock() + READY_TIMEOUT_SECONDS
     last: dict[str, object] | None = None
-    while time.monotonic() < deadline:
+    while clock() < deadline:
         try:
-            last = get_json(base_url, "/health")
-            if _loaded(base_url, minting, voice, last):
-                return get_json(base_url, "/health")
+            last = health_of(base_url, "/health")
+            if _loaded(last, speaks):
+                return health_of(base_url, "/health")
         except httpx2.HTTPError, json.JSONDecodeError:
             pass
-        time.sleep(POLL_SECONDS)
+        sleep(POLL_SECONDS)
     message = (
         f"the service did not finish loading within {READY_TIMEOUT_SECONDS}s: {last}"
     )
@@ -237,7 +246,10 @@ def hearing_service(
             environment = speech_environment(
                 port, speaking_model, identity, device, hearing_model
             )
-            wait_ready = functools.partial(wait_loaded, minting=minting, voice=voice)
+            wait_ready = functools.partial(
+                wait_loaded,
+                speaks=functools.partial(_speaks, base_url, minting, voice),
+            )
             with speech_server(
                 base_url, environment, directory, wait_ready=wait_ready
             ) as running:
@@ -245,6 +257,22 @@ def hearing_service(
                 yield Service(base_url, minting, running)
     finally:
         shutil.rmtree(directory)
+
+
+@dataclass(frozen=True)
+class Ports:
+    """What the card stages do outside the proof: hold, serve, ask, speak, hear."""
+
+    hold: Callable[[], AbstractContextManager[int]] = held_card
+    serve: Callable[..., AbstractContextManager[Service]] = hearing_service
+    post: Callable[..., httpx2.Response] = post_recording
+    upgrade: Callable[[Service], Awaitable[int | None]] = upgrade_status
+    speak: Callable[..., tuple[bytes, float, float]] = speak_measured
+    hear: Callable[..., tuple[float, str]] = hear_file
+    freed: Callable[[int], bool] = card_is_freed
+
+
+PORTS = Ports()
 
 
 # -- clips --------------------------------------------------------------------
@@ -392,9 +420,15 @@ def measure_language(
 
 
 def measure_models(
-    arguments: argparse.Namespace, models: dict[str, object]
+    arguments: argparse.Namespace,
+    models: dict[str, object],
+    save: Callable[[], None],
 ) -> dict[HearingLanguage, Clip]:
-    """Fill `models` with each hearing model's figures as it ends; return the clips."""
+    """Fill `models` with each hearing model's figures as each language ends.
+
+    `save` writes the record after each language and each model, so a proof killed
+    outright keeps what it measured. Returns the clips.
+    """
     clips: dict[HearingLanguage, Clip] | None = None
     for model in arguments.hearing_models:
         with hearing_service(
@@ -407,15 +441,20 @@ def measure_models(
                 model,
                 f"load_to_ready_s={service.running.ready_seconds:.1f}",
             )
-            models[model] = {
+            languages: dict[str, object] = {}
+            entry: dict[str, object] = {
+                "status": figures.StageStatus.UNFINISHED,
                 "load_to_ready_s": service.running.ready_seconds,
-                "languages": {
-                    language.code.value: measure_language(
-                        service, language, clips[language.code], arguments.runs
-                    )
-                    for language in LANGUAGES
-                },
+                "languages": languages,
             }
+            models[model] = entry
+            for language in LANGUAGES:
+                languages[language.code.value] = measure_language(
+                    service, language, clips[language.code], arguments.runs
+                )
+                save()
+            entry["status"] = figures.StageStatus.MEASURED
+            save()
     if clips is None:
         message = "no hearing model was given"
         raise SystemExit(message)
@@ -432,7 +471,11 @@ def _refusal_code(response: httpx2.Response) -> str | None:
 
 
 def measure_peak(
-    device: str, hearing_model: str, speaking_model: str, warm_clip: bytes
+    device: str,
+    hearing_model: str,
+    speaking_model: str,
+    warm_clip: bytes,
+    ports: Ports = PORTS,
 ) -> dict[str, object]:
     """The card's peak over its baseline from service start, a synthesis, a long decode.
 
@@ -442,12 +485,12 @@ def measure_peak(
     baseline = used_mib()
     with (
         MemorySampler() as sampler,
-        hearing_service(device, hearing_model, speaking_model) as service,
+        ports.serve(device, hearing_model, speaking_model) as service,
     ):
-        speak_measured(
+        ports.speak(
             service.base_url, GERMAN_QUESTION, voice_id(speaking_model), service.minting
         )
-        hear_file(service, HearingLanguage.DE, warm_clip)
+        ports.hear(service, HearingLanguage.DE, warm_clip)
         resident = used_mib()
     return {
         "baseline_mib": baseline,
@@ -461,9 +504,9 @@ def measure_memory(
     hearing_models: Sequence[str],
     clips: dict[HearingLanguage, Clip],
     memory: dict[str, object],
+    installed: Collection[VoiceId],
 ) -> None:
-    """Fill `memory` with each model's peak, alone and with each cached voice."""
-    installed = installed_voice_ids(load_settings())
+    """Fill `memory` with each model's peak, alone and with each `installed` voice."""
     cached = [m for m in GPU_SPEAKING_MODELS if voice_for_model(m) in installed]
     warm_clip = clips[HearingLanguage.DE].long_turn
     memory["voices_not_in_cache"] = [
@@ -486,24 +529,27 @@ def measure_memory(
 
 
 def prove_taken_card(
-    device: str, hearing_model: str, clips: dict[HearingLanguage, Clip]
+    device: str,
+    hearing_model: str,
+    clips: dict[HearingLanguage, Clip],
+    ports: Ports = PORTS,
 ) -> dict[str, object]:
     """Start the service on a card a second process holds; cell 30 says what follows."""
     baseline = used_mib()
     german = clips[HearingLanguage.DE]
-    with held_card() as held_mib:
+    with ports.hold() as held_mib:
         used_while_held = used_mib()
-        with hearing_service(device, hearing_model, DEFAULT_SPEAKING_MODEL) as service:
+        with ports.serve(device, hearing_model, DEFAULT_SPEAKING_MODEL) as service:
             health = service.running.health
-            file_answer = post_recording(service, HearingLanguage.DE, german.question)
-            live_status = asyncio.run(upgrade_status(service))
-            wav, _, _ = speak_measured(
+            file_answer = ports.post(service, HearingLanguage.DE, german.question)
+            live_status = asyncio.run(ports.upgrade(service))
+            wav, _, _ = ports.speak(
                 service.base_url,
                 GERMAN_QUESTION,
                 voice_id(DEFAULT_SPEAKING_MODEL),
                 service.minting,
             )
-    freed = card_is_freed(baseline)
+    freed = ports.freed(baseline)
     speaking, hearing = health["speaking"], health["hearing"]
     failures = figures.taken_card_failures(
         figures.TakenCardObservation(
@@ -586,24 +632,35 @@ def card_line(device: str) -> str:
 
 
 def run_stage(
-    record: dict[str, object],
-    name: str,
-    device: str,
+    stage: dict[str, object],
     measure: Callable[[dict[str, object]], None],
+    save: Callable[[], None],
 ) -> None:
-    """Run a `cuda` stage into `record[name]`; a failure leaves what it measured."""
-    stage: dict[str, object] = figures.stage_record(device, "cuda", dict)
-    record[name] = stage
-    if stage["status"] == "measured":
-        stage["status"] = "unfinished"
+    """Measure an unfinished `stage` into itself; a failure leaves what it measured."""
+    if stage["status"] == figures.StageStatus.UNFINISHED:
         measure(stage)
-        stage["status"] = "measured"
+        stage["status"] = figures.StageStatus.MEASURED
+        save()
 
 
-def _prove(arguments: argparse.Namespace) -> None:
+def write_record(path: Path, record: dict[str, object]) -> None:
+    """Replace the record file whole, so a kill never leaves half a record."""
+    partial = path.with_name(path.name + ".partial")
+    partial.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    partial.replace(path)
+
+
+def prove(
+    arguments: argparse.Namespace,
+    wait_for_calm: Callable[[], None] = wait_for_load,
+) -> None:
+    """Measure every model and card stage into the record, then judge it."""
     require_cached_models(arguments.hearing_models)
-    wait_for_load()
+    wait_for_calm()
     models: dict[str, object] = {}
+    stages = {
+        name: figures.open_stage(arguments.device, "cuda") for name in CARD_STAGES
+    }
     record: dict[str, object] = {
         "device": arguments.device,
         "runs": arguments.runs,
@@ -614,38 +671,36 @@ def _prove(arguments: argparse.Namespace) -> None:
         "complete": False,
         "gpu_before": card_line(arguments.device),
         "models": models,
+        **stages,
     }
+    save = functools.partial(write_record, arguments.record, record)
     failures: list[str] = []
     try:
-        clips = measure_models(arguments, models)
+        clips = measure_models(arguments, models, save)
         run_stage(
-            record,
-            "gpu_memory",
-            arguments.device,
+            stages["gpu_memory"],
             lambda stage: measure_memory(
-                arguments.device, arguments.hearing_models, clips, stage
+                arguments.device,
+                arguments.hearing_models,
+                clips,
+                stage,
+                installed_voice_ids(load_settings()),
             ),
+            save,
         )
         run_stage(
-            record,
-            "taken_card",
-            arguments.device,
+            stages["taken_card"],
             lambda stage: stage.update(
                 prove_taken_card(arguments.device, arguments.hearing_models[0], clips)
             ),
+            save,
         )
-        taken = record["taken_card"]
-        if isinstance(taken, dict):
-            failures = list(taken.get("failures", []))
+        failures = list(stages["taken_card"].get("failures", []))
     finally:
-        unmeasured = figures.not_measured(
-            required_models(arguments),
-            models,
-            {name: record.get(name) for name in CARD_STAGES},
-        )
+        unmeasured = figures.not_measured(required_models(arguments), models, stages)
         record["not_measured"] = unmeasured
         record["complete"] = not failures and not unmeasured
-        arguments.record.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        save()
         print("record", arguments.record)
         print("gpu_released", card_line(arguments.device))
     if failures:
@@ -663,7 +718,7 @@ def main() -> None:
     if LOCK_HELD_ENV not in os.environ:
         print("waiting_for_lock", LOCK_PATH)
         raise SystemExit(run_under_lock(sys.argv[1:], script=THIS_SCRIPT))
-    prove_under_lock(os.environ, functools.partial(_prove, arguments))
+    prove_under_lock(os.environ, functools.partial(prove, arguments))
 
 
 if __name__ == "__main__":

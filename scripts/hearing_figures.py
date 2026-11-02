@@ -12,6 +12,7 @@ import re
 import statistics
 import wave
 from dataclasses import asdict, dataclass
+from enum import StrEnum
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Annotated, Final
 
@@ -33,7 +34,7 @@ from speech_runtime_service.hearing_session import (
 from speech_runtime_service.pcm import BYTES_PER_SAMPLE, LIVE_INPUT_RATE
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
 
 MIN_RUNS: Final = 5
 FRAME_SECONDS: Final = 0.1
@@ -298,33 +299,44 @@ def taken_card_failures(seen: TakenCardObservation) -> list[str]:
     return [problem for problem, held in expectations.items() if not held]
 
 
-def stage_record(
-    device: str, applies_on: str, measure: Callable[[], dict[str, object]]
-) -> dict[str, object]:
-    """The stage's measurement on `applies_on`, else the note that it does not apply."""
+class StageStatus(StrEnum):
+    """Where a stage or model of the record stands; only the first two are finished."""
+
+    UNFINISHED = "unfinished"
+    MEASURED = "measured"
+    NOT_APPLICABLE = "not applicable"
+
+
+def open_stage(device: str, applies_on: str) -> dict[str, object]:
+    """A stage's record before it runs: unfinished on `applies_on`, else why not."""
     if device != applies_on:
-        return {"status": "not applicable", "reason": f"the device is {device}"}
-    return {"status": "measured", **measure()}
+        return {
+            "status": StageStatus.NOT_APPLICABLE,
+            "reason": f"the device is {device}",
+        }
+    return {"status": StageStatus.UNFINISHED}
+
+
+def _is_finished(entry: object) -> bool:
+    return isinstance(entry, dict) and entry.get("status") in (
+        StageStatus.MEASURED,
+        StageStatus.NOT_APPLICABLE,
+    )
 
 
 def not_measured(
     required_models: Iterable[str],
-    measured_models: Collection[str],
+    models: Mapping[str, object],
     stages: Mapping[str, object],
 ) -> list[str]:
-    """What the record lacks: required models without figures, stages not finished."""
-    finished = ("measured", "not applicable")
+    """What the record lacks: required models and stages that did not finish."""
     return [
         *(
             f"hearing model {model}"
             for model in required_models
-            if model not in measured_models
+            if not _is_finished(models.get(model))
         ),
-        *(
-            f"stage {name}"
-            for name, stage in stages.items()
-            if not isinstance(stage, dict) or stage.get("status") not in finished
-        ),
+        *(f"stage {name}" for name, stage in stages.items() if not _is_finished(stage)),
     ]
 
 

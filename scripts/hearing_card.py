@@ -15,7 +15,7 @@ import hearing_figures as figures
 from prove_speech import add_cuda_library_path, query_nvidia
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from types import TracebackType
 
 
@@ -104,11 +104,15 @@ def held_card() -> Iterator[int]:
             holder.wait()
 
 
-def card_is_freed(baseline_mib: int) -> bool:
+def card_is_freed(
+    baseline_mib: int,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> bool:
     """True once the card is back within a margin of `baseline_mib`."""
-    deadline = time.monotonic() + FREED_WAIT_SECONDS
-    while time.monotonic() < deadline:
+    deadline = clock() + FREED_WAIT_SECONDS
+    while clock() < deadline:
         if used_mib() <= baseline_mib + FREED_TOLERANCE_MIB:
             return True
-        time.sleep(FREED_POLL_SECONDS)
+        sleep(FREED_POLL_SECONDS)
     return False

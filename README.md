@@ -189,9 +189,9 @@ synthetic: German from the service's speak route, English from a Piper voice
 fetched into `--english-voice-directory` when absent. It never downloads a
 hearing model (fetch it with `speech-runtime-fetch-hearing-model`) and never
 starts or stops anything but its own processes, so the caller makes the card
-free first. It writes the JSON record to `--record` as each model and stage ends,
-and `not_measured` names what is missing (on `cuda` both hearing models, every
-stage not reached); only a record with an empty list is `complete`:
+free first. It writes the JSON record to `--record` after each language, model
+and stage ends, and `not_measured` names what is missing (on `cuda` both hearing
+models, every stage not finished); only a record with an empty list is `complete`:
 
 ```sh
 CUDA_VISIBLE_DEVICES= uv run python scripts/prove_hearing.py --device cpu \

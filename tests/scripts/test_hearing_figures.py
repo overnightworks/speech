@@ -263,26 +263,33 @@ def test_a_taken_card_as_cell_30_says_has_no_failures() -> None:
 
 
 def test_a_stage_that_needs_the_card_is_not_applicable_on_the_cpu() -> None:
-    calls: list[str] = []
-
-    def measure() -> dict[str, object]:
-        calls.append("measured")
-        return {"peak_mib": 1}
-
-    record = figures.stage_record("cpu", "cuda", measure)
-
-    assert record == {"status": "not applicable", "reason": "the device is cpu"}
-    assert calls == []
-
-
-def test_a_stage_that_needs_the_card_is_measured_on_cuda() -> None:
-    def measure() -> dict[str, object]:
-        return {"peak_mib": 3200}
-
-    assert figures.stage_record("cuda", "cuda", measure) == {
-        "status": "measured",
-        "peak_mib": 3200,
+    assert figures.open_stage("cpu", "cuda") == {
+        "status": figures.StageStatus.NOT_APPLICABLE,
+        "reason": "the device is cpu",
     }
+
+
+def test_a_stage_that_needs_the_card_opens_unfinished_on_cuda() -> None:
+    assert figures.open_stage("cuda", "cuda") == {
+        "status": figures.StageStatus.UNFINISHED
+    }
+
+
+def test_only_unfinished_or_missing_models_and_stages_are_not_measured() -> None:
+    models = {
+        "small": {"status": figures.StageStatus.MEASURED},
+        "large-v3": {"status": figures.StageStatus.UNFINISHED},
+    }
+    stages = {
+        "gpu_memory": figures.open_stage("cuda", "cuda"),
+        "taken_card": figures.open_stage("cpu", "cuda"),
+    }
+
+    assert figures.not_measured(["small", "large-v3", "base"], models, stages) == [
+        "hearing model large-v3",
+        "hearing model base",
+        "stage gpu_memory",
+    ]
 
 
 def test_timing_and_error_records_carry_plain_numbers() -> None:

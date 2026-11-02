@@ -41,7 +41,7 @@ from speech_runtime_client.wire import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from websockets.asyncio.client import ClientConnection
 
@@ -187,10 +187,15 @@ async def hear_live(
                 await sender
 
 
-async def upgrade_status(service: Service) -> int | None:
+async def upgrade_status(
+    service: Service,
+    open_connection: Callable[
+        ..., contextlib.AbstractAsyncContextManager[object]
+    ] = connect,
+) -> int | None:
     """The HTTP status that refuses a live upgrade, or `None` if it was accepted."""
     try:
-        async with connect(
+        async with open_connection(
             live_url(service.base_url),
             additional_headers=token_headers(service.minting),
         ):

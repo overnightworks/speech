@@ -4,83 +4,49 @@ from __future__ import annotations
 
 import contextlib
 import os
+import select
 import signal
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
 
+from tests.support.clock_support import FakeClock
+from tests.support.nvidia_support import FakeNvidiaSmi
 from tests.support.script_support import script_module
 
 CARD = script_module("hearing_card")
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 DEADLINE_SECONDS = 10.0
 HELD_MIB = 123
+READING_MIB = 100
 
 FAKE_HOLDER = f"""
 import os, pathlib, threading
 pathlib.Path(os.environ["HOLDER_PIDFILE"]).write_text(str(os.getpid()))
+if "HOLDER_FIFO" in os.environ:
+    lifeline = open(os.environ["HOLDER_FIFO"], "w")
 print("held", {HELD_MIB}, flush=True)
 threading.Event().wait()
 """
 
 KILLED_PARENT = """
-import sys, time
+import sys, threading
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 import hearing_card
 hearing_card.CARD_HOLDER = Path(sys.argv[2])
 with hearing_card.held_card():
     print("holding", flush=True)
-    time.sleep(60)
+    threading.Event().wait()
 """
 
 
-def fake_nvidia(directory: Path, readings: list[str]) -> None:
-    """Put an `nvidia-smi` on PATH that prints the readings, then fails."""
-    counter = directory / "calls"
-    counter.write_text("0")
-    script = directory / "nvidia-smi"
-    lines = "\n".join(
-        f'  {n}) echo "{reading}";;' for n, reading in enumerate(readings)
-    )
-    script.write_text(
-        f"""#!/bin/sh
-n=$(cat {counter})
-echo $((n + 1)) > {counter}
-case $n in
-{lines}
-  *) exit 1;;
-esac
-"""
-    )
-    script.chmod(0o755)
-
-
-def wait_for_calls(counter: Path, calls: int) -> None:
-    deadline = time.monotonic() + DEADLINE_SECONDS
-    while int(counter.read_text()) < calls:
-        assert time.monotonic() < deadline
-        time.sleep(0.05)
-
-
-def is_running(pid: int) -> bool:
-    try:
-        state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
-    except FileNotFoundError:
-        return False
-    return state != "Z"
-
-
-def wait_until_gone(pid: int) -> bool:
-    deadline = time.monotonic() + DEADLINE_SECONDS
-    while time.monotonic() < deadline:
-        if not is_running(pid):
-            return True
-        time.sleep(0.05)
-    return False
+def holder_ends(lifeline: int) -> bool:
+    """Block until the holder, the lifeline's only writer, has ended."""
+    hung_up, _, _ = select.select([lifeline], [], [], DEADLINE_SECONDS)
+    return bool(hung_up)
 
 
 @pytest.fixture
@@ -105,15 +71,24 @@ def test_the_holder_ends_when_the_body_of_the_hold_raises(holder: Path) -> None:
     with pytest.raises(RuntimeError, match="body failed"):
         hold_and_fail(holder)
 
-    assert wait_until_gone(int(holder.read_text()))
+    assert not Path(f"/proc/{holder.read_text()}").exists()
 
 
 def test_the_holder_ends_when_the_proof_is_killed_outright(
-    holder: Path, tmp_path: Path
+    holder: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fake = tmp_path / "fake_holder.py"
+    fifo = tmp_path / "lifeline"
+    os.mkfifo(fifo)
+    monkeypatch.setenv("HOLDER_FIFO", str(fifo))
+    lifeline = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
     proof = subprocess.Popen(
-        [sys.executable, "-c", KILLED_PARENT, str(SCRIPTS), str(fake)],
+        [
+            sys.executable,
+            "-c",
+            KILLED_PARENT,
+            str(SCRIPTS),
+            str(tmp_path / "fake_holder.py"),
+        ],
         stdout=subprocess.PIPE,
         text=True,
         env=os.environ.copy(),
@@ -121,12 +96,12 @@ def test_the_holder_ends_when_the_proof_is_killed_outright(
     try:
         assert proof.stdout is not None
         assert proof.stdout.readline().strip() == "holding"
-        pid = int(holder.read_text())
         proof.send_signal(signal.SIGKILL)
         proof.wait()
 
-        assert wait_until_gone(pid)
+        assert holder_ends(lifeline)
     finally:
+        os.close(lifeline)
         proof.kill()
         proof.wait()
         if holder.exists():
@@ -137,41 +112,36 @@ def test_the_holder_ends_when_the_proof_is_killed_outright(
 def test_a_failed_sample_fails_the_measurement_instead_of_shortening_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    readings = ["100, 1000", "300, 1000"]
-    fake_nvidia(tmp_path, readings)
-    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+    FakeNvidiaSmi(tmp_path, monkeypatch).fail()
 
-    with pytest.raises(ValueError), CARD.MemorySampler():  # noqa: PT011 - the parse error of the failed reading
-        wait_for_calls(tmp_path / "calls", len(readings) + 1)
+    with pytest.raises(ValueError, match="unavailable"), CARD.MemorySampler():
+        pass
 
 
-def test_the_samples_of_a_healthy_card_give_its_highest_reading(
+def test_a_healthy_card_keeps_its_reading_among_the_samples(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fake_nvidia(tmp_path, ["100, 1000"] * 50)
-    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+    FakeNvidiaSmi(tmp_path, monkeypatch).use(READING_MIB)
 
     with CARD.MemorySampler() as sampler:
         pass
 
-    assert sampler.samples == [100]
+    assert READING_MIB in sampler.samples
 
 
 @pytest.mark.parametrize(
-    ("readings", "freed"),
-    [(["100, 1000"], True), (["900, 1000"] * 50, False)],
+    ("used_mib", "freed"),
+    [(100, True), (900, False)],
     ids=["back at the baseline", "still held"],
 )
 def test_the_card_is_freed_once_it_is_back_at_the_baseline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    readings: list[str],
+    used_mib: int,
     *,
     freed: bool,
 ) -> None:
-    fake_nvidia(tmp_path, readings)
-    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
-    monkeypatch.setattr(CARD, "FREED_WAIT_SECONDS", 0.2)
-    monkeypatch.setattr(CARD, "FREED_POLL_SECONDS", 0.01)
+    FakeNvidiaSmi(tmp_path, monkeypatch).use(used_mib)
+    clock = FakeClock()
 
-    assert CARD.card_is_freed(100) is freed
+    assert CARD.card_is_freed(100, clock.now, clock.jump) is freed
