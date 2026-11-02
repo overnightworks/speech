@@ -1,8 +1,0 @@
-claim_id = "e8db4dae1aa9457eb161f02ed3904fbc"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "6ed351554e850d8cf0884807384612d17f81d371"
-branch = "claude/issue-124-cpu-hearing-in-image"
-scope = ["Dockerfile", "README.md", "compose.yaml", "deploy", "docs/ARCHITECTURE.md", "docs/wire.md", "scripts/image_judgement.py", "scripts/image_stack.py", "scripts/prove_image.py", "src/speech_runtime_service/wire_route.py", "tests/fixtures/image", "tests/scripts", "tests/test_wire_route_hearing.py"]
-opened_commit = "4d46634b3bcd60a9336398fbbca5fd849504ffb5"
-whole_reason = "One delivery path: the baked model, the compose settings, the caller table and the cells that prove them prove nothing apart."
