@@ -18,6 +18,7 @@ import argparse
 import asyncio
 import contextlib
 import functools
+import hashlib
 import io
 import json
 import os
@@ -428,6 +429,10 @@ def measure_language(
     files = [ports.hear(service, language.code, clip.question) for _ in range(runs)]
     print("question", language.code.value, f"runs={runs}")
     return {
+        "clip_sha256": {
+            "question": hashlib.sha256(clip.question).hexdigest(),
+            "long_turn": hashlib.sha256(clip.long_turn).hexdigest(),
+        },
         "question": {
             "reference": language.question,
             "live": _live_record(language.question, live),
@@ -570,12 +575,13 @@ def prove_taken_card(
             )
     freed = ports.freed(baseline)
     speaking, hearing = health["speaking"], health["hearing"]
+    file_code = refusal_code(file_answer.status_code, file_answer.content)
     failures = figures.taken_card_failures(
         figures.TakenCardObservation(
             speaking_ready=isinstance(speaking, dict) and speaking["ready"] is True,
             hearing_ready=isinstance(hearing, dict) and hearing["ready"] is True,
             file_status=file_answer.status_code,
-            file_code=refusal_code(file_answer.status_code, file_answer.content),
+            file_code=file_code,
             live_status=None if live is None else live.status,
             live_code=None if live is None else live.code,
             spoke_bytes=len(wav),
@@ -586,6 +592,13 @@ def prove_taken_card(
         "held_mib": held_mib,
         "used_while_held_mib": used_while_held,
         "health": health,
+        "refusals": {
+            "file": {"status": file_answer.status_code, "code": file_code},
+            "live": {
+                "status": None if live is None else live.status,
+                "code": None if live is None else live.code,
+            },
+        },
         "freed_afterwards": freed,
         "failures": failures + ([] if freed else ["the card was not freed"]),
     }

@@ -29,7 +29,8 @@ Hearing, optional, `SPEECH_HEARING_MODEL`: faster-whisper (MIT) with the CTransl
 [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3)
 (`large-v3`, the reference model) and
 [`Systran/faster-whisper-small`](https://huggingface.co/Systran/faster-whisper-small)
-(`small`, small enough for a CPU proof), each pinned to a commit. German and
+(`small`, small enough for a CPU proof and not recommended where the meaning of
+what is heard matters: see the numbers below), each pinned to a commit. German and
 English. The model is never downloaded by the service: `speech-runtime-fetch-hearing-model <model>`
 fetches the pinned files into `SPEECH_HUGGINGFACE_CACHE` once, and the start loads them from there only.
 
@@ -123,7 +124,7 @@ All `SPEECH_*`:
 | `SPEECH_MAX_WAITING_REQUESTS` | `3` | How many speech requests may wait for the one synthesis; a request beyond them answers 429 `busy` at once. A whole number of at least 0, where 0 allows no waiting |
 | `SPEECH_MAX_BODY_BYTES` | `32768` | The largest speech request body; a larger one answers 413 `too_large` before it is parsed. A whole number of at least 1 |
 | `SPEECH_MAX_INPUT_CHARACTERS` | `4096` | The longest `input` a speech request may carry; a whole number of at least 1 |
-| `SPEECH_HEARING_MODEL` | none | The hearing model the process loads at start, on `SPEECH_DEVICE`: `large-v3` or `small`. None: hearing answers 503 `unavailable`. A model that was not fetched stops the start naming this setting (fetch it with `speech-runtime-fetch-hearing-model <model>`); a card that is missing, taken or too small leaves hearing unavailable in `/health` while speaking stays up |
+| `SPEECH_HEARING_MODEL` | none | The hearing model the process loads at start, on `SPEECH_DEVICE`: `large-v3` (recommended) or `small`. None: hearing answers 503 `unavailable`. A model that was not fetched stops the start naming this setting (fetch it with `speech-runtime-fetch-hearing-model <model>`); a card that is missing, taken or too small leaves hearing unavailable in `/health` while speaking stays up |
 | `SPEECH_HEARING_BUSY_WAIT_SECONDS` | `30.0` | How long a recording waits for the one decode before it answers 429 `busy`; at least 0, where 0 refuses at once |
 | `SPEECH_MAX_HEARING_SESSIONS` | `1` | How many live hearing sessions run at once; one more is refused at the upgrade with 429 `busy`. A whole number of at least 1 |
 | `SPEECH_HEARING_FINAL_WAIT_SECONDS` | `60.0` | How long a live turn's final may wait for the one decode, counted from the turn's end; past it the session ends with `busy`. Above 0 |
@@ -199,3 +200,50 @@ text); only a record with an empty list is `complete`:
 CUDA_VISIBLE_DEVICES= uv run python scripts/prove_hearing.py --device cpu \
   --hearing-model small --record record.json --english-voice-directory ~/.cache/piper-en
 ```
+
+### Hearing on the GPU: numbers and budget
+
+Hearing runs on the GPU with `large-v3`. The numbers are the medians of seven
+runs of one short question per language on the RTX 3090 with a quiet machine
+(load average about 1), through the hearing stage proof, with synthetic, clean
+clips. Seconds; the first partial is counted from the start of the question and
+the final from its end. A negative time means the partial arrived while the
+question was still being spoken. The final includes the 0.7 s of silence the
+service waits for before it ends a turn, and the first partial needs two
+agreeing decodes.
+
+| Model | Language | First partial | Final | File route |
+| --- | --- | --- | --- | --- |
+| `large-v3` | German | 1.38 (−1.14 from the end) | 0.73 | 0.27 |
+| `large-v3` | English | 1.36 (−1.44) | 1.01 | 0.26 |
+| `small` | German | 1.26 (−1.26) | 0.58 | 0.14 |
+| `small` | English | 1.25 (−1.56) | 0.89 | 0.13 |
+
+The CPU reference was 6.8 s to the first partial and 13.9 s to the final after
+the end. A 16 to 19 s turn on the GPU gives 22 to 26 growing deltas about 0.6 s
+apart. On the same card under a machine load of about 18 the final took 0.9 to
+1.2 s and the file route 0.4 to 0.7 s.
+
+Both models heard all four clips without a word error in the complete run. In
+another run `small` heard the German question as "Wie geht es und wann beginnt
+die nächste Sitzung?", 14 word errors of 70 and a different question, so a clean
+run is no proof for it; clips are drawn anew in each proof. That is why
+`large-v3` is the model to use.
+
+Declared budget, GPU memory over the card's idle use of about 0.7 GiB, peak over
+the warmed service:
+
+| Resident next to hearing | `large-v3` | `small` |
+| --- | --- | --- |
+| Piper (CPU) | 4.2 GiB (4266 MiB) | 0.96 GiB (982 MiB) |
+| Qwen3-TTS 0.6B | 6.7 GiB (6832 MiB) | 3.5 GiB (3569 MiB) |
+| Chatterbox | 7.8 GiB (7993 MiB) | 4.6 GiB (4678 MiB) |
+
+VoxCPM2 and Magpie are not in the budget: their weights were not in the cache,
+so nothing was measured. Speaking and hearing were measured one after the other,
+never at the same moment, so the table is the memory the two hold resident and
+not the peak of both working at once.
+
+When a second process holds the card, the service starts, `/health` names
+hearing not ready, hearing answers 503 `unavailable` and speaking on the CPU
+voice stays up.

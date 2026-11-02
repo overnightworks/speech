@@ -153,6 +153,27 @@ def test_the_peak_is_never_below_the_warmed_resident_reading(
     assert peak["peak_sampled_every_seconds"] == HEARING.MEMORY_SAMPLE_SECONDS
 
 
+def test_the_record_names_the_clips_a_language_was_measured_with() -> None:
+    german = HEARING.LANGUAGES[0]
+
+    def clips_recorded(question: bytes) -> object:
+        record = HEARING.measure_language(
+            SimpleNamespace(),  # type: ignore[arg-type]
+            german,
+            HEARING.Clip(question, b"long turn"),
+            5,
+            HEARING.Ports(live=_one_delta_turn, hear=lambda *_: (0.5, "Wie")),
+        )
+        return record["clip_sha256"]
+
+    assert clips_recorded(b"one") == clips_recorded(b"one")
+    assert clips_recorded(b"one") != clips_recorded(b"another")
+
+
+async def _one_delta_turn(_: object, __: object, ___: bytes) -> HEARING.LiveTurn:
+    return HEARING.LiveTurn(2.0, (2.5,), ("Wie",), 6.0, "Wie")
+
+
 def test_a_language_measured_with_one_delta_in_its_long_turn_is_not_measured() -> None:
     runs = 5
     question, long_turn = b"question", b"long turn"
@@ -466,6 +487,11 @@ def test_a_taken_card_that_behaves_as_cell_30_says_gives_no_failure(
 
     assert result["failures"] == []
     assert result["held_mib"] == HELD_MIB
+    refused = {
+        "status": HTTPStatus.SERVICE_UNAVAILABLE,
+        "code": RefusalCode.UNAVAILABLE,
+    }
+    assert result["refusals"] == {"file": refused, "live": refused}
 
 
 def test_a_taken_card_that_is_not_freed_afterwards_is_a_failure(
