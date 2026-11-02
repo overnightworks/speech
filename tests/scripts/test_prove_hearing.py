@@ -397,12 +397,9 @@ def test_a_wait_with_slow_health_answers_still_ends_at_its_time_limit() -> None:
         clock.jump(slow_seconds)
         return HEALTH_LOADING
 
+    wait = HEARING.LoadWait(lambda: True, slow_health, clock.jump, clock.now)
     with pytest.raises(SystemExit, match="did not finish loading"):
-        HEARING.wait_loaded(
-            "http://127.0.0.1:1",
-            lambda: None,
-            HEARING.LoadWait(lambda: True, slow_health, clock.jump, clock.now),
-        )
+        HEARING.wait_loaded("http://127.0.0.1:1", lambda: None, wait)
 
     assert clock.now() < HEARING.READY_TIMEOUT_SECONDS + slow_seconds + 1
 
@@ -414,12 +411,9 @@ def test_a_wait_that_never_heard_the_service_names_no_health() -> None:
         message = "refused"
         raise httpx2.ConnectError(message)
 
+    wait = HEARING.LoadWait(lambda: True, unreachable, clock.jump, clock.now)
     with pytest.raises(SystemExit) as failure:
-        HEARING.wait_loaded(
-            "http://127.0.0.1:1",
-            lambda: None,
-            HEARING.LoadWait(lambda: True, unreachable, clock.jump, clock.now),
-        )
+        HEARING.wait_loaded("http://127.0.0.1:1", lambda: None, wait)
 
     assert "None" not in str(failure.value)
 
@@ -427,14 +421,15 @@ def test_a_wait_that_never_heard_the_service_names_no_health() -> None:
 def test_a_wait_ends_at_once_with_the_last_health_when_the_server_exited() -> None:
     clock = FakeClock()
     polls = iter([None, None, 1])
+
+    def exit_status() -> int | None:
+        return next(polls)
+
+    wait = HEARING.LoadWait(
+        lambda: True, lambda *_: HEALTH_LOADING, clock.jump, clock.now
+    )
     with pytest.raises(SystemExit, match="exited with status 1") as failure:
-        HEARING.wait_loaded(
-            "http://127.0.0.1:1",
-            lambda: next(polls),
-            HEARING.LoadWait(
-                lambda: True, lambda *_: HEALTH_LOADING, clock.jump, clock.now
-            ),
-        )
+        HEARING.wait_loaded("http://127.0.0.1:1", exit_status, wait)
 
     assert str(HEALTH_LOADING) in str(failure.value)
     assert clock.now() < HEARING.READY_TIMEOUT_SECONDS
