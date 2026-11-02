@@ -650,6 +650,25 @@ def write_record(path: Path, record: dict[str, object]) -> None:
     partial.replace(path)
 
 
+def record_writer(
+    arguments: argparse.Namespace,
+    record: dict[str, object],
+    failures: list[str],
+    unmeasured: list[str],
+) -> Callable[[], None]:
+    """A save that recomputes `not_measured` and `complete` before each write."""
+    models = record["models"]
+    stages = {name: record[name] for name in CARD_STAGES}
+
+    def save() -> None:
+        unmeasured[:] = figures.not_measured(required_models(arguments), models, stages)
+        record["not_measured"] = list(unmeasured)
+        record["complete"] = not failures and not unmeasured
+        write_record(arguments.record, record)
+
+    return save
+
+
 def prove(
     arguments: argparse.Namespace,
     wait_for_calm: Callable[[], None] = wait_for_load,
@@ -675,13 +694,7 @@ def prove(
     }
     failures: list[str] = []
     unmeasured: list[str] = []
-
-    def save() -> None:
-        unmeasured[:] = figures.not_measured(required_models(arguments), models, stages)
-        record["not_measured"] = list(unmeasured)
-        record["complete"] = not failures and not unmeasured
-        write_record(arguments.record, record)
-
+    save = record_writer(arguments, record, failures, unmeasured)
     save()
     try:
         clips = measure_models(arguments, models, save)
