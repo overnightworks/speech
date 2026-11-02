@@ -14,8 +14,8 @@
 !providers/provider-contract/src/**/*.py
 
 # Nested repositories, environments and tool caches can hold Python files too.
-**/.git
-**/.venv
-**/__pycache__
-**/.*_cache
-**/node_modules
+**/.git/**
+**/.venv/**
+**/__pycache__/**
+**/.*_cache/**
+**/node_modules/**

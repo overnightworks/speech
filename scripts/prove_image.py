@@ -5,37 +5,56 @@ external networks become internal ones, a test CA takes the secret's place, and
 a key-set server and a caller container join. The tokens carry the issuer,
 audience, group and caller of the baked `deploy/speech.toml`. The proof takes
 /tmp/probe-stack.lock like `prove_speech.py` and removes everything it made.
+`image_judgement` holds what the proof judges and `image_stack` what it drives.
 """
 
 # ruff: noqa: T201 - the proof prints its cell lines as the command line output
 
 from __future__ import annotations
 
-import base64
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import tomllib
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
-from urllib.parse import urlsplit
+from typing import Final
 
-from packaging.markers import Marker
-
+from image_judgement import (
+    ImageReport,
+    baked_caller,
+    external_networks,
+    image_faults,
+    locked_distributions,
+    log_faults,
+    minting_for,
+    require_fails,
+    require_marked_wav,
+    require_refusal,
+    without_mark,
+)
+from image_stack import (
+    FIXTURES,
+    IMAGE,
+    KEY_SERVER,
+    REPOSITORY,
+    SERVICE,
+    STOP_TIMEOUT_SECONDS,
+    Compose,
+    Session,
+    container_of,
+    docker,
+    teardown,
+)
 from proof_identity import (
-    Minting,
-    TokenPair,
     fetch_key_set,
     issue_certificates,
     load_minting,
-    mint_pair,
     proof_identity,
 )
 from prove_speech import (
@@ -45,419 +64,30 @@ from prove_speech import (
     parse_arguments,
     prove_under_lock,
     run_under_lock,
-    spoken_in_log,
     wait_for_load,
 )
-from speech_runtime_client.wire import (
-    REFUSAL_STATUS,
-    SPEECH_PATH,
-    Refusal,
-    RefusalCode,
-    speech_request_body,
-    speech_request_headers,
-)
-from speech_runtime_service.config import CallerConfig, Settings, load_caller_config
-from speech_runtime_service.pcm import AI_MARK
+from speech_runtime_client.wire import RefusalCode, speech_request_headers
+from speech_runtime_service.config import load_caller_config
 from speech_runtime_service.piper_voices import PINS, PinnedVoice
-from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL, VoiceId
+from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL
 
-if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Mapping
-
-REPOSITORY: Final = Path(__file__).resolve().parents[1]
 THIS_SCRIPT: Final = Path(__file__).resolve()
 COMPOSE_FILE: Final = REPOSITORY / "compose.yaml"
 BAKED_CONFIG: Final = REPOSITORY / "deploy" / "speech.toml"
-FIXTURES: Final = REPOSITORY / "tests" / "fixtures" / "image"
 PROOF_OVERRIDE: Final = FIXTURES / "compose.proof.yaml"
 LOOPBACK_OVERRIDE: Final = FIXTURES / "compose.loopback.yaml"
-PROJECT: Final = "speech-runtime-proof"
-IMAGE: Final = "speech-runtime-proof"
-SERVICE: Final = "speech-runtime"
-KEY_SERVER: Final = "key-server"
-CALLER: Final = "caller"
+
+THIS_SCRIPT: Final = Path(__file__).resolve()
+COMPOSE_FILE: Final = REPOSITORY / "compose.yaml"
+BAKED_CONFIG: Final = REPOSITORY / "deploy" / "speech.toml"
+PROOF_OVERRIDE: Final = FIXTURES / "compose.proof.yaml"
+LOOPBACK_OVERRIDE: Final = FIXTURES / "compose.loopback.yaml"
 # hal builds with a cap of 1800 s; a build past half of it is a finding.
 BUILD_LIMIT_SECONDS: Final = 900
-HEALTHY_TIMEOUT_SECONDS: Final = 120
-STOP_TIMEOUT_SECONDS: Final = 5
 PUBLIC_ADDRESSES: Final = ("1.1.1.1:443", "huggingface.co:443")
 FORBIDDEN_EXECUTABLES: Final = ("git", "uv", "gcc", "cc")
-FORBIDDEN_PATH_PARTS: Final = frozenset({".git", "tests", "providers"})
-KEY_FILE_SUFFIXES: Final = (".pem", ".key")
-KEY_FILE_PREFIXES: Final = (".env", "id_")
-FORBIDDEN_DISTRIBUTION_PREFIX: Final = "nvidia-"
-MARK_CHUNK: Final = b"LIST"
 # What caller.py reports for a connection nothing listens on.
 REFUSED_CONNECTION: Final = "ConnectionRefusedError"
-
-
-@dataclass(frozen=True)
-class BakedCaller:
-    """What `deploy/speech.toml` says about the one caller the proof speaks as."""
-
-    app: str
-    voice: VoiceId
-    other_voice: VoiceId
-    key_set_host: str
-    key_set_port: int
-    key_set_path: str
-
-
-@dataclass(frozen=True)
-class ImageReport:
-    """What `inspect_image.py` found inside the image."""
-
-    distributions: list[str]
-    user: int
-    application_files: list[str]
-    application_files_with_private_keys: list[str]
-    package_stray_files: list[str]
-    package_stray_files_with_private_keys: list[str]
-    voice_hashes: dict[str, str]
-    executables: dict[str, str | None]
-    nvidia_directories: list[str]
-
-
-@dataclass(frozen=True)
-class Reply:
-    """One answer, or the lack of it, as the caller container saw it."""
-
-    status: int
-    body: bytes
-
-
-def baked_caller(config: CallerConfig) -> BakedCaller:
-    """The caller, its voices and the key set's address, read from the baked table."""
-    (app,) = config.apps
-    voices = sorted(config.apps[app].voices)
-    (other_voice, *_) = sorted(set(VoiceId) - set(voices))
-    key_set = urlsplit(config.identity.jwks_url)
-    assert key_set.hostname is not None  # noqa: S101 - the owner validated an https URL
-    return BakedCaller(
-        app=app,
-        voice=voices[0],
-        other_voice=other_voice,
-        key_set_host=key_set.hostname,
-        key_set_port=key_set.port or 443,
-        key_set_path=key_set.path,
-    )
-
-
-def minting_for(config: CallerConfig, baked: BakedCaller, signing: Minting) -> Minting:
-    """The proof's signing key, speaking as the baked table's caller and issuer."""
-    identity = config.identity
-    return replace(
-        signing,
-        issuer=identity.issuer,
-        audience=identity.audience,
-        client_id=config.apps[baked.app].workload_client,
-        workload_role=identity.workload_role,
-        group_claim=identity.group_claim,
-        app_group=f"/apps/{baked.app}",
-        service_group=identity.service_group,
-    )
-
-
-def _chunks(wav: bytes) -> Iterator[tuple[bytes, int, int]]:
-    """The id, start and end of each RIFF chunk after the header."""
-    position = 12
-    while position + 8 <= len(wav):
-        size = int.from_bytes(wav[position + 4 : position + 8], "little")
-        end = position + 8 + size + size % 2
-        yield wav[position : position + 4], position, end
-        position = end
-
-
-def ai_mark_of(wav: bytes) -> str | None:
-    """The RIFF INFO comment before the `data` chunk, or None."""
-    for chunk_id, start, end in _chunks(wav):
-        if chunk_id == b"data":
-            return None
-        if chunk_id == MARK_CHUNK and wav[start + 8 : start + 12] == b"INFO":
-            return wav[start + 20 : end].split(b"\0", 1)[0].decode("ascii", "replace")
-    return None
-
-
-def without_mark(wav: bytes) -> bytes:
-    """The same WAV with its INFO chunk cut out."""
-    for chunk_id, start, end in _chunks(wav):
-        if chunk_id == MARK_CHUNK:
-            return wav[:start] + wav[end:]
-    return wav
-
-
-def _audio_bytes(wav: bytes, data_start: int) -> int:
-    """The bytes inside a `data` chunk's payload, by its declared length.
-
-    The streaming length the service writes declares more than any answer
-    holds, so the bytes present are all there are.
-    """
-    declared = int.from_bytes(wav[data_start + 4 : data_start + 8], "little")
-    return min(declared, len(wav) - data_start - 8)
-
-
-def require_marked_wav(wav: bytes) -> None:
-    """Fail unless `wav` is a WAV that carries the AI mark and some audio."""
-    if wav[:4] != b"RIFF" or wav[8:12] != b"WAVE":
-        message = "the answer is not a WAV"
-        raise SystemExit(message)
-    if ai_mark_of(wav) != AI_MARK:
-        message = "the WAV does not carry the AI mark"
-        raise SystemExit(message)
-    if not any(
-        chunk_id == b"data" and _audio_bytes(wav, start) > 0
-        for chunk_id, start, _ in _chunks(wav)
-    ):
-        message = "the WAV holds no audio"
-        raise SystemExit(message)
-
-
-def require_refusal(reply: Reply, expected: RefusalCode) -> None:
-    """Fail unless `reply` is the wire refusal `expected`, with its status."""
-    try:
-        refusal = Refusal.model_validate_json(reply.body)
-    except ValueError:
-        message = f"status {reply.status} is no wire refusal"
-        raise SystemExit(message) from None
-    code = refusal.error.code
-    if code is not expected or reply.status != REFUSAL_STATUS[code]:
-        message = f"status {reply.status} refused as {code}, expected {expected}"
-        raise SystemExit(message)
-
-
-def require_fails(action: Callable[[], object], what: str, *, naming: str) -> None:
-    """Fail unless `action` ends the proof's way, with a SystemExit naming `naming`."""
-    try:
-        action()
-    except SystemExit as stopped:
-        if naming in str(stopped.code):
-            return
-        message = f"the proof failed on {what}, but not as {naming}: {stopped.code}"
-        raise SystemExit(message) from None
-    message = f"the proof did not fail on {what}"
-    raise SystemExit(message)
-
-
-def distribution_name(name: str) -> str:
-    """The normalised form in which package names compare."""
-    return re.sub(r"[-_.]+", "-", name).lower()
-
-
-def locked_distributions(export: str, project_name: Callable[[str], str]) -> set[str]:
-    """The names `uv export` lists for this platform.
-
-    `project_name` reads an editable entry's path.
-    """
-    names = set()
-    for line in export.splitlines():
-        requirement, _, marker = line.partition(";")
-        if marker.strip() and not Marker(marker.strip()).evaluate():
-            continue
-        if requirement.startswith("-e "):
-            path = requirement.removeprefix("-e ").strip()
-            names.add(distribution_name(project_name(path)))
-        elif match := re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(==|@)", requirement):
-            names.add(distribution_name(match.group(1)))
-    return names
-
-
-def _unwanted_files(application_files: Iterable[str]) -> list[str]:
-    """What the application tree holds that is a repository, test or key file."""
-    return [
-        f"holds {path}"
-        for path in map(Path, application_files)
-        if FORBIDDEN_PATH_PARTS & set(path.parts)
-        or path.name.startswith(KEY_FILE_PREFIXES)
-        or path.suffix in KEY_FILE_SUFFIXES
-    ]
-
-
-def image_faults(
-    report: ImageReport, locked: set[str], voice_hashes: dict[str, str]
-) -> list[str]:
-    """What the image holds that it must not, or lacks; empty when it is as locked."""
-    installed = {distribution_name(name) for name in report.distributions}
-    faults = [f"missing {name}" for name in sorted(locked - installed)]
-    faults += [f"extra {name}" for name in sorted(installed - locked)]
-    faults += [
-        f"holds {name}"
-        for name in sorted(installed)
-        if name.startswith(FORBIDDEN_DISTRIBUTION_PREFIX)
-    ]
-    faults += [f"holds {name}" for name in report.nvidia_directories]
-    if report.user == 0:
-        faults.append("runs as root")
-    faults += _unwanted_files(report.application_files)
-    faults += [
-        f"holds a private key in {name}"
-        for name in report.application_files_with_private_keys
-    ]
-    faults += [
-        f"holds {name} among the packages" for name in report.package_stray_files
-    ]
-    faults += [
-        f"holds a private key in {name}"
-        for name in report.package_stray_files_with_private_keys
-    ]
-    faults += [f"carries {name}" for name, found in report.executables.items() if found]
-    if report.voice_hashes != voice_hashes:
-        faults.append("the voice files are not the owner's pinned bytes")
-    return faults
-
-
-def log_faults(log: str, spoken: Iterable[str], tokens: Iterable[str]) -> list[str]:
-    """The spoken texts and tokens a service log holds."""
-    leaked = [f"spoken text {text[:12]!r}" for text in spoken_in_log(log, spoken)]
-    return leaked + ["a token" for token in tokens if token in log]
-
-
-def external_networks(
-    compose_config: Mapping[str, Mapping[str, Mapping[str, object]]],
-) -> list[str]:
-    """The names of the networks a rendered compose file takes from outside."""
-    return [
-        str(network["name"])
-        for network in compose_config["networks"].values()
-        if network.get("external")
-    ]
-
-
-@dataclass(frozen=True)
-class Compose:
-    """`docker compose` for the proof's project over some files."""
-
-    files: tuple[Path, ...]
-    environment: Mapping[str, str]
-
-    def command(self, *arguments: str) -> list[str]:
-        """The full argv of one compose subcommand."""
-        files = [argument for file in self.files for argument in ("-f", str(file))]
-        return [
-            "docker",
-            "compose",
-            "--project-directory",
-            str(REPOSITORY),
-            "-p",
-            PROJECT,
-            *files,
-            *arguments,
-        ]
-
-    def run(
-        self, *arguments: str, stdin: str | None = None, check: bool = True
-    ) -> subprocess.CompletedProcess[str]:
-        """Run one compose subcommand; with `check`, a failure ends the proof."""
-        completed = subprocess.run(  # noqa: S603 - docker with this repository's files and fixed arguments
-            self.command(*arguments),
-            input=stdin,
-            env={**os.environ, **self.environment},
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if check and completed.returncode != 0:
-            message = (
-                f"compose {arguments[0]} failed: {completed.stderr.strip()[-600:]}"
-            )
-            raise SystemExit(message)
-        return completed
-
-    def up(self, *services: str, recreate: bool = False) -> None:
-        """Start `services` (all, when none) and wait until they are healthy."""
-        flags = ["--detach", "--no-build", "--wait"]
-        flags += ["--wait-timeout", str(HEALTHY_TIMEOUT_SECONDS)]
-        flags += ["--no-deps"] if services else []
-        flags += ["--force-recreate"] if recreate else []
-        self.run("up", *flags, *services)
-
-
-def docker(*arguments: str, stdin: str | None = None) -> str:
-    """Run one docker command; a failure ends the proof."""
-    completed = subprocess.run(  # noqa: S603 - docker with fixed arguments
-        ["docker", *arguments],  # noqa: S607 - docker is the host's own client
-        input=stdin,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        message = f"docker {arguments[0]} failed: {completed.stderr.strip()[-600:]}"
-        raise SystemExit(message)
-    return completed.stdout
-
-
-def container_of(compose: Compose, service: str) -> str:
-    """The id of the one container of `service`."""
-    return compose.run("ps", "--quiet", service).stdout.strip()
-
-
-def send(
-    compose: Compose, url: str, headers: Mapping[str, str], body: bytes | None
-) -> Reply:
-    """Send one request from inside the caller container; no answer ends the proof."""
-    specification = {
-        "url": url,
-        "method": "GET" if body is None else "POST",
-        "headers": dict(headers),
-        "body": base64.b64encode(body or b"").decode("ascii"),
-    }
-    script = (FIXTURES / "caller.py").read_text()
-    output = compose.run(
-        "exec", "-T", CALLER, "python", "-", json.dumps(specification), stdin=script
-    ).stdout
-    answer = json.loads(output)
-    if "error" in answer:
-        message = f"no answer from {url}: {answer['error']}"
-        raise SystemExit(message)
-    return Reply(answer["status"], base64.b64decode(answer["body"]))
-
-
-@dataclass
-class Session:
-    """What the cells share: the stack, the baked caller and the tokens spoken with."""
-
-    compose: Compose
-    config: CallerConfig
-    baked: BakedCaller
-    signing: Minting
-    tokens: list[str]
-    logs: list[str]
-
-    @property
-    def service_url(self) -> str:
-        """The service as the caller container reaches it."""
-        return f"http://{SERVICE}:{Settings.model_fields['port'].default}"
-
-    def pair(self, minting: Minting | None = None) -> TokenPair:
-        """Fresh tokens, remembered for the log check."""
-        pair = mint_pair(minting or minting_for(self.config, self.baked, self.signing))
-        self.tokens += [pair.workload, pair.person]
-        return pair
-
-    def speak(self, headers: Mapping[str, str], voice: VoiceId) -> Reply:
-        """Post one sentence from the caller container."""
-        return send(
-            self.compose,
-            self.service_url + SPEECH_PATH,
-            headers,
-            speech_request_body(SENTENCE, voice.value),
-        )
-
-    def admitted_headers(self) -> dict[str, str]:
-        """The headers of a call the service admits."""
-        pair = self.pair()
-        return speech_request_headers(
-            workload_token=pair.workload, person_token=pair.person
-        )
-
-    def health(self) -> dict[str, dict[str, object]]:
-        """`/health` as the caller container reads it."""
-        reply = send(self.compose, self.service_url + "/health", {}, None)
-        return json.loads(reply.body)
-
-    def collect_log(self) -> None:
-        """Keep the service's log so far; a recreated container loses its own."""
-        self.logs.append(self.compose.run("logs", "--no-color", SERVICE).stdout)
 
 
 def cell_build(compose: Compose) -> None:
@@ -692,43 +322,6 @@ def cell_log(session: Session) -> None:
         message = "the service log holds " + ", ".join(faults)
         raise SystemExit(message)
     print("cell 11: held; the log holds no spoken text and no token")
-
-
-def teardown(compose: Compose, *, failed: bool) -> list[str]:
-    """Remove the proof's containers, networks, volumes and image.
-
-    Every removal is tried; the ones that failed are named, and `torn_down` is
-    printed only when none did.
-    """
-    if failed:
-        tail = compose.run("logs", "--no-color", "--tail", "30", check=False)
-        print(tail.stdout, tail.stderr, sep="\n")
-    attempts = {
-        "compose down": compose.run(
-            "down",
-            "--volumes",
-            "--remove-orphans",
-            "--timeout",
-            str(STOP_TIMEOUT_SECONDS),
-            check=False,
-        ),
-        "docker image rm": subprocess.run(  # noqa: S603 - docker with fixed arguments
-            ["docker", "image", "rm", "--force", IMAGE],  # noqa: S607 - docker is the host's own client
-            capture_output=True,
-            text=True,
-            check=False,
-        ),
-    }
-    left = [
-        f"{what} failed: {done.stderr.strip()[-300:]}"
-        for what, done in attempts.items()
-        if done.returncode != 0
-    ]
-    if left:
-        print("teardown left something:", *left, sep="\n", file=sys.stderr)
-    else:
-        print("torn_down", PROJECT)
-    return left
 
 
 def _prove() -> None:
