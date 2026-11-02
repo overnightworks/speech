@@ -297,13 +297,21 @@ class _RealtimeRoute:
         if isinstance(place, JSONResponse):
             await websocket.send_denial_response(place)
             return
-        await websocket.accept()
-        session = LiveSession(
-            self._runtime.hearing,
-            final_wait_seconds=self._settings.hearing_final_wait_seconds,
-            send=websocket.send_text,
-            close=websocket.close,
-        )
+        try:
+            await websocket.accept()
+            session = LiveSession(
+                self._runtime.hearing,
+                final_wait_seconds=self._settings.hearing_final_wait_seconds,
+                send=websocket.send_text,
+                close=websocket.close,
+            )
+            await self._converse(websocket, session)
+        finally:
+            place.close()
+
+    @staticmethod
+    async def _converse(websocket: WebSocket, session: LiveSession) -> None:
+        """Serve `session` until the client leaves; its decodes end however it exits."""
         poller = asyncio.create_task(poll_forever(session))
         try:
             await session.start()
@@ -314,9 +322,10 @@ class _RealtimeRoute:
                 await session.on_message(message.get("text"))
         finally:
             poller.cancel()
-            await asyncio.gather(poller, return_exceptions=True)
-            await session.on_disconnect()
-            place.close()
+            try:
+                await asyncio.gather(poller, return_exceptions=True)
+            finally:
+                await session.on_disconnect()
 
     async def _place(self, websocket: WebSocket) -> JSONResponse | Lease:
         """The refusal of the upgrade, or the lease on the session's place."""

@@ -1,5 +1,7 @@
 """WS /v1/realtime?intent=transcription: who may upgrade, what is refused, a session."""
 
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 from starlette.status import (
@@ -22,6 +24,7 @@ from speech_runtime_client.wire import (
     WORKLOAD_TOKEN_HEADER,
     RefusalCode,
 )
+from speech_runtime_service import wire_route
 from speech_runtime_service.config import Settings
 from speech_runtime_service.control import create_control_app
 from tests.support.hear_support import (
@@ -205,3 +208,55 @@ def test_a_session_beyond_the_bound_is_denied_as_busy_until_one_leaves() -> None
     _assert_denied(denial, HTTP_429_TOO_MANY_REQUESTS, RefusalCode.BUSY, None)
     assert int(denial.headers[RETRY_AFTER_HEADER]) >= 1
     assert reopened["type"] == "session.created"
+
+
+def test_a_session_cancelled_again_while_it_winds_down_still_frees_its_place(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = hear_runtime(FakeHearing())
+    app = hear_app(runtime, max_hearing_sessions=1)
+    connect = {"type": "websocket.connect"}
+
+    async def scenario() -> None:
+        received: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+        accepted = asyncio.Event()
+        serving: asyncio.Task[None] | None = None
+
+        async def poll_that_cancels_the_session_when_it_is_stopped(_: object) -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                assert serving is not None
+                serving.cancel()
+                raise
+
+        async def send(message: dict[str, object]) -> None:
+            if message["type"] == "websocket.accept":
+                accepted.set()
+
+        monkeypatch.setattr(
+            wire_route,
+            "poll_forever",
+            poll_that_cancels_the_session_when_it_is_stopped,
+        )
+        scope = {
+            "type": "websocket",
+            "path": REALTIME_PATH,
+            "query_string": b"intent=transcription",
+            "headers": [
+                (name.lower().encode(), value.encode())
+                for name, value in valid_headers().items()
+            ],
+            "subprotocols": [],
+        }
+        await received.put(connect)
+        serving = asyncio.create_task(app(scope, received.get, send))
+        await accepted.wait()
+        serving.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await serving
+
+    asyncio.run(scenario())
+
+    assert runtime.hearing is not None
+    assert runtime.hearing.open_session(1) is not None
