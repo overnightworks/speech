@@ -86,7 +86,7 @@ def test_a_voice_is_fetched_at_its_revision_without_token_or_user_cache(
     assert {call["repo_id"] for call in scenario.calls} == {"scenario/voices"}
     assert {call["revision"] for call in scenario.calls} == {scenario.revision}
     assert {call["token"] for call in scenario.calls} == {False}
-    assert all("cache_dir" not in call for call in scenario.calls)
+    assert {call["force_download"] for call in scenario.calls} == {True}
 
 
 def test_a_fetched_voice_is_found_by_the_service_under_the_names_it_reads(

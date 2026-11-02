@@ -130,6 +130,7 @@ def fetch_voice_files(
                     revision=pin.revision,
                     local_dir=scratch,
                     token=False,
+                    force_download=True,
                 )
             )
             if _sha256_of(part) != file.sha256:
