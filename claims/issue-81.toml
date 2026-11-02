@@ -3,6 +3,6 @@ agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
 role = "builder"
 base = "dbe212e515a93e0309b90ff8db2dc3a65795e1a0"
 branch = "claude/issue-81-n4e-release-v0-1-0-of-the-speech-service"
-scope = [".github/workflows", "README.md", "docs", "packages/client/pyproject.toml", "providers/provider-contract/pyproject.toml", "pyproject.toml", "scripts", "tests/scripts", "uv.lock"]
+scope = [".github/workflows", "README.md", "docs", "packages/client/pyproject.toml", "providers/chatterbox/uv.lock", "providers/provider-contract/pyproject.toml", "pyproject.toml", "scripts", "tests/scripts", "uv.lock"]
 opened_commit = "99cd3b118529ca4e849ed51080c428bb56e37a4f"
 whole_reason = "One release: the workflow, the three version fields and the install documentation only make a usable release together."
