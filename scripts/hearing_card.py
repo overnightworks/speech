@@ -83,7 +83,7 @@ def held_card() -> Iterator[int]:
     """
     environment = os.environ.copy()
     add_cuda_library_path(environment)
-    holder = subprocess.Popen(  # noqa: S603 - argv is setpriv, this interpreter and the shipped holder script
+    holder = subprocess.Popen(  # noqa: S603 - argv is setpriv with this interpreter and the shipped holder script
         [SETPRIV, "--pdeathsig", "TERM", sys.executable, str(CARD_HOLDER)],
         env=environment,
         stdout=subprocess.PIPE,
