@@ -208,10 +208,10 @@ runs of one short question per language on the RTX 3090 with a quiet machine
 (load average about 1), through the hearing stage proof, with synthetic, clean
 clips. Seconds; the first partial is counted from the start of the question and
 the final from its end. A negative time means the partial arrived while the
-question was still being spoken. The end is the end of the clip, so the silence
-at the clip's own tail lies inside the final's wait, next to the 0.7 s the
-service waits for before it ends a turn; the final is not that wait alone. The
-first partial needs two agreeing decodes.
+question was still being spoken. The end is the end of the clip; the silence
+at the clip's own tail lies before that end and counts toward the 0.7 s the
+service waits for before it ends a turn, so a final can come sooner than 0.7 s
+after the end. The first partial needs two agreeing decodes.
 
 | Model | Language | First partial | Final | File route |
 | --- | --- | --- | --- | --- |
@@ -221,12 +221,10 @@ first partial needs two agreeing decodes.
 | `small` | English | 1.25 (−1.56) | 0.89 | 0.13 |
 
 The reference numbers are 6.8 s to the first partial and 13.9 s to the final
-after the end on the CPU, and 1.1 s and 9.6 s on the GPU; the GPU pair comes
-from a single measurement. Whether the reference counts its first partial from
-the start of the question or from its end is not settled by the item that names
-it, so both of our figures stand in the table: 1.26 to 1.38 s from the start,
-or −1.14 to −1.56 s from the end. The final is counted from the end in both. On
-the GPU `large-v3` gives 0.73 to 1.01 s against 9.6 s.
+on the CPU, and 1.1 s and 9.6 s on the GPU, the GPU pair from a single
+measurement; all of them count from the end of the question. In that sense
+`large-v3` gives its first partial 1.14 to 1.44 s before the end, against 1.1 s
+after it, and its final 0.73 to 1.01 s after the end, against 9.6 s.
 
 A 16 to 19 s turn on the GPU gives 22 to 26 growing deltas about 0.6 s
 apart. On the same card under a machine load of about 18 the final took 0.9 to
@@ -240,9 +238,10 @@ run is no proof for it; clips are drawn anew in each proof. That is why
 
 Declared budget, GPU memory over the card's idle use of about 0.7 to 0.9 GiB.
 The sampled peak is the highest of the card's use taken every 0.25 s over the
-warmed service, over the card's use before the service started, the highest of two runs (a quiet machine and a load of about
-18). The budget is that peak plus 5 %, rounded up to 256 MiB; it holds for both
-runs, with a margin of 6 to 9 % over the peak (30 % for `small` alone):
+warmed service, over the card's use before the service started, the highest of
+two runs (a quiet machine and a load of about 18). The budget is that peak plus
+5 %, rounded up to 256 MiB; it holds for both runs, with a margin of 6 to 9 %
+over the peak (30 % for `small` alone):
 
 | Next to hearing | `large-v3` budget (sampled peak) | `small` budget (sampled peak) |
 | --- | --- | --- |
