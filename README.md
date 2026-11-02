@@ -191,7 +191,8 @@ hearing model (fetch it with `speech-runtime-fetch-hearing-model`) and never
 starts or stops anything but its own processes, so the caller makes the card
 free first. It writes the JSON record to `--record` after each language, model
 and stage ends, and `not_measured` names what is missing (on `cuda` both hearing
-models, every stage not finished); only a record with an empty list is `complete`:
+models, every stage not finished, every median no run produced); only a record
+with an empty list is `complete`:
 
 ```sh
 CUDA_VISIBLE_DEVICES= uv run python scripts/prove_hearing.py --device cpu \

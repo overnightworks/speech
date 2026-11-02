@@ -145,11 +145,10 @@ def cuda_arguments(tmp_path: Path, *changes: str) -> argparse.Namespace:
 
 
 def prove(tmp_path: Path, *changes: str) -> dict[str, object]:
-    record = tmp_path / "record.json"
     arguments = cuda_arguments(tmp_path, *changes)
     with contextlib.suppress(SystemExit, RuntimeError):
         HEARING.prove(arguments, lambda: None)
-    return json.loads(record.read_text())
+    return json.loads(arguments.record.read_text())
 
 
 def test_a_run_of_one_model_on_cuda_names_the_other_as_not_measured(
