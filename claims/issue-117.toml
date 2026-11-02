@@ -1,8 +1,0 @@
-claim_id = "7a6e8f3feb494d2189f34dbbb7c82366"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "247b8f2475a315bbc5d258431b3e16c990c10b29"
-branch = "claude/issue-117-gpu-packages-become-an-extra"
-scope = ["README.md", "pyproject.toml", "src/speech_runtime_service/hearing.py", "tests/test_hearing.py", "uv.lock"]
-opened_commit = "a4503d4c2fd8ab649f2c30698aea71ce34d01961"
-whole_reason = "One move: the extra, the lock, the refusal that keeps a host without it honest and the setup sentence only hold together."
