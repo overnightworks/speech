@@ -270,6 +270,5 @@ def test_a_session_cancelled_twice_frees_its_place_and_hears_no_final() -> None:
 
     gate_was_free_for_the_next_job = asyncio.run(scenario())
 
-    assert runtime.hearing is not None
     assert runtime.hearing.open_session(1) is not None
     assert gate_was_free_for_the_next_job
