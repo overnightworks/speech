@@ -1,0 +1,8 @@
+claim_id = "776119c9dc664f66b45add4e2d062c6d"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "0dcdc7bbf73bad1ec35128b556965aed565625fe"
+branch = "claude/issue-128-webauth-0-29"
+scope = ["docs/ARCHITECTURE.md", "docs/wire.md", "pyproject.toml", "src/speech_runtime_service/callers.py", "tests/scripts/test_proof_identity.py", "tests/test_wire_route_identity.py", "uv.lock"]
+opened_commit = "3ef4d2f1d01776da3385a6485a83ad8c9d738cf1"
+whole_reason = "One pin move: the pinned library no longer takes the argument, so the pin, the removed argument and the sentences stating the cap land together."
