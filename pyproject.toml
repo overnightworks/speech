@@ -11,7 +11,7 @@ dependencies = [
     "fastapi==0.162.0",
     "faster-whisper==1.2.1",
     "huggingface-hub==2.4.0",
-    "overnightworks-webauth @ git+https://github.com/overnightworks/webauth@v0.27.0",
+    "overnightworks-webauth @ git+https://github.com/overnightworks/webauth@v0.29.0",
     "numpy==2.5.4",
     "piper-tts==1.8.0",
     "python-multipart==0.0.32",

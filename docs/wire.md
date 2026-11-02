@@ -41,8 +41,8 @@ when both tokens are valid and belong together:
 - Both come from the configured issuer, name the service in `aud`, and are
   unexpired. The app requests the service's audience scope in its workload
   grant and at the person's sign-in.
-- The workload token carries the configured realm role, comes from the app's
-  registered client (`azp` and `client_id`) and lives at most 300 seconds.
+- The workload token carries the configured realm role and comes from the app's
+  registered client (`azp` and `client_id`).
 - The person's token has the same `azp`, a different subject, membership of
   `/apps/<app>` or a group below it, and membership of exactly the configured
   service group (no subgroup of it).
@@ -216,7 +216,7 @@ names is not part of the contract.
 | `unsupported_version` | 400 | any method or upgrade on `/v{n}` or `/v{n}/...` with `n` other than 1 | |
 | `not_found` | 404 | any other path, method or upgrade under version 1 | |
 | `unauthorized` | 401 | a token is missing, malformed, expired, for another issuer or audience, badly signed, or lacks a subject or a valid group claim | `WWW-Authenticate`: `Bearer` |
-| `forbidden` | 403 | both tokens are valid but do not permit the request: not a workload token, an unregistered app, a workload token that lives too long, tokens of different clients or of one subject, a person outside the app group or the service group, or a voice the app's configuration does not list (`param` `voice`) | |
+| `forbidden` | 403 | both tokens are valid but do not permit the request: not a workload token, an unregistered app, tokens of different clients or of one subject, a person outside the app group or the service group, or a voice the app's configuration does not list (`param` `voice`) | |
 | `not_enabled` | 403 | the app's table does not say `hear = true` (the hearing routes only) | |
 | `invalid_request` | 422 | the body is not a JSON object, a field is missing, unknown or mistyped, a value is not accepted, or `input` is empty, without a letter or digit, or over the limit; for a recording: the form or `file` is missing, a field is unknown or not accepted, or the audio cannot be decoded (`param` `file`) | |
 | `too_large` | 413 | the body is over `SPEECH_MAX_BODY_BYTES` (a recording: `SPEECH_MAX_RECORDING_BYTES`), or the recording is longer than `SPEECH_MAX_RECORDING_SECONDS` (`param` `file`) | |

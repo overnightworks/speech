@@ -30,7 +30,6 @@ PEM_PRIVATE_KEY_HEADER = "-----BEGIN"
 REQUIRED_WORKLOAD = ["iss", "aud", "azp", "client_id", "sub", "iat", "exp"]
 REQUIRED_PERSON = ["iss", "aud", "azp", "sub", "iat", "exp"]
 PAST_EXPIRY_SECONDS = 301
-WORKLOAD_LIMIT_SECONDS = 300
 OWNER_ONLY = stat.S_IRUSR | stat.S_IWUSR
 
 
@@ -72,14 +71,6 @@ def test_a_minted_pair_verifies_against_the_key_set_served_over_trusted_https(
     assert {minting.app_group, minting.service_group} <= set(
         person[minting.group_claim]
     )
-
-
-def test_the_workload_token_lives_at_most_300_seconds(minting: Minting) -> None:
-    claims = jwt.decode(
-        mint_pair(minting).workload, options={"verify_signature": False}
-    )
-
-    assert claims["exp"] - claims["iat"] <= WORKLOAD_LIMIT_SECONDS
 
 
 def test_a_pair_minted_later_is_valid_when_the_one_minted_before_has_expired(
