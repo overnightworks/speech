@@ -37,7 +37,6 @@ if TYPE_CHECKING:
     from speech_runtime_service.config import CallerConfig
     from speech_runtime_service.voices import VoiceId
 
-MAX_WORKLOAD_SECONDS: Final = 300
 _BEARER_SCHEME: Final = "bearer"
 _REFUSAL_CODE: Final = {
     CallerRefusalClass.UNAUTHENTICATED: RefusalCode.UNAUTHORIZED,
@@ -91,7 +90,6 @@ class SpeechCallers:
                 jwks_url=identity.jwks_url,
                 workload_role=identity.workload_role,
                 group_claim=identity.group_claim,
-                max_workload_seconds=MAX_WORKLOAD_SECONDS,
                 leeway_seconds=identity.leeway_seconds,
             ),
             registered_apps=registered,

@@ -67,7 +67,6 @@ UNAUTHORIZED = (HTTP_401_UNAUTHORIZED, RefusalCode.UNAUTHORIZED)
 FORBIDDEN = (HTTP_403_FORBIDDEN, RefusalCode.FORBIDDEN)
 UNAVAILABLE = (HTTP_503_SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE)
 OTHER_KEY = signing_key("key-two")
-ORDINARY_LIFETIME_SECONDS = 300
 PAST_SECONDS = 600
 
 
@@ -186,11 +185,6 @@ def _expired(token: str, clocks: Clocks) -> str:
     return altered(token, iat=now - 2 * PAST_SECONDS, exp=now - PAST_SECONDS)
 
 
-def _lives_too_long(token: str, clocks: Clocks) -> str:
-    now = int(clocks.wall())
-    return altered(token, iat=now, exp=now + ORDINARY_LIFETIME_SECONDS + 1)
-
-
 def _without_role(token: str, _clocks: Clocks) -> str:
     return altered(token, realm_access={"roles": []})
 
@@ -269,7 +263,6 @@ def test_a_person_group_claim_of_null_is_unauthorized() -> None:
         ("person", _set(sub=MINTING.workload_subject)),
         ("workload", _without_role),
         ("workload", _set(azp="elsewhere-client")),
-        ("workload", _lives_too_long),
         ("workload", _unregistered),
     ],
     ids=[
@@ -282,7 +275,6 @@ def test_a_person_group_claim_of_null_is_unauthorized() -> None:
         "same subject",
         "workload without the role",
         "workload azp differs from client id",
-        "workload lives too long",
         "app not registered",
     ],
 )
@@ -297,6 +289,19 @@ def test_tokens_that_do_not_permit_the_request_are_forbidden(
         person = damage(person, issuer.clocks)
 
     _answers(issuer.speak(workload, person), FORBIDDEN)
+
+
+def test_a_workload_token_that_lives_301_seconds_is_served() -> None:
+    issuer = Issuer()
+    workload, person = issuer.tokens()
+    now = int(issuer.clocks.wall())
+
+    response = issuer.speak(
+        altered(workload, iat=now, exp=now + 301),
+        person,
+    )
+
+    assert response.status_code == HTTP_200_OK
 
 
 def test_a_person_token_sent_as_the_workload_token_is_forbidden() -> None:
