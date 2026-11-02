@@ -210,6 +210,19 @@ def test_a_session_beyond_the_bound_is_denied_as_busy_until_one_leaves() -> None
     assert reopened["type"] == "session.created"
 
 
+def _upgrade_scope() -> dict[str, object]:
+    return {
+        "type": "websocket",
+        "path": REALTIME_PATH,
+        "query_string": b"intent=transcription",
+        "headers": [
+            (name.lower().encode(), value.encode())
+            for name, value in valid_headers().items()
+        ],
+        "subprotocols": [],
+    }
+
+
 def test_a_session_cancelled_twice_frees_its_place_and_hears_no_final() -> None:
     engine = FakeHearing()
     runtime = hear_runtime(engine)
@@ -242,19 +255,9 @@ def test_a_session_cancelled_twice_frees_its_place_and_hears_no_final() -> None:
             if message["type"] == "websocket.accept":
                 accepted.set()
 
-        scope = {
-            "type": "websocket",
-            "path": REALTIME_PATH,
-            "query_string": b"intent=transcription",
-            "headers": [
-                (name.lower().encode(), value.encode())
-                for name, value in valid_headers().items()
-            ],
-            "subprotocols": [],
-        }
         running_decode = runtime.hearing.gate.try_acquire()
         assert running_decode is not None
-        serving = asyncio.create_task(app(scope, receive, send))
+        serving = asyncio.create_task(app(_upgrade_scope(), receive, send))
         async with asyncio.timeout(WAIT_SECONDS):
             await accepted.wait()
             await waiting_for_the_client.wait()
