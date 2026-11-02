@@ -11,13 +11,30 @@ import sys
 import sysconfig
 from pathlib import Path
 
+from speech_runtime_service.hearing_models import (
+    HearingModel,
+    HearingModelMissingError,
+    model_directory,
+)
+
 APPLICATION = Path.cwd()
 VOICES = Path(sys.argv[1])
-EXECUTABLES = sys.argv[2:]
+HEARING_CACHE = Path(sys.argv[2])
+HEARING_MODEL = sys.argv[3]
+EXECUTABLES = sys.argv[4:]
 SITE_PACKAGES = Path(sysconfig.get_paths()["purelib"])
 PRIVATE_KEY_MARK = b"PRIVATE KEY"
 
 SOURCE_SUFFIXES = {".py", ".pyc"}
+
+
+def hearing_model_directory() -> str | None:
+    """Where the service finds the pinned hearing model offline, if it does."""
+    try:
+        return str(model_directory(HearingModel(HEARING_MODEL), HEARING_CACHE))
+    except HearingModelMissingError:
+        return None
+
 
 files = sorted(path for path in APPLICATION.rglob("*") if path.is_file())
 package_files = sorted(
@@ -58,6 +75,7 @@ print(
                 path.name: hashlib.sha256(path.read_bytes()).hexdigest()
                 for path in sorted(VOICES.iterdir())
             },
+            "hearing_model_directory": hearing_model_directory(),
             "executables": {name: shutil.which(name) for name in EXECUTABLES},
             "nvidia_directories": sorted(
                 path.name for path in SITE_PACKAGES.glob("nvidia*")

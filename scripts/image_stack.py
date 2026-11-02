@@ -6,19 +6,29 @@ import base64
 import json
 import os
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
-from image_judgement import minting_for
+import httpx2
+
+import hearing_figures as figures
+from hearing_client import live_url, update_event
+from image_judgement import TmpUsage, minting_for, seconds_to_healthy
 from proof_identity import mint_pair
 from prove_speech import SENTENCE
 from speech_runtime_client.wire import (
+    CONTENT_TYPE_HEADER,
+    MODEL,
     SPEECH_PATH,
+    TRANSCRIPTIONS_PATH,
+    HearingLanguage,
+    TranscriptionRequest,
     speech_request_body,
     speech_request_headers,
 )
 from speech_runtime_service.config import Settings
+from speech_runtime_service.pcm import LIVE_INPUT_RATE, pcm_from_wav, wav_header
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -34,9 +44,16 @@ PROJECT: Final = "speech-runtime-proof"
 IMAGE: Final = "speech-runtime-proof"
 SERVICE: Final = "speech-runtime"
 KEY_SERVER: Final = "key-server"
-CALLER: Final = "caller"
+LIVE_PACE_SECONDS: Final = 0.05
+LIVE_WAIT_SECONDS: Final = 120
+MEMORY_PEAK_FILE: Final = "/sys/fs/cgroup/memory.peak"
 HEALTHY_TIMEOUT_SECONDS: Final = 120
 STOP_TIMEOUT_SECONDS: Final = 5
+
+
+def caller_service(app: str) -> str:
+    """The proof's caller container for `app`, on that app's network."""
+    return f"caller-{app}"
 
 
 @dataclass(frozen=True)
@@ -45,6 +62,7 @@ class Reply:
 
     status: int
     body: bytes
+    headers: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -116,37 +134,104 @@ def container_of(compose: Compose, service: str) -> str:
     return compose.run("ps", "--quiet", service).stdout.strip()
 
 
+def run_in(
+    compose: Compose, container: str, fixture: str, specification: object
+) -> str:
+    """Run a fixture script in `container` with `specification` on its input."""
+    script = (FIXTURES / fixture).read_text()
+    return compose.run(
+        "exec", "-T", container, "python", "-c", script,
+        stdin=json.dumps(specification),
+    ).stdout  # fmt: skip
+
+
 def send(
-    compose: Compose, url: str, headers: Mapping[str, str], body: bytes | None
+    compose: Compose,
+    caller: str,
+    url: str,
+    headers: Mapping[str, str],
+    body: bytes | None,
 ) -> Reply:
-    """Send one request from inside the caller container; no answer ends the proof."""
+    """Send one request from inside a caller container; no answer ends the proof."""
     specification = {
         "url": url,
         "method": "GET" if body is None else "POST",
         "headers": dict(headers),
         "body": base64.b64encode(body or b"").decode("ascii"),
     }
-    script = (FIXTURES / "caller.py").read_text()
-    output = compose.run(
-        "exec", "-T", CALLER, "python", "-", json.dumps(specification), stdin=script
-    ).stdout
-    answer = json.loads(output)
+    answer = json.loads(run_in(compose, caller, "caller.py", specification))
     if "error" in answer:
         message = f"no answer from {url}: {answer['error']}"
         raise SystemExit(message)
-    return Reply(answer["status"], base64.b64decode(answer["body"]))
+    return Reply(answer["status"], base64.b64decode(answer["body"]), answer["headers"])
+
+
+@dataclass(frozen=True)
+class RecordingForm:
+    """A transcription request's multipart body and the header that names it."""
+
+    content_type: str
+    body: bytes
+
+
+def recording_form(wav: bytes, language: str) -> RecordingForm:
+    """The multipart request of `wav` in `language`; the language is sent as given."""
+    fields = TranscriptionRequest(model=MODEL).model_dump(mode="json")
+    request = httpx2.Request(
+        "POST",
+        "http://form.invalid",
+        data={**fields, "language": language},
+        files={"file": ("recording.wav", wav, "audio/wav")},
+    )
+    return RecordingForm(request.headers["content-type"], request.read())
+
+
+def form_of_size(body_bytes: int, language: str) -> RecordingForm:
+    """A request whose body is `body_bytes` long, around a silent marked WAV."""
+    empty = len(recording_form(b"", language).body)
+    header = wav_header(LIVE_INPUT_RATE)
+    audio_bytes = body_bytes - empty - len(header)
+    wav = wav_header(LIVE_INPUT_RATE, audio_bytes) + bytes(audio_bytes)
+    return recording_form(wav, language)
+
+
+def live_frames(wav: bytes) -> list[str]:
+    """A speak answer as the base64 frames a live client sends, with closing silence."""
+    rate, pcm = pcm_from_wav(wav)
+    frames = figures.frames_with_closing_silence(figures.to_wire_rate(pcm, rate))
+    return [base64.b64encode(frame).decode("ascii") for frame in frames]
+
+
+@dataclass(frozen=True)
+class LiveOutcome:
+    """How a live turn ended: its final and partials, or the error that stopped it."""
+
+    final: str | None
+    partials: tuple[str, ...]
+    error: str | None
 
 
 @dataclass
 class Session:
-    """What the cells share: the stack, the baked caller and the tokens spoken with."""
+    """What the cells share: the stack, the baked callers and what the log must lack.
+
+    `baked` is the caller the cells speak as and `hearer` the one that may hear;
+    `tokens` and `heard` are what the log must not hold.
+    """
 
     compose: Compose
     config: CallerConfig
     baked: BakedCaller
+    hearer: BakedCaller
     signing: Minting
     tokens: list[str]
+    heard: list[str]
     logs: list[str]
+
+    @property
+    def caller(self) -> str:
+        """The caller container of the session's app."""
+        return caller_service(self.baked.app)
 
     @property
     def service_url(self) -> str:
@@ -163,6 +248,7 @@ class Session:
         """Post one sentence from the caller container."""
         return send(
             self.compose,
+            self.caller,
             self.service_url + SPEECH_PATH,
             headers,
             speech_request_body(SENTENCE, voice.value),
@@ -177,12 +263,68 @@ class Session:
 
     def health(self) -> dict[str, dict[str, object]]:
         """`/health` as the caller container reads it."""
-        reply = send(self.compose, self.service_url + "/health", {}, None)
+        reply = send(self.compose, self.caller, self.service_url + "/health", {}, None)
         return json.loads(reply.body)
+
+    def post_recording(self, headers: Mapping[str, str], form: RecordingForm) -> Reply:
+        """Post one recording form to the file route from the caller container."""
+        no_json = {k: v for k, v in headers.items() if k != CONTENT_TYPE_HEADER}
+        return send(
+            self.compose,
+            self.caller,
+            self.service_url + TRANSCRIPTIONS_PATH,
+            {**no_json, CONTENT_TYPE_HEADER: form.content_type},
+            form.body,
+        )
+
+    def hear(self, headers: Mapping[str, str], wav: bytes, language: str) -> Reply:
+        """Post `wav` to the file route."""
+        return self.post_recording(headers, recording_form(wav, language))
+
+    def hear_live(self, headers: Mapping[str, str], wav: bytes) -> LiveOutcome:
+        """One live turn over the Realtime WebSocket, from the caller container."""
+        no_json = {k: v for k, v in headers.items() if k != CONTENT_TYPE_HEADER}
+        specification = {
+            "url": live_url(self.service_url),
+            "headers": no_json,
+            "session_update": update_event(HearingLanguage.DE),
+            "frames": live_frames(wav),
+            "pace_seconds": LIVE_PACE_SECONDS,
+            "wait_seconds": LIVE_WAIT_SECONDS,
+        }
+        answer = json.loads(run_in(self.compose, self.caller, "live.py", specification))
+        return LiveOutcome(
+            answer.get("final"), tuple(answer.get("partials", ())), answer.get("error")
+        )
+
+    def tmp_usage(self) -> TmpUsage:
+        """The filesystem's own count of the service's /tmp now."""
+        output = run_in(self.compose, SERVICE, "tmp_usage.py", None)
+        return TmpUsage(**json.loads(output))
+
+    def memory_peak_mib(self) -> int:
+        """The service container's peak memory since it started, from its cgroup."""
+        peak = self.compose.run("exec", "-T", SERVICE, "cat", MEMORY_PEAK_FILE)
+        return int(peak.stdout) // 2**20
 
     def collect_log(self) -> None:
         """Keep the service's log so far; a recreated container loses its own."""
         self.logs.append(self.compose.run("logs", "--no-color", SERVICE).stdout)
+
+
+def healthcheck_passes(compose: Compose, healthcheck: Mapping[str, list[str]]) -> bool:
+    """Whether the rendered healthcheck, run in the service container, passes."""
+    kind, *command = healthcheck["test"]
+    if kind != "CMD":
+        message = f"the healthcheck is not an exec form: {kind}"
+        raise SystemExit(message)
+    return compose.run("exec", "-T", SERVICE, *command, check=False).returncode == 0
+
+
+def seconds_until_healthy(compose: Compose) -> float:
+    """From the service container's start to its first passing healthcheck."""
+    state = json.loads(docker("inspect", container_of(compose, SERVICE)))[0]["State"]
+    return seconds_to_healthy(state["StartedAt"], state["Health"]["Log"])
 
 
 @dataclass(frozen=True)

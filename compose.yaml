@@ -12,6 +12,8 @@ services:
       SPEECH_HOST: 0.0.0.0
       SPEECH_DEVICE: cpu
       SPEECH_VOICE_CACHE: /opt/voices
+      SPEECH_HUGGINGFACE_CACHE: /opt/hearing
+      SPEECH_HEARING_MODEL: small
       SSL_CERT_FILE: /run/secrets/step_ca_root
     secrets:
       - step_ca_root
@@ -24,15 +26,21 @@ services:
     security_opt:
       - no-new-privileges:true
     read_only: true
+    # Starlette spools an upload above 1 MiB to /tmp. The service parses the form
+    # only once a request holds the decode, so one spool exists at a time, up to
+    # SPEECH_MAX_RECORDING_BYTES (25 MiB); a waiting request holds its body in
+    # memory, not on /tmp.
     tmpfs:
       - /tmp:size=64m,nr_inodes=1k,mode=1777,nosuid,nodev
-    # /health answers while the voice loads, so it is ready that decides.
+    # /health answers while the models load, so ready decides. The model is baked,
+    # so a hearing that did not load is a defect of the build, and a deployment
+    # that cannot hear is not recorded.
     healthcheck:
       test:
         - CMD
         - python
         - -c
-        - "import json, urllib.request; ready = json.load(urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3))['speaking']['ready']; raise SystemExit(0 if ready is True else 1)"
+        - "import json, urllib.request; health = json.load(urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)); raise SystemExit(0 if health['speaking']['ready'] is True and health['hearing']['ready'] is True else 1)"
       interval: 30s
       timeout: 5s
       start_period: 30s

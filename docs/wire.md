@@ -78,7 +78,7 @@ A refused request holds no place, so the next one is served.
 `POST /v1/audio/transcriptions` answers the words of one recording. It carries
 the same two headers as a speak request and is checked in this order, each step
 before the next: the tokens, the app's `hear` permission, whether hearing is
-available, the body's size, the form, the decode's admission, the recording's
+available, the body's size, the decode's admission, the form, the recording's
 length, the decoding itself.
 
 The body is `multipart/form-data` with exactly these fields:
@@ -116,7 +116,10 @@ The limits, each answered without decoding more than it must:
 
 Audio that PyAV cannot read, or that holds no sound, is `invalid_request` with
 `param` `file`. A body that is not a multipart form, or has no `file`, is
-`invalid_request` with `param` `file` as well.
+`invalid_request` with `param` `file` as well. The form is parsed only once the
+request holds the decode, so one upload is spooled to disk at a time: while the
+service is busy, a malformed form is answered `busy` like any other request, and
+`invalid_request` once it reaches the decode.
 
 ## Hearing live
 

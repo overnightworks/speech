@@ -4,21 +4,31 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
+from datetime import datetime
+from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlsplit
 
 from packaging.markers import Marker
 
+from hearing_figures import words
 from prove_speech import spoken_in_log
-from speech_runtime_client.wire import REFUSAL_STATUS, Refusal, RefusalCode
+from speech_runtime_client.wire import (
+    REFUSAL_STATUS,
+    Refusal,
+    RefusalCode,
+    RetryAfterError,
+    Transcription,
+    busy_wait,
+)
 from speech_runtime_service.pcm import AI_MARK
 from speech_runtime_service.voices import VoiceId
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
 
-    from image_stack import Reply
+    from image_stack import LiveOutcome, Reply
     from proof_identity import Minting
     from speech_runtime_service.config import CallerConfig
 
@@ -27,13 +37,18 @@ KEY_FILE_SUFFIXES: Final = (".pem", ".key")
 KEY_FILE_PREFIXES: Final = (".env", "id_")
 FORBIDDEN_DISTRIBUTION_PREFIX: Final = "nvidia-"
 MARK_CHUNK: Final = b"LIST"
+# Shorter words match by accident in any German or English text.
+MIN_HEARD_WORD_LENGTH: Final = 5
+DURATION_PART: Final = re.compile(r"(\d+)([hms])")
+DURATION_SECONDS: Final = {"h": 3600, "m": 60, "s": 1}
 
 
 @dataclass(frozen=True)
 class BakedCaller:
-    """What `deploy/speech.toml` says about the one caller the proof speaks as."""
+    """What `deploy/speech.toml` says about one caller the proof speaks as."""
 
     app: str
+    hear: bool
     voice: VoiceId
     other_voice: VoiceId
     key_set_host: str
@@ -52,19 +67,37 @@ class ImageReport:
     package_stray_files: list[str]
     package_files_with_private_keys: list[str]
     voice_hashes: dict[str, str]
+    hearing_model_directory: str | None
     executables: dict[str, str | None]
     nvidia_directories: list[str]
 
 
-def baked_caller(config: CallerConfig) -> BakedCaller:
-    """The caller, its voices and the key set's address, read from the baked table."""
-    (app,) = config.apps
+def app_that(config: CallerConfig, *, hears: bool) -> str:
+    """The first app, by name, whose baked entry does (or does not) allow hearing."""
+    for app in sorted(config.apps):
+        if config.apps[app].hear is hears:
+            return app
+    message = f"the baked table holds no app with hear={hears}"
+    raise SystemExit(message)
+
+
+@dataclass(frozen=True)
+class TmpUsage:
+    """The filesystem's own count of the service's /tmp: bytes in use, and its size."""
+
+    used_bytes: int
+    size_bytes: int
+
+
+def baked_caller(config: CallerConfig, app: str) -> BakedCaller:
+    """`app`, its voices and the key set's address, read from the baked table."""
     voices = sorted(config.apps[app].voices)
     (other_voice, *_) = sorted(set(VoiceId) - set(voices))
     key_set = urlsplit(config.identity.jwks_url)
     assert key_set.hostname is not None  # noqa: S101 - the owner validated an https URL
     return BakedCaller(
         app=app,
+        hear=config.apps[app].hear,
         voice=voices[0],
         other_voice=other_voice,
         key_set_host=key_set.hostname,
@@ -232,13 +265,30 @@ def image_faults(
     faults += [f"carries {name}" for name, found in report.executables.items() if found]
     if report.voice_hashes != voice_hashes:
         faults.append("the voice files are not the owner's pinned bytes")
+    if report.hearing_model_directory is None:
+        faults.append("the hearing model of the pinned revision is not in the image")
     return faults
 
 
-def log_faults(log: str, spoken: Iterable[str], tokens: Iterable[str]) -> list[str]:
-    """The spoken texts and tokens a service log holds."""
+def log_faults(
+    log: str, spoken: Iterable[str], heard: Iterable[str], tokens: Iterable[str]
+) -> list[str]:
+    """The spoken texts, heard texts and tokens a service log holds."""
     leaked = [f"spoken text {text[:12]!r}" for text in spoken_in_log(log, spoken)]
+    heard_leaks = spoken_in_log(log, heard)
+    if heard_leaks:
+        leaked.append(f"{len(heard_leaks)} heard text(s)")
     return leaked + ["a token" for token in tokens if token in log]
+
+
+def require_log_clean(
+    log: str, spoken: Iterable[str], heard: Iterable[str], tokens: Iterable[str]
+) -> None:
+    """Fail unless the service log holds no spoken text, heard text or token."""
+    faults = log_faults(log, spoken, heard, tokens)
+    if faults:
+        message = "the service log holds " + ", ".join(faults)
+        raise SystemExit(message)
 
 
 def external_networks(
@@ -250,3 +300,146 @@ def external_networks(
         for network in compose_config["networks"].values()
         if network.get("external")
     ]
+
+
+def heard_words(text: str, sentence: str) -> list[str]:
+    """The words of `sentence` that `text` holds, leaving out the short ones."""
+    heard = set(words(text))
+    return [
+        word
+        for word in words(sentence)
+        if len(word) >= MIN_HEARD_WORD_LENGTH and word in heard
+    ]
+
+
+def require_heard(text: str, sentence: str) -> None:
+    """Fail unless `text` holds a word of `sentence`."""
+    if not heard_words(text, sentence):
+        message = "the text holds no word of the spoken sentence"
+        raise SystemExit(message)
+
+
+def _transcribed(reply: Reply) -> str:
+    """The text of a 200 transcription."""
+    if reply.status != HTTPStatus.OK:
+        message = f"the recording answered {reply.status}, not a transcription"
+        raise SystemExit(message)
+    try:
+        return Transcription.model_validate_json(reply.body).text
+    except ValueError:
+        message = "the 200 answer holds no transcription"
+        raise SystemExit(message) from None
+
+
+def require_transcript(reply: Reply, sentence: str) -> str:
+    """The text of a 200 transcription that holds a word of `sentence`."""
+    text = _transcribed(reply)
+    require_heard(text, sentence)
+    return text
+
+
+def require_limit_answer(reply: Reply, *, busy_allowed: bool = False) -> None:
+    """Fail unless a recording at the byte limit was read through and answered.
+
+    A body of exactly the limit passes the byte check, so the answer is a
+    transcription or `too_large` naming the `file` (its length); `too_large`
+    without a field is the byte check refusing it. In a burst `busy` with
+    `Retry-After` is also an answer.
+    """
+    if reply.status == HTTPStatus.OK:
+        _transcribed(reply)
+    elif busy_allowed and reply.status == REFUSAL_STATUS[RefusalCode.BUSY]:
+        require_refusal(reply, RefusalCode.BUSY)
+        try:
+            busy_wait(reply.status, reply.headers)
+        except RetryAfterError as error:
+            raise SystemExit(str(error)) from None
+    else:
+        require_refusal(reply, RefusalCode.TOO_LARGE)
+        if Refusal.model_validate_json(reply.body).error.param != "file":
+            message = "the byte limit refused a body of exactly the limit"
+            raise SystemExit(message)
+
+
+def require_tmp_clean(before: TmpUsage, after: TmpUsage, recording_bytes: int) -> None:
+    """Fail unless /tmp could hold a recording at the limit and is back to `before`."""
+    faults = []
+    if after.size_bytes < recording_bytes:
+        faults.append("the tmpfs is smaller than one recording at the limit")
+    if after.used_bytes > before.used_bytes:
+        faults.append("a recording's spool is left in /tmp")
+    if faults:
+        raise SystemExit("; ".join(faults))
+
+
+def live_texts(outcome: LiveOutcome) -> list[str]:
+    """The texts a live turn showed that the log must lack: partials, then the final.
+
+    A partial shorter than a word of the sentence matches any log by accident.
+    """
+    shown = [
+        partial
+        for partial in outcome.partials
+        if len(partial.strip()) >= MIN_HEARD_WORD_LENGTH
+    ]
+    return [*shown, *([outcome.final] if outcome.final else [])]
+
+
+def require_final(outcome: LiveOutcome, sentence: str) -> None:
+    """Fail unless a live turn ended in a final that holds a word of `sentence`."""
+    if outcome.final is None:
+        message = f"the live turn ended without a final: {outcome.error}"
+        raise SystemExit(message)
+    require_heard(outcome.final, sentence)
+
+
+def is_speaking_alone(health: Mapping[str, Mapping[str, object]]) -> bool:
+    """Whether `/health` shows the voice ready and hearing not."""
+    return (
+        health["speaking"]["ready"] is True and health["hearing"]["ready"] is not True
+    )
+
+
+def require_hearing_ready(
+    health: Mapping[str, Mapping[str, object]], model: str, *, healthcheck_passes: bool
+) -> None:
+    """Fail unless hearing runs the configured model and the healthcheck says so."""
+    hearing = health["hearing"]
+    if hearing["ready"] is not True or hearing["model"] != model:
+        message = f"hearing is not ready with {model}: {dict(hearing)}"
+        raise SystemExit(message)
+    if not healthcheck_passes:
+        message = "the healthcheck does not pass with hearing ready"
+        raise SystemExit(message)
+
+
+def duration_seconds(text: str) -> int:
+    """The seconds of a rendered compose duration such as `30s` or `1m30s`."""
+    return sum(
+        int(count) * DURATION_SECONDS[unit]
+        for count, unit in DURATION_PART.findall(text)
+    )
+
+
+def seconds_to_healthy(
+    started_at: str, health_log: Iterable[Mapping[str, Any]]
+) -> float:
+    """From a start to the first passing check that ended after it.
+
+    `started_at` and the log entries are as `docker inspect` prints them; the log
+    also holds the checks of earlier starts.
+    """
+    started = datetime.fromisoformat(started_at)
+    for entry in health_log:
+        ended = datetime.fromisoformat(entry["End"])
+        if entry["ExitCode"] == 0 and ended > started:
+            return (ended - started).total_seconds()
+    message = "no healthcheck passed after the start"
+    raise SystemExit(message)
+
+
+def require_ready_within(seconds: float, start_period: str) -> None:
+    """Fail unless the container was healthy before its `start_period` ended."""
+    if seconds > duration_seconds(start_period):
+        message = f"the service took {seconds:.0f} s to be healthy, past {start_period}"
+        raise SystemExit(message)
