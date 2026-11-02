@@ -1,7 +1,0 @@
-claim_id = "9fcd4cb47b9842a4b5550559d6b30257"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "6ed351554e850d8cf0884807384612d17f81d371"
-branch = "claude/issue-125-probe-lock-wait"
-scope = ["README.md", "scripts/prove_speech.py", "tests/scripts/test_prove_speech.py"]
-opened_commit = "e99f83ef38084c71a44c6f563ac39c4b145bf24f"
