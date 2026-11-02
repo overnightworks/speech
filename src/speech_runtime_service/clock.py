@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Final, Protocol
+from typing import Protocol
 
 
 class Clock(Protocol):
@@ -29,6 +29,3 @@ class LoopClock:
     async def sleep_until(self, deadline: float) -> None:
         """Return once `deadline` has passed."""
         await asyncio.sleep(max(0.0, deadline - time.monotonic()))
-
-
-MONOTONIC_CLOCK: Final = LoopClock()

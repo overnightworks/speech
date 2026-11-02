@@ -11,7 +11,7 @@ from speech_runtime_client.wire import (
     TRANSCRIPTIONS_PATH,
     HearingLanguage,
 )
-from speech_runtime_service.clock import MONOTONIC_CLOCK
+from speech_runtime_service.clock import LoopClock
 from speech_runtime_service.config import Settings
 from speech_runtime_service.control import create_control_app
 from speech_runtime_service.hearing import Hearing
@@ -92,9 +92,9 @@ class FakeHearing:
         self.closed += 1
 
 
-def loaded(engine: FakeHearing | None, clock: Clock = MONOTONIC_CLOCK) -> Hearing:
+def loaded(engine: FakeHearing | None, clock: Clock | None = None) -> Hearing:
     """Hearing over `engine`, loaded; its deadlines are on `clock`."""
-    hearing = Hearing(engine, clock)
+    hearing = Hearing(engine, clock or LoopClock())
     hearing.load()
     return hearing
 
