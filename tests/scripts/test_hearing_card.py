@@ -27,6 +27,8 @@ import os, pathlib, threading
 pathlib.Path(os.environ["HOLDER_PIDFILE"]).write_text(str(os.getpid()))
 if "HOLDER_FIFO" in os.environ:
     lifeline = open(os.environ["HOLDER_FIFO"], "w")
+for line in os.environ.get("HOLDER_NOISE", "").splitlines():
+    print(line, flush=True)
 print("held", {HELD_MIB}, flush=True)
 threading.Event().wait()
 """
@@ -72,6 +74,29 @@ def test_the_holder_ends_when_the_body_of_the_hold_raises(holder: Path) -> None:
         hold_and_fail(holder)
 
     assert not Path(f"/proc/{holder.read_text()}").exists()
+
+
+@pytest.mark.usefixtures("holder")
+def test_the_holders_line_is_found_behind_a_line_a_native_library_printed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "HOLDER_NOISE", "[2026-11-02 15:03:01.907] [info] Using CUDA allocator: x"
+    )
+
+    with CARD.held_card() as held:
+        assert held == HELD_MIB
+
+
+def test_a_holder_that_never_says_it_holds_the_card_fails_with_its_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = tmp_path / "silent_holder.py"
+    script.write_text("print('[info] Using CUDA allocator: x', flush=True)")
+    monkeypatch.setattr(CARD, "CARD_HOLDER", script)
+
+    with pytest.raises(SystemExit, match="Using CUDA allocator"), CARD.held_card():
+        pass
 
 
 def test_the_holder_ends_when_the_proof_is_killed_outright(

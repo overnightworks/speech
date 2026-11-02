@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -19,7 +20,7 @@ from prove_speech import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
     from types import TracebackType
 
 
@@ -29,6 +30,7 @@ FREED_TOLERANCE_MIB = 64
 FREED_WAIT_SECONDS = 15.0
 FREED_POLL_SECONDS = 0.5
 HOLDER_STOP_SECONDS = 10
+HELD_LINE = re.compile(r"held (?P<mib>\d+)")
 
 
 def used_mib() -> int:
@@ -77,6 +79,22 @@ class MemorySampler:
             raise self._failure
 
 
+def _read_held_mib(lines: Iterable[str]) -> tuple[int, list[str]]:
+    """The mebibytes of the holder's `held <n>` line and every line read before it.
+
+    A native library may write its own log lines on the holder's stdout first, so
+    only a line that is exactly the holder's sentence counts. Zero when the output
+    ends without it.
+    """
+    said: list[str] = []
+    for line in lines:
+        said.append(line.rstrip("\n"))
+        match = HELD_LINE.fullmatch(said[-1])
+        if match:
+            return int(match["mib"]), said
+    return 0, said
+
+
 @contextlib.contextmanager
 def held_card() -> Iterator[int]:
     """Hold the card's memory in a second process; always end that process.
@@ -94,11 +112,11 @@ def held_card() -> Iterator[int]:
         text=True,
     )
     try:
-        said = holder.stdout.readline().split() if holder.stdout else []
-        if said[:1] != ["held"] or int(said[1]) <= 0:
+        held_mib, said = _read_held_mib(holder.stdout) if holder.stdout else (0, [])
+        if held_mib <= 0:
             message = f"the card holder did not hold the card: {said}"
             raise SystemExit(message)
-        yield int(said[1])
+        yield held_mib
     finally:
         holder.terminate()
         try:
