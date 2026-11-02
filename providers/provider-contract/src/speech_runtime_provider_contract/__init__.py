@@ -270,12 +270,22 @@ def _load_model_and_signal_ready(
         model = functions.load(device, Path(cache))
         if functions.prepare is not None:
             functions.prepare(model)
+        _discard_stderr()
         write_frame(stream, Frame(FrameKind.READY, 0, ready_payload(sample_rate)))
     except Exception:
         logger.exception("provider failed to load or prepare the model")
         _failed(stream, 0)
         return None
     return model
+
+
+def _discard_stderr() -> None:
+    """Stop the service-owned startup file from receiving text after READY."""
+    null = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(null, 2)
+    finally:
+        os.close(null)
 
 
 def serve_provider(

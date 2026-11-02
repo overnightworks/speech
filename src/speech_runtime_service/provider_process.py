@@ -9,6 +9,7 @@ import selectors
 import signal
 import stat
 import subprocess
+import tempfile
 import threading
 import time
 from contextlib import suppress
@@ -35,6 +36,7 @@ TERMINATE_GRACE_SECONDS = 5
 CANCEL_DRAIN_SECONDS = 5
 _COMMAND_WAIT_SECONDS = 0.25
 _READ_SIZE = 64 * 1024
+_STDERR_TAIL_BYTES = 4096
 _NVIDIA_LIBRARY_DIRECTORIES = (
     "cublas:cuda_cupti:cuda_nvrtc:cuda_runtime:cudnn:cufft:curand:"
     "cusolver:cusparse:cusparselt:nccl:nvjitlink:nvtx"
@@ -231,9 +233,11 @@ class ProviderProcess:
 
     def _run_owner(self) -> None:
         child: subprocess.Popen[bytes] | None = None
+        stderr: IO[bytes] | None = None
         lifecycle_failed = False
         try:
-            child = self._spawn()
+            stderr = tempfile.TemporaryFile()  # noqa: SIM115 - closed on every exit below
+            child = self._spawn(stderr)
             decoder = FrameDecoder()
             os.set_blocking(_require_stdout(child).fileno(), False)
             with self._state_lock:
@@ -243,7 +247,7 @@ class ProviderProcess:
             outcome = (
                 _OwnerExit.ORDINARY_CLOSE
                 if closing
-                else self._serve_owner(child, decoder)
+                else self._serve_owner(child, decoder, stderr)
             )
             if outcome is _OwnerExit.PROVIDER_FAILURE:
                 self._set_failed()
@@ -253,12 +257,15 @@ class ProviderProcess:
             self._set_failed()
         finally:
             self._ready.set()
+            own_exit_status = None if child is None else child.poll()
             try:
                 self._terminate_and_reap(child)
             except Exception:
                 logger.exception("speech provider cleanup failed")
                 lifecycle_failed = True
                 self._cleanup_failed = True
+            if stderr is not None:
+                _close_stderr(child, own_exit_status, stderr)
             with self._state_lock:
                 self._process = None
                 self._response_decoder = None
@@ -268,7 +275,10 @@ class ProviderProcess:
                 self._fatal_callback()
 
     def _serve_owner(
-        self, child: subprocess.Popen[bytes], decoder: FrameDecoder
+        self,
+        child: subprocess.Popen[bytes],
+        decoder: FrameDecoder,
+        stderr: IO[bytes],
     ) -> _OwnerExit:
         try:
             frame = self._read_available_frame(child, decoder)
@@ -280,6 +290,7 @@ class ProviderProcess:
             or ready_sample_rate(frame.payload) != self.sample_rate
         ):
             return _OwnerExit.PROVIDER_FAILURE
+        stderr.close()
         with self._state_lock:
             self.ready = True
         self._ready.set()
@@ -292,7 +303,7 @@ class ProviderProcess:
                 continue
             return command
 
-    def _spawn(self) -> subprocess.Popen[bytes]:
+    def _spawn(self, stderr: IO[bytes]) -> subprocess.Popen[bytes]:
         entrypoint = self._executable
         if not _is_executable_file(entrypoint):
             raise ProviderUnavailableError
@@ -307,7 +318,7 @@ class ProviderProcess:
             shell=False,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=stderr,
             cwd=provider_directory,
             env=provider_environment(provider_directory),
             bufsize=0,
@@ -456,6 +467,28 @@ class ProviderProcess:
         for stream in (child.stdin, child.stdout):
             if stream is not None:
                 stream.close()
+
+
+def _close_stderr(
+    child: subprocess.Popen[bytes] | None,
+    own_exit_status: int | None,
+    stderr: IO[bytes],
+) -> None:
+    """Log what a provider that never became ready wrote, then close its file.
+
+    The status is the provider's own; None means the service had to stop it.
+    """
+    try:
+        if not stderr.closed and child is not None:
+            size = stderr.seek(0, os.SEEK_END)
+            stderr.seek(max(0, size - _STDERR_TAIL_BYTES))
+            logger.error(
+                "speech provider ended before ready, exit status %s, stderr tail:\n%s",
+                own_exit_status,
+                stderr.read().decode("utf-8", errors="replace"),
+            )
+    finally:
+        stderr.close()
 
 
 def _require_stdout(child: subprocess.Popen[bytes]) -> IO[bytes]:
