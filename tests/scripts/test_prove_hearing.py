@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from speech_runtime_service.hearing_models import HearingModel
 from tests.support.script_support import script_module
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 HEARING = script_module("prove_hearing")
 VOICES = Path.home() / "voices"
@@ -68,3 +73,28 @@ def test_a_model_missing_from_the_cache_names_the_command_that_fetches_it(
 
     with pytest.raises(SystemExit, match="speech-runtime-fetch-hearing-model small"):
         HEARING.require_cached_models([HearingModel.SMALL])
+
+
+def test_the_resident_memory_with_a_voice_includes_what_its_synthesis_took(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    card = {"used_mib": 1000}
+    service = HEARING.Service("http://127.0.0.1:1", None, None)  # type: ignore[arg-type]
+    synthesis_mib = 700
+
+    @contextlib.contextmanager
+    def fake_service(*_: str) -> Iterator[HEARING.Service]:
+        yield service
+
+    def fake_speak(*_: object) -> tuple[bytes, float, float]:
+        card["used_mib"] += synthesis_mib
+        return b"", 0.0, 0.0
+
+    monkeypatch.setattr(HEARING, "hearing_service", fake_service)
+    monkeypatch.setattr(HEARING, "speak_measured", fake_speak)
+    monkeypatch.setattr(HEARING, "hear_file", lambda *_: (0.0, ""))
+    monkeypatch.setattr(HEARING, "used_mib", lambda: card["used_mib"])
+
+    peak = HEARING.measure_peak("cuda", "small", HEARING.DEFAULT_SPEAKING_MODEL, b"")
+
+    assert peak["warmed_resident_over_baseline_mib"] == synthesis_mib

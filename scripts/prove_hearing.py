@@ -434,12 +434,19 @@ def _refusal_code(response: httpx2.Response) -> str | None:
 def measure_peak(
     device: str, hearing_model: str, speaking_model: str, warm_clip: bytes
 ) -> dict[str, object]:
-    """The card's peak over its baseline from service start through a long decode."""
+    """The card's peak over its baseline from service start, a synthesis, a long decode.
+
+    The voice has synthesised before memory is read, as speaking and hearing run
+    side by side and the allocations of synthesis belong to the peak.
+    """
     baseline = used_mib()
     with (
         MemorySampler() as sampler,
         hearing_service(device, hearing_model, speaking_model) as service,
     ):
+        speak_measured(
+            service.base_url, GERMAN_QUESTION, voice_id(speaking_model), service.minting
+        )
         hear_file(service, HearingLanguage.DE, warm_clip)
         resident = used_mib()
     return {
