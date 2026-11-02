@@ -204,8 +204,8 @@ uv run python scripts/prove_image.py
 ### Stage proofs
 
 Stage proof (checks load, one heavy step at a time). The script runs itself as
-`flock -o -w 1200 /tmp/probe-stack.lock setpriv --pdeathsig TERM timeout -k 30 1800 …`, so it waits at most
-20 minutes for `/tmp/probe-stack.lock` and fails the run, saying the lock is busy,
+`flock -o -w 3600 /tmp/probe-stack.lock setpriv --pdeathsig TERM timeout -k 30 1800 …`, so it waits at most
+an hour for `/tmp/probe-stack.lock` and fails the run, saying the lock is busy,
 when that wait ends; the load wait and the proof then share the 30-minute cap,
 whose TERM stops the speech server and its providers and removes the private
 directory. If its caller dies, `setpriv` hands `timeout` a TERM at once, so
