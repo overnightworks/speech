@@ -3,6 +3,7 @@ dependency_paths = [
   ".github/workflows/",
   "pyproject.toml",
   "uv.lock",
+  "Dockerfile",
   "packages/client/pyproject.toml",
   "providers/chatterbox/pyproject.toml",
   "providers/chatterbox/uv.lock",
