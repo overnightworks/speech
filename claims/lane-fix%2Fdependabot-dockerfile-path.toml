@@ -1,7 +1,0 @@
-claim_id = "f7c4dcfb2160482a8deae750e49330af"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "7df16670aafdf61a7daffd8bd51cea3df7d7e9f4"
-branch = "fix/dependabot-dockerfile-path"
-scope = [".aco/board.toml"]
-opened_commit = "35c5510d9b2c075e50c1e44491bc06ce3f9bc29b"
