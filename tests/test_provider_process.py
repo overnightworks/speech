@@ -57,7 +57,6 @@ def _provider_process(root: Path, cache: Path) -> ProviderProcess:
         ProviderLaunch(
             model_name=QWEN_MODEL_ID,
             sample_rate=QWEN_SAMPLE_RATE,
-            streams=False,
             executable=root / "qwen" / ".venv" / "bin" / "speech-runtime-qwen-worker",
             arguments=_qwen_arguments(cache),
         )
@@ -373,7 +372,6 @@ def test_constructor_has_no_thread_process_or_filesystem_side_effect(
         ProviderLaunch(
             model_name=QWEN_MODEL_ID,
             sample_rate=QWEN_SAMPLE_RATE,
-            streams=False,
             executable=tmp_path / "missing",
             arguments=("--device", "cpu", "--cache", str(tmp_path / "cache")),
         )
@@ -529,7 +527,6 @@ def test_missing_entrypoint_failed_exec_leaves_no_retained_engine(
                 ProviderLaunch(
                     model_name=QWEN_MODEL_ID,
                     sample_rate=QWEN_SAMPLE_RATE,
-                    streams=False,
                     executable=tmp_path / "missing",
                     arguments=("--device", "cpu", "--cache", str(tmp_path)),
                 )

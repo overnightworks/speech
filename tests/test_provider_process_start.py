@@ -65,7 +65,6 @@ def _provider(tmp_path: Path, body: str) -> ProviderProcess:
         ProviderLaunch(
             model_name=QWEN_MODEL_ID,
             sample_rate=QWEN_SAMPLE_RATE,
-            streams=False,
             executable=entrypoint,
             arguments=("--device", "cpu", "--cache", str(cache)),
         )

@@ -38,6 +38,11 @@ def voice_for_model(model: str) -> VoiceId:
     return _VOICES_BY_MODEL[model]
 
 
+def model_for_voice(voice: VoiceId) -> str:
+    """The speaking model `voice` speaks with."""
+    return next(model for model, known in _VOICES_BY_MODEL.items() if known is voice)
+
+
 def installed_voice_ids(settings: Settings) -> frozenset[VoiceId]:
     """Inspect only exact artifacts; this does not read credentials or the network."""
     installed: set[VoiceId] = set()

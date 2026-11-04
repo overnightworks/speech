@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.status import HTTP_200_OK, HTTP_503_SERVICE_UNAVAILABLE
 
-from speech_runtime_client.wire import RefusalCode
+from speech_runtime_client.wire import HearingHealth, RefusalCode
 from speech_runtime_service import hearing_models
 from speech_runtime_service.clock import LoopClock
 from speech_runtime_service.config import Settings
@@ -82,7 +82,9 @@ def test_a_loaded_engine_is_ready_in_health() -> None:
 
     runtime.load()
 
-    assert runtime.health()["hearing"] == {"model": engine.model_name, "ready": True}
+    assert runtime.health().hearing == HearingHealth(
+        model=engine.model_name, ready=True
+    )
 
 
 def test_closing_the_runtime_frees_the_hearing_engine() -> None:
@@ -100,7 +102,7 @@ def test_without_a_hearing_model_health_names_hearing_unavailable() -> None:
 
     runtime.load()
 
-    assert runtime.health()["hearing"] == {"model": "unavailable", "ready": False}
+    assert runtime.health().hearing == HearingHealth(model="unavailable", ready=False)
 
 
 def test_a_configured_model_that_was_not_fetched_stops_the_start(

@@ -18,7 +18,7 @@ from speech_runtime_service import __main__
 from speech_runtime_service.config import Settings
 from speech_runtime_service.provider_process import ProviderLaunch, ProviderProcess
 from speech_runtime_service.service import Runtime, RuntimeDependencies
-from speech_runtime_service.voices import VoiceId
+from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL, VoiceId
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.identity_support import write_caller_configuration
 from tests.support.tcp_server_support import free_loopback_port, listens_on
@@ -196,7 +196,6 @@ while True:
         ProviderLaunch(
             model_name=QWEN_MODEL_ID,
             sample_rate=QWEN_SAMPLE_RATE,
-            streams=False,
             executable=entrypoint,
             arguments=("--device", "cpu", "--cache", str(cache)),
         )
@@ -332,10 +331,14 @@ def test_orchestrator_serves_health_from_its_loading_runtime(
 
     assert outcome == 1
     assert observed["speaking"] == {
-        "model": "unavailable",
         "ready": False,
-        "streams": False,
-        "sample_rate": 0,
+        "voices": {
+            VoiceId.PIPER.value: {
+                "model": DEFAULT_SPEAKING_MODEL,
+                "ready": False,
+                "sample_rate": 0,
+            }
+        },
     }
     assert observed["card_memory_mb"] == card_memory_mb
 

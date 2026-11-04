@@ -105,7 +105,7 @@ def test_a_listed_voice_that_is_not_active_is_unavailable() -> None:
     response = _speak(_app(valid_callers([PIPER, QWEN])), QWEN)
 
     assert_refusal(
-        response, HTTP_503_SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE, None
+        response, HTTP_503_SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE, "voice"
     )
 
 

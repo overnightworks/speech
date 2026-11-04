@@ -469,11 +469,9 @@ def _require_speaking(health: dict[str, object], model: str) -> None:
     if not isinstance(speaking, dict):
         message = f"health speaking is not an object: {speaking!r}"
         raise SystemExit(message)
-    if speaking.get("model") != model:
-        message = f"speaking.model is {speaking.get('model')!r}, expected {model!r}"
-        raise SystemExit(message)
-    if speaking.get("streams") is not False:
-        message = f"Piper must report speaking.streams=false: {speaking!r}"
+    voice = speaking["voices"].get(voice_id(model))
+    if voice is None or voice["model"] != model:
+        message = f"speaking.voices has no voice for {model!r}: {speaking!r}"
         raise SystemExit(message)
 
 
