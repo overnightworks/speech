@@ -1,8 +1,0 @@
-claim_id = "dcacc50893824afc87328a66d6ad2a5f"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "d293c5bf51c70792bf551b07e0894b3df9ff1f85"
-branch = "claude/issue-142-g1b-voice-refusal-and-per-voice-health"
-scope = ["README.md", "docs/wire.md", "packages/client/pyproject.toml", "packages/client/src/speech_runtime_client/wire.py", "packages/client/tests/test_wire.py", "providers/provider-contract/pyproject.toml", "providers/qwen/uv.lock", "pyproject.toml", "quality/baseline.toml", "scripts/prove_speech.py", "src/speech_runtime_service/provider_process.py", "src/speech_runtime_service/service.py", "src/speech_runtime_service/speaking.py", "src/speech_runtime_service/voice_slot.py", "src/speech_runtime_service/voices.py", "src/speech_runtime_service/wire_route.py", "tests/scripts/test_prove_speech.py", "tests/support/fakes_support.py", "tests/support/speak_support.py", "tests/test_admission_gate.py", "tests/test_main.py", "tests/test_provider_process.py", "tests/test_provider_process_start.py", "tests/test_service_health.py", "tests/test_service_hearing.py", "tests/test_service_speak.py", "tests/test_service_start.py", "tests/test_voices_configured.py", "tests/test_wire_route_voices.py", "uv.lock"]
-opened_commit = "64db6eb3515e6e664ee88dd66845029763f56a2a"
-whole_reason = "One wire change: the health answer, the refusal param, the client's typed models, the docs and the release version move together, or the wire would have two owners for one release."
