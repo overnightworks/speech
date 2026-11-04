@@ -5,4 +5,6 @@ dependency_paths = [
   "uv.lock",
   "Dockerfile",
   "packages/client/pyproject.toml",
+  "providers/qwen/pyproject.toml",
+  "providers/qwen/uv.lock",
 ]
