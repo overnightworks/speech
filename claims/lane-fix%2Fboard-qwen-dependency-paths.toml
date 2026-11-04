@@ -1,0 +1,7 @@
+claim_id = "2f46101c55bb4eb2bdd3b6ead2730142"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "d293c5bf51c70792bf551b07e0894b3df9ff1f85"
+branch = "fix/board-qwen-dependency-paths"
+scope = [".aco/board.toml"]
+opened_commit = "e9dca3c8395531b6f5c193b6f6af1063d4204b38"
