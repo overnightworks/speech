@@ -1,8 +1,0 @@
-claim_id = "f519f4a1c2984949b5ad306854472fb3"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "c255c268006b18f4ca2c0d76039f7d2d03aefa6e"
-branch = "claude/issue-138-g2-pin-and-lock-the-qwen-provider"
-scope = [".github/dependabot.yml", "providers/provider-contract/pyproject.toml", "providers/qwen/pyproject.toml", "providers/qwen/uv.lock", "quality/config.toml"]
-opened_commit = "17582011682141b70cd366ccdb7ee0de41d0a016"
-whole_reason = "One relock: the lock, the build backends that build it, its Dependabot entry and the allowlist that judges it change together, or the gate would judge a lock its allowlist does not match."
