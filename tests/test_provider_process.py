@@ -37,9 +37,7 @@ from speech_runtime_service.provider_process import (
     UnsupportedLanguageError,
 )
 from speech_runtime_service.service import Runtime, RuntimeDependencies
-from speech_runtime_service.voices import (
-    VoiceId,
-)
+from speech_runtime_service.voices import VoiceId, model_for_voice
 from tests.support.worker_support import assert_reaped, closed_provider, observed
 
 
@@ -61,6 +59,13 @@ def _provider_process(root: Path, cache: Path) -> ProviderProcess:
             arguments=_qwen_arguments(cache),
         )
     )
+
+
+def _assert_voice_reports_unready(runtime: Runtime, voice: VoiceId) -> None:
+    speaking = runtime.health().speaking
+    assert speaking.ready is False
+    assert speaking.voices[voice.value].model == model_for_voice(voice)
+    assert speaking.voices[voice.value].ready is False
 
 
 def test_protocol_round_trips_partial_reads_and_consecutive_frames() -> None:
@@ -397,6 +402,7 @@ def test_startup_provider_failure_raises_without_fatal_exit(tmp_path: Path) -> N
     with pytest.raises(RuntimeError, match="failed to load"):
         runtime.load()
 
+    _assert_voice_reports_unready(runtime, VoiceId.QWEN)
     assert runtime.capture_speaking() is None
     assert fatal.is_set() is False
     _, _, pid, _ = observed(tmp_path / "cache")
@@ -427,7 +433,7 @@ def test_active_provider_failure_reconciles_without_fatal_exit(
     while engine.ready and time.monotonic() < deadline:
         threading.Event().wait(0.01)
 
-    runtime.health()
+    _assert_voice_reports_unready(runtime, VoiceId.PIPER)
 
     assert runtime.capture_speaking() is None
     assert fatal.is_set() is False
