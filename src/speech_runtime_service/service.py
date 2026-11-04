@@ -6,7 +6,12 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, Protocol
 
-from speech_runtime_client.wire import Health, HearingHealth, SpeakingHealth
+from speech_runtime_client.wire import (
+    HEALTH_PATH,
+    Health,
+    HearingHealth,
+    SpeakingHealth,
+)
 from speech_runtime_service.card import card_memory_mb
 from speech_runtime_service.clock import LoopClock
 from speech_runtime_service.failures import PayloadFreeFailure, SpeakingFailedError
@@ -173,6 +178,6 @@ def wav_chunks(
 def mount_health_route(app: FastAPI, runtime: Runtime) -> None:
     """Mount /health over the one runtime."""
 
-    @app.get("/health")
+    @app.get(HEALTH_PATH)
     def health() -> Health:
         return runtime.health()
