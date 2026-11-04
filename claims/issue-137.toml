@@ -1,0 +1,8 @@
+claim_id = "bdd03c80ce994ef6b5cfa2649aafc927"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "c255c268006b18f4ca2c0d76039f7d2d03aefa6e"
+branch = "claude/issue-137-g1a-move-the-voice-engine-lifecycle-into"
+scope = ["docs/ARCHITECTURE.md", "src/speech_runtime_service/service.py", "src/speech_runtime_service/voice_slot.py", "src/speech_runtime_service/wire_route.py", "tests/support/speak_support.py", "tests/test_admission_gate.py", "tests/test_wire_route_hearing.py", "tests/test_wire_route_identity.py", "tests/test_wire_route_tcp.py"]
+opened_commit = "4070eac6bc9b275fd3263fe307180f03ef2105d5"
+whole_reason = "One move: the lifecycle leaves Runtime whole and the tests that pin the gate's location follow it, or two owners would hold the same engine state."
