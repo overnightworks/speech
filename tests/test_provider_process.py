@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 from anyio import run, run_process
+from fastapi.testclient import TestClient
 from speech_runtime_provider_contract import (
     MAX_FRAME_LENGTH,
     QWEN_MODEL_ID,
@@ -38,6 +39,12 @@ from speech_runtime_service.provider_process import (
 )
 from speech_runtime_service.service import Runtime, RuntimeDependencies
 from speech_runtime_service.voices import VoiceId, model_for_voice
+from tests.support.speak_support import (
+    app_over,
+    assert_unavailable,
+    post_speech,
+    speak_body,
+)
 from tests.support.worker_support import assert_reaped, closed_provider, observed
 
 
@@ -66,6 +73,9 @@ def _assert_voice_reports_unready(runtime: Runtime, voice: VoiceId) -> None:
     assert speaking.ready is False
     assert speaking.voices[voice.value].model == model_for_voice(voice)
     assert speaking.voices[voice.value].ready is False
+    assert_unavailable(
+        post_speech(TestClient(app_over(runtime)), speak_body(voice.value))
+    )
 
 
 def test_protocol_round_trips_partial_reads_and_consecutive_frames() -> None:
@@ -420,6 +430,7 @@ def test_active_provider_failure_reconciles_without_fatal_exit(
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: engine,
             artifact_checker=lambda _voice: True,
+            voice=VoiceId.QWEN,
         ),
     )
     runtime.set_fatal_callback(fatal.set)
@@ -433,7 +444,7 @@ def test_active_provider_failure_reconciles_without_fatal_exit(
     while engine.ready and time.monotonic() < deadline:
         threading.Event().wait(0.01)
 
-    _assert_voice_reports_unready(runtime, VoiceId.PIPER)
+    _assert_voice_reports_unready(runtime, VoiceId.QWEN)
 
     assert runtime.capture_speaking() is None
     assert fatal.is_set() is False
