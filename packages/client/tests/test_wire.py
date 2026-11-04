@@ -1,4 +1,4 @@
-"""The wire: a `busy` answer's wait, the hearing request, and its refusals."""
+"""The wire: a `busy` answer's wait, the hearing request, its refusals, health."""
 
 import json
 from http import HTTPStatus
@@ -15,6 +15,7 @@ from speech_runtime_client.wire import (
     AudioCommitted,
     BusyWait,
     ClientEventError,
+    Health,
     HearingLanguage,
     RefusalCode,
     RetryAfterError,
@@ -276,3 +277,41 @@ def test_the_committed_item_with_no_predecessor_names_null() -> None:
     )
 
     assert event["previous_item_id"] is None
+
+
+SAMPLE_RATE = 22050
+CARD_MEMORY_MB = 7
+
+
+def _health_body() -> dict[str, object]:
+    return {
+        "speaking": {
+            "ready": True,
+            "voices": {"v": {"model": "m", "ready": True, "sample_rate": SAMPLE_RATE}},
+        },
+        "hearing": {"model": "h", "ready": False},
+        "card_memory_mb": CARD_MEMORY_MB,
+    }
+
+
+def test_a_health_body_parses_into_the_typed_answer() -> None:
+    health = Health.model_validate(_health_body())
+
+    assert health.speaking.voices["v"].sample_rate == SAMPLE_RATE
+    assert health.hearing.ready is False
+    assert health.card_memory_mb == CARD_MEMORY_MB
+
+
+def test_a_health_answer_ignores_a_key_it_does_not_know() -> None:
+    body = _health_body()
+    body["later"] = 1
+    body["hearing"] = {"model": "h", "ready": False, "later": 1}
+
+    assert Health.model_validate(body) == Health.model_validate(_health_body())
+
+
+def test_a_health_answer_is_frozen() -> None:
+    health = Health.model_validate(_health_body())
+
+    with pytest.raises(ValidationError):
+        health.card_memory_mb = 8

@@ -31,8 +31,6 @@ if TYPE_CHECKING:
 class PiperSpeaking:
     """One Piper voice, loaded once and held for the process."""
 
-    streams = False
-
     def __init__(self, model_name: str, cache: Path) -> None:
         """Remember the catalogue name and where ONNX files are kept."""
         self.model_name = model_name
@@ -78,7 +76,6 @@ def speaking_for_voice(settings: Settings, voice: VoiceId) -> LocalSpeaking:
             ProviderLaunch(
                 model_name=QWEN_MODEL_ID,
                 sample_rate=QWEN_SAMPLE_RATE,
-                streams=False,
                 executable=provider_entrypoint(settings.provider_root, ProviderId.QWEN),
                 arguments=(
                     "--device",

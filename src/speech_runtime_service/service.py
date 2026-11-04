@@ -6,6 +6,12 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, Protocol
 
+from speech_runtime_client.wire import (
+    HEALTH_PATH,
+    Health,
+    HearingHealth,
+    SpeakingHealth,
+)
 from speech_runtime_service.card import card_memory_mb
 from speech_runtime_service.clock import LoopClock
 from speech_runtime_service.failures import PayloadFreeFailure, SpeakingFailedError
@@ -33,7 +39,6 @@ class SpeakingEngine(Protocol):
     model_name: str
     sample_rate: int
     ready: bool
-    streams: bool
 
     def load(self) -> None:
         """Load weights and become ready, or raise."""
@@ -100,14 +105,17 @@ class Runtime:
         """Publish startup before its background task can be scheduled."""
         self.slots[self._voice].begin_loading()
 
-    def health(self) -> dict[str, object]:
+    def health(self) -> Health:
         """The contract body for GET /health."""
         self.reconcile_failed_active()
-        return {
-            "speaking": self.slots[self._voice].health(),
-            "hearing": self.hearing.health(),
-            "card_memory_mb": self._memory_probe(),
-        }
+        voice = self.slots[self._voice].health()
+        return Health(
+            speaking=SpeakingHealth(
+                ready=voice.ready, voices={self._voice.value: voice}
+            ),
+            hearing=HearingHealth.model_validate(self.hearing.health()),
+            card_memory_mb=self._memory_probe(),
+        )
 
     def capture_speaking(self) -> VoiceAdmission | None:
         """Capture one stable engine for an entire streaming response."""
@@ -170,6 +178,6 @@ def wav_chunks(
 def mount_health_route(app: FastAPI, runtime: Runtime) -> None:
     """Mount /health over the one runtime."""
 
-    @app.get("/health")
-    def health() -> dict[str, object]:
+    @app.get(HEALTH_PATH)
+    def health() -> Health:
         return runtime.health()

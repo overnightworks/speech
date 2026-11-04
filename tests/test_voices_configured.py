@@ -124,8 +124,10 @@ def test_each_catalogue_voice_starts_from_its_model_and_the_wire_speaks_it(
         runtime.close()
 
     assert (rate, pcm) == (sample_rate, WORKER_PCM)
-    assert speaking["model"] == model
     assert speaking["ready"] is True
+    assert speaking["voices"] == {
+        voice.value: {"model": model, "ready": True, "sample_rate": sample_rate}
+    }
 
 
 def test_a_selection_file_from_an_older_build_is_ignored_and_nothing_is_written(

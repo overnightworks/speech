@@ -4,8 +4,8 @@ This module is the one owner of what travels on `POST /v1/audio/speech`,
 `POST /v1/audio/transcriptions` and the Realtime transcription WebSocket: the
 paths, the requests, the transcription answer, the Realtime events, and the
 closed list of refusals with their statuses, messages and the body they are
-answered in (OpenAI's error form). The service and its callers import these
-types and copy none of them.
+answered in (OpenAI's error form). It owns the answer of `GET /health` as well.
+The service and its callers import these types and copy none of them.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 SPEECH_PATH: Final = "/v1/audio/speech"
 TRANSCRIPTIONS_PATH: Final = "/v1/audio/transcriptions"
 REALTIME_PATH: Final = "/v1/realtime"
+HEALTH_PATH: Final = "/health"
 REALTIME_INTENT_PARAM: Final = "intent"
 REALTIME_INTENT: Final = "transcription"
 API_VERSION: Final = 1
@@ -100,6 +101,44 @@ class Transcription(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     text: str
+
+
+class VoiceHealth(BaseModel):
+    """One offered voice: its model, whether it can speak, its PCM sample rate."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model: str
+    ready: bool
+    sample_rate: int
+
+
+class SpeakingHealth(BaseModel):
+    """The speaking service's own readiness and the voices it offers by id."""
+
+    model_config = ConfigDict(frozen=True)
+
+    ready: bool
+    voices: dict[str, VoiceHealth]
+
+
+class HearingHealth(BaseModel):
+    """The hearing model and whether it can hear."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model: str
+    ready: bool
+
+
+class Health(BaseModel):
+    """The answer of `GET /health`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    speaking: SpeakingHealth
+    hearing: HearingHealth
+    card_memory_mb: int
 
 
 def speech_request_body(text: str, voice: str) -> bytes:

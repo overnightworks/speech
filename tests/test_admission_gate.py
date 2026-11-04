@@ -559,7 +559,7 @@ def test_a_failed_voice_whose_close_blocks_is_still_answered_within_the_wait() -
     assert sent_last
     for call in (first, second):
         assert_call_refusal(
-            call, HTTP_503_SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE, None
+            call, HTTP_503_SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE, "voice"
         )
     assert first.started_after < SHORT_WAIT_SECONDS + SLACK_SECONDS
     assert second.started_after < SHORT_WAIT_SECONDS + SLACK_SECONDS

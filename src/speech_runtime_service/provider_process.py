@@ -120,7 +120,6 @@ class ProviderLaunch:
 
     model_name: str
     sample_rate: int
-    streams: bool
     executable: Path | None
     arguments: tuple[str, ...]
 
@@ -137,7 +136,6 @@ class ProviderProcess:
         """Store immutable launch data; construction never creates a process."""
         self.model_name = launch.model_name
         self.sample_rate = launch.sample_rate
-        self.streams = launch.streams
         self._executable = launch.executable
         self._arguments = launch.arguments
         self._fatal_callback = fatal_callback or (lambda: None)

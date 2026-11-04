@@ -19,7 +19,6 @@ def test_piper_voice_id_constructs_the_local_piper_engine() -> None:
     engine = speaking_for_voice(Settings(), VoiceId.PIPER)
 
     assert isinstance(engine, PiperSpeaking)
-    assert engine.streams is False
     assert engine.model_name == "de_DE-thorsten-medium"
 
 
@@ -30,7 +29,6 @@ def test_qwen_voice_id_constructs_the_complete_waveform_voice() -> None:
     )
 
     assert engine.model_name == QWEN_MODEL_ID
-    assert engine.streams is False
     assert engine.sample_rate == QWEN_SAMPLE_RATE
 
 

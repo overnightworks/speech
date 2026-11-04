@@ -324,9 +324,9 @@ def assert_refusal_body(
 
 
 def assert_unavailable(response: ClientResponse) -> None:
-    """The voice is refused as unavailable."""
+    """The voice is refused as unavailable, naming the voice."""
     assert_refusal(
-        response, HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE, None
+        response, HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE, "voice"
     )
 
 

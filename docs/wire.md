@@ -224,7 +224,7 @@ names is not part of the contract.
 | `invalid_request` | 422 | the body is not a JSON object, a field is missing, unknown or mistyped, a value is not accepted, or `input` is empty, without a letter or digit, or over the limit; for a recording: the form or `file` is missing, a field is unknown or not accepted, or the audio cannot be decoded (`param` `file`) | |
 | `too_large` | 413 | the body is over `SPEECH_MAX_BODY_BYTES` (a recording: `SPEECH_MAX_RECORDING_BYTES`), or the recording is longer than `SPEECH_MAX_RECORDING_SECONDS` (`param` `file`) | |
 | `busy` | 429 | the one synthesis (a recording: the one decode) is taken and its waiting places are taken (answered at once), or it is not free within its wait: `SPEECH_MAX_WAITING_REQUESTS` and `SPEECH_BUSY_WAIT_SECONDS`, for a recording `SPEECH_HEARING_MAX_WAITING_REQUESTS` and `SPEECH_HEARING_BUSY_WAIT_SECONDS` | `Retry-After`: the wait in whole seconds, at least 1 |
-| `unavailable` | 503 | the tokens cannot be checked because the issuer's key set is unreachable and no cached key serves, or the named voice is not the active, ready voice (loading, failed, switched away, or shutting down); for a recording: hearing is not loaded or configured, or its decode failed | |
+| `unavailable` | 503 | the tokens cannot be checked because the issuer's key set is unreachable and no cached key serves, or the named voice cannot speak: it is not the configured voice, it is loading, it failed, or the service is shutting down (`param` `voice`); for a recording: hearing is not loaded or configured, or its decode failed | |
 
 Apps read the `busy` wait with `busy_wait(status, headers)` in
 `speech_runtime_client.wire`: it returns the wait in whole seconds, `None` for any
@@ -272,11 +272,16 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
 ## Health
 
 `GET /health` answers without a token, so a supervisor can poll it:
-`{"speaking": {"model", "ready", "streams", "sample_rate"}, "hearing": {"model", "ready"}, "card_memory_mb"}`.
-It answers while the voice is still loading, with `ready` false. `hearing.model`
-is the configured hearing model, or `unavailable` when none is configured;
-`hearing.ready` is false while it loads and for good when its load found no
-CUDA device or no room on the card, which leaves speaking up.
+`{"speaking": {"ready", "voices": {"<id>": {"model", "ready", "sample_rate"}}}, "hearing": {"model", "ready"}, "card_memory_mb"}`.
+It answers while the models are still loading, with `ready` false.
+`speaking.ready` is the speaking service's own readiness. `speaking.voices`
+lists the offered voices by id; a voice reports its catalogue `model` whether it
+is loaded or not, its own `ready`, and its WAV `sample_rate` (0 until loaded).
+The service builds the answer through `Health` in `speech_runtime_client.wire`,
+which ignores keys it does not know. `hearing.model` is the configured hearing
+model, or `unavailable` when none is configured; `hearing.ready` is false while
+it loads and for good when its load found no CUDA device or no room on the card,
+which leaves speaking up.
 
 ## Not offered
 

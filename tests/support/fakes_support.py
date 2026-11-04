@@ -38,7 +38,6 @@ class FakeSpeaking:
     model_name = "fake-voice"
     sample_rate = SPEAK_SAMPLE_RATE
     ready = True
-    streams = False
     retain_when_inactive = True
 
     def __init__(self, *, ready: bool = True, fail: bool = False) -> None:
@@ -83,7 +82,6 @@ class GatedSpeaking:
 
     model_name = "gated-voice"
     ready = True
-    streams = True
     retain_when_inactive = False
     sample_rate = SPEAK_SAMPLE_RATE
 

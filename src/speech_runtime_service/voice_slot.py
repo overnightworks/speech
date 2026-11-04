@@ -6,7 +6,9 @@ import logging
 import threading
 from typing import TYPE_CHECKING
 
+from speech_runtime_client.wire import VoiceHealth
 from speech_runtime_service.admission_gate import AdmissionGate
+from speech_runtime_service.voices import model_for_voice
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -138,23 +140,21 @@ class VoiceSlot:
                 self._closing_engine = None
                 self._state_changed.notify_all()
 
-    def health(self) -> dict[str, object]:
-        """The speaking part of the contract body for GET /health."""
+    def health(self) -> VoiceHealth:
+        """The voice's part of GET /health: its catalogue facts, ready or not."""
         with self._state_lock:
             speaking = self.speaking
         if speaking is None:
-            return {
-                "model": "unavailable",
-                "ready": False,
-                "streams": False,
-                "sample_rate": 0,
-            }
-        return {
-            "model": speaking.model_name,
-            "ready": speaking.ready,
-            "streams": speaking.streams,
-            "sample_rate": speaking.sample_rate,
-        }
+            return VoiceHealth(
+                model=model_for_voice(self._dependencies.voice),
+                ready=False,
+                sample_rate=0,
+            )
+        return VoiceHealth(
+            model=speaking.model_name,
+            ready=speaking.ready,
+            sample_rate=speaking.sample_rate,
+        )
 
     def _construct_engine(self) -> SpeakingEngine:
         voice = self._dependencies.voice

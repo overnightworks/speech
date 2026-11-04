@@ -165,10 +165,11 @@ class _SpeechRoute:
         if admission is None:
             return _refused(
                 RefusalCode.UNAVAILABLE,
+                "voice",
                 background=BackgroundTask(self._runtime.reconcile_failed_active),
             )
         if admission.voice is not voice:
-            return _refused(RefusalCode.UNAVAILABLE)
+            return _refused(RefusalCode.UNAVAILABLE, "voice")
         return admission
 
     def _busy(self) -> JSONResponse:

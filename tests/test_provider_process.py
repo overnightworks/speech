@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 from anyio import run, run_process
+from fastapi.testclient import TestClient
 from speech_runtime_provider_contract import (
     MAX_FRAME_LENGTH,
     QWEN_MODEL_ID,
@@ -37,8 +38,12 @@ from speech_runtime_service.provider_process import (
     UnsupportedLanguageError,
 )
 from speech_runtime_service.service import Runtime, RuntimeDependencies
-from speech_runtime_service.voices import (
-    VoiceId,
+from speech_runtime_service.voices import VoiceId, model_for_voice
+from tests.support.speak_support import (
+    app_over,
+    assert_unavailable,
+    post_speech,
+    speak_body,
 )
 from tests.support.worker_support import assert_reaped, closed_provider, observed
 
@@ -57,10 +62,19 @@ def _provider_process(root: Path, cache: Path) -> ProviderProcess:
         ProviderLaunch(
             model_name=QWEN_MODEL_ID,
             sample_rate=QWEN_SAMPLE_RATE,
-            streams=False,
             executable=root / "qwen" / ".venv" / "bin" / "speech-runtime-qwen-worker",
             arguments=_qwen_arguments(cache),
         )
+    )
+
+
+def _assert_voice_reports_unready(runtime: Runtime, voice: VoiceId) -> None:
+    speaking = runtime.health().speaking
+    assert speaking.ready is False
+    assert speaking.voices[voice.value].model == model_for_voice(voice)
+    assert speaking.voices[voice.value].ready is False
+    assert_unavailable(
+        post_speech(TestClient(app_over(runtime)), speak_body(voice.value))
     )
 
 
@@ -373,7 +387,6 @@ def test_constructor_has_no_thread_process_or_filesystem_side_effect(
         ProviderLaunch(
             model_name=QWEN_MODEL_ID,
             sample_rate=QWEN_SAMPLE_RATE,
-            streams=False,
             executable=tmp_path / "missing",
             arguments=("--device", "cpu", "--cache", str(tmp_path / "cache")),
         )
@@ -399,6 +412,7 @@ def test_startup_provider_failure_raises_without_fatal_exit(tmp_path: Path) -> N
     with pytest.raises(RuntimeError, match="failed to load"):
         runtime.load()
 
+    _assert_voice_reports_unready(runtime, VoiceId.QWEN)
     assert runtime.capture_speaking() is None
     assert fatal.is_set() is False
     _, _, pid, _ = observed(tmp_path / "cache")
@@ -416,6 +430,7 @@ def test_active_provider_failure_reconciles_without_fatal_exit(
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: engine,
             artifact_checker=lambda _voice: True,
+            voice=VoiceId.QWEN,
         ),
     )
     runtime.set_fatal_callback(fatal.set)
@@ -429,7 +444,7 @@ def test_active_provider_failure_reconciles_without_fatal_exit(
     while engine.ready and time.monotonic() < deadline:
         threading.Event().wait(0.01)
 
-    runtime.health()
+    _assert_voice_reports_unready(runtime, VoiceId.QWEN)
 
     assert runtime.capture_speaking() is None
     assert fatal.is_set() is False
@@ -529,7 +544,6 @@ def test_missing_entrypoint_failed_exec_leaves_no_retained_engine(
                 ProviderLaunch(
                     model_name=QWEN_MODEL_ID,
                     sample_rate=QWEN_SAMPLE_RATE,
-                    streams=False,
                     executable=tmp_path / "missing",
                     arguments=("--device", "cpu", "--cache", str(tmp_path)),
                 )
