@@ -20,7 +20,7 @@ The code was extracted, with its history, from `speech/` in
 | Role | Hugging Face | Licence | Why this one |
 | --- | --- | --- | --- |
 | Speaking (default) | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices) voice `de_DE-thorsten-medium` | Voice recordings CC0; ONNX weights under the piper-voices MIT repo. The `piper-tts` runtime is `GPL-3.0-or-later`. The HTTP boundary keeps it out of `src/speech_runtime_service` while the speech program itself carries the GPL obligations. | German is documented and not in question. #70 measured this voice on this 3090 at 0.23 s to first audio on CPU. `thorsten-high` on the same sentence took 1.21 s through this service, over the one-second first-audio target, so medium is the default. The voice does not compete with the listener for the card. |
-| Speaking (optional) | [`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice), snapshot `85e237c12c027371202489a0ec509ded67b5e4b5` | Apache-2.0 (`qwen-tts` 0.1.1) | German and English through one configured built-in preset, initially Ryan. It returns a complete 24 kHz waveform, so `speaking.streams` is false. The isolated provider accepts the repository's `cuda` setting as `cuda:0`, uses bfloat16 and package-default attention, and reads only the pinned local snapshot. Runtime quality and latency remain unmeasured. |
+| Speaking (optional) | [`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice), snapshot `85e237c12c027371202489a0ec509ded67b5e4b5` | Apache-2.0 (`qwen-tts` 0.1.1) | German and English through one configured built-in preset, initially Ryan. It returns a complete 24 kHz waveform. The isolated provider accepts the repository's `cuda` setting as `cuda:0`, uses bfloat16 and package-default attention, and reads only the pinned local snapshot. Runtime quality and latency remain unmeasured. |
 
 Hearing, optional, `SPEECH_HEARING_MODEL`: faster-whisper (MIT) with the CTranslate2 conversions of OpenAI's Whisper (MIT) in
 [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3)
@@ -50,7 +50,7 @@ Piper default:
 
 | What | Number |
 | --- | --- |
-| Time to first byte of `/speak` (wire, German, median of 5) | 0.216 s (`speaking.streams` is `false`; Piper allows the first byte when the sentence is done; limit 0.5 s) |
+| Time to first byte of `/speak` (wire, German, median of 5) | 0.216 s (Piper allows the first byte when the sentence is done; limit 0.5 s) |
 | Time to first byte (English, median of 5) | 0.210 s |
 | Real-time factor (German / English, median of 5) | 25.4× / 24.2× |
 | WAV RMS | not silence on every repetition |
@@ -71,7 +71,7 @@ Weights stay in:
 
 ## Contract
 
-- `GET /health` → `{"speaking": {"model", "ready", "streams", "sample_rate"}, "hearing": {"model", "ready"}, "card_memory_mb"}`. Answers while the model is still loading, with `ready` false. `speaking.streams` is whether the voice yields PCM while it is still synthesising: `false` for Piper (one completed chunk per sentence, so the whole waveform exists before the first byte leaves), `true` for a model that yields as it goes. `speaking.sample_rate` is the WAV rate.
+- `GET /health` answers without a token, also while a model is still loading. Its shape is in [`docs/wire.md`](docs/wire.md), Health.
 - `POST /v1/audio/speech` → chunked `audio/wav`, German, with the AI mark. It needs a workload token and the person's token. The request, the tokens, the refusals and the settings that shape them are in [`docs/wire.md`](docs/wire.md).
 - `POST /v1/audio/transcriptions` → `{"text"}`, for an app whose table says `hear = true`, in German or English (`language`, `de` when absent). The request, the limits and the refusals are in [`docs/wire.md`](docs/wire.md).
 - `WS /v1/realtime?intent=transcription` → OpenAI's Realtime transcription events, for an app whose table says `hear = true`: PCM16 at 24 kHz in, provisional deltas and one terminal event per item out. The events, their order and the refusals are in [`docs/wire.md`](docs/wire.md).
