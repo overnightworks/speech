@@ -27,3 +27,22 @@ updates:
           - "numpy"
           - "faster-whisper"
           - "piper-tts"
+  - package-ecosystem: uv
+    directory: /providers/qwen
+    schedule:
+      interval: weekly
+    ignore:
+      # Our libraries come from Git or this repository; a PyPI package of the same name is not ours
+      - dependency-name: "overnightworks-*"
+    groups:
+      uv-qwen:
+        update-types: [minor, patch]
+        # The model stack stays single PRs so each lands with its own GPU proof
+        exclude-patterns:
+          - "nvidia-*"
+          - "numpy"
+          - "torch"
+          - "torchaudio"
+          - "transformers"
+          - "accelerate"
+          - "qwen-tts"
