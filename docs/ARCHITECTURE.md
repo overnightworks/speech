@@ -25,7 +25,8 @@ flowchart LR
 ## Building blocks
 
 - `src/speech_runtime_service`: the one process, its TCP listener and the
-  routes. `callers.py` decides who may speak and who may hear; `wire_route.py`
+  routes. `voice_slot.py` holds one voice's engine lifecycle and its admission
+  gate; `callers.py` decides who may speak and who may hear; `wire_route.py`
   serves the wire; `hearing.py` holds the hearing engine behind a port, its
   gate and its one submission worker; `live_session.py` is a live session's
   state machine; `hearing_session.py` schedules its turns and partials; `pcm.py`

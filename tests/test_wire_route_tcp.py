@@ -40,6 +40,7 @@ from tests.support.speak_support import (
     assert_refusal_body,
     gate_is_free,
     speak_body,
+    synthesis_gate,
 )
 from tests.support.tcp_server_support import TcpServer, serving_over_tcp
 
@@ -161,7 +162,7 @@ def test_a_speak_holds_the_one_synthesis_gate() -> None:
                 socket_client.post(SPEECH_PATH, content=_SPEAK_BODY)
             )
             await _wait_for(voice.entered_first_step)
-            held = runtime.synthesis_gate.try_acquire() is None
+            held = synthesis_gate(runtime).try_acquire() is None
             voice.release_first_step.set()
             talked = await asyncio.wait_for(talk, timeout=GATE_TIMEOUT_SECONDS)
             return voice, held, talked, gate_is_free(runtime)

@@ -53,6 +53,7 @@ from tests.support.speak_support import (
     speak_app,
     speak_body,
     speak_scope,
+    synthesis_gate,
 )
 
 if TYPE_CHECKING:
@@ -428,13 +429,13 @@ def test_the_busy_wait_starts_after_a_slow_identity_check() -> None:
     async def scenario() -> SpeakCall:
         voice = GatedSpeaking()
         runtime = fake_runtime(voice)
-        acquire = runtime.synthesis_gate.acquire
+        acquire = synthesis_gate(runtime).acquire
 
         async def recording_acquire(deadline: float, max_waiters: int) -> Lease | None:
             deadlines.append(deadline)
             return await acquire(deadline, max_waiters)
 
-        runtime.synthesis_gate.acquire = recording_acquire
+        synthesis_gate(runtime).acquire = recording_acquire
         holder = SpeakCall(app_over(runtime, busy_wait_seconds=busy_wait_seconds))
         await holder.status()
         await asyncio.to_thread(voice.entered_first_step.wait, 5)
