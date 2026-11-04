@@ -55,7 +55,7 @@ if TYPE_CHECKING:
 
 SHORT_WAIT_SECONDS = 0.2
 SLACK_SECONDS = 0.5
-CHATTERBOX = VoiceId.CHATTERBOX.value
+QWEN = VoiceId.QWEN.value
 ALIEN_SAMPLE_RATE = 24_000
 
 MANY_WAITERS = 100
@@ -284,15 +284,15 @@ def test_a_request_that_finds_the_gate_held_waits_then_is_told_to_retry_after(
 def test_a_request_beyond_the_waiting_places_is_told_busy_at_once() -> None:
     async def scenario() -> tuple[GatedSpeaking, SpeakCall, SpeakCall]:
         voice = GatedSpeaking()
-        runtime = fake_runtime(voice, VoiceId.CHATTERBOX)
+        runtime = fake_runtime(voice, VoiceId.QWEN)
         app = app_over(
             runtime, busy_wait_seconds=ASGI_TIMEOUT_SECONDS, max_waiting_requests=1
         )
-        running = SpeakCall(app, speak_body(CHATTERBOX))
+        running = SpeakCall(app, speak_body(QWEN))
         await asyncio.to_thread(voice.entered_first_step.wait, ASGI_TIMEOUT_SECONDS)
-        waiting = SpeakCall(app, speak_body(CHATTERBOX))
+        waiting = SpeakCall(app, speak_body(QWEN))
         await _settle()
-        beyond = SpeakCall(app, speak_body(CHATTERBOX))
+        beyond = SpeakCall(app, speak_body(QWEN))
         await beyond.status()
         voice.release_all()
         await asyncio.gather(running.finish(), waiting.finish(), beyond.finish())
@@ -310,16 +310,16 @@ def test_a_request_beyond_the_waiting_places_is_told_busy_at_once() -> None:
 def test_a_request_refused_at_once_leaves_no_place_taken_for_the_next() -> None:
     async def scenario() -> tuple[Runtime, int, int]:
         voice = GatedSpeaking()
-        runtime = fake_runtime(voice, VoiceId.CHATTERBOX)
+        runtime = fake_runtime(voice, VoiceId.QWEN)
         app = app_over(
             runtime, busy_wait_seconds=ASGI_TIMEOUT_SECONDS, max_waiting_requests=0
         )
-        running = SpeakCall(app, speak_body(CHATTERBOX))
+        running = SpeakCall(app, speak_body(QWEN))
         await asyncio.to_thread(voice.entered_first_step.wait, ASGI_TIMEOUT_SECONDS)
-        refused = await _status_of(SpeakCall(app, speak_body(CHATTERBOX)))
+        refused = await _status_of(SpeakCall(app, speak_body(QWEN)))
         voice.release_all()
         await running.finish()
-        return runtime, refused, status_of(await speak_once(app, CHATTERBOX))
+        return runtime, refused, status_of(await speak_once(app, QWEN))
 
     runtime, refused, served = asyncio.run(scenario())
 
@@ -331,7 +331,7 @@ def test_a_request_refused_at_once_leaves_no_place_taken_for_the_next() -> None:
 def _async_runtime(
     voice: GatedSpeaking | FakeSpeaking, wait: float = SHORT_WAIT_SECONDS
 ) -> tuple[Runtime, FastAPI]:
-    runtime = fake_runtime(voice, VoiceId.CHATTERBOX)
+    runtime = fake_runtime(voice, VoiceId.QWEN)
     return runtime, app_over(runtime, busy_wait_seconds=wait)
 
 
@@ -341,9 +341,9 @@ def test_a_second_request_is_told_busy_within_the_wait_while_the_first_streams()
     async def scenario() -> tuple[SpeakCall, SpeakCall, bytes]:
         voice = GatedSpeaking()
         _, app = _async_runtime(voice)
-        first = SpeakCall(app, speak_body(CHATTERBOX))
+        first = SpeakCall(app, speak_body(QWEN))
         await asyncio.to_thread(voice.entered_first_step.wait, ASGI_TIMEOUT_SECONDS)
-        second = SpeakCall(app, speak_body(CHATTERBOX))
+        second = SpeakCall(app, speak_body(QWEN))
         await second.status()
         voice.release_all()
         return first, second, await first.finish()
@@ -361,15 +361,15 @@ def test_after_a_busy_refusal_the_next_request_is_served_and_the_gate_is_free() 
     async def scenario() -> tuple[Runtime, int, int]:
         voice = GatedSpeaking()
         runtime, app = _async_runtime(voice)
-        first = SpeakCall(app, speak_body(CHATTERBOX))
+        first = SpeakCall(app, speak_body(QWEN))
         await asyncio.to_thread(voice.entered_first_step.wait, ASGI_TIMEOUT_SECONDS)
-        refused = await _status_of(SpeakCall(app, speak_body(CHATTERBOX)))
+        refused = await _status_of(SpeakCall(app, speak_body(QWEN)))
         voice.release_all()
         await first.finish()
         return (
             runtime,
             refused,
-            status_of(await speak_once(app, CHATTERBOX)),
+            status_of(await speak_once(app, QWEN)),
         )
 
     runtime, refused, served = asyncio.run(scenario())
@@ -389,9 +389,9 @@ def test_two_requests_within_the_wait_are_served_one_synthesis_at_a_time() -> No
     async def scenario() -> tuple[GatedSpeaking, list[int]]:
         voice = GatedSpeaking()
         _, app = _async_runtime(voice, ASGI_TIMEOUT_SECONDS)
-        first = SpeakCall(app, speak_body(CHATTERBOX))
+        first = SpeakCall(app, speak_body(QWEN))
         await asyncio.to_thread(voice.entered_first_step.wait, ASGI_TIMEOUT_SECONDS)
-        second = SpeakCall(app, speak_body(CHATTERBOX))
+        second = SpeakCall(app, speak_body(QWEN))
         voice.release_all()
         await asyncio.gather(first.finish(), second.finish())
         return voice, [first.status_code, second.status_code]
@@ -423,7 +423,7 @@ def _hold_gate(runtime: Runtime) -> Lease | None:
             id="voice-is-not-the-active-one",
         ),
         pytest.param(
-            speak_body(CHATTERBOX),
+            speak_body(QWEN),
             _hold_gate,
             HTTP_429_TOO_MANY_REQUESTS,
             id="gate-is-held",
@@ -435,7 +435,7 @@ def test_a_refusal_leaves_the_gate_free_once_its_holder_lets_go(
     hold_gate: Callable[[Runtime], Lease | None],
     status: int,
 ) -> None:
-    runtime = fake_runtime(FakeSpeaking(), VoiceId.CHATTERBOX)
+    runtime = fake_runtime(FakeSpeaking(), VoiceId.QWEN)
     held = hold_gate(runtime)
     client = TestClient(app_over(runtime, busy_wait_seconds=0))
 
@@ -451,17 +451,17 @@ def test_a_request_cancelled_while_it_waits_for_the_gate_leaves_nothing_behind()
     None
 ):
     async def scenario() -> tuple[Runtime, int]:
-        runtime = fake_runtime(FakeSpeaking(), VoiceId.CHATTERBOX)
+        runtime = fake_runtime(FakeSpeaking(), VoiceId.QWEN)
         app = app_over(runtime, busy_wait_seconds=ASGI_TIMEOUT_SECONDS)
         held = runtime.synthesis_gate.try_acquire()
         assert held is not None
         waiting_began = gate_acquisition_began(runtime)
-        waiting = SpeakCall(app, speak_body(CHATTERBOX))
+        waiting = SpeakCall(app, speak_body(QWEN))
         await waiting_began.wait()
         waiting.task.cancel()
         await asyncio.gather(waiting.task, return_exceptions=True)
         held.close()
-        return runtime, status_of(await speak_once(app, CHATTERBOX))
+        return runtime, status_of(await speak_once(app, QWEN))
 
     runtime, served = asyncio.run(scenario())
 
@@ -476,10 +476,10 @@ def test_a_stream_holding_every_worker_cannot_push_the_busy_answer_past_the_wait
         anyio.to_thread.current_default_thread_limiter().total_tokens = 1
         voice = GatedSpeaking()
         runtime, app = _async_runtime(voice)
-        first = SpeakCall(app, speak_body(CHATTERBOX))
+        first = SpeakCall(app, speak_body(QWEN))
         await first.status()
         await asyncio.to_thread(voice.entered_first_step.wait, ASGI_TIMEOUT_SECONDS)
-        second = SpeakCall(app, speak_body(CHATTERBOX))
+        second = SpeakCall(app, speak_body(QWEN))
         await second.status()
         voice.release_all()
         await asyncio.gather(first.finish(), second.finish())
@@ -487,7 +487,7 @@ def test_a_stream_holding_every_worker_cannot_push_the_busy_answer_past_the_wait
             runtime,
             first,
             second,
-            status_of(await speak_once(app, CHATTERBOX)),
+            status_of(await speak_once(app, QWEN)),
         )
 
     runtime, first, second, later = asyncio.run(scenario())
@@ -514,7 +514,7 @@ def test_a_free_gate_answers_within_the_wait_though_every_worker_is_occupied() -
         job = asyncio.create_task(anyio.to_thread.run_sync(occupy))
         try:
             assert await asyncio.to_thread(occupying.wait, ASGI_TIMEOUT_SECONDS)
-            call = SpeakCall(app, speak_body(CHATTERBOX))
+            call = SpeakCall(app, speak_body(QWEN))
             await call.status()
         finally:
             occupied.set()

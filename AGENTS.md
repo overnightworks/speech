@@ -30,7 +30,7 @@ yourself on a free port, under the probe-stack lock, and `KEYCLOAK_URL` naming i
 
 Each speech job writes a Cobertura report (`coverage-<job>.xml`, paths relative
 to the repository root, set by `[tool.coverage.run]` in the root `pyproject.toml`);
-the `coverage` job gathers the three into the artifact the gate hands to SonarCloud.
+the `coverage` job gathers the two into the artifact the gate hands to SonarCloud.
 
 The gate's root-layout rule holds the root entries: a new root entry is declared
 in `quality/config.toml` with a reason, or lives in its owner's directory.
@@ -44,10 +44,10 @@ uv run --locked pytest -q <named tests>
 ```
 
 `providers/provider-contract` has no ruff and no lock of its own. Lint it with
-Chatterbox's locked ruff, from `providers/provider-contract`, and never `uv run ruff` there, which leaves a stray `uv.lock`:
+Qwen's locked ruff, from `providers/provider-contract`, and never `uv run ruff` there, which leaves a stray `uv.lock`:
 
 ```bash
-uv run --locked --project ../chatterbox ruff check --config pyproject.toml .
+uv run --locked --project ../qwen ruff check --config pyproject.toml .
 ```
 
 `scripts/prove_speech.py` starts the providers and takes `/tmp/probe-stack.lock`.

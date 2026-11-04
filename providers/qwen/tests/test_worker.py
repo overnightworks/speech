@@ -25,7 +25,7 @@ from speech_runtime_provider_contract import (
     write_frame,
 )
 
-from speech_runtime_chatterbox import __main__ as bootstrap
+from speech_runtime_qwen import __main__ as bootstrap
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -455,13 +455,15 @@ def _run_bootstrap(write_fd: int) -> None:
     os.dup2(write_fd, 1)
     os.close(write_fd)
     sys.argv = [
-        "speech-runtime-chatterbox-worker",
+        "speech-runtime-qwen-worker",
         "--expected-parent-pid",
         str(os.getppid()),
         "--device",
-        "cpu",
+        "cuda",
         "--cache",
         "/closed/cache",
+        "--speaker",
+        "Ryan",
     ]
     installed = False
     install = bootstrap.install_parent_death_signal
@@ -475,7 +477,7 @@ def _run_bootstrap(write_fd: int) -> None:
     real_import = builtins.__import__
 
     def importing(name: str, *args: object, **kwargs: object) -> object:
-        if name == "speech_runtime_chatterbox.model":
+        if name == "speech_runtime_qwen.model":
             assert installed
             vars(builtins)["print"]("import print noise", flush=True)
             os.write(1, b"import native noise\n")

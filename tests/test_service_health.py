@@ -1,7 +1,7 @@
 """GET /health answers the contract, including while the model is still loading."""
 
 from fastapi.testclient import TestClient
-from speech_runtime_provider_contract import CHATTERBOX_SAMPLE_RATE
+from speech_runtime_provider_contract import QWEN_SAMPLE_RATE
 
 from tests.support.fakes_support import (
     SPEAK_SAMPLE_RATE,
@@ -34,12 +34,12 @@ def test_health_answers_while_models_are_not_ready() -> None:
 def test_health_reports_a_streaming_voice_and_its_sample_rate() -> None:
     speaking = FakeSpeaking()
     speaking.streams = True
-    speaking.sample_rate = CHATTERBOX_SAMPLE_RATE
+    speaking.sample_rate = QWEN_SAMPLE_RATE
 
     body = TestClient(an_app(speaking, memory_probe=lambda: 1)).get("/health").json()
 
     assert body["speaking"]["streams"] is True
-    assert body["speaking"]["sample_rate"] == CHATTERBOX_SAMPLE_RATE
+    assert body["speaking"]["sample_rate"] == QWEN_SAMPLE_RATE
 
 
 def test_health_reports_ready_models() -> None:

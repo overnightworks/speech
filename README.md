@@ -6,7 +6,7 @@ Presentator, which calls it.
 One process holds a German voice resident and offers `GET /health`, the
 speak wire and a route that hears a recording, over HTTP on a TCP address
 (`SPEECH_HOST`, `SPEECH_PORT`). The caller owns the address. The voice is the
-one `SPEECH_SPEAKING_MODEL` names: Piper, Chatterbox or Qwen3-TTS 0.6B,
+one `SPEECH_SPEAKING_MODEL` names: Piper or Qwen3-TTS 0.6B,
 from weights that are already cached. When
 `SPEECH_HEARING_MODEL` names a model, the process also holds a faster-whisper
 model resident, loaded from local files only. The service stores no choice of
@@ -20,7 +20,6 @@ The code was extracted, with its history, from `speech/` in
 | Role | Hugging Face | Licence | Why this one |
 | --- | --- | --- | --- |
 | Speaking (default) | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices) voice `de_DE-thorsten-medium` | Voice recordings CC0; ONNX weights under the piper-voices MIT repo. The `piper-tts` runtime is `GPL-3.0-or-later`. The HTTP boundary keeps it out of `src/speech_runtime_service` while the speech program itself carries the GPL obligations. | German is documented and not in question. #70 measured this voice on this 3090 at 0.23 s to first audio on CPU. `thorsten-high` on the same sentence took 1.21 s through this service, over the one-second first-audio target, so medium is the default. The voice does not compete with the listener for the card. |
-| Speaking (optional) | [`ResembleAI/chatterbox`](https://huggingface.co/ResembleAI/chatterbox) Multilingual V3, snapshot `5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18` | MIT (`chatterbox-tts` 0.1.7) | Real German, streams PCM while it synthesises, 24 kHz. Installed `from_pretrained` takes only `device` and loads V2; this service loads `t3_mtl23ls_v3.safetensors` from the local Hub cache, pinned to the snapshot it was measured against. `resemble-perth` 1.0.1's `PerthImplicitWatermarker` needs `pkg_resources`, which setuptools stopped shipping at 82; this project pins `setuptools==81.0.0` so Chatterbox's own construction of the real watermarker succeeds instead of silently degrading to `perth`'s no-op. The streamed path calls `s3gen` directly rather than the model's own `generate()`, so it never reaches the line that applies the watermark to the waveform — unmarked audio either way, now for a stated reason rather than a substituted no-op. |
 | Speaking (optional) | [`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice), snapshot `85e237c12c027371202489a0ec509ded67b5e4b5` | Apache-2.0 (`qwen-tts` 0.1.1) | German and English through one configured built-in preset, initially Ryan. It returns a complete 24 kHz waveform, so `speaking.streams` is false. The isolated provider accepts the repository's `cuda` setting as `cuda:0`, uses bfloat16 and package-default attention, and reads only the pinned local snapshot. Runtime quality and latency remain unmeasured. |
 
 Hearing, optional, `SPEECH_HEARING_MODEL`: faster-whisper (MIT) with the CTranslate2 conversions of OpenAI's Whisper (MIT) in
@@ -40,8 +39,7 @@ Checked and not chosen:
 
 ## Card
 
-Piper runs on the CPU. Chatterbox Multilingual V3 runs on the 3090 when it is
-the configured voice and fits beside the display processes. Qwen's source
+Piper runs on the CPU. Qwen's source
 integration makes no residency or latency claim before the target-machine proof.
 
 Measured on this RTX 3090 (24 GB), one German sentence (14 words) and one
@@ -58,27 +56,10 @@ Piper default:
 | WAV RMS | not silence on every repetition |
 | Speaking footprint | 0 MiB GPU (CPU / ONNX) |
 
-`SPEECH_SPEAKING_MODEL=ResembleAI/chatterbox`, same sentences, same card, with
-the real `PerthImplicitWatermarker` constructing (`resource_filename` and the
-implicit net both need `pkg_resources`, restored by pinning `setuptools`):
-
-| What | Number |
-| --- | --- |
-| Time to first byte of `/speak` (wire, German, median of 5) | 0.534 s (`speaking.streams` is `true`; limit 1.0 s) |
-| Time to first byte (English, median of 5) | 0.523 s |
-| Real-time factor (German / English, median of 5) | 0.83× / 0.82× |
-| WAV RMS | not silence on every repetition |
-| Second `/speak` while the first streams | both WAVs distinct speech; Runtime serialises request synthesis |
-
-`scripts/prove_speech.py` now fails the run the moment any single repetition
-misses its first-byte limit — a passing run is the proof
-that every repetition held, not just the medians. All ten repetitions (5
-German, 5 English) stayed under the 1.0 s limit on this run; the worst single
-repetition was 0.555 s. Constructing the real watermarker at load time cost no
-measurable per-request latency, because the streamed path never calls it.
-Load now synthesises a short German warmup so `ready` means the first real
-sentence is already in budget — a cold first request before that warmup
-existed took 1.362 s. `scripts/prove_speech.py` writes the German WAV of the run it
+`scripts/prove_speech.py` fails the run the moment any single repetition
+misses its first-byte limit; a passing run is the proof that every repetition
+held, not just the medians.
+`scripts/prove_speech.py` writes the German WAV of the run it
 just proved to `german.wav` in a private temporary directory the script prints for a listening judgment.
 
 Hearing on the GPU needs `nvidia-cublas-cu12` and `nvidia-cudnn-cu12`, which the `gpu` extra installs (`uv sync --locked --extra gpu`) and the service preloads at start. Without the extra, a `cuda` device leaves hearing unavailable and speaking stays up.
@@ -86,7 +67,6 @@ Hearing on the GPU needs `nvidia-cublas-cu12` and `nvidia-cudnn-cu12`, which the
 Weights stay in:
 
 - Piper voices: `~/.cache/piper/` (`speech-runtime-fetch-voice <voice>`, pinned revision and SHA-256 in `piper_voices.py`)
-- Chatterbox: `~/.cache/huggingface/hub/models--ResembleAI--chatterbox` (pinned snapshot `5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18`, `CHATTERBOX_REVISION` in the shared provider contract)
 - Qwen: `~/.cache/huggingface/hub/models--Qwen--Qwen3-TTS-12Hz-0.6B-CustomVoice` (pinned snapshot `85e237c12c027371202489a0ec509ded67b5e4b5`)
 
 ## Contract
@@ -109,8 +89,8 @@ All `SPEECH_*`:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `SPEECH_DEVICE` | `cuda` | Device for the isolated providers. Chatterbox accepts `cuda` or `cpu`; Qwen accepts only `cuda` and maps it to `cuda:0`. Piper stays on CPU. |
-| `SPEECH_SPEAKING_MODEL` | `de_DE-thorsten-medium` | The one voice the process starts and speaks: `de_DE-thorsten-medium` (Piper), `ResembleAI/chatterbox`, or `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`. Its weights must already be cached; the process exits naming the model when they are not |
+| `SPEECH_DEVICE` | `cuda` | Device for the isolated providers. Qwen accepts only `cuda` and maps it to `cuda:0`. Piper stays on CPU. |
+| `SPEECH_SPEAKING_MODEL` | `de_DE-thorsten-medium` | The one voice the process starts and speaks: `de_DE-thorsten-medium` (Piper) or `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`. Its weights must already be cached; the process exits naming the model when they are not |
 | `SPEECH_VOICE_CACHE` | `~/.cache/piper` | Where Piper ONNX files are kept; `speech-runtime-fetch-voice <voice>` fetches a voice there at its pinned revision, checked against its hashes (the service never fetches) |
 | `SPEECH_HUGGINGFACE_CACHE` | Provider Hub cache (normally `~/.cache/huggingface/hub`) | The shared local Hub cache for provider loading and the artifact check |
 | `SPEECH_QWEN_SPEAKER` | `Ryan` | One of Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Ono_Anna, or Sohee |
@@ -207,7 +187,7 @@ when that wait ends; the load wait and the proof then share the 30-minute cap,
 whose TERM stops the speech server and its providers and removes the private
 directory. If its caller dies, `setpriv` hands `timeout` a TERM at once, so
 the lock stays held only while the stack tears down; a host without `setpriv`
-fails the run, naming it. It starts Chatterbox unless `SPEECH_SPEAKING_MODEL` is set and points
+fails the run, naming it. It starts Piper unless `SPEECH_SPEAKING_MODEL` is set and points
 `SPEECH_PROVIDER_ROOT` at `providers` unless the caller set it, so each
 provider needs its virtual environment first (`uv sync --locked` inside
 `providers/<provider>`). `SPEECH_DEVICE` (default `cuda`) passes through; on
@@ -298,7 +278,6 @@ over the peak (30 % for `small` alone):
 | --- | --- | --- |
 | Piper (CPU) | 4608 MiB (4282) | 1280 MiB (983) |
 | Qwen3-TTS 0.6B | 7424 MiB (6832) | 3840 MiB (3593) |
-| Chatterbox | 8448 MiB (7993) | 5120 MiB (4678) |
 
 Speaking and hearing were measured one after the other,
 never at the same moment, so the table is the memory the two hold loaded and

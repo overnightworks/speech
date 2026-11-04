@@ -109,7 +109,7 @@ while True:
 
 
 def closed_provider(
-    tmp_path: Path, behavior: str = "normal", provider_name: str = "chatterbox"
+    tmp_path: Path, behavior: str = "normal", provider_name: str = "qwen"
 ) -> tuple[Path, Path]:
     root = tmp_path / "providers"
     provider = root / provider_name

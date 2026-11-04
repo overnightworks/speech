@@ -8,9 +8,6 @@ from typing import TYPE_CHECKING
 import pytest
 from fastapi.testclient import TestClient
 from speech_runtime_provider_contract import (
-    CHATTERBOX_ARTIFACTS,
-    CHATTERBOX_REVISION,
-    CHATTERBOX_SAMPLE_RATE,
     QWEN_ARTIFACTS,
     QWEN_MODEL_ID,
     QWEN_REVISION,
@@ -24,7 +21,6 @@ from speech_runtime_service.control import create_control_app
 from speech_runtime_service.pcm import pcm_from_wav
 from speech_runtime_service.service import Runtime
 from speech_runtime_service.voices import (
-    CHATTERBOX_SPEAKING_MODEL,
     DEFAULT_SPEAKING_MODEL,
     VoiceId,
 )
@@ -59,11 +55,7 @@ def _touch_snapshot(
 
 
 def _install_gpu_voice(voice: VoiceId, cache: Path) -> None:
-    if voice is VoiceId.CHATTERBOX:
-        _touch_snapshot(
-            cache, CHATTERBOX_SPEAKING_MODEL, CHATTERBOX_REVISION, CHATTERBOX_ARTIFACTS
-        )
-    elif voice is VoiceId.QWEN:
+    if voice is VoiceId.QWEN:
         _touch_snapshot(cache, QWEN_MODEL_ID, QWEN_REVISION, QWEN_ARTIFACTS)
 
 
@@ -105,11 +97,6 @@ def _settings(tmp_path: Path, model: str, provider: str | None) -> Settings:
     ("voice", "model", "provider_and_rate"),
     [
         (VoiceId.PIPER, DEFAULT_SPEAKING_MODEL, (None, PIPER_SAMPLE_RATE)),
-        (
-            VoiceId.CHATTERBOX,
-            CHATTERBOX_SPEAKING_MODEL,
-            ("chatterbox", CHATTERBOX_SAMPLE_RATE),
-        ),
         (VoiceId.QWEN, QWEN_MODEL_ID, ("qwen", QWEN_SAMPLE_RATE)),
     ],
 )
@@ -145,11 +132,11 @@ def test_a_selection_file_from_an_older_build_is_ignored_and_nothing_is_written(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _install_piper(monkeypatch, tmp_path / "piper")
-    _install_gpu_voice(VoiceId.CHATTERBOX, tmp_path / "cache")
+    _install_gpu_voice(VoiceId.QWEN, tmp_path / "cache")
     state = tmp_path / "state"
     state.mkdir()
     older_selection = state / "selected-voice"
-    older_selection.write_text(VoiceId.CHATTERBOX.value, encoding="utf-8")
+    older_selection.write_text(VoiceId.QWEN.value, encoding="utf-8")
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("SPEECH_STATE_DIRECTORY", str(state))
@@ -162,14 +149,14 @@ def test_a_selection_file_from_an_older_build_is_ignored_and_nothing_is_written(
 
         rate, pcm = _speak(runtime, settings, VoiceId.PIPER)
         refused = post_speech(
-            TestClient(app_over(runtime)), speak_body(VoiceId.CHATTERBOX.value)
+            TestClient(app_over(runtime)), speak_body(VoiceId.QWEN.value)
         )
     finally:
         runtime.close()
 
     assert (rate, pcm) == (PIPER_SAMPLE_RATE, WORKER_PCM)
     assert refused.status_code != HTTP_200_OK
-    assert older_selection.read_text(encoding="utf-8") == VoiceId.CHATTERBOX.value
+    assert older_selection.read_text(encoding="utf-8") == VoiceId.QWEN.value
     assert sorted(tmp_path.rglob("*")) == before
 
 

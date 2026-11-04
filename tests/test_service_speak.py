@@ -5,11 +5,11 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
-from speech_runtime_provider_contract import CHATTERBOX_SAMPLE_RATE
+from speech_runtime_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 
 from speech_runtime_service.config import Settings
 from speech_runtime_service.speaking import PiperSpeaking, speaking_for_voice
-from speech_runtime_service.voices import CHATTERBOX_SPEAKING_MODEL, VoiceId
+from speech_runtime_service.voices import VoiceId
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -23,15 +23,15 @@ def test_piper_voice_id_constructs_the_local_piper_engine() -> None:
     assert engine.model_name == "de_DE-thorsten-medium"
 
 
-def test_chatterbox_voice_id_constructs_the_streaming_voice() -> None:
+def test_qwen_voice_id_constructs_the_complete_waveform_voice() -> None:
     engine = speaking_for_voice(
         Settings(device="cuda"),
-        VoiceId.CHATTERBOX,
+        VoiceId.QWEN,
     )
 
-    assert engine.model_name == CHATTERBOX_SPEAKING_MODEL
-    assert engine.streams is True
-    assert engine.sample_rate == CHATTERBOX_SAMPLE_RATE
+    assert engine.model_name == QWEN_MODEL_ID
+    assert engine.streams is False
+    assert engine.sample_rate == QWEN_SAMPLE_RATE
 
 
 def test_piper_load_requires_local_onnx_and_metadata(

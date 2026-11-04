@@ -99,14 +99,14 @@ def test_an_engine_that_cannot_be_closed_after_a_failed_load_ends_the_service() 
 
 def test_a_started_voice_is_captured_for_its_configured_voice() -> None:
     engine = _ClosableSpeaking(ready=False)
-    runtime = _loading(engine, voice=VoiceId.CHATTERBOX)
+    runtime = _loading(engine, voice=VoiceId.QWEN)
 
     runtime.load()
     admission = runtime.capture_speaking()
 
     assert admission is not None
     assert admission.speaking is engine
-    assert admission.voice is VoiceId.CHATTERBOX
+    assert admission.voice is VoiceId.QWEN
     assert admission.sample_rate == engine.sample_rate
 
 

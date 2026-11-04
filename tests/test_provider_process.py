@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 from anyio import run, run_process
 from speech_runtime_provider_contract import (
-    CHATTERBOX_SAMPLE_RATE,
     MAX_FRAME_LENGTH,
     QWEN_MODEL_ID,
     QWEN_SAMPLE_RATE,
@@ -39,7 +38,6 @@ from speech_runtime_service.provider_process import (
 )
 from speech_runtime_service.service import Runtime, RuntimeDependencies
 from speech_runtime_service.voices import (
-    CHATTERBOX_SPEAKING_MODEL,
     VoiceId,
 )
 from tests.support.worker_support import assert_reaped, closed_provider, observed
@@ -50,30 +48,18 @@ def _engine(tmp_path: Path, behavior: str = "normal") -> ProviderProcess:
     return _provider_process(root, cache)
 
 
-def _provider_process(
-    root: Path,
-    cache: Path,
-    *,
-    provider_name: str = "chatterbox",
-) -> ProviderProcess:
-    arguments = ["--device", "cpu", "--cache", str(cache)]
-    if provider_name == "qwen":
-        arguments.extend(("--speaker", "Ryan"))
-    model_name, sample_rate, streams = {
-        "chatterbox": (CHATTERBOX_SPEAKING_MODEL, CHATTERBOX_SAMPLE_RATE, True),
-        "qwen": (QWEN_MODEL_ID, QWEN_SAMPLE_RATE, False),
-    }[provider_name]
+def _qwen_arguments(cache: Path) -> tuple[str, ...]:
+    return ("--device", "cpu", "--cache", str(cache), "--speaker", "Ryan")
+
+
+def _provider_process(root: Path, cache: Path) -> ProviderProcess:
     return ProviderProcess(
         ProviderLaunch(
-            model_name=model_name,
-            sample_rate=sample_rate,
-            streams=streams,
-            executable=root
-            / provider_name
-            / ".venv"
-            / "bin"
-            / f"speech-runtime-{provider_name}-worker",
-            arguments=tuple(arguments),
+            model_name=QWEN_MODEL_ID,
+            sample_rate=QWEN_SAMPLE_RATE,
+            streams=False,
+            executable=root / "qwen" / ".venv" / "bin" / "speech-runtime-qwen-worker",
+            arguments=_qwen_arguments(cache),
         )
     )
 
@@ -153,7 +139,7 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, python_dir: str
 ) -> None:
     root, cache = closed_provider(tmp_path)
-    cublas = root / f"chatterbox/.venv/lib/{python_dir}/site-packages/nvidia/cublas/lib"
+    cublas = root / f"qwen/.venv/lib/{python_dir}/site-packages/nvidia/cublas/lib"
     cublas.mkdir(parents=True)
     monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
     monkeypatch.setenv("PATH", "parent-executable-search-path")
@@ -190,11 +176,12 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
     assert list(engine.pcm_chunks("later", "en")) == [b"\x00\x01"]
     engine.close()
 
-    assert cwd == str(root / "chatterbox")
+    assert cwd == str(root / "qwen")
     assert arguments == {
         "expected_parent_pid": str(os.getpid()),
         "device": "cpu",
         "cache": str(cache),
+        "speaker": "Ryan",
     }
     expected_environment = {
         "HF_HUB_OFFLINE": "1",
@@ -209,20 +196,17 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
     assert len(launches) == 1
     launch_arguments, launch = launches[0]
     assert launch_arguments == [
-        str(root / "chatterbox/.venv/bin/speech-runtime-chatterbox-worker"),
+        str(root / "qwen/.venv/bin/speech-runtime-qwen-worker"),
         "--expected-parent-pid",
         str(os.getpid()),
-        "--device",
-        "cpu",
-        "--cache",
-        str(cache),
+        *_qwen_arguments(cache),
     ]
     assert isinstance(launch.pop("stderr"), io.IOBase)
     assert launch == {
         "shell": False,
         "stdin": subprocess.PIPE,
         "stdout": subprocess.PIPE,
-        "cwd": root / "chatterbox",
+        "cwd": root / "qwen",
         "env": expected_environment,
         "bufsize": 0,
         "close_fds": True,
@@ -352,15 +336,11 @@ def test_qwen_cancel_beyond_drain_reaps_then_runtime_loads_a_fresh_worker(
     monkeypatch.setattr(
         "speech_runtime_service.provider_process.TERMINATE_GRACE_SECONDS", 0.05
     )
-    root, cache = closed_provider(tmp_path, "partial-cancel", "qwen")
+    root, cache = closed_provider(tmp_path, "partial-cancel")
     constructed: list[ProviderProcess] = []
 
     def factory(_voice: VoiceId) -> ProviderProcess:
-        engine = _provider_process(
-            root,
-            cache,
-            provider_name="qwen",
-        )
+        engine = _provider_process(root, cache)
         constructed.append(engine)
         return engine
 
@@ -391,9 +371,9 @@ def test_constructor_has_no_thread_process_or_filesystem_side_effect(
     before = {thread.ident for thread in threading.enumerate()}
     engine = ProviderProcess(
         ProviderLaunch(
-            model_name=CHATTERBOX_SPEAKING_MODEL,
-            sample_rate=CHATTERBOX_SAMPLE_RATE,
-            streams=True,
+            model_name=QWEN_MODEL_ID,
+            sample_rate=QWEN_SAMPLE_RATE,
+            streams=False,
             executable=tmp_path / "missing",
             arguments=("--device", "cpu", "--cache", str(tmp_path / "cache")),
         )
@@ -411,7 +391,7 @@ def test_startup_provider_failure_raises_without_fatal_exit(tmp_path: Path) -> N
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: engine,
             artifact_checker=lambda _voice: True,
-            voice=VoiceId.CHATTERBOX,
+            voice=VoiceId.QWEN,
         ),
     )
     runtime.set_fatal_callback(fatal.set)
@@ -500,7 +480,7 @@ def test_shutdown_during_handshake_closes_pending_without_publication(
     tmp_path: Path,
 ) -> None:
     root, cache = closed_provider(tmp_path, "term-resistant")
-    entrypoint = root / "chatterbox/.venv/bin/speech-runtime-chatterbox-worker"
+    entrypoint = root / "qwen/.venv/bin/speech-runtime-qwen-worker"
     source = entrypoint.read_text(encoding="utf-8")
     entrypoint.write_text(
         source.replace(
@@ -547,9 +527,9 @@ def test_missing_entrypoint_failed_exec_leaves_no_retained_engine(
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: ProviderProcess(
                 ProviderLaunch(
-                    model_name=CHATTERBOX_SPEAKING_MODEL,
-                    sample_rate=CHATTERBOX_SAMPLE_RATE,
-                    streams=True,
+                    model_name=QWEN_MODEL_ID,
+                    sample_rate=QWEN_SAMPLE_RATE,
+                    streams=False,
                     executable=tmp_path / "missing",
                     arguments=("--device", "cpu", "--cache", str(tmp_path)),
                 )
@@ -656,7 +636,7 @@ def test_term_resistant_leader_reaches_kill_and_reap(
 
 
 def test_parent_death_signal_follows_the_real_creator_thread(tmp_path: Path) -> None:
-    provider_source = Path(__file__).parents[1] / "providers/chatterbox/src"
+    provider_source = Path(__file__).parents[1] / "providers/qwen/src"
     contract_source = Path(__file__).parents[1] / "providers/provider-contract/src"
     helper = r'''
 import contextlib
@@ -670,7 +650,7 @@ ready = Path(sys.argv[1])
 child_code = """
 import os, sys, time
 from pathlib import Path
-from speech_runtime_chatterbox.__main__ import install_parent_death_signal
+from speech_runtime_qwen.__main__ import install_parent_death_signal
 install_parent_death_signal(int(sys.argv[1]))
 Path(sys.argv[2]).write_text(str(os.getpid()))
 while True: time.sleep(1)

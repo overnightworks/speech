@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from speech_runtime_service.callers import SpeechCallers
 
 PIPER = VoiceId.PIPER
-CHATTERBOX = VoiceId.CHATTERBOX
+QWEN = VoiceId.QWEN
 SENTENCE = "Zebrakuchen"
 FORBIDDEN_VOICE = (HTTP_403_FORBIDDEN, RefusalCode.FORBIDDEN, "voice")
 
@@ -88,7 +88,7 @@ def test_an_app_names_a_listed_active_voice_and_is_spoken_to() -> None:
 def test_an_unlisted_voice_is_forbidden_naming_the_voice_even_when_it_is_active() -> (
     None
 ):
-    response = _speak(_app(valid_callers([CHATTERBOX])), PIPER)
+    response = _speak(_app(valid_callers([QWEN])), PIPER)
 
     assert_refusal(response, *FORBIDDEN_VOICE)
 
@@ -96,13 +96,13 @@ def test_an_unlisted_voice_is_forbidden_naming_the_voice_even_when_it_is_active(
 def test_an_unlisted_voice_that_is_not_active_is_forbidden_and_not_unavailable() -> (
     None
 ):
-    response = _speak(_app(valid_callers([PIPER])), CHATTERBOX)
+    response = _speak(_app(valid_callers([PIPER])), QWEN)
 
     assert_refusal(response, *FORBIDDEN_VOICE)
 
 
 def test_a_listed_voice_that_is_not_active_is_unavailable() -> None:
-    response = _speak(_app(valid_callers([PIPER, CHATTERBOX])), CHATTERBOX)
+    response = _speak(_app(valid_callers([PIPER, QWEN])), QWEN)
 
     assert_refusal(
         response, HTTP_503_SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE, None
@@ -119,7 +119,7 @@ def test_an_unlisted_voice_is_refused_without_waiting_for_the_busy_gate() -> Non
         holder = SpeakCall(app)
         await holder.status()
         await asyncio.to_thread(voice.entered_first_step.wait, 5)
-        refused = SpeakCall(app, speak_body(CHATTERBOX.value))
+        refused = SpeakCall(app, speak_body(QWEN.value))
         try:
             await refused.status()
         finally:
@@ -134,9 +134,9 @@ def test_an_unlisted_voice_is_refused_without_waiting_for_the_busy_gate() -> Non
     assert RETRY_AFTER_HEADER.lower() not in {name.lower() for name in refused.headers}
 
 
-@pytest.mark.parametrize("active", [PIPER, CHATTERBOX])
+@pytest.mark.parametrize("active", [PIPER, QWEN])
 def test_each_app_is_judged_by_its_own_list(active: VoiceId) -> None:
-    callers = callers_of_two_apps([PIPER], [CHATTERBOX])
+    callers = callers_of_two_apps([PIPER], [QWEN])
     client = _app(callers, active)
     quiz = valid_headers(minting=MINTING)
     other = valid_headers(minting=OTHER_MINTING)
@@ -156,7 +156,7 @@ def test_each_app_is_judged_by_its_own_list(active: VoiceId) -> None:
 def test_an_oversized_input_is_unprocessable_before_the_voice_is_checked() -> None:
     client = _app(valid_callers([PIPER]), max_input_characters=5)
     body = json.dumps(
-        json.loads(speak_body(CHATTERBOX.value)) | {"input": "far too long"}
+        json.loads(speak_body(QWEN.value)) | {"input": "far too long"}
     ).encode()
 
     response = post_speech(client, body)
@@ -169,14 +169,14 @@ def test_an_oversized_input_is_unprocessable_before_the_voice_is_checked() -> No
 def test_missing_tokens_are_unauthorized_before_the_voice_is_checked() -> None:
     response = post_speech(
         TestClient(speak_app(callers=valid_callers([PIPER]))),
-        speak_body(CHATTERBOX.value),
+        speak_body(QWEN.value),
         {},
     )
 
     assert_refusal(response, HTTP_401_UNAUTHORIZED, RefusalCode.UNAUTHORIZED, None)
 
 
-@pytest.mark.parametrize("voice", ["alloy", "voxcpm2", "nvidia-magpie"])
+@pytest.mark.parametrize("voice", ["alloy", "voxcpm2", "nvidia-magpie", "chatterbox"])
 def test_a_voice_outside_the_catalogue_stays_invalid_and_not_forbidden(
     voice: str,
 ) -> None:
@@ -193,11 +193,9 @@ def test_a_voice_refusal_leaks_no_token_subject_input_app_or_voice_list(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.DEBUG)
-    callers = callers_of_two_apps([PIPER], [PIPER, CHATTERBOX])
+    callers = callers_of_two_apps([PIPER], [PIPER, QWEN])
     headers = valid_headers()
-    body = json.dumps(
-        json.loads(speak_body(CHATTERBOX.value)) | {"input": SENTENCE}
-    ).encode()
+    body = json.dumps(json.loads(speak_body(QWEN.value)) | {"input": SENTENCE}).encode()
 
     response = post_speech(_app(callers), body, headers)
 

@@ -9,14 +9,13 @@ import sys
 from typing import TYPE_CHECKING
 
 import pytest
-from speech_runtime_provider_contract import CHATTERBOX_SAMPLE_RATE
+from speech_runtime_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 
 from speech_runtime_service.provider_process import (
     ProviderFailedError,
     ProviderLaunch,
     ProviderProcess,
 )
-from speech_runtime_service.voices import CHATTERBOX_SPEAKING_MODEL
 from tests.support.worker_support import closed_provider
 
 if TYPE_CHECKING:
@@ -58,15 +57,15 @@ raise SystemExit(serve_provider(
 
 def _provider(tmp_path: Path, body: str) -> ProviderProcess:
     root, cache = closed_provider(tmp_path)
-    entrypoint = root / "chatterbox/.venv/bin/speech-runtime-chatterbox-worker"
+    entrypoint = root / "qwen/.venv/bin/speech-runtime-qwen-worker"
     entrypoint.write_text(
         _ENTRYPOINT.format(python=sys.executable, body=body), encoding="utf-8"
     )
     return ProviderProcess(
         ProviderLaunch(
-            model_name=CHATTERBOX_SPEAKING_MODEL,
-            sample_rate=CHATTERBOX_SAMPLE_RATE,
-            streams=True,
+            model_name=QWEN_MODEL_ID,
+            sample_rate=QWEN_SAMPLE_RATE,
+            streams=False,
             executable=entrypoint,
             arguments=("--device", "cpu", "--cache", str(cache)),
         )

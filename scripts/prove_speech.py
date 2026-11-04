@@ -32,7 +32,6 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 import httpx2
-from speech_runtime_provider_contract import CHATTERBOX_SAMPLE_RATE
 
 from proof_identity import (
     Minting,
@@ -49,7 +48,7 @@ from speech_runtime_client.wire import (
 from speech_runtime_service.cuda_libs import cuda_library_dirs
 from speech_runtime_service.pcm import BYTES_PER_SAMPLE
 from speech_runtime_service.service import voice_for_model
-from speech_runtime_service.voices import CHATTERBOX_SPEAKING_MODEL
+from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -74,7 +73,7 @@ FLOCK_COMMAND_UNAVAILABLE_STATUS = 69
 # up to 5 s, so 15 s at worst, with the providers stopped through the server.
 # The hearing proof adds the card holder it stops after its server: up to 10 s
 # more, so 25 s at worst.
-# The proof speaks through the model named by SPEECH_SPEAKING_MODEL (Chatterbox
+# The proof speaks through the model named by SPEECH_SPEAKING_MODEL (Piper
 # by default). A CPU Piper run needs only a small fraction of the cap, and the
 # server exits within the grace after the proof body ends.
 CAP_SECONDS = 1800
@@ -90,12 +89,10 @@ MIN_SPEECH_SECONDS = 0.4
 LOAD_CEILING = 18.0
 READY_TIMEOUT_SECONDS = 300.0
 PIPER_FIRST_BYTE_LIMIT_S = 0.5
-CHATTERBOX_FIRST_BYTE_LIMIT_S = 1.0
 PIPER_CACHE = Path.home() / ".cache" / "piper"
 LOOPBACK_HOST = "127.0.0.1"
 PROVIDER_ROOT = Path(__file__).resolve().parents[1] / "providers"
 HF_CACHE = Path.home() / ".cache" / "huggingface" / "hub"
-CHATTERBOX_CACHE = HF_CACHE / "models--ResembleAI--chatterbox"
 
 
 def _load_1min() -> float:
@@ -467,12 +464,6 @@ def _require_log_without_text(log: str, texts: Iterable[str]) -> None:
         raise SystemExit(message)
 
 
-def _first_byte_limit(model: str) -> float:
-    if model == CHATTERBOX_SPEAKING_MODEL:
-        return CHATTERBOX_FIRST_BYTE_LIMIT_S
-    return PIPER_FIRST_BYTE_LIMIT_S
-
-
 def _require_speaking(health: dict[str, object], model: str) -> None:
     speaking = health["speaking"]
     if not isinstance(speaking, dict):
@@ -481,17 +472,6 @@ def _require_speaking(health: dict[str, object], model: str) -> None:
     if speaking.get("model") != model:
         message = f"speaking.model is {speaking.get('model')!r}, expected {model!r}"
         raise SystemExit(message)
-    if model == CHATTERBOX_SPEAKING_MODEL:
-        if speaking.get("streams") is not True:
-            message = f"Chatterbox must report speaking.streams=true: {speaking!r}"
-            raise SystemExit(message)
-        if speaking.get("sample_rate") != CHATTERBOX_SAMPLE_RATE:
-            message = (
-                f"Chatterbox must report sample_rate={CHATTERBOX_SAMPLE_RATE}: "
-                f"{speaking!r}"
-            )
-            raise SystemExit(message)
-        return
     if speaking.get("streams") is not False:
         message = f"Piper must report speaking.streams=false: {speaking!r}"
         raise SystemExit(message)
@@ -578,14 +558,14 @@ def _prove_speak(base_url: str, model: str, minting: Minting) -> bytes:
         functools.partial(speak_measured, base_url, minting=minting),
         SENTENCE,
         voice_id(model),
-        limit=_first_byte_limit(model),
+        limit=PIPER_FIRST_BYTE_LIMIT_S,
         label="speak_wire_de",
     )
     return german
 
 
 def _prove_concurrent_speak(base_url: str, model: str, minting: Minting) -> None:
-    limit = _first_byte_limit(model)
+    limit = PIPER_FIRST_BYTE_LIMIT_S
     voice = voice_id(model)
     results: dict[str, tuple[bytes, float, float]] = {}
     errors: list[str] = []
@@ -717,7 +697,7 @@ def speech_environment(
     if hearing_model is not None:
         env["SPEECH_HEARING_MODEL"] = hearing_model
     env["SPEECH_BUSY_WAIT_SECONDS"] = str(
-        _first_byte_limit(speaking_model) + CONCURRENT_EXTRA_WAIT_SECONDS
+        PIPER_FIRST_BYTE_LIMIT_S + CONCURRENT_EXTRA_WAIT_SECONDS
     )
     env.setdefault("HF_HUB_OFFLINE", "1")
     env.setdefault("TRANSFORMERS_OFFLINE", "1")
@@ -742,7 +722,7 @@ def _prove() -> None:
     base_url = f"http://{LOOPBACK_HOST}:{port}"
     speaking_model = os.environ.get(
         "SPEECH_SPEAKING_MODEL",
-        CHATTERBOX_SPEAKING_MODEL,
+        DEFAULT_SPEAKING_MODEL,
     )
     try:
         with proof_identity(work_directory, voice_id(speaking_model)) as identity:
@@ -758,7 +738,6 @@ def _prove() -> None:
                 )
                 _require_speaking(running.health, speaking_model)
                 print("gpu_resident", nvidia_memory())
-                print("chatterbox_cache", CHATTERBOX_CACHE)
                 print("piper_cache", PIPER_CACHE)
                 german = _prove_speak(base_url, speaking_model, minting)
                 german_wav = (
@@ -772,7 +751,6 @@ def _prove() -> None:
         print("gpu_after", nvidia_memory())
         print("caches_kept")
         print("  huggingface:", HF_CACHE)
-        print("  chatterbox:", CHATTERBOX_CACHE)
         print("  piper:", PIPER_CACHE)
         print("PROOF_OK")
     finally:

@@ -87,7 +87,6 @@ from speech_runtime_service.hearing_models import (
 from speech_runtime_service.pcm import pcm_from_wav
 from speech_runtime_service.piper_voices import PinnedVoice, fetch_voice_files
 from speech_runtime_service.voices import (
-    CHATTERBOX_SPEAKING_MODEL,
     DEFAULT_SPEAKING_MODEL,
     installed_voice_ids,
     voice_for_model,
@@ -110,10 +109,7 @@ if TYPE_CHECKING:
 
 
 THIS_SCRIPT = Path(__file__).resolve()
-GPU_SPEAKING_MODELS = (
-    CHATTERBOX_SPEAKING_MODEL,
-    QWEN_MODEL_ID,
-)
+GPU_SPEAKING_MODELS = (QWEN_MODEL_ID,)
 GERMAN_QUESTION = "Wie spät ist es und wann beginnt die nächste Sitzung?"
 ENGLISH_QUESTION = "What time is it and when does the next session begin?"
 GERMAN_LONG_TURN = (
