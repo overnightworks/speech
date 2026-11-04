@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from speech_runtime_provider_contract import (
-    CHATTERBOX_SAMPLE_RATE,
     QWEN_MODEL_ID,
     QWEN_SAMPLE_RATE,
 )
@@ -17,7 +16,6 @@ from speech_runtime_service.provider_process import (
     provider_entrypoint,
 )
 from speech_runtime_service.voices import (
-    CHATTERBOX_SPEAKING_MODEL,
     DEFAULT_SPEAKING_MODEL,
     VoiceId,
     piper_voice_paths,
@@ -75,23 +73,6 @@ def speaking_for_voice(settings: Settings, voice: VoiceId) -> LocalSpeaking:
     """Construct one supported local engine from the closed catalogue id."""
     if voice is VoiceId.PIPER:
         return PiperSpeaking(DEFAULT_SPEAKING_MODEL, settings.voice_cache)
-    if voice is VoiceId.CHATTERBOX:
-        return ProviderProcess(
-            ProviderLaunch(
-                model_name=CHATTERBOX_SPEAKING_MODEL,
-                sample_rate=CHATTERBOX_SAMPLE_RATE,
-                streams=True,
-                executable=provider_entrypoint(
-                    settings.provider_root, ProviderId.CHATTERBOX
-                ),
-                arguments=(
-                    "--device",
-                    settings.device,
-                    "--cache",
-                    str(settings.huggingface_cache),
-                ),
-            ),
-        )
     if voice is VoiceId.QWEN:
         return ProviderProcess(
             ProviderLaunch(

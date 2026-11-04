@@ -19,16 +19,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-CHATTERBOX_SAMPLE_RATE = 24_000
-CHATTERBOX_REVISION = "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18"
-CHATTERBOX_ARTIFACTS = (
-    "ve.pt",
-    "t3_mtl23ls_v3.safetensors",
-    "s3gen.pt",
-    "grapheme_mtl_merged_expanded_v1.json",
-    "conds.pt",
-    "Cangjie5_TC.json",
-)
 QWEN_SAMPLE_RATE = 24_000
 QWEN_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
 QWEN_REVISION = "85e237c12c027371202489a0ec509ded67b5e4b5"

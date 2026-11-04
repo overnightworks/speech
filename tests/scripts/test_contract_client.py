@@ -89,7 +89,7 @@ def test_prove_points_the_service_at_the_repository_provider_environments(
 
     provider_root = Path(environment["SPEECH_PROVIDER_ROOT"])
     assert provider_root.is_absolute()
-    assert (provider_root / "chatterbox" / "pyproject.toml").is_file()
+    assert (provider_root / "qwen" / "pyproject.toml").is_file()
 
 
 def test_prove_keeps_a_provider_root_the_caller_set(

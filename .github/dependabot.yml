@@ -27,9 +27,3 @@ updates:
           - "numpy"
           - "faster-whisper"
           - "piper-tts"
-  - package-ecosystem: uv
-    directory: /providers/chatterbox
-    schedule:
-      interval: weekly
-    ignore:
-      - dependency-name: "overnightworks-*"

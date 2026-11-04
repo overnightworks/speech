@@ -14,7 +14,6 @@ from speech_runtime_service.config import (
 from speech_runtime_service.hearing_models import HearingModel
 from speech_runtime_service.pcm import wav_header
 from speech_runtime_service.voices import (
-    CHATTERBOX_SPEAKING_MODEL,
     DEFAULT_SPEAKING_MODEL,
 )
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE
@@ -40,12 +39,12 @@ def test_a_stale_setting_in_the_environment_is_ignored(
 
 def test_settings_read_speech_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SPEECH_DEVICE", "cpu")
-    monkeypatch.setenv("SPEECH_SPEAKING_MODEL", "ResembleAI/chatterbox")
+    monkeypatch.setenv("SPEECH_SPEAKING_MODEL", QWEN_MODEL_ID)
 
     settings = Settings()
 
     assert settings.device == "cpu"
-    assert settings.speaking_model == "ResembleAI/chatterbox"
+    assert settings.speaking_model == QWEN_MODEL_ID
 
 
 @pytest.mark.parametrize(
@@ -168,7 +167,6 @@ def test_settings_refuse_a_port_that_is_not_a_tcp_port(
     "model",
     [
         DEFAULT_SPEAKING_MODEL,
-        CHATTERBOX_SPEAKING_MODEL,
         QWEN_MODEL_ID,
     ],
 )

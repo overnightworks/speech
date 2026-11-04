@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 
 SHORT_WAIT_SECONDS = 0.2
 SLACK_SECONDS = 0.5
-CHATTERBOX = VoiceId.CHATTERBOX.value
+QWEN = VoiceId.QWEN.value
 ALIEN_SAMPLE_RATE = 24_000
 
 
@@ -361,7 +361,7 @@ def test_a_refusal_and_the_log_never_hold_the_input_or_a_key_the_request_chose(
 
 
 def test_a_voice_other_than_the_active_one_is_unavailable() -> None:
-    response = post_speech(TestClient(speak_app()), speak_body(CHATTERBOX))
+    response = post_speech(TestClient(speak_app()), speak_body(QWEN))
 
     assert_unavailable(response)
 
@@ -532,7 +532,7 @@ def _runtime_closing_on_shutdown(
 ) -> tuple[Runtime, list[int]]:
     closed: list[int] = []
     speaking.close = lambda: closed.append(1)
-    return fake_runtime(speaking, VoiceId.CHATTERBOX), closed
+    return fake_runtime(speaking, VoiceId.QWEN), closed
 
 
 def _assert_gate_free_and_shutdown_closes_once(
@@ -553,7 +553,7 @@ def test_speak_response_construction_failure_frees_the_gate_for_shutdown(
 
     monkeypatch.setattr(StreamingResponse, "__init__", fail_response_construction)
     with pytest.raises(_ResponseBoundaryError):
-        speak_response(runtime, CHATTERBOX)
+        speak_response(runtime, QWEN)
 
     _assert_gate_free_and_shutdown_closes_once(runtime, closed)
 
@@ -570,7 +570,7 @@ def test_speak_close_paths_free_the_gate_for_shutdown(close_path: str) -> None:
             yield from super().pcm_chunks(text, language)
 
     runtime, closed = _runtime_closing_on_shutdown(ClosingPathVoice())
-    response = speak_response(runtime, CHATTERBOX)
+    response = speak_response(runtime, QWEN)
 
     if close_path == "normal":
         response_body(response)

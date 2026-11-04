@@ -30,9 +30,7 @@ jobs:
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
-          cache-dependency-glob: |
-            uv.lock
-            providers/chatterbox/uv.lock
+          cache-dependency-glob: uv.lock
           version: "0.10.9"
 
       - name: Verify the dependency lock
@@ -55,52 +53,6 @@ jobs:
         with:
           name: coverage-root
           path: coverage-root.xml
-
-  chatterbox-provider:
-    name: "Speech: Chatterbox provider"
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: providers/chatterbox
-    steps:
-      - name: Check out the event commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            uv.lock
-            providers/chatterbox/uv.lock
-          version: "0.10.9"
-
-      - name: Verify the dependency lock
-        run: uv lock --check
-
-      - name: Install locked dependencies
-        run: uv sync --locked --all-groups
-
-      - name: Check source
-        run: uv run --locked ruff check src tests ../provider-contract/src
-
-      - name: Check formatting
-        run: uv run --locked ruff format --check src tests ../provider-contract/src
-
-      - name: Test
-        working-directory: ${{ github.workspace }}
-        run: >-
-          uv run --locked --project providers/chatterbox pytest -q providers/chatterbox/tests
-          --cov --cov-report=xml:coverage-chatterbox.xml
-
-      - name: Upload the coverage report
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: coverage-chatterbox
-          path: coverage-chatterbox.xml
 
   qwen-provider:
     name: "Speech: Qwen provider"
@@ -140,7 +92,7 @@ jobs:
       - name: Test
         working-directory: ${{ github.workspace }}
         run: >-
-          uv run --locked --project providers/qwen pytest -q providers/qwen/tests/test_main.py providers/qwen/tests/test_model.py
+          uv run --locked --project providers/qwen pytest -q providers/qwen/tests
           --cov --cov-report=xml:coverage-qwen.xml
 
       - name: Upload the coverage report
@@ -228,12 +180,11 @@ jobs:
     name: "Speech: coverage reports"
     needs:
       - speech
-      - chatterbox-provider
       - qwen-provider
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Download the three coverage reports
+      - name: Download the two coverage reports
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: coverage-*
@@ -252,7 +203,6 @@ jobs:
       - coverage
       - keycloak-token-shapes
       - speech
-      - chatterbox-provider
       - qwen-provider
       - image
     if: always()

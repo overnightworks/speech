@@ -106,7 +106,6 @@ class UnsupportedLanguageError(ValueError):
 class ProviderId(StrEnum):
     """The provider directories and executable suffixes the service may use."""
 
-    CHATTERBOX = "chatterbox"
     QWEN = "qwen"
 
 

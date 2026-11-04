@@ -12,13 +12,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
-from speech_runtime_provider_contract import CHATTERBOX_SAMPLE_RATE
+from speech_runtime_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 
 from speech_runtime_service import __main__
 from speech_runtime_service.config import Settings
 from speech_runtime_service.provider_process import ProviderLaunch, ProviderProcess
 from speech_runtime_service.service import Runtime, RuntimeDependencies
-from speech_runtime_service.voices import CHATTERBOX_SPEAKING_MODEL, VoiceId
+from speech_runtime_service.voices import VoiceId
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.identity_support import write_caller_configuration
 from tests.support.tcp_server_support import free_loopback_port, listens_on
@@ -159,7 +159,7 @@ def test_shutdown_closes_a_pending_real_adapter_before_awaiting_tasks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "providers"
-    entrypoint = root / "chatterbox/.venv/bin/speech-runtime-chatterbox-worker"
+    entrypoint = root / "qwen/.venv/bin/speech-runtime-qwen-worker"
     entrypoint.parent.mkdir(parents=True)
     entrypoint.write_text(
         f"""#!{sys.executable}
@@ -194,9 +194,9 @@ while True:
 
     engine = ObservedProvider(
         ProviderLaunch(
-            model_name=CHATTERBOX_SPEAKING_MODEL,
-            sample_rate=CHATTERBOX_SAMPLE_RATE,
-            streams=True,
+            model_name=QWEN_MODEL_ID,
+            sample_rate=QWEN_SAMPLE_RATE,
+            streams=False,
             executable=entrypoint,
             arguments=("--device", "cpu", "--cache", str(cache)),
         )
@@ -206,7 +206,7 @@ while True:
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: engine,
             artifact_checker=lambda _voice: True,
-            voice=VoiceId.CHATTERBOX,
+            voice=VoiceId.QWEN,
         ),
     )
     real_popen = subprocess.Popen
