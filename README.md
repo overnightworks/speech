@@ -6,8 +6,8 @@ Presentator, which calls it.
 One process holds a German voice resident and offers `GET /health`, the
 speak wire and a route that hears a recording, over HTTP on a TCP address
 (`SPEECH_HOST`, `SPEECH_PORT`). The caller owns the address. The voice is the
-one `SPEECH_SPEAKING_MODEL` names: Piper, Chatterbox, Qwen3-TTS 0.6B, VoxCPM2
-or NVIDIA Magpie, from weights that are already cached. When
+one `SPEECH_SPEAKING_MODEL` names: Piper, Chatterbox or Qwen3-TTS 0.6B,
+from weights that are already cached. When
 `SPEECH_HEARING_MODEL` names a model, the process also holds a faster-whisper
 model resident, loaded from local files only. The service stores no choice of
 its own.
@@ -22,8 +22,6 @@ The code was extracted, with its history, from `speech/` in
 | Speaking (default) | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices) voice `de_DE-thorsten-medium` | Voice recordings CC0; ONNX weights under the piper-voices MIT repo. The `piper-tts` runtime is `GPL-3.0-or-later`. The HTTP boundary keeps it out of `src/speech_runtime_service` while the speech program itself carries the GPL obligations. | German is documented and not in question. #70 measured this voice on this 3090 at 0.23 s to first audio on CPU. `thorsten-high` on the same sentence took 1.21 s through this service, over the one-second first-audio target, so medium is the default. The voice does not compete with the listener for the card. |
 | Speaking (optional) | [`ResembleAI/chatterbox`](https://huggingface.co/ResembleAI/chatterbox) Multilingual V3, snapshot `5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18` | MIT (`chatterbox-tts` 0.1.7) | Real German, streams PCM while it synthesises, 24 kHz. Installed `from_pretrained` takes only `device` and loads V2; this service loads `t3_mtl23ls_v3.safetensors` from the local Hub cache, pinned to the snapshot it was measured against. `resemble-perth` 1.0.1's `PerthImplicitWatermarker` needs `pkg_resources`, which setuptools stopped shipping at 82; this project pins `setuptools==81.0.0` so Chatterbox's own construction of the real watermarker succeeds instead of silently degrading to `perth`'s no-op. The streamed path calls `s3gen` directly rather than the model's own `generate()`, so it never reaches the line that applies the watermark to the waveform — unmarked audio either way, now for a stated reason rather than a substituted no-op. |
 | Speaking (optional) | [`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice), snapshot `85e237c12c027371202489a0ec509ded67b5e4b5` | Apache-2.0 (`qwen-tts` 0.1.1) | German and English through one configured built-in preset, initially Ryan. It returns a complete 24 kHz waveform, so `speaking.streams` is false. The isolated provider accepts the repository's `cuda` setting as `cuda:0`, uses bfloat16 and package-default attention, and reads only the pinned local snapshot. Runtime quality and latency remain unmeasured. |
-| Speaking (optional) | [`openbmb/VoxCPM2`](https://huggingface.co/openbmb/VoxCPM2), snapshot `32279effe8c19989596f05d353d1447f51d9e915` | Apache-2.0 (`voxcpm` 2.0.3) | German and English text-only streaming at 48 kHz through its isolated provider. It reads only the pinned local snapshot, uses no prompt, reference audio, cloning, or voice-design controls, and has no measured quality, latency, residency, or deployment result. |
-| Speaking (optional) | [`nvidia/magpie_tts_multilingual_357m`](https://huggingface.co/nvidia/magpie_tts_multilingual_357m), revision `5023df68bd3f5b5ce6d666a50979bc501af145cc` with NanoCodec revision `fc00890b604aa2de298d2641ffc6c5f6caf8c4d7` | NVIDIA Open Model License (`nemo-toolkit[tts]` 3.0.0) | German and English through one configured fixed voice, initially Sofia, at 22,050 Hz. It restores both pinned archives from the local Hub cache only and also needs `microsoft/wavlm-base-plus` and `google/byt5-small` there, which nothing pins yet (#2). It installs on Python 3.14 with torch 2.15; its provider worker has spoken German on the GPU once (30.10.2026, torch 2.15.0+cu132, NVIDIA driver 595.99.02), and has not yet run through the service. Hearing, quality, and latency against Piper are unmeasured. |
 
 Hearing, optional, `SPEECH_HEARING_MODEL`: faster-whisper (MIT) with the CTranslate2 conversions of OpenAI's Whisper (MIT) in
 [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3)
@@ -90,7 +88,6 @@ Weights stay in:
 - Piper voices: `~/.cache/piper/` (`speech-runtime-fetch-voice <voice>`, pinned revision and SHA-256 in `piper_voices.py`)
 - Chatterbox: `~/.cache/huggingface/hub/models--ResembleAI--chatterbox` (pinned snapshot `5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18`, `CHATTERBOX_REVISION` in the shared provider contract)
 - Qwen: `~/.cache/huggingface/hub/models--Qwen--Qwen3-TTS-12Hz-0.6B-CustomVoice` (pinned snapshot `85e237c12c027371202489a0ec509ded67b5e4b5`)
-- VoxCPM2: `~/.cache/huggingface/hub/models--openbmb--VoxCPM2` (pinned snapshot `32279effe8c19989596f05d353d1447f51d9e915`)
 
 ## Contract
 
@@ -112,12 +109,11 @@ All `SPEECH_*`:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `SPEECH_DEVICE` | `cuda` | Device for the isolated providers. Chatterbox and VoxCPM2 accept `cuda` or `cpu`; Qwen accepts only `cuda` and maps it to `cuda:0`. Piper stays on CPU. |
-| `SPEECH_SPEAKING_MODEL` | `de_DE-thorsten-medium` | The one voice the process starts and speaks: `de_DE-thorsten-medium` (Piper), `ResembleAI/chatterbox`, `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`, `openbmb/VoxCPM2` or `nvidia/magpie_tts_multilingual_357m`. Its weights must already be cached; the process exits naming the model when they are not |
+| `SPEECH_DEVICE` | `cuda` | Device for the isolated providers. Chatterbox accepts `cuda` or `cpu`; Qwen accepts only `cuda` and maps it to `cuda:0`. Piper stays on CPU. |
+| `SPEECH_SPEAKING_MODEL` | `de_DE-thorsten-medium` | The one voice the process starts and speaks: `de_DE-thorsten-medium` (Piper), `ResembleAI/chatterbox`, or `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`. Its weights must already be cached; the process exits naming the model when they are not |
 | `SPEECH_VOICE_CACHE` | `~/.cache/piper` | Where Piper ONNX files are kept; `speech-runtime-fetch-voice <voice>` fetches a voice there at its pinned revision, checked against its hashes (the service never fetches) |
 | `SPEECH_HUGGINGFACE_CACHE` | Provider Hub cache (normally `~/.cache/huggingface/hub`) | The shared local Hub cache for provider loading and the artifact check |
 | `SPEECH_QWEN_SPEAKER` | `Ryan` | One of Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Ono_Anna, or Sohee |
-| `SPEECH_MAGPIE_SPEAKER` | `Sofia` | One of Aria, Jason, John, Leo, or Sofia |
 | `SPEECH_HOST` | `127.0.0.1` | Address the listener binds. A container sets `0.0.0.0` so the app network reaches it |
 | `SPEECH_PORT` | `8080` | TCP port the listener binds; a whole number from 1 to 65535. An address that cannot be bound ends the process before any model work |
 | `SPEECH_BUSY_WAIT_SECONDS` | `5.0` | How long a second speech request waits for the one synthesis before it answers 429 `busy`; at least 0, where 0 refuses at once |
@@ -304,8 +300,7 @@ over the peak (30 % for `small` alone):
 | Qwen3-TTS 0.6B | 7424 MiB (6832) | 3840 MiB (3593) |
 | Chatterbox | 8448 MiB (7993) | 5120 MiB (4678) |
 
-VoxCPM2 and Magpie are not in the budget: their weights were not in the cache,
-so nothing was measured. Speaking and hearing were measured one after the other,
+Speaking and hearing were measured one after the other,
 never at the same moment, so the table is the memory the two hold loaded and
 not the peak of both working at once.
 

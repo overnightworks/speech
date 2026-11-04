@@ -3,14 +3,8 @@
 [function_lines."providers/chatterbox/src/speech_runtime_chatterbox/model.py"]
 "speech_token_chunks" = 83
 
-[function_lines."providers/magpie/tests/test_main.py"]
-"test_entrypoint_reserves_stdout_before_importing_the_provider" = 71
-
-[function_lines."providers/voxcpm/tests/test_main.py"]
-"test_entrypoint_reserves_stdout_before_importing_the_provider" = 69
-
 [function_lines."src/speech_runtime_service/speaking.py"]
-"speaking_for_voice" = 75
+"speaking_for_voice" = 39
 
 [function_lines."tests/test_main.py"]
 "test_shutdown_closes_a_pending_real_adapter_before_awaiting_tasks" = 87

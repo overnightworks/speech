@@ -11,21 +11,10 @@ from speech_runtime_provider_contract import (
     CHATTERBOX_ARTIFACTS,
     CHATTERBOX_REVISION,
     CHATTERBOX_SAMPLE_RATE,
-    MAGPIE_CODEC_FILENAME,
-    MAGPIE_CODEC_ID,
-    MAGPIE_CODEC_REVISION,
-    MAGPIE_MODEL_FILENAME,
-    MAGPIE_MODEL_ID,
-    MAGPIE_MODEL_REVISION,
-    MAGPIE_SAMPLE_RATE,
     QWEN_ARTIFACTS,
     QWEN_MODEL_ID,
     QWEN_REVISION,
     QWEN_SAMPLE_RATE,
-    VOXCPM_ARTIFACTS,
-    VOXCPM_MODEL_ID,
-    VOXCPM_REVISION,
-    VOXCPM_SAMPLE_RATE,
 )
 from starlette.status import HTTP_200_OK, HTTP_404_NOT_FOUND
 from starlette.websockets import WebSocketDisconnect
@@ -76,15 +65,6 @@ def _install_gpu_voice(voice: VoiceId, cache: Path) -> None:
         )
     elif voice is VoiceId.QWEN:
         _touch_snapshot(cache, QWEN_MODEL_ID, QWEN_REVISION, QWEN_ARTIFACTS)
-    elif voice is VoiceId.VOXCPM:
-        _touch_snapshot(cache, VOXCPM_MODEL_ID, VOXCPM_REVISION, VOXCPM_ARTIFACTS)
-    else:
-        _touch_snapshot(
-            cache, MAGPIE_MODEL_ID, MAGPIE_MODEL_REVISION, [MAGPIE_MODEL_FILENAME]
-        )
-        _touch_snapshot(
-            cache, MAGPIE_CODEC_ID, MAGPIE_CODEC_REVISION, [MAGPIE_CODEC_FILENAME]
-        )
 
 
 def _install_piper(monkeypatch: pytest.MonkeyPatch, voice_cache: Path) -> None:
@@ -131,8 +111,6 @@ def _settings(tmp_path: Path, model: str, provider: str | None) -> Settings:
             ("chatterbox", CHATTERBOX_SAMPLE_RATE),
         ),
         (VoiceId.QWEN, QWEN_MODEL_ID, ("qwen", QWEN_SAMPLE_RATE)),
-        (VoiceId.VOXCPM, VOXCPM_MODEL_ID, ("voxcpm", VOXCPM_SAMPLE_RATE)),
-        (VoiceId.MAGPIE, MAGPIE_MODEL_ID, ("magpie", MAGPIE_SAMPLE_RATE)),
     ],
 )
 def test_each_catalogue_voice_starts_from_its_model_and_the_wire_speaks_it(

@@ -5,14 +5,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
-from speech_runtime_provider_contract import (
-    MAGPIE_MODEL_ID,
-    QWEN_MODEL_ID,
-    VOXCPM_MODEL_ID,
-)
+from speech_runtime_provider_contract import QWEN_MODEL_ID
 
 from speech_runtime_service.config import (
-    MagpieSpeaker,
     QwenSpeaker,
     Settings,
 )
@@ -175,8 +170,6 @@ def test_settings_refuse_a_port_that_is_not_a_tcp_port(
         DEFAULT_SPEAKING_MODEL,
         CHATTERBOX_SPEAKING_MODEL,
         QWEN_MODEL_ID,
-        VOXCPM_MODEL_ID,
-        MAGPIE_MODEL_ID,
     ],
 )
 def test_every_catalogue_voice_model_is_a_speaking_model(
@@ -222,19 +215,6 @@ def test_qwen_speaker_is_a_closed_setting_with_ryan_as_its_default(
 
     monkeypatch.setenv("SPEECH_QWEN_SPEAKER", "invented")
     with pytest.raises(ValueError, match="qwen_speaker"):
-        Settings()
-
-
-def test_magpie_speaker_is_a_closed_setting_with_sofia_as_its_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    assert Settings().magpie_speaker is MagpieSpeaker.SOFIA
-
-    monkeypatch.setenv("SPEECH_MAGPIE_SPEAKER", "Aria")
-    assert Settings().magpie_speaker is MagpieSpeaker.ARIA
-
-    monkeypatch.setenv("SPEECH_MAGPIE_SPEAKER", "invented")
-    with pytest.raises(ValueError, match="magpie_speaker"):
         Settings()
 
 

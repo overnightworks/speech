@@ -17,13 +17,9 @@ import pytest
 from anyio import run, run_process
 from speech_runtime_provider_contract import (
     CHATTERBOX_SAMPLE_RATE,
-    MAGPIE_MODEL_ID,
-    MAGPIE_SAMPLE_RATE,
     MAX_FRAME_LENGTH,
     QWEN_MODEL_ID,
     QWEN_SAMPLE_RATE,
-    VOXCPM_MODEL_ID,
-    VOXCPM_SAMPLE_RATE,
     Frame,
     FrameDecoder,
     FrameKind,
@@ -61,13 +57,11 @@ def _provider_process(
     provider_name: str = "chatterbox",
 ) -> ProviderProcess:
     arguments = ["--device", "cpu", "--cache", str(cache)]
-    if provider_name in {"qwen", "magpie"}:
-        arguments.extend(("--speaker", "Ryan" if provider_name == "qwen" else "Sofia"))
+    if provider_name == "qwen":
+        arguments.extend(("--speaker", "Ryan"))
     model_name, sample_rate, streams = {
         "chatterbox": (CHATTERBOX_SPEAKING_MODEL, CHATTERBOX_SAMPLE_RATE, True),
         "qwen": (QWEN_MODEL_ID, QWEN_SAMPLE_RATE, False),
-        "voxcpm": (VOXCPM_MODEL_ID, VOXCPM_SAMPLE_RATE, True),
-        "magpie": (MAGPIE_MODEL_ID, MAGPIE_SAMPLE_RATE, False),
     }[provider_name]
     return ProviderProcess(
         ProviderLaunch(
@@ -114,7 +108,7 @@ def test_version_one_ready_encodes_the_declared_native_rate(sample_rate: int) ->
 
 
 def test_parent_rejects_a_worker_that_advertises_another_rate(tmp_path: Path) -> None:
-    root, cache = closed_provider(tmp_path, provider_name="voxcpm")
+    root, cache = closed_provider(tmp_path, "other-rate")
     engine = _provider_process(root, cache)
 
     with pytest.raises(RuntimeError, match="speech provider failed"):

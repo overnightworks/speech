@@ -34,11 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx2
-from speech_runtime_provider_contract import (
-    MAGPIE_MODEL_ID,
-    QWEN_MODEL_ID,
-    VOXCPM_MODEL_ID,
-)
+from speech_runtime_provider_contract import QWEN_MODEL_ID
 
 import hearing_figures as figures
 from hearing_card import (
@@ -117,8 +113,6 @@ THIS_SCRIPT = Path(__file__).resolve()
 GPU_SPEAKING_MODELS = (
     CHATTERBOX_SPEAKING_MODEL,
     QWEN_MODEL_ID,
-    VOXCPM_MODEL_ID,
-    MAGPIE_MODEL_ID,
 )
 GERMAN_QUESTION = "Wie spät ist es und wann beginnt die nächste Sitzung?"
 ENGLISH_QUESTION = "What time is it and when does the next session begin?"

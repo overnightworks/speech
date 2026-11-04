@@ -9,18 +9,9 @@ from huggingface_hub import try_to_load_from_cache
 from speech_runtime_provider_contract import (
     CHATTERBOX_ARTIFACTS,
     CHATTERBOX_REVISION,
-    MAGPIE_CODEC_FILENAME,
-    MAGPIE_CODEC_ID,
-    MAGPIE_CODEC_REVISION,
-    MAGPIE_MODEL_FILENAME,
-    MAGPIE_MODEL_ID,
-    MAGPIE_MODEL_REVISION,
     QWEN_ARTIFACTS,
     QWEN_MODEL_ID,
     QWEN_REVISION,
-    VOXCPM_ARTIFACTS,
-    VOXCPM_MODEL_ID,
-    VOXCPM_REVISION,
 )
 
 if TYPE_CHECKING:
@@ -38,16 +29,12 @@ class VoiceId(StrEnum):
     PIPER = "piper"
     CHATTERBOX = "chatterbox"
     QWEN = "qwen3-tts-0.6b"
-    VOXCPM = "voxcpm2"
-    MAGPIE = "nvidia-magpie"
 
 
 _VOICES_BY_MODEL: dict[str, VoiceId] = {
     DEFAULT_SPEAKING_MODEL: VoiceId.PIPER,
     CHATTERBOX_SPEAKING_MODEL: VoiceId.CHATTERBOX,
     QWEN_MODEL_ID: VoiceId.QWEN,
-    VOXCPM_MODEL_ID: VoiceId.VOXCPM,
-    MAGPIE_MODEL_ID: VoiceId.MAGPIE,
 }
 
 
@@ -65,10 +52,6 @@ def installed_voice_ids(settings: Settings) -> frozenset[VoiceId]:
         installed.add(VoiceId.CHATTERBOX)
     if _qwen_is_present(settings.huggingface_cache):
         installed.add(VoiceId.QWEN)
-    if _voxcpm_is_present(settings.huggingface_cache):
-        installed.add(VoiceId.VOXCPM)
-    if _magpie_is_present(settings.huggingface_cache):
-        installed.add(VoiceId.MAGPIE)
     return frozenset(installed)
 
 
@@ -108,37 +91,4 @@ def _qwen_is_present(cache: Path) -> bool:
             str,
         )
         for filename in QWEN_ARTIFACTS
-    )
-
-
-def _voxcpm_is_present(cache: Path) -> bool:
-    return all(
-        isinstance(
-            try_to_load_from_cache(
-                VOXCPM_MODEL_ID,
-                filename,
-                cache_dir=cache,
-                revision=VOXCPM_REVISION,
-            ),
-            str,
-        )
-        for filename in VOXCPM_ARTIFACTS
-    )
-
-
-def _magpie_is_present(cache: Path) -> bool:
-    return all(
-        isinstance(
-            try_to_load_from_cache(
-                repository,
-                filename,
-                cache_dir=cache,
-                revision=revision,
-            ),
-            str,
-        )
-        for repository, filename, revision in (
-            (MAGPIE_MODEL_ID, MAGPIE_MODEL_FILENAME, MAGPIE_MODEL_REVISION),
-            (MAGPIE_CODEC_ID, MAGPIE_CODEC_FILENAME, MAGPIE_CODEC_REVISION),
-        )
     )

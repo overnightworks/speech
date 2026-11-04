@@ -176,9 +176,12 @@ def test_missing_tokens_are_unauthorized_before_the_voice_is_checked() -> None:
     assert_refusal(response, HTTP_401_UNAUTHORIZED, RefusalCode.UNAUTHORIZED, None)
 
 
-def test_an_unknown_voice_stays_invalid_and_not_forbidden() -> None:
+@pytest.mark.parametrize("voice", ["alloy", "voxcpm2", "nvidia-magpie"])
+def test_a_voice_outside_the_catalogue_stays_invalid_and_not_forbidden(
+    voice: str,
+) -> None:
     response = post_speech(
-        TestClient(speak_app(callers=valid_callers([PIPER]))), speak_body("alloy")
+        TestClient(speak_app(callers=valid_callers([PIPER]))), speak_body(voice)
     )
 
     assert_refusal(

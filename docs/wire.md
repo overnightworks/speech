@@ -23,7 +23,7 @@ A JSON object with exactly these fields, all required, all strict JSON types:
 |---|---|
 | `model` | `speech-runtime`. Any other value is refused, so a request naming another model is never answered by this one. |
 | `input` | Text with at least one letter or digit, at most `SPEECH_MAX_INPUT_CHARACTERS` characters (default 4096; the operator may raise it above OpenAI's 4096). |
-| `voice` | The id of the voice that is active and ready: `piper`, `chatterbox`, `qwen3-tts-0.6b`, `voxcpm2` or `nvidia-magpie`. The voice must be listed for the calling app (`voices` in its configuration) and be the active one. The service speaks with the active voice only; no request switches it. |
+| `voice` | The id of the voice that is active and ready: `piper`, `chatterbox` or `qwen3-tts-0.6b`. The voice must be listed for the calling app (`voices` in its configuration) and be the active one. The service speaks with the active voice only; no request switches it. |
 | `response_format` | `wav`. OpenAI defaults an absent field to `mp3`, so it is required here. |
 
 The service speaks German only. There is no `language` field, and any field

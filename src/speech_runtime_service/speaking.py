@@ -6,12 +6,8 @@ from typing import TYPE_CHECKING
 
 from speech_runtime_provider_contract import (
     CHATTERBOX_SAMPLE_RATE,
-    MAGPIE_MODEL_ID,
-    MAGPIE_SAMPLE_RATE,
     QWEN_MODEL_ID,
     QWEN_SAMPLE_RATE,
-    VOXCPM_MODEL_ID,
-    VOXCPM_SAMPLE_RATE,
 )
 
 from speech_runtime_service.provider_process import (
@@ -110,42 +106,6 @@ def speaking_for_voice(settings: Settings, voice: VoiceId) -> LocalSpeaking:
                     str(settings.huggingface_cache),
                     "--speaker",
                     settings.qwen_speaker.value,
-                ),
-            ),
-        )
-    if voice is VoiceId.VOXCPM:
-        return ProviderProcess(
-            ProviderLaunch(
-                model_name=VOXCPM_MODEL_ID,
-                sample_rate=VOXCPM_SAMPLE_RATE,
-                streams=True,
-                executable=provider_entrypoint(
-                    settings.provider_root, ProviderId.VOXCPM
-                ),
-                arguments=(
-                    "--device",
-                    settings.device,
-                    "--cache",
-                    str(settings.huggingface_cache),
-                ),
-            ),
-        )
-    if voice is VoiceId.MAGPIE:
-        return ProviderProcess(
-            ProviderLaunch(
-                model_name=MAGPIE_MODEL_ID,
-                sample_rate=MAGPIE_SAMPLE_RATE,
-                streams=False,
-                executable=provider_entrypoint(
-                    settings.provider_root, ProviderId.MAGPIE
-                ),
-                arguments=(
-                    "--device",
-                    settings.device,
-                    "--cache",
-                    str(settings.huggingface_cache),
-                    "--speaker",
-                    settings.magpie_speaker.value,
                 ),
             ),
         )
