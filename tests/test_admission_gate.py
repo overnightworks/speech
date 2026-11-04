@@ -43,6 +43,7 @@ from tests.support.speak_support import (
     speak_body,
     speak_once,
     status_of,
+    synthesis_gate,
 )
 
 if TYPE_CHECKING:
@@ -271,7 +272,7 @@ def test_a_request_that_finds_the_gate_held_waits_then_is_told_to_retry_after(
 ) -> None:
     runtime = fake_runtime()
     client = TestClient(app_over(runtime, busy_wait_seconds=wait))
-    held = runtime.synthesis_gate.try_acquire()
+    held = synthesis_gate(runtime).try_acquire()
     assert held is not None
     began = time.monotonic()
 
@@ -407,7 +408,7 @@ def _leave_gate_free(_runtime: Runtime) -> Lease | None:
 
 
 def _hold_gate(runtime: Runtime) -> Lease | None:
-    return runtime.synthesis_gate.try_acquire()
+    return synthesis_gate(runtime).try_acquire()
 
 
 @pytest.mark.parametrize(
@@ -453,7 +454,7 @@ def test_a_request_cancelled_while_it_waits_for_the_gate_leaves_nothing_behind()
     async def scenario() -> tuple[Runtime, int]:
         runtime = fake_runtime(FakeSpeaking(), VoiceId.QWEN)
         app = app_over(runtime, busy_wait_seconds=ASGI_TIMEOUT_SECONDS)
-        held = runtime.synthesis_gate.try_acquire()
+        held = synthesis_gate(runtime).try_acquire()
         assert held is not None
         waiting_began = gate_acquisition_began(runtime)
         waiting = SpeakCall(app, speak_body(QWEN))

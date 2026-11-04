@@ -58,6 +58,7 @@ from tests.support.speak_support import (
     gate_is_free,
     post_speech,
     speak_body,
+    synthesis_gate,
 )
 
 if TYPE_CHECKING:
@@ -400,7 +401,7 @@ def test_speaking_and_hearing_run_side_by_side_each_under_its_own_bound() -> Non
 
 def test_a_held_synthesis_does_not_refuse_a_recording() -> None:
     runtime = hear_runtime(FakeHearing())
-    held = runtime.synthesis_gate.try_acquire()
+    held = synthesis_gate(runtime).try_acquire()
     assert held is not None
     client = TestClient(hear_app(runtime, max_waiting_requests=0))
 

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from httpx2 import Response as ClientResponse
     from starlette.responses import Response, StreamingResponse
 
-    from speech_runtime_service.admission_gate import Lease
+    from speech_runtime_service.admission_gate import AdmissionGate, Lease
     from speech_runtime_service.callers import SpeechCallers
     from speech_runtime_service.service import SpeakingEngine
 
@@ -240,6 +240,12 @@ def app_over(runtime: Runtime, **settings: float) -> FastAPI:
     return create_control_app(Settings(**settings), runtime, valid_callers())
 
 
+def synthesis_gate(runtime: Runtime) -> AdmissionGate:
+    """The admission gate of the runtime's one voice slot."""
+    (slot,) = runtime.slots.values()
+    return slot.gate
+
+
 def gate_acquisition_began(runtime: Runtime) -> asyncio.Event:
     """An event set when a request calls the gate's `acquire`.
 
@@ -247,7 +253,7 @@ def gate_acquisition_began(runtime: Runtime) -> asyncio.Event:
     resumes on this event finds the waiter queued.
     """
     began = asyncio.Event()
-    gate = runtime.synthesis_gate
+    gate = synthesis_gate(runtime)
     acquire = gate.acquire
 
     async def noting(deadline: float, max_waiters: int) -> Lease | None:
@@ -260,7 +266,7 @@ def gate_acquisition_began(runtime: Runtime) -> asyncio.Event:
 
 def gate_is_free(runtime: Runtime) -> bool:
     """Whether the synthesis gate is free: no request left its lease behind."""
-    lease = runtime.synthesis_gate.try_acquire()
+    lease = synthesis_gate(runtime).try_acquire()
     if lease is None:
         return False
     lease.close()

@@ -126,9 +126,7 @@ class _SpeechRoute:
         admitted = await self._callers.admit(request.headers)
         if isinstance(admitted, RefusalCode):
             return _refused(admitted)
-        deadline = (
-            self._runtime.synthesis_gate.clock.now() + self._settings.busy_wait_seconds
-        )
+        deadline = self._runtime.clock.now() + self._settings.busy_wait_seconds
         parsed = await self._checked(request)
         if isinstance(parsed, JSONResponse):
             return parsed
@@ -138,7 +136,7 @@ class _SpeechRoute:
         admission = self._admit(voice)
         if isinstance(admission, JSONResponse):
             return admission
-        lease = await self._runtime.synthesis_gate.acquire(
+        lease = await self._runtime.slots[voice].gate.acquire(
             deadline, self._settings.max_waiting_requests
         )
         if lease is None:
