@@ -33,7 +33,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--expected-parent-pid", required=True)
 parser.add_argument("--device", required=True)
 parser.add_argument("--cache", required=True)
-if {provider!r} in ("qwen", "magpie"):
+if {provider!r} == "qwen":
     parser.add_argument("--speaker", required=True)
 arguments = parser.parse_args()
 cache = Path(arguments.cache)
@@ -52,12 +52,7 @@ if behavior == "startup-oversized":
 if behavior == "startup-failed":
     write_frame(stream, Frame(FrameKind.FAILED, 0, b"\x01"))
     raise SystemExit(1)
-if {provider!r} == "magpie":
-    rate = 22050
-elif {provider!r} == "voxcpm":
-    rate = 48000
-else:
-    rate = 24000
+rate = 48000 if behavior == "other-rate" else 24000
 write_frame(stream, Frame(FrameKind.READY, 0, bytes((0, 1)) + rate.to_bytes(4, "big")))
 if behavior == "idle-exit":
     while not (cache / "exit-now").exists():

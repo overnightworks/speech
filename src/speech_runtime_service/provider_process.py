@@ -108,8 +108,6 @@ class ProviderId(StrEnum):
 
     CHATTERBOX = "chatterbox"
     QWEN = "qwen"
-    VOXCPM = "voxcpm"
-    MAGPIE = "magpie"
 
 
 class _OwnerExit(Enum):

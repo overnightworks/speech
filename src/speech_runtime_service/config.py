@@ -15,7 +15,7 @@ from pydantic import (
     model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from speech_runtime_provider_contract import MagpieSpeaker, QwenSpeaker
+from speech_runtime_provider_contract import QwenSpeaker
 from webauth.https_client import is_https_url
 
 from speech_runtime_service.hearing_models import HearingModel
@@ -49,7 +49,6 @@ class Settings(BaseSettings):
     )
     provider_root: Path | None = None
     qwen_speaker: QwenSpeaker = QwenSpeaker.RYAN
-    magpie_speaker: MagpieSpeaker = MagpieSpeaker.SOFIA
     host: str = "127.0.0.1"
     port: int = Field(default=8080, ge=1, le=65535)
     busy_wait_seconds: float = Field(default=5.0, ge=0, allow_inf_nan=False)
