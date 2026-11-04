@@ -1,0 +1,8 @@
+claim_id = "dbfa5ae3aa1544ed924800301e5901d1"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "d74ed22aac6d23cb4848186400a0fa99fa8493ae"
+branch = "claude/issue-135-g5b-delete-the-chatterbox-voice"
+scope = [".aco/board.toml", ".github/dependabot.yml", ".github/workflows/ci.yml", "AGENTS.md", "README.md", "docs/wire.md", "providers/chatterbox", "providers/provider-contract/pyproject.toml", "providers/provider-contract/src/speech_runtime_provider_contract/__init__.py", "providers/qwen", "quality/baseline.toml", "quality/config.toml", "scripts/prove_hearing.py", "scripts/prove_speech.py", "sonar-project.properties", "src/speech_runtime_service/provider_process.py", "src/speech_runtime_service/speaking.py", "src/speech_runtime_service/voices.py", "tests/scripts/test_contract_client.py", "tests/support/worker_support.py", "tests/test_admission_gate.py", "tests/test_config.py", "tests/test_main.py", "tests/test_main_serve_lifecycle.py", "tests/test_provider_process.py", "tests/test_provider_process_start.py", "tests/test_service_health.py", "tests/test_service_speak.py", "tests/test_service_start.py", "tests/test_voices_configured.py", "tests/test_wire_route.py", "tests/test_wire_route_voices.py"]
+opened_commit = "ecc2c3c430ba7b73db462d7557649207bd22c52d"
+whole_reason = "One deletion: the provider directory, every reference to it and the tests it hosts move or go together, or the catalogue, CI and the provider-contract tests would point at code that no longer exists."
