@@ -1,0 +1,8 @@
+claim_id = "122e11355dc84fc2b20f1e5e19097ba2"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "b8bf5b4a80cb2c2360a363b03f363812154caeed"
+branch = "claude/issue-149-strict-health-models"
+scope = ["packages/client/pyproject.toml", "packages/client/src/speech_runtime_client/wire.py", "packages/client/tests/test_wire.py", "providers/provider-contract/pyproject.toml", "providers/qwen/uv.lock", "pyproject.toml", "uv.lock"]
+opened_commit = "216480de9ff4b45dc25c71d631b81203c953da28"
+whole_reason = "One client release: the stricter health models and the release set that ships them move together, or the fix lands without a version that carries it."
