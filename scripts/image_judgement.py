@@ -39,6 +39,8 @@ FORBIDDEN_PATH_PARTS: Final = frozenset({".git", "tests", "providers"})
 KEY_FILE_SUFFIXES: Final = (".pem", ".key")
 KEY_FILE_PREFIXES: Final = (".env", "id_")
 FORBIDDEN_DISTRIBUTION_PREFIX: Final = "nvidia-"
+# torch's own words when a model is moved onto `cuda` without a card.
+NO_CUDA_DEVICE: Final = "Found no NVIDIA driver on your system"
 MARK_CHUNK: Final = b"LIST"
 # Shorter words match by accident in any German or English text.
 MIN_HEARD_WORD_LENGTH: Final = 5
@@ -468,14 +470,10 @@ def require_ready_within(seconds: float, start_period: str) -> None:
 class GpuVoiceReport:
     """What `gpu_voice.py` found in the service container.
 
-    `workers` are the pids of running GPU voice workers. `cuda` is whether the
-    voice's own environment, started as its worker is, sees a CUDA device; None
-    when its model library did not import, with the last line it wrote in `error`.
+    `workers` are the pids of running GPU voice workers.
     """
 
     workers: list[int]
-    cuda: bool | None
-    error: str | None
 
 
 def require_offer(health: Health, voices: Iterable[VoiceId]) -> None:
@@ -498,14 +496,20 @@ def require_gpu_voice_down(health: Health, voice: VoiceId) -> None:
         raise SystemExit(message)
 
 
-def require_no_cuda_device(report: GpuVoiceReport) -> None:
-    """Fail unless the GPU voice's environment imports and sees no CUDA device."""
-    if report.cuda is None:
-        message = f"the GPU voice's environment does not import: {report.error}"
+def require_workers_found_no_cuda_device(log: str, count: int) -> None:
+    """Fail unless `count` workers ended before ready, each on finding no CUDA device.
+
+    Each record the service logs for such a worker carries the worker's own
+    stderr tail, so the cause is the real worker's, not a probe's.
+    """
+    records = log.split(ENDED_BEFORE_READY)[1:]
+    if len(records) != count:
+        message = f"{len(records)} workers ended before ready, not {count}"
         raise SystemExit(message)
-    if report.cuda:
-        message = "the GPU voice's environment sees a CUDA device"
-        raise SystemExit(message)
+    for record in records:
+        if NO_CUDA_DEVICE not in record:
+            message = f"a worker ended before ready on another cause{record}"
+            raise SystemExit(message)
 
 
 def workers_ended_before_ready(log: str) -> int:

@@ -19,10 +19,10 @@ from image_judgement import (
     listed_gpu_voice,
     require_gpu_voice_down,
     require_log_clean,
-    require_no_cuda_device,
     require_offer,
     require_refusal,
     require_transcript,
+    require_workers_found_no_cuda_device,
     workers_ended_before_ready,
 )
 from image_stack import (
@@ -50,9 +50,9 @@ VOICE_PARAM: Final[RequestField] = "voice"
 WORKER_LOG_WAIT_SECONDS: Final = 60
 
 
-def gpu_voice_report(session: Session, *, probe: bool) -> GpuVoiceReport:
-    """What the service container shows of the GPU voice; `probe` starts its Python."""
-    output = run_in(session.compose, SERVICE, "gpu_voice.py", {"probe": probe})
+def gpu_voice_report(session: Session) -> GpuVoiceReport:
+    """What the service container shows of the GPU voice."""
+    output = run_in(session.compose, SERVICE, "gpu_voice.py", None)
     return GpuVoiceReport(**json.loads(output))
 
 
@@ -75,7 +75,7 @@ def cell_gpu_voice_not_offered(session: Session) -> None:
         require_refused_unavailable(caller, voice)
         refused.append(f"{caller.baked.app} naming {voice}")
     require_offer(health_of(session), [RESIDENT_VOICE])
-    running = gpu_voice_report(session, probe=False).workers
+    running = gpu_voice_report(session).workers
     session.collect_log()
     started = workers_ended_before_ready(session.logs[-1])
     if running or started:
@@ -88,13 +88,13 @@ def cell_gpu_voice_not_offered(session: Session) -> None:
     )
 
 
-def wait_for_workers(stack: Compose, count: int) -> None:
-    """Wait until the service log says `count` workers ended before ready."""
+def wait_for_workers(stack: Compose, count: int) -> str:
+    """The service log once it says `count` workers ended before ready."""
     deadline = time.monotonic() + WORKER_LOG_WAIT_SECONDS
     while True:
         log = stack.run("logs", "--no-color", SERVICE).stdout
         if workers_ended_before_ready(log) >= count:
-            return
+            return log
         if time.monotonic() > deadline:
             message = f"the log does not show {count} worker(s) ending before ready"
             raise SystemExit(message)
@@ -120,8 +120,7 @@ def cell_gpu_voice_offered(session: Session, wav: bytes) -> None:
     print(f"cell 23: held; healthy, {voice} offered and not ready")
     started = container_start(stack)
     require_refused_unavailable(offered, voice)
-    wait_for_workers(stack, 1)
-    require_no_cuda_device(gpu_voice_report(offered, probe=True))
+    require_workers_found_no_cuda_device(wait_for_workers(stack, 1), 1)
     print(
         f"cell 23: held; {offered.baked.app} naming {voice} started a worker that"
         f" found no CUDA device, refused as {RefusalCode.UNAVAILABLE}"
@@ -139,7 +138,7 @@ def cell_gpu_voice_offered(session: Session, wav: bytes) -> None:
         f" {RESIDENT_VOICE} speaks and {offered.baked.app}'s recording is heard"
     )
     require_refused_unavailable(offered, voice)
-    wait_for_workers(stack, 2)
+    require_workers_found_no_cuda_device(wait_for_workers(stack, 2), 2)
     if container_start(stack) != started:
         message = f"the service container restarted: {started}"
         raise SystemExit(message)
@@ -147,5 +146,6 @@ def cell_gpu_voice_offered(session: Session, wav: bytes) -> None:
     require_log_clean(session.logs[-1], [SENTENCE], session.heard, session.tokens)
     print(
         "cell 23: held; a second request started a second worker and was refused"
-        " again, the container did not restart, the log holds no spoken text"
+        " again on finding no CUDA device, the container did not restart, the log"
+        " holds no spoken text"
     )

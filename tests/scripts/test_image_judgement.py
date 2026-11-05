@@ -380,19 +380,38 @@ def test_a_gpu_voice_down_needs_it_not_ready_beside_ready_speaking_and_hearing(
         judged.require_gpu_voice_down(health, VoiceId.QWEN)
 
 
+def worker_record(cause: str) -> str:
+    return (
+        f"ERROR {ENDED_BEFORE_READY}, exit status 1, stderr tail:\n"
+        f"Traceback (most recent call last):\nRuntimeError: {cause}\nINFO speak"
+    )
+
+
 @pytest.mark.parametrize(
-    ("cuda", "error", "fault"),
-    [(None, "ImportError: x", "does not import: ImportError: x"), (True, None, "sees")],
-    ids=["environment broken", "device present"],
+    ("causes", "fault"),
+    [
+        ([], "0 workers ended before ready, not 1"),
+        ([judged.NO_CUDA_DEVICE] * 2, "2 workers ended before ready, not 1"),
+        (
+            ["cannot cache function '__o_fold'"],
+            "(?s)another cause, exit status 1.*__o_fold",
+        ),
+    ],
+    ids=["no worker", "one worker too many", "failed before the device"],
 )
-def test_a_gpu_voice_environment_must_import_and_see_no_cuda_device(
-    *, cuda: bool | None, error: str | None, fault: str
+def test_a_worker_must_end_before_ready_on_finding_no_cuda_device(
+    causes: list[str], fault: str
 ) -> None:
-    judged.require_no_cuda_device(judged.GpuVoiceReport([], cuda=False, error=None))
-    report = judged.GpuVoiceReport([], cuda, error)
+    log = "\n".join(["INFO start", *map(worker_record, causes)])
 
     with pytest.raises(SystemExit, match=fault):
-        judged.require_no_cuda_device(report)
+        judged.require_workers_found_no_cuda_device(log, 1)
+
+
+def test_workers_that_each_found_no_cuda_device_pass() -> None:
+    log = "\n".join(["INFO start", *[worker_record(judged.NO_CUDA_DEVICE)] * 2])
+
+    judged.require_workers_found_no_cuda_device(log, 2)
 
 
 @pytest.mark.parametrize("workers", [0, 1, 2])
