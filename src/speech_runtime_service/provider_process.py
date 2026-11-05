@@ -302,7 +302,7 @@ class ProviderProcess:
 
     def _spawn(self, stderr: IO[bytes]) -> subprocess.Popen[bytes]:
         entrypoint = self._executable
-        if not _is_executable_file(entrypoint):
+        if not is_executable_file(entrypoint):
             raise ProviderUnavailableError
         provider_directory = entrypoint.parents[2]
         return subprocess.Popen(  # noqa: S603 - argv is the fixed provider entrypoint and flags with no shell
@@ -507,7 +507,8 @@ def provider_entrypoint(
     )
 
 
-def _is_executable_file(entrypoint: Path | None) -> bool:
+def is_executable_file(entrypoint: Path | None) -> bool:
+    """Whether `entrypoint` names a regular file this process may execute."""
     if entrypoint is None:
         return False
     try:

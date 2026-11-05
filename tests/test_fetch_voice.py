@@ -20,7 +20,7 @@ from speech_runtime_service.piper_voices import (
 from speech_runtime_service.voices import (
     DEFAULT_SPEAKING_MODEL,
     VoiceId,
-    installed_voice_ids,
+    missing_artifacts,
     piper_voice_paths,
 )
 
@@ -97,7 +97,7 @@ def test_a_fetched_voice_is_found_by_the_service_under_the_names_it_reads(
     onnx, metadata = piper_voice_paths(tmp_path, scenario.voice.value)
     assert onnx.read_bytes() == scenario.model_bytes
     assert metadata.read_bytes() == scenario.metadata_bytes
-    assert VoiceId.PIPER in installed_voice_ids(Settings(voice_cache=tmp_path))
+    assert missing_artifacts(Settings(voice_cache=tmp_path), VoiceId.PIPER) == ()
     assert sorted(path.name for path in tmp_path.iterdir()) == sorted(
         [onnx.name, metadata.name]
     )

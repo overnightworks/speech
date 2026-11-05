@@ -19,10 +19,11 @@ from speech_runtime_service.hearing import Hearing, hearing_from_settings
 from speech_runtime_service.pcm import wav_header
 from speech_runtime_service.speaking import speaking_for_voice
 from speech_runtime_service.voice_slot import VoiceSlot
-from speech_runtime_service.voices import VoiceId, installed_voice_ids, voice_for_model
+from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId, missing_artifacts
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Iterator
+    from concurrent.futures import Future
 
     from fastapi import FastAPI
 
@@ -34,7 +35,7 @@ _CLOCK: Final = LoopClock()
 
 
 class SpeakingEngine(Protocol):
-    """A resident voice."""
+    """The engine one voice speaks with."""
 
     model_name: str
     sample_rate: int
@@ -52,15 +53,15 @@ class SpeakingEngine(Protocol):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RuntimeDependencies:
-    """The configured voice and the seams that check and build its engine."""
+    """The GPU voices offered beside Piper, and the seams that check and build them."""
 
-    voice: VoiceId = VoiceId.PIPER
+    gpu_voices: frozenset[VoiceId] = frozenset()
     engine_factory: Callable[[VoiceId], SpeakingEngine] | None = None
-    artifact_checker: Callable[[VoiceId], bool] | None = None
+    missing_artifacts: Callable[[VoiceId], tuple[str, ...]] | None = None
 
 
 class Runtime:
-    """The voice slot, hearing, and the flags a caller waits on."""
+    """The voice slots, hearing, and the one readiness both wires read."""
 
     def __init__(
         self,
@@ -70,88 +71,107 @@ class Runtime:
         dependencies: RuntimeDependencies | None = None,
         hearing: Hearing | None = None,
     ) -> None:
-        """Hold the voice slot and hearing. Neither is loaded until `load`."""
+        """Hold Piper's slot, holding `speaking`, and one idle slot per GPU voice.
+
+        Nothing is loaded until `load`, and a GPU voice not until its first request.
+        """
         dependencies = dependencies or RuntimeDependencies()
         self.hearing = hearing or Hearing(None, _CLOCK)
         self.clock = _CLOCK
-        self.slots = {dependencies.voice: VoiceSlot(dependencies, _CLOCK, speaking)}
-        self._voice = dependencies.voice
+        self._resident = VoiceSlot(RESIDENT_VOICE, dependencies, _CLOCK, speaking)
+        self.slots: dict[VoiceId, VoiceSlot] = {RESIDENT_VOICE: self._resident} | {
+            voice: VoiceSlot(voice, dependencies, _CLOCK)
+            for voice in sorted(dependencies.gpu_voices)
+        }
         self._memory_probe = memory_probe or card_memory_mb
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Runtime:
-        """Build the production engines the environment configures."""
+        """Compose the offer: Piper, and the GPU voices `SPEECH_GPU_VOICES` names."""
         return cls(
             None,
             hearing=hearing_from_settings(settings, _CLOCK),
             dependencies=RuntimeDependencies(
-                voice=voice_for_model(settings.speaking_model),
+                gpu_voices=settings.gpu_voices,
                 engine_factory=lambda voice: speaking_for_voice(settings, voice),
-                artifact_checker=lambda voice: voice in installed_voice_ids(settings),
+                missing_artifacts=lambda voice: missing_artifacts(settings, voice),
             ),
         )
 
     @property
     def loading(self) -> bool:
-        """Whether startup is still running."""
-        return self.slots[self._voice].loading
+        """Whether the start load is still running."""
+        return self._resident.loading
 
     def load(self) -> None:
-        """Start the configured voice, then hearing; the orchestrator owns processes."""
+        """Load Piper, then hearing; a GPU voice loads on its first request."""
         self.begin_loading()
-        self.slots[self._voice].load(self.hearing.load)
+        self._resident.load(self.hearing.load)
 
     def begin_loading(self) -> None:
         """Publish startup before its background task can be scheduled."""
-        self.slots[self._voice].begin_loading()
+        self._resident.begin_loading()
+
+    def capture(self, voice: VoiceId) -> SpeakingEngine | None:
+        """The engine `voice` speaks with now; `None` while it cannot speak.
+
+        This is the one readiness: no voice speaks during the start load or once
+        shutdown began, and /health reports exactly what this answers.
+        """
+        if self._resident.loading:
+            return None
+        return self.slots[voice].capture()
+
+    def load_on_demand(self, voice: VoiceId) -> Future[SpeakingEngine | None] | None:
+        """The GPU voice's shared load, started if none runs; `None` if none may."""
+        if voice is RESIDENT_VOICE or self._resident.loading:
+            return None
+        return self.slots[voice].shared_load()
 
     def health(self) -> Health:
         """The contract body for GET /health."""
         self.reconcile_failed_active()
-        voice = self.slots[self._voice].health()
+        voices = {
+            voice.value: slot.health(ready=self.capture(voice) is not None)
+            for voice, slot in self.slots.items()
+        }
         return Health(
             speaking=SpeakingHealth(
-                ready=voice.ready, voices={self._voice.value: voice}
+                ready=voices[RESIDENT_VOICE.value].ready, voices=voices
             ),
             hearing=HearingHealth.model_validate(self.hearing.health()),
             card_memory_mb=self._memory_probe(),
         )
 
-    def capture_speaking(self) -> VoiceAdmission | None:
-        """Capture one stable engine for an entire streaming response."""
-        speaking = self.slots[self._voice].capture()
-        if speaking is None:
-            return None
-        return VoiceAdmission(speaking, self._voice)
-
     def begin_shutdown(self) -> None:
         """Refuse new work before the server starts its own shutdown."""
-        self.slots[self._voice].begin_shutdown()
+        for slot in self.slots.values():
+            slot.begin_shutdown()
 
     def set_fatal_callback(self, callback: Callable[[], None]) -> None:
         """Route an owned speaking-engine failure to the service orchestrator."""
-        self.slots[self._voice].set_fatal_callback(callback)
+        for slot in self.slots.values():
+            slot.set_fatal_callback(callback)
 
     def close(self) -> None:
-        """Close the voice slot's engines and hearing."""
-        self.slots[self._voice].close(self.hearing.close)
+        """Close every GPU voice and its load, then Piper and hearing."""
+        self.begin_shutdown()
+        failed = False
+        for slot in self.slots.values():
+            if slot is not self._resident:
+                try:
+                    slot.close()
+                except RuntimeError:
+                    failed = True
+        self._resident.close(self.hearing.close)
+        if failed:
+            message = "speaking engine cleanup failed"
+            raise RuntimeError(message)
 
     def reconcile_failed_active(self) -> None:
         """Close an active engine that stopped being ready."""
-        self.slots[self._voice].reconcile_failed_active()
-
-
-@dataclass(frozen=True, slots=True)
-class VoiceAdmission:
-    """One captured engine and the voice it speaks for."""
-
-    speaking: SpeakingEngine
-    voice: VoiceId
-
-    @property
-    def sample_rate(self) -> int:
-        """The captured engine's rate."""
-        return self.speaking.sample_rate
+        for slot in self.slots.values():
+            slot.reconcile_failed_active()
 
 
 def wav_chunks(

@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 from anyio import run, run_process
-from fastapi.testclient import TestClient
 from speech_runtime_provider_contract import (
     MAX_FRAME_LENGTH,
     QWEN_MODEL_ID,
@@ -38,14 +37,14 @@ from speech_runtime_service.provider_process import (
     UnsupportedLanguageError,
 )
 from speech_runtime_service.service import Runtime, RuntimeDependencies
-from speech_runtime_service.voices import VoiceId, model_for_voice
-from tests.support.speak_support import (
-    app_over,
-    assert_unavailable,
-    post_speech,
-    speak_body,
+from speech_runtime_service.voices import VoiceId
+from tests.support.worker_support import (
+    assert_reaped,
+    closed_provider,
+    fail_every_reap,
+    observed,
+    wait_for_starts,
 )
-from tests.support.worker_support import assert_reaped, closed_provider, observed
 
 
 def _engine(tmp_path: Path, behavior: str = "normal") -> ProviderProcess:
@@ -65,16 +64,6 @@ def _provider_process(root: Path, cache: Path) -> ProviderProcess:
             executable=root / "qwen" / ".venv" / "bin" / "speech-runtime-qwen-worker",
             arguments=_qwen_arguments(cache),
         )
-    )
-
-
-def _assert_voice_reports_unready(runtime: Runtime, voice: VoiceId) -> None:
-    speaking = runtime.health().speaking
-    assert speaking.ready is False
-    assert speaking.voices[voice.value].model == model_for_voice(voice)
-    assert speaking.voices[voice.value].ready is False
-    assert_unavailable(
-        post_speech(TestClient(app_over(runtime)), speak_body(voice.value))
     )
 
 
@@ -362,7 +351,7 @@ def test_qwen_cancel_beyond_drain_reaps_then_runtime_loads_a_fresh_worker(
         None,
         dependencies=RuntimeDependencies(
             engine_factory=factory,
-            artifact_checker=lambda _voice: True,
+            missing_artifacts=lambda _voice: (),
         ),
     )
     runtime.load()
@@ -374,7 +363,7 @@ def test_qwen_cancel_beyond_drain_reaps_then_runtime_loads_a_fresh_worker(
 
     runtime.health()
 
-    assert runtime.capture_speaking() is None
+    assert runtime.capture(VoiceId.PIPER) is None
     assert_reaped(first_pid)
     runtime.close()
 
@@ -394,60 +383,6 @@ def test_constructor_has_no_thread_process_or_filesystem_side_effect(
     engine.close()
     assert {thread.ident for thread in threading.enumerate()} == before
     assert list(tmp_path.iterdir()) == []
-
-
-def test_startup_provider_failure_raises_without_fatal_exit(tmp_path: Path) -> None:
-    fatal = threading.Event()
-    engine = _engine(tmp_path, "startup-failed")
-    runtime = Runtime(
-        None,
-        dependencies=RuntimeDependencies(
-            engine_factory=lambda _voice: engine,
-            artifact_checker=lambda _voice: True,
-            voice=VoiceId.QWEN,
-        ),
-    )
-    runtime.set_fatal_callback(fatal.set)
-
-    with pytest.raises(RuntimeError, match="failed to load"):
-        runtime.load()
-
-    _assert_voice_reports_unready(runtime, VoiceId.QWEN)
-    assert runtime.capture_speaking() is None
-    assert fatal.is_set() is False
-    _, _, pid, _ = observed(tmp_path / "cache")
-    assert_reaped(pid)
-
-
-@pytest.mark.parametrize("failure", ["request", "idle-exit"])
-def test_active_provider_failure_reconciles_without_fatal_exit(
-    tmp_path: Path, failure: str
-) -> None:
-    fatal = threading.Event()
-    engine = _engine(tmp_path, "idle-exit" if failure == "idle-exit" else "normal")
-    runtime = Runtime(
-        None,
-        dependencies=RuntimeDependencies(
-            engine_factory=lambda _voice: engine,
-            artifact_checker=lambda _voice: True,
-            voice=VoiceId.QWEN,
-        ),
-    )
-    runtime.set_fatal_callback(fatal.set)
-    runtime.load()
-    if failure == "request":
-        with pytest.raises(RuntimeError, match="speech provider synthesis failed"):
-            list(engine.pcm_chunks("failed", "de"))
-    else:
-        (tmp_path / "cache/exit-now").touch()
-    deadline = time.monotonic() + 5
-    while engine.ready and time.monotonic() < deadline:
-        threading.Event().wait(0.01)
-
-    _assert_voice_reports_unready(runtime, VoiceId.QWEN)
-
-    assert runtime.capture_speaking() is None
-    assert fatal.is_set() is False
 
 
 @pytest.mark.parametrize(
@@ -494,22 +429,12 @@ def test_close_allows_bounded_active_cancel_before_reaping(
 def test_shutdown_during_handshake_closes_pending_without_publication(
     tmp_path: Path,
 ) -> None:
-    root, cache = closed_provider(tmp_path, "term-resistant")
-    entrypoint = root / "qwen/.venv/bin/speech-runtime-qwen-worker"
-    source = entrypoint.read_text(encoding="utf-8")
-    entrypoint.write_text(
-        source.replace(
-            "write_frame(stream, Frame(FrameKind.READY",
-            "time.sleep(30)\nwrite_frame(stream, Frame(FrameKind.READY",
-            1,
-        ),
-        encoding="utf-8",
-    )
+    root, cache = closed_provider(tmp_path, "held-ready")
     runtime = Runtime(
         None,
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: _provider_process(root, cache),
-            artifact_checker=lambda _voice: True,
+            missing_artifacts=lambda _voice: (),
         ),
     )
 
@@ -519,17 +444,14 @@ def test_shutdown_during_handshake_closes_pending_without_publication(
 
     activation = threading.Thread(target=start)
     activation.start()
-    deadline = time.monotonic() + 5
-    while not (cache / "worker-observed").exists() and time.monotonic() < deadline:
-        time.sleep(0.01)
+    (pid,) = wait_for_starts(cache, 1)
 
     runtime.begin_shutdown()
     runtime.close()
     activation.join(timeout=5)
 
     assert not activation.is_alive()
-    assert runtime.capture_speaking() is None
-    _, _, pid, _ = observed(cache)
+    assert runtime.capture(VoiceId.PIPER) is None
     assert_reaped(pid)
 
 
@@ -548,13 +470,13 @@ def test_missing_entrypoint_failed_exec_leaves_no_retained_engine(
                     arguments=("--device", "cpu", "--cache", str(tmp_path)),
                 )
             ),
-            artifact_checker=lambda _voice: True,
+            missing_artifacts=lambda _voice: (),
         ),
     )
     runtime.set_fatal_callback(fatal.set)
     with pytest.raises(RuntimeError, match="failed to load"):
         runtime.load()
-    assert runtime.capture_speaking() is None
+    assert runtime.capture(VoiceId.PIPER) is None
     assert not any(
         thread.name == "speech-provider-owner" and thread.is_alive()
         for thread in threading.enumerate()
@@ -598,32 +520,7 @@ def test_cleanup_failure_reaps_and_reports_fatal_lifecycle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fatal = threading.Event()
-    real_popen = subprocess.Popen
-    started: list[int] = []
-
-    class FailingCleanupProcess:
-        def __init__(self, process: subprocess.Popen) -> None:
-            self._process = process
-
-        def __getattr__(self, name: str) -> object:
-            return getattr(self._process, name)
-
-        def wait(self, timeout: float | None = None) -> int:
-            self._process.wait(timeout=timeout)
-            message = "cleanup failed after reap"
-            raise RuntimeError(message)
-
-    def failing_cleanup_popen(
-        *arguments: object, **keywords: object
-    ) -> FailingCleanupProcess:
-        process = real_popen(*arguments, **keywords)
-        started.append(process.pid)
-        return FailingCleanupProcess(process)
-
-    monkeypatch.setattr(
-        "speech_runtime_service.provider_process.subprocess.Popen",
-        failing_cleanup_popen,
-    )
+    started = fail_every_reap(monkeypatch)
     engine = _engine(tmp_path)
     engine.set_fatal_callback(fatal.set)
     engine.load()

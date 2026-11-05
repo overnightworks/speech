@@ -1,165 +1,126 @@
-"""The configured speaking model is the one source of the active voice."""
+"""The start setting is the one source of the offer: Piper always, GPU voices named."""
 
-import asyncio
-import sys
-from types import SimpleNamespace
+from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
-from speech_runtime_provider_contract import (
-    QWEN_ARTIFACTS,
-    QWEN_MODEL_ID,
-    QWEN_REVISION,
-    QWEN_SAMPLE_RATE,
-)
+from speech_runtime_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 from starlette.status import HTTP_200_OK, HTTP_404_NOT_FOUND
 from starlette.websockets import WebSocketDisconnect
 
+from speech_runtime_client.wire import Health, RefusalCode
 from speech_runtime_service.config import Settings
 from speech_runtime_service.control import create_control_app
 from speech_runtime_service.pcm import pcm_from_wav
-from speech_runtime_service.service import Runtime
-from speech_runtime_service.voices import (
-    DEFAULT_SPEAKING_MODEL,
-    VoiceId,
-)
+from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL, VoiceId
 from tests.support.fakes_support import FakeSpeaking
+from tests.support.gpu_voice_support import (
+    PIPER_PCM,
+    PIPER_SAMPLE_RATE,
+    StageSetup,
+    gpu_voice_stage,
+)
 from tests.support.identity_support import valid_callers
 from tests.support.speak_support import (
     app_over,
+    assert_refusal,
+    assert_unavailable,
     fake_runtime,
     post_speech,
     speak_body,
-    speak_once,
-    wav_body,
 )
-from tests.support.worker_support import closed_provider
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
     from pathlib import Path
 
-PIPER_SAMPLE_RATE = 22_050
-WORKER_PCM = b"\x00\x01"
+QWEN = VoiceId.QWEN.value
+PIPER = VoiceId.PIPER.value
+_PIPER_ONLY = StageSetup(gpu_voices=frozenset())
 
 
-def _touch_snapshot(
-    cache: Path, repository: str, revision: str, files: Iterable[str]
+def test_by_default_only_piper_is_offered_and_it_speaks_without_a_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    snapshot = cache / f"models--{repository.replace('/', '--')}" / "snapshots"
-    for name in files:
-        artifact = snapshot / revision / name
-        artifact.parent.mkdir(parents=True, exist_ok=True)
-        artifact.touch()
+    with gpu_voice_stage(tmp_path, monkeypatch, _PIPER_ONLY) as stage:
+        client = TestClient(stage.app())
+        spoken = post_speech(client, speak_body(PIPER))
+        health = Health.model_validate(client.get("/health").json())
+
+    assert spoken.status_code == HTTP_200_OK
+    assert pcm_from_wav(spoken.content) == (PIPER_SAMPLE_RATE, PIPER_PCM)
+    assert health.speaking.ready is True
+    assert list(health.speaking.voices) == [PIPER]
+    assert health.speaking.voices[PIPER].model == DEFAULT_SPEAKING_MODEL
+    assert stage.starts() == []
 
 
-def _install_gpu_voice(voice: VoiceId, cache: Path) -> None:
-    if voice is VoiceId.QWEN:
-        _touch_snapshot(cache, QWEN_MODEL_ID, QWEN_REVISION, QWEN_ARTIFACTS)
-
-
-def _install_piper(monkeypatch: pytest.MonkeyPatch, voice_cache: Path) -> None:
-    class LocalVoice:
-        config = SimpleNamespace(sample_rate=PIPER_SAMPLE_RATE)
-
-        def synthesize(self, _text: str) -> Iterable[SimpleNamespace]:
-            return [SimpleNamespace(audio_int16_bytes=WORKER_PCM)]
-
-    monkeypatch.setitem(
-        sys.modules,
-        "piper",
-        SimpleNamespace(PiperVoice=SimpleNamespace(load=lambda _path: LocalVoice())),
-    )
-    voice_cache.mkdir()
-    (voice_cache / f"{DEFAULT_SPEAKING_MODEL}.onnx").touch()
-    (voice_cache / f"{DEFAULT_SPEAKING_MODEL}.onnx.json").touch()
-
-
-def _speak(runtime: Runtime, settings: Settings, voice: VoiceId) -> tuple[int, bytes]:
-    app = create_control_app(settings, runtime, valid_callers())
-    messages = asyncio.run(speak_once(app, voice.value))
-    return pcm_from_wav(wav_body(messages))
-
-
-def _settings(tmp_path: Path, model: str, provider: str | None) -> Settings:
-    root = closed_provider(tmp_path, provider_name=provider)[0] if provider else None
-    return Settings(
-        speaking_model=model,
-        provider_root=root,
-        huggingface_cache=tmp_path / "cache",
-        voice_cache=tmp_path / "piper",
-        device="cpu",
-    )
-
-
-@pytest.mark.parametrize(
-    ("voice", "model", "provider_and_rate"),
-    [
-        (VoiceId.PIPER, DEFAULT_SPEAKING_MODEL, (None, PIPER_SAMPLE_RATE)),
-        (VoiceId.QWEN, QWEN_MODEL_ID, ("qwen", QWEN_SAMPLE_RATE)),
-    ],
-)
-def test_each_catalogue_voice_starts_from_its_model_and_the_wire_speaks_it(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    voice: VoiceId,
-    model: str,
-    provider_and_rate: tuple[str | None, int],
+def test_a_named_gpu_voice_is_offered_but_not_started_until_a_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    provider, sample_rate = provider_and_rate
-    if provider is None:
-        _install_piper(monkeypatch, tmp_path / "piper")
-    else:
-        _install_gpu_voice(voice, tmp_path / "cache")
-    settings = _settings(tmp_path, model, provider)
-    runtime = Runtime.from_settings(settings)
-    try:
-        runtime.load()
+    with gpu_voice_stage(tmp_path, monkeypatch) as stage:
+        health = Health.model_validate(TestClient(stage.app()).get("/health").json())
 
-        rate, pcm = _speak(runtime, settings, voice)
-        health = TestClient(create_control_app(settings, runtime, valid_callers()))
-        speaking = health.get("/health").json()["speaking"]
-    finally:
-        runtime.close()
+    assert health.speaking.ready is True
+    assert health.hearing.ready is True
+    assert set(health.speaking.voices) == {PIPER, QWEN}
+    qwen = health.speaking.voices[QWEN]
+    assert (qwen.model, qwen.ready, qwen.sample_rate) == (
+        QWEN_MODEL_ID,
+        False,
+        QWEN_SAMPLE_RATE,
+    )
+    assert stage.starts() == []
 
-    assert (rate, pcm) == (sample_rate, WORKER_PCM)
-    assert speaking["ready"] is True
-    assert speaking["voices"] == {
-        voice.value: {"model": model, "ready": True, "sample_rate": sample_rate}
-    }
+
+def test_a_listed_voice_that_is_not_offered_is_unavailable_and_starts_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with gpu_voice_stage(tmp_path, monkeypatch, _PIPER_ONLY) as stage:
+        refused = post_speech(TestClient(stage.app()), speak_body(QWEN))
+
+    assert_unavailable(refused)
+    assert stage.starts() == []
+
+
+def test_an_offered_voice_the_app_does_not_list_is_forbidden_and_starts_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with gpu_voice_stage(tmp_path, monkeypatch) as stage:
+        app = create_control_app(
+            stage.settings, stage.runtime, valid_callers([VoiceId.PIPER])
+        )
+        refused = post_speech(TestClient(app), speak_body(QWEN))
+
+    assert_refusal(refused, HTTPStatus.FORBIDDEN, RefusalCode.FORBIDDEN, "voice")
+    assert stage.starts() == []
 
 
 def test_a_selection_file_from_an_older_build_is_ignored_and_nothing_is_written(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _install_piper(monkeypatch, tmp_path / "piper")
-    _install_gpu_voice(VoiceId.QWEN, tmp_path / "cache")
     state = tmp_path / "state"
     state.mkdir()
     older_selection = state / "selected-voice"
-    older_selection.write_text(VoiceId.QWEN.value, encoding="utf-8")
+    older_selection.write_text(QWEN, encoding="utf-8")
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("SPEECH_STATE_DIRECTORY", str(state))
     monkeypatch.setenv("HOME", str(home))
-    settings = _settings(tmp_path, DEFAULT_SPEAKING_MODEL, None)
-    before = sorted(tmp_path.rglob("*"))
-    runtime = Runtime.from_settings(settings)
-    try:
-        runtime.load()
+    with gpu_voice_stage(
+        tmp_path, monkeypatch, StageSetup(gpu_voices=frozenset(), started=False)
+    ) as stage:
+        before = sorted(tmp_path.rglob("*"))
+        stage.runtime.load()
+        client = TestClient(app_over(stage.runtime))
+        spoken = post_speech(client, speak_body(PIPER))
+        refused = post_speech(client, speak_body(QWEN))
+        after = sorted(tmp_path.rglob("*"))
 
-        rate, pcm = _speak(runtime, settings, VoiceId.PIPER)
-        refused = post_speech(
-            TestClient(app_over(runtime)), speak_body(VoiceId.QWEN.value)
-        )
-    finally:
-        runtime.close()
-
-    assert (rate, pcm) == (PIPER_SAMPLE_RATE, WORKER_PCM)
+    assert pcm_from_wav(spoken.content) == (PIPER_SAMPLE_RATE, PIPER_PCM)
     assert refused.status_code != HTTP_200_OK
-    assert older_selection.read_text(encoding="utf-8") == VoiceId.QWEN.value
-    assert sorted(tmp_path.rglob("*")) == before
+    assert older_selection.read_text(encoding="utf-8") == QWEN
+    assert after == before
 
 
 @pytest.mark.parametrize(

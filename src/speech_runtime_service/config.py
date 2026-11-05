@@ -14,19 +14,18 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from speech_runtime_provider_contract import QwenSpeaker
 from webauth.https_client import is_https_url
 
 from speech_runtime_service.hearing_models import HearingModel
-from speech_runtime_service.voices import (
-    DEFAULT_SPEAKING_MODEL,
-    VoiceId,
-    voice_for_model,
-)
+from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
 
 _PROVIDER_ROOT_ERROR = "provider root must be absolute"
-_SPEAKING_MODEL_ERROR = "speaking model must be a supported baseline"
+_GPU_VOICES_ERROR = (
+    "SPEECH_GPU_VOICES must list GPU voice ids separated by commas; "
+    "the resident voice is always offered"
+)
 _CONFIG_FILE_ERROR = "config file must be absolute"
 _KEY_SET_URL_ERROR = "jwks_url must be an https URL"
 _SERVICE_GROUP_ERROR = "service_group must be a group path such as /services/name"
@@ -42,7 +41,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SPEECH_", hide_input_in_errors=True)
 
     device: str = "cuda"
-    speaking_model: str = DEFAULT_SPEAKING_MODEL
+    gpu_voices: Annotated[frozenset[VoiceId], NoDecode] = frozenset()
     voice_cache: Path = Field(default_factory=lambda: Path.home() / ".cache" / "piper")
     huggingface_cache: Path = Field(
         default_factory=lambda: Path(huggingface_hub_constants.HF_HUB_CACHE)
@@ -78,14 +77,26 @@ class Settings(BaseSettings):
             raise ValueError(_PROVIDER_ROOT_ERROR)
         return directory
 
-    @field_validator("speaking_model")
+    @field_validator("gpu_voices", mode="before")
     @classmethod
-    def _speaking_model_is_a_baseline(cls, model: str) -> str:
-        try:
-            voice_for_model(model)
-        except KeyError:
-            raise ValueError(_SPEAKING_MODEL_ERROR) from None
-        return model
+    def _gpu_voices_are_gpu_voice_ids(
+        cls, names: str | frozenset[VoiceId]
+    ) -> frozenset[VoiceId]:
+        if isinstance(names, str):
+            listed = names.split(",") if names.strip() else []
+            return frozenset(_gpu_voice(name.strip()) for name in listed)
+        return frozenset(_gpu_voice(name) for name in names)
+
+
+def _gpu_voice(name: str) -> VoiceId:
+    # Pydantic's enum error lists every catalogue voice; a fixed message does not.
+    try:
+        voice = VoiceId(name)
+    except ValueError:
+        raise ValueError(_GPU_VOICES_ERROR) from None
+    if voice is RESIDENT_VOICE:
+        raise ValueError(_GPU_VOICES_ERROR)
+    return voice
 
 
 def load_settings() -> Settings:

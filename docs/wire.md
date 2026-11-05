@@ -23,7 +23,7 @@ A JSON object with exactly these fields, all required, all strict JSON types:
 |---|---|
 | `model` | `speech-runtime`. Any other value is refused, so a request naming another model is never answered by this one. |
 | `input` | Text with at least one letter or digit, at most `SPEECH_MAX_INPUT_CHARACTERS` characters (default 4096; the operator may raise it above OpenAI's 4096). |
-| `voice` | The id of the voice that is active and ready: `piper` or `qwen3-tts-0.6b`. The voice must be listed for the calling app (`voices` in its configuration) and be the active one. The service speaks with the active voice only; no request switches it. |
+| `voice` | The id of an offered voice: `piper`, always offered, or `qwen3-tts-0.6b` when `SPEECH_GPU_VOICES` names it. The voice must be listed for the calling app (`voices` in its configuration). A GPU voice that is not loaded yet loads for this request, which waits for the load. |
 | `response_format` | `wav`. OpenAI defaults an absent field to `mp3`, so it is required here. |
 
 The service speaks German only. There is no `language` field, and any field
@@ -48,25 +48,28 @@ when both tokens are valid and belong together:
   service group (no subgroup of it).
 
 The service checks the headers before it reads the body, and the wait of
-`busy` starts only after the tokens are accepted. A catalogue voice the app does
-not list is refused as `forbidden` after the body checks and before the active
-voice is checked, so the answer never says which voice is active; an unknown
+`busy` starts only after the tokens are accepted, or, for a request that
+waited for its voice to load, when that load ends. A catalogue voice the app
+does not list is refused as `forbidden` after the body checks and before the
+offer is checked, so the answer never says which voices are offered; an unknown
 voice stays `invalid_request`. Calls an app makes as itself,
 without a person, are not offered in version 1.
 
 ## Admission
 
-Speaking and hearing each have one scarce resource, the one synthesis and the
-one decode a process runs at a time, each under its own limits; a request is
-refused only by the limits of its own resource. For speaking, a request that
-finds the synthesis taken may wait, within two limits, and anything beyond
-them is refused before any work starts:
+Each voice and hearing have one scarce resource, the one synthesis of that
+voice and the one decode a process runs at a time, each under its own limits; a
+request is refused only by the limits of its own resource. For speaking, a
+request that finds its voice's synthesis taken may wait, within two limits that
+hold for each voice apart, and anything beyond them is refused before any work
+starts:
 
 - `SPEECH_MAX_WAITING_REQUESTS` places for requests that wait for the synthesis.
   A request that finds the synthesis taken and every place taken is refused at
   once with `busy` and `Retry-After`.
 - `SPEECH_BUSY_WAIT_SECONDS`: how long a waiting request waits. When it runs out,
-  the answer is the same `busy` with `Retry-After`.
+  the answer is the same `busy` with `Retry-After`. Requests waiting for a GPU
+  voice's load hold no place, and their wait starts when the load ends.
 - `SPEECH_MAX_BODY_BYTES`: the largest request body. The service stops reading
   at the limit, whatever `Content-Length` says, and answers `too_large` without
   parsing the body. It answers only a caller whose tokens are accepted.
@@ -224,7 +227,7 @@ names is not part of the contract.
 | `invalid_request` | 422 | the body is not a JSON object, a field is missing, unknown or mistyped, a value is not accepted, or `input` is empty, without a letter or digit, or over the limit; for a recording: the form or `file` is missing, a field is unknown or not accepted, or the audio cannot be decoded (`param` `file`) | |
 | `too_large` | 413 | the body is over `SPEECH_MAX_BODY_BYTES` (a recording: `SPEECH_MAX_RECORDING_BYTES`), or the recording is longer than `SPEECH_MAX_RECORDING_SECONDS` (`param` `file`) | |
 | `busy` | 429 | the one synthesis (a recording: the one decode) is taken and its waiting places are taken (answered at once), or it is not free within its wait: `SPEECH_MAX_WAITING_REQUESTS` and `SPEECH_BUSY_WAIT_SECONDS`, for a recording `SPEECH_HEARING_MAX_WAITING_REQUESTS` and `SPEECH_HEARING_BUSY_WAIT_SECONDS` | `Retry-After`: the wait in whole seconds, at least 1 |
-| `unavailable` | 503 | the tokens cannot be checked because the issuer's key set is unreachable and no cached key serves, or the named voice cannot speak: it is not the configured voice, it is loading, it failed, or the service is shutting down (`param` `voice`); for a recording: hearing is not loaded or configured, or its decode failed | |
+| `unavailable` | 503 | the tokens cannot be checked because the issuer's key set is unreachable and no cached key serves, or the named voice cannot speak: it is not offered, the start load still runs, its load failed or found its files missing, its worker died while the request waited, or the service is shutting down (`param` `voice`); for a recording: hearing is not loaded or configured, or its decode failed | |
 
 Apps read the `busy` wait with `busy_wait(status, headers)` in
 `speech_runtime_client.wire`: it returns the wait in whole seconds, `None` for any
@@ -236,10 +239,12 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
 
 ## Settings that shape the wire
 
+- `SPEECH_GPU_VOICES` (voice ids separated by commas, none when absent): the
+  GPU voices offered beside Piper.
 - `SPEECH_BUSY_WAIT_SECONDS` (default `5.0`, at least 0): how long a request
-  waits for the synthesis before `busy`.
+  waits for its voice's synthesis before `busy`.
 - `SPEECH_MAX_WAITING_REQUESTS` (default `3`, at least 0, where 0 allows no
-  waiting): how many requests wait for the synthesis.
+  waiting): how many requests wait for each voice's synthesis.
 - `SPEECH_MAX_BODY_BYTES` (default `32768`, at least 1): the largest body. It
   holds a 4096-character `input` even when every character is escaped as a
   six-byte `\uXXXX`, plus the other fields.
@@ -274,9 +279,12 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
 `GET /health` answers without a token, so a supervisor can poll it:
 `{"speaking": {"ready", "voices": {"<id>": {"model", "ready", "sample_rate"}}}, "hearing": {"model", "ready"}, "card_memory_mb"}`.
 It answers while the models are still loading, with `ready` false.
-`speaking.ready` is the speaking service's own readiness. `speaking.voices`
-lists the offered voices by id; a voice reports its catalogue `model` whether it
-is loaded or not, its own `ready`, and its WAV `sample_rate` (0 until loaded).
+`speaking.ready` is the speaking service's own readiness: whether Piper can
+speak. `speaking.voices` lists the offered voices by id; a voice reports its
+catalogue `model` whether it is loaded or not, and its WAV `sample_rate` (Piper's
+0 until it is loaded). A voice's `ready` is true exactly when a request for it
+would be spoken now: never during the start load or once shutdown began, and
+never for a GPU voice that is not loaded, failed, or whose worker died.
 The service builds the answer through `Health` in `speech_runtime_client.wire`,
 which ignores keys it does not know. `hearing.model` is the configured hearing
 model, or `unavailable` when none is configured; `hearing.ready` is false while

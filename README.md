@@ -3,11 +3,13 @@
 Audience: the operator starting this process on the home server, and
 Presentator, which calls it.
 
-One process holds a German voice resident and offers `GET /health`, the
-speak wire and a route that hears a recording, over HTTP on a TCP address
-(`SPEECH_HOST`, `SPEECH_PORT`). The caller owns the address. The voice is the
-one `SPEECH_SPEAKING_MODEL` names: Piper or Qwen3-TTS 0.6B,
-from weights that are already cached. When
+One process holds the German Piper voice resident and offers `GET /health`,
+the speak wire and a route that hears a recording, over HTTP on a TCP address
+(`SPEECH_HOST`, `SPEECH_PORT`). The caller owns the address. Beside Piper it
+offers each GPU voice `SPEECH_GPU_VOICES` names (today Qwen3-TTS 0.6B), loaded
+on its first request from weights that are already cached and kept until the
+process ends. A GPU voice that fails to load or whose worker dies is refused
+until a later request loads it again, while Piper and hearing keep serving. When
 `SPEECH_HEARING_MODEL` names a model, the process also holds a faster-whisper
 model resident, loaded from local files only. The service stores no choice of
 its own.
@@ -90,14 +92,14 @@ All `SPEECH_*`:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `SPEECH_DEVICE` | `cuda` | Device for the isolated providers. Qwen accepts only `cuda` and maps it to `cuda:0`. Piper stays on CPU. |
-| `SPEECH_SPEAKING_MODEL` | `de_DE-thorsten-medium` | The one voice the process starts and speaks: `de_DE-thorsten-medium` (Piper) or `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`. Its weights must already be cached; the process exits naming the model when they are not |
+| `SPEECH_GPU_VOICES` | empty | The GPU voices offered beside Piper, as voice ids separated by commas: `qwen3-tts-0.6b`. Piper is always offered and loads at start; its weights must be there or the process exits. A GPU voice loads on its first request; when its weights or worker are missing, the log names the missing files and its requests answer 503 `unavailable` until they are there. `piper`, an unknown id or an empty item ends the process, naming the setting |
 | `SPEECH_VOICE_CACHE` | `~/.cache/piper` | Where Piper ONNX files are kept; `speech-runtime-fetch-voice <voice>` fetches a voice there at its pinned revision, checked against its hashes (the service never fetches) |
 | `SPEECH_HUGGINGFACE_CACHE` | Provider Hub cache (normally `~/.cache/huggingface/hub`) | The shared local Hub cache for provider loading and the artifact check |
 | `SPEECH_QWEN_SPEAKER` | `Ryan` | One of Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Ono_Anna, or Sohee |
 | `SPEECH_HOST` | `127.0.0.1` | Address the listener binds. A container sets `0.0.0.0` so the app network reaches it |
 | `SPEECH_PORT` | `8080` | TCP port the listener binds; a whole number from 1 to 65535. An address that cannot be bound ends the process before any model work |
-| `SPEECH_BUSY_WAIT_SECONDS` | `5.0` | How long a second speech request waits for the one synthesis before it answers 429 `busy`; at least 0, where 0 refuses at once |
-| `SPEECH_MAX_WAITING_REQUESTS` | `3` | How many speech requests may wait for the one synthesis; a request beyond them answers 429 `busy` at once. A whole number of at least 0, where 0 allows no waiting |
+| `SPEECH_BUSY_WAIT_SECONDS` | `5.0` | How long a speech request waits for its voice's one synthesis before it answers 429 `busy`, each voice apart; a request that waited for its voice to load counts from the load's end. At least 0, where 0 refuses at once |
+| `SPEECH_MAX_WAITING_REQUESTS` | `3` | How many speech requests may wait for each voice's one synthesis; a request beyond them answers 429 `busy` at once. A whole number of at least 0, where 0 allows no waiting |
 | `SPEECH_MAX_BODY_BYTES` | `32768` | The largest speech request body; a larger one answers 413 `too_large` before it is parsed. A whole number of at least 1 |
 | `SPEECH_MAX_INPUT_CHARACTERS` | `4096` | The longest `input` a speech request may carry; a whole number of at least 1 |
 | `SPEECH_HEARING_MODEL` | none | The hearing model the process loads at start, on `SPEECH_DEVICE`: `large-v3` (recommended) or `small`. None: hearing answers 503 `unavailable`. A model that was not fetched stops the start naming this setting (fetch it with `speech-runtime-fetch-hearing-model <model>`); a card that is missing, taken or too small, or a `cuda` device without the `gpu` extra, leaves hearing unavailable in `/health` while speaking stays up |
@@ -114,7 +116,7 @@ When `SPEECH_HUGGINGFACE_CACHE` is absent, `HF_HUB_CACHE` and `HF_HOME` influenc
 One instance serves the one device `SPEECH_DEVICE` names, on one address; the
 platform starts one instance per card. The service holds no lock per card.
 
-If the voice cannot be loaded the process exits and names the model. The hearing model is loaded after the voice: a missing resource leaves hearing unavailable and the process up.
+At start the process loads Piper, then hearing; until both are done, every speech request answers 503 `unavailable`. If Piper cannot be loaded the process exits and names the model. A missing hearing resource leaves hearing unavailable and the process up. A GPU voice loads once, on its first request, and its waiting requests share that load; nothing unloads it.
 
 ## Install
 
@@ -187,7 +189,7 @@ when that wait ends; the load wait and the proof then share the 30-minute cap,
 whose TERM stops the speech server and its providers and removes the private
 directory. If its caller dies, `setpriv` hands `timeout` a TERM at once, so
 the lock stays held only while the stack tears down; a host without `setpriv`
-fails the run, naming it. It starts Piper unless `SPEECH_SPEAKING_MODEL` is set and points
+fails the run, naming it. It speaks the GPU voice `SPEECH_GPU_VOICES` names, else Piper, and points
 `SPEECH_PROVIDER_ROOT` at `providers` unless the caller set it, so each
 provider needs its virtual environment first (`uv sync --locked` inside
 `providers/<provider>`). `SPEECH_DEVICE` (default `cuda`) passes through; on
@@ -206,8 +208,7 @@ the peak RSS of the speech process, and ends with `PROOF_OK` when health and
 speaking held. On the CPU with Piper:
 
 ```sh
-SPEECH_DEVICE=cpu SPEECH_SPEAKING_MODEL=de_DE-thorsten-medium \
-  OMP_NUM_THREADS=4 uv run python scripts/prove_speech.py
+SPEECH_DEVICE=cpu OMP_NUM_THREADS=4 uv run python scripts/prove_speech.py
 ```
 
 Hearing stage proof, under the same lock form. It hears a German and an English
@@ -215,7 +216,7 @@ question and one long turn per language, live over the Realtime WebSocket and
 from a file, with the medians of at least five runs, the word errors against the
 known sentence and the growing deltas of the long turn. On `cuda` it also
 records the card's peak memory per hearing model, alone and with each GPU voice
-already in the cache, and starts the service on a card a second process holds.
+`SPEECH_GPU_VOICES` names, and starts the service on a card a second process holds.
 On `cpu` those two stages are recorded as not applicable. The clips are
 synthetic: German from the service's speak route, English from a Piper voice
 fetched into `--english-voice-directory` when absent. It never downloads a

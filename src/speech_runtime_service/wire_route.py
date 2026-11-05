@@ -56,7 +56,7 @@ if TYPE_CHECKING:
     from speech_runtime_service.callers import SpeechCallers
     from speech_runtime_service.config import Settings
     from speech_runtime_service.hearing import HearingEngine
-    from speech_runtime_service.service import Runtime, VoiceAdmission
+    from speech_runtime_service.service import Runtime, SpeakingEngine
 
 logger = logging.getLogger(__name__)
 
@@ -126,25 +126,65 @@ class _SpeechRoute:
         admitted = await self._callers.admit(request.headers)
         if isinstance(admitted, RefusalCode):
             return _refused(admitted)
-        deadline = self._runtime.clock.now() + self._settings.busy_wait_seconds
+        accepted = self._runtime.clock.now()
         parsed = await self._checked(request)
         if isinstance(parsed, JSONResponse):
             return parsed
         text, voice = parsed
         if not self._callers.may_name(admitted.app, voice):
             return _refused(RefusalCode.FORBIDDEN, "voice")
-        admission = self._admit(voice)
-        if isinstance(admission, JSONResponse):
-            return admission
+        engine = await self._engine(voice, accepted)
+        if isinstance(engine, JSONResponse):
+            return engine
+        speaking, deadline = engine
+        return await self._spoken(voice, speaking, deadline, text)
+
+    async def _engine(
+        self, voice: VoiceId, accepted: float
+    ) -> tuple[SpeakingEngine, float] | JSONResponse:
+        """The engine of `voice` and the deadline of its busy wait, or the refusal.
+
+        The busy wait counts from the accepted tokens, or from the end of the
+        load the request waited for.
+        """
+        if voice not in self._runtime.slots:
+            return _refused(RefusalCode.UNAVAILABLE, "voice")
+        speaking = self._runtime.capture(voice)
+        if speaking is not None:
+            return speaking, accepted + self._settings.busy_wait_seconds
+        speaking = await self._loaded(voice)
+        if speaking is None:
+            return self._unavailable()
+        return speaking, self._runtime.clock.now() + self._settings.busy_wait_seconds
+
+    async def _spoken(
+        self, voice: VoiceId, speaking: SpeakingEngine, deadline: float, text: str
+    ) -> Response:
+        """The WAV of `text` once `voice`'s gate is held and `speaking` still speaks."""
         lease = await self._runtime.slots[voice].gate.acquire(
             deadline, self._settings.max_waiting_requests
         )
+        if self._runtime.capture(voice) is not speaking:
+            if lease is not None:
+                lease.close()
+            return self._unavailable()
         if lease is None:
             return self._busy()
-        chunks = wav_chunks(
-            admission.speaking, text, SPEAKING_LANGUAGE, admission.sample_rate
-        )
+        chunks = wav_chunks(speaking, text, SPEAKING_LANGUAGE, speaking.sample_rate)
         return ClosingWavResponse(chunks, lease)
+
+    async def _loaded(self, voice: VoiceId) -> SpeakingEngine | None:
+        """The engine of `voice` once its shared load ends; `None` if none may run."""
+        load = self._runtime.load_on_demand(voice)
+        if load is None:
+            return None
+        # `wrap_future` alone would pass this request's cancellation on to the
+        # load every waiter shares; the shield keeps it to this request.
+        loaded = await asyncio.shield(asyncio.wrap_future(load))
+        # The outcome is this request's load's, never that of a retry since.
+        if loaded is None or self._runtime.capture(voice) is not loaded:
+            return None
+        return loaded
 
     async def _checked(self, request: Request) -> tuple[str, VoiceId] | JSONResponse:
         raw = await _read_within(request, self._settings.max_body_bytes)
@@ -160,17 +200,12 @@ class _SpeechRoute:
         except ValueError:
             return _refused(RefusalCode.INVALID_REQUEST, "voice")
 
-    def _admit(self, voice: VoiceId) -> VoiceAdmission | JSONResponse:
-        admission = self._runtime.capture_speaking()
-        if admission is None:
-            return _refused(
-                RefusalCode.UNAVAILABLE,
-                "voice",
-                background=BackgroundTask(self._runtime.reconcile_failed_active),
-            )
-        if admission.voice is not voice:
-            return _refused(RefusalCode.UNAVAILABLE, "voice")
-        return admission
+    def _unavailable(self) -> JSONResponse:
+        return _refused(
+            RefusalCode.UNAVAILABLE,
+            "voice",
+            background=BackgroundTask(self._runtime.reconcile_failed_active),
+        )
 
     def _busy(self) -> JSONResponse:
         wait = max(1, math.ceil(self._settings.busy_wait_seconds))

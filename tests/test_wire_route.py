@@ -538,7 +538,7 @@ def _runtime_closing_on_shutdown(
 def _assert_gate_free_and_shutdown_closes_once(
     runtime: Runtime, closed: list[int]
 ) -> None:
-    assert gate_is_free(runtime)
+    assert gate_is_free(runtime, VoiceId.QWEN)
     runtime.close()
     assert closed == [1]
 

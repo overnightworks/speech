@@ -2,13 +2,18 @@
 
 import ast
 import os
+import subprocess
 import sys
+import time
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 import pytest
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+WORKER_WAIT_SECONDS = 10.0
 
 _WORKER = r"""#!{python}
 import argparse
@@ -38,12 +43,36 @@ if {provider!r} == "qwen":
 arguments = parser.parse_args()
 cache = Path(arguments.cache)
 cache.mkdir(parents=True, exist_ok=True)
+def wait_for(path):
+    while not path.exists():
+        time.sleep(0.01)
+
+
+if (cache / "hold-exit").exists():
+    def exit_when_released(_signal, _frame):
+        (cache / f"exit-held-{{os.getpid()}}").touch()
+        wait_for(cache / f"release-exit-{{os.getpid()}}")
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, exit_when_released)
+with (cache / "worker-starts").open("a", encoding="utf-8") as starts:
+    starts.write(f"{{os.getpid()}}\n")
 (cache / "worker-observed").write_text(
     repr(os.getcwd()) + "\n" + repr(os.environ.copy()) + "\n" +
     repr(os.getpid()) + "\n" + repr(arguments.__dict__), encoding="utf-8"
 )
+
 stream = os.fdopen(protocol_fd, "wb", buffering=0)
 behavior = {behavior!r}
+if behavior == "held-ready":
+    release = cache / f"release-{{os.getpid()}}"
+    wait_for(release)
+    outcome = release.read_text(encoding="utf-8")
+    if outcome == "exit":
+        raise SystemExit(1)
+    if outcome == "failed":
+        write_frame(stream, Frame(FrameKind.FAILED, 0, b"\x01"))
+        while True:
+            time.sleep(1)
 if behavior == "startup-exit":
     raise SystemExit(1)
 if behavior == "startup-oversized":
@@ -55,8 +84,7 @@ if behavior == "startup-failed":
 rate = 48000 if behavior == "other-rate" else 24000
 write_frame(stream, Frame(FrameKind.READY, 0, bytes((0, 1)) + rate.to_bytes(4, "big")))
 if behavior == "idle-exit":
-    while not (cache / "exit-now").exists():
-        time.sleep(0.01)
+    wait_for(cache / "exit-now")
     raise SystemExit(1)
 if behavior == "term-resistant":
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -127,6 +155,61 @@ def closed_provider(
     return root, tmp_path / "cache"
 
 
+class LoadOutcome(StrEnum):
+    """What a `held-ready` worker does once its load is released."""
+
+    READY = "ready"
+    FAILED = "failed"
+    EXIT = "exit"
+
+
+def worker_starts(cache: Path) -> list[int]:
+    """The pids of every worker started over `cache`, in start order."""
+    log = cache / "worker-starts"
+    if not log.exists():
+        return []
+    return [int(line) for line in log.read_text(encoding="utf-8").splitlines()]
+
+
+def wait_for_starts(cache: Path, count: int) -> list[int]:
+    """The start log once it holds `count` starts; fails after a bounded wait."""
+    deadline = time.monotonic() + WORKER_WAIT_SECONDS
+    while len(started := worker_starts(cache)) < count:
+        assert time.monotonic() < deadline, f"{count} worker starts never came"
+        time.sleep(0.01)
+    return started
+
+
+def release_load(cache: Path, pid: int, outcome: LoadOutcome) -> None:
+    """Let the `held-ready` worker `pid` end its load with `outcome`."""
+    _write_atomically(cache / f"release-{pid}", outcome.value)
+
+
+def hold_exits(cache: Path) -> None:
+    """Make every worker started from now on wait on SIGTERM for its exit release."""
+    cache.mkdir(parents=True, exist_ok=True)
+    (cache / "hold-exit").touch()
+
+
+def wait_for_held_exit(cache: Path, pid: int) -> None:
+    """Return once the held worker `pid` got its SIGTERM; fails after a bounded wait."""
+    deadline = time.monotonic() + WORKER_WAIT_SECONDS
+    while not (cache / f"exit-held-{pid}").exists():
+        assert time.monotonic() < deadline, f"worker {pid} was never stopped"
+        time.sleep(0.01)
+
+
+def release_exit(cache: Path, pid: int) -> None:
+    """Let the held worker `pid` exit on the SIGTERM it waits on."""
+    _write_atomically(cache / f"release-exit-{pid}", "")
+
+
+def _write_atomically(path: Path, text: str) -> None:
+    staged = path.with_name(f"{path.name}.staged")
+    staged.write_text(text, encoding="utf-8")
+    staged.replace(path)
+
+
 def observed(cache: Path) -> tuple[str, dict[str, str], int, dict[str, str]]:
     lines = (cache / "worker-observed").read_text(encoding="utf-8").splitlines()
     return (
@@ -140,3 +223,43 @@ def observed(cache: Path) -> tuple[str, dict[str, str], int, dict[str, str]]:
 def assert_reaped(pid: int) -> None:
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
+
+
+def is_running(pid: int) -> bool:
+    """Whether the process `pid` still exists, not yet reaped."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def fail_every_reap(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Make each worker started from now on fail its cleanup once it is reaped.
+
+    The returned list fills with the pids of those workers, in start order.
+    """
+    real_popen = subprocess.Popen
+    started: list[int] = []
+
+    class ReapedThenFailing:
+        def __init__(self, process: subprocess.Popen[bytes]) -> None:
+            self._process = process
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._process, name)
+
+        def wait(self, timeout: float | None = None) -> int:
+            self._process.wait(timeout=timeout)
+            message = "cleanup failed after reap"
+            raise RuntimeError(message)
+
+    def popen(*arguments: object, **keywords: object) -> ReapedThenFailing:
+        process = real_popen(*arguments, **keywords)
+        started.append(process.pid)
+        return ReapedThenFailing(process)
+
+    monkeypatch.setattr(
+        "speech_runtime_service.provider_process.subprocess.Popen", popen
+    )
+    return started

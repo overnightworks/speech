@@ -34,7 +34,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx2
-from speech_runtime_provider_contract import QWEN_MODEL_ID
 
 import hearing_figures as figures
 from hearing_card import (
@@ -69,7 +68,6 @@ from prove_speech import (
     speak_measured,
     speech_environment,
     speech_server,
-    voice_id,
     wait_for_load,
 )
 from speech_runtime_client.wire import (
@@ -86,11 +84,7 @@ from speech_runtime_service.hearing_models import (
 )
 from speech_runtime_service.pcm import pcm_from_wav
 from speech_runtime_service.piper_voices import PinnedVoice, fetch_voice_files
-from speech_runtime_service.voices import (
-    DEFAULT_SPEAKING_MODEL,
-    installed_voice_ids,
-    voice_for_model,
-)
+from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -105,11 +99,9 @@ if TYPE_CHECKING:
 
     from piper import PiperVoice
 
-    from speech_runtime_service.voices import VoiceId
-
 
 THIS_SCRIPT = Path(__file__).resolve()
-GPU_SPEAKING_MODELS = (QWEN_MODEL_ID,)
+GPU_VOICES = tuple(voice for voice in VoiceId if voice is not RESIDENT_VOICE)
 GERMAN_QUESTION = "Wie spät ist es und wann beginnt die nächste Sitzung?"
 ENGLISH_QUESTION = "What time is it and when does the next session begin?"
 GERMAN_LONG_TURN = (
@@ -236,23 +228,22 @@ def wait_loaded(
 
 @contextlib.contextmanager
 def hearing_service(
-    device: str, hearing_model: str, speaking_model: str
+    device: str, hearing_model: str, voice: VoiceId
 ) -> Iterator[Service]:
-    """Run the service on `device` with the models, in a directory of its own."""
+    """Run the service on `device` with the model, speaking `voice`, on its own."""
     directory = Path(tempfile.mkdtemp(prefix="speech-"))
     port = free_local_port()
     base_url = f"http://{LOOPBACK_HOST}:{port}"
-    voice = voice_id(speaking_model)
     try:
-        with proof_identity(directory, voice) as identity:
+        with proof_identity(directory, voice.value) as identity:
             minting = load_minting(identity.minting_path)
             environment = speech_environment(
-                port, speaking_model, identity, device, hearing_model
+                port, voice, identity, device, hearing_model
             )
             wait_ready = functools.partial(
                 wait_loaded,
                 wait=LoadWait(
-                    speaks=functools.partial(_speaks, base_url, minting, voice)
+                    speaks=functools.partial(_speaks, base_url, minting, voice.value)
                 ),
             )
             with speech_server(
@@ -293,7 +284,7 @@ def german_clip(service: Service, text: str) -> bytes:
     wav, _, _ = speak_measured(
         service.base_url,
         text,
-        voice_id(DEFAULT_SPEAKING_MODEL),
+        RESIDENT_VOICE.value,
         service.minting,
     )
     rate, pcm = pcm_from_wav(wav)
@@ -446,9 +437,7 @@ def measure_models(
     """
     clips: dict[HearingLanguage, Clip] | None = None
     for model in arguments.hearing_models:
-        with hearing_service(
-            arguments.device, model, DEFAULT_SPEAKING_MODEL
-        ) as service:
+        with hearing_service(arguments.device, model, RESIDENT_VOICE) as service:
             if clips is None:
                 clips = make_clips(service, arguments.english_voice_directory)
             print(
@@ -482,7 +471,7 @@ def measure_models(
 def measure_peak(
     device: str,
     hearing_model: str,
-    speaking_model: str,
+    voice: VoiceId,
     warm_clip: bytes,
     ports: Ports = PORTS,
 ) -> dict[str, object]:
@@ -498,11 +487,9 @@ def measure_peak(
     baseline = used_mib()
     with (
         ports.sample() as sampler,
-        ports.serve(device, hearing_model, speaking_model) as service,
+        ports.serve(device, hearing_model, voice) as service,
     ):
-        ports.speak(
-            service.base_url, GERMAN_QUESTION, voice_id(speaking_model), service.minting
-        )
+        ports.speak(service.base_url, GERMAN_QUESTION, voice.value, service.minting)
         ports.hear(service, HearingLanguage.DE, warm_clip)
         resident = used_mib()
     return {
@@ -520,28 +507,24 @@ def measure_memory(
     hearing_models: Sequence[str],
     clips: dict[HearingLanguage, Clip],
     memory: dict[str, object],
-    installed: Collection[VoiceId],
+    offered: Collection[VoiceId],
 ) -> None:
-    """Fill `memory` with each model's peak, alone and with each `installed` voice."""
-    cached = [m for m in GPU_SPEAKING_MODELS if voice_for_model(m) in installed]
+    """Fill `memory` with each model's peak, alone and with each `offered` GPU voice."""
+    measured = [voice for voice in GPU_VOICES if voice in offered]
     warm_clip = clips[HearingLanguage.DE].long_turn
-    memory["voices_not_in_cache"] = [
-        voice_for_model(m).value for m in GPU_SPEAKING_MODELS if m not in cached
+    memory["voices_not_offered"] = [
+        voice.value for voice in GPU_VOICES if voice not in offered
     ]
     models: dict[str, object] = {}
     memory["models"] = models
     for model in hearing_models:
         peaks: dict[str, object] = {}
         models[model] = peaks
-        peaks["hearing_alone"] = measure_peak(
-            device, model, DEFAULT_SPEAKING_MODEL, warm_clip
-        )
+        peaks["hearing_alone"] = measure_peak(device, model, RESIDENT_VOICE, warm_clip)
         with_voice: dict[str, object] = {}
         peaks["with_voice"] = with_voice
-        for speaking in cached:
-            with_voice[voice_for_model(speaking).value] = measure_peak(
-                device, model, speaking, warm_clip
-            )
+        for voice in measured:
+            with_voice[voice.value] = measure_peak(device, model, voice, warm_clip)
 
 
 def prove_taken_card(
@@ -555,14 +538,14 @@ def prove_taken_card(
     german = clips[HearingLanguage.DE]
     with ports.hold() as held_mib:
         used_while_held = used_mib()
-        with ports.serve(device, hearing_model, DEFAULT_SPEAKING_MODEL) as service:
+        with ports.serve(device, hearing_model, RESIDENT_VOICE) as service:
             health = service.running.health
             file_answer = ports.post(service, HearingLanguage.DE, german.question)
             live = asyncio.run(ports.upgrade(service))
             wav, _, _ = ports.speak(
                 service.base_url,
                 GERMAN_QUESTION,
-                voice_id(DEFAULT_SPEAKING_MODEL),
+                RESIDENT_VOICE.value,
                 service.minting,
             )
     freed = ports.freed(baseline)
@@ -738,7 +721,7 @@ def prove(
                 arguments.hearing_models,
                 clips,
                 stage,
-                installed_voice_ids(load_settings()),
+                load_settings().gpu_voices,
             ),
             save,
         )

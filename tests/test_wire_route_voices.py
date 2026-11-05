@@ -21,7 +21,6 @@ from starlette.status import (
 from speech_runtime_client.wire import RETRY_AFTER_HEADER, RefusalCode
 from speech_runtime_service.config import Settings
 from speech_runtime_service.control import create_control_app
-from speech_runtime_service.service import Runtime, RuntimeDependencies
 from speech_runtime_service.voices import VoiceId
 from tests.support.fakes_support import FakeSpeaking, GatedSpeaking
 from tests.support.identity_support import (
@@ -37,6 +36,7 @@ from tests.support.speak_support import (
     SpeakCall,
     assert_call_refusal,
     assert_refusal,
+    fake_runtime,
     info_comment_before_data,
     post_speech,
     speak_app,
@@ -54,21 +54,13 @@ SENTENCE = "Zebrakuchen"
 FORBIDDEN_VOICE = (HTTP_403_FORBIDDEN, RefusalCode.FORBIDDEN, "voice")
 
 
-def _runtime_with_active(
-    voice: VoiceId, speaking: FakeSpeaking | None = None
-) -> Runtime:
-    return Runtime(
-        speaking or FakeSpeaking(),
-        memory_probe=lambda: 0,
-        dependencies=RuntimeDependencies(voice=voice),
-    )
-
-
 def _app(
-    callers: SpeechCallers, active: VoiceId = PIPER, **settings: float
+    callers: SpeechCallers, offered: VoiceId = PIPER, **settings: float
 ) -> TestClient:
     return TestClient(
-        create_control_app(Settings(**settings), _runtime_with_active(active), callers)
+        create_control_app(
+            Settings(**settings), fake_runtime(FakeSpeaking(), offered), callers
+        )
     )
 
 
@@ -78,14 +70,14 @@ def _speak(
     return post_speech(client, speak_body(voice.value), headers)
 
 
-def test_an_app_names_a_listed_active_voice_and_is_spoken_to() -> None:
+def test_an_app_names_a_listed_offered_voice_and_is_spoken_to() -> None:
     response = _speak(_app(valid_callers([PIPER])), PIPER)
 
     assert response.status_code == HTTP_200_OK
     assert info_comment_before_data(response.content) is not None
 
 
-def test_an_unlisted_voice_is_forbidden_naming_the_voice_even_when_it_is_active() -> (
+def test_an_unlisted_voice_is_forbidden_naming_the_voice_even_when_it_is_offered() -> (
     None
 ):
     response = _speak(_app(valid_callers([QWEN])), PIPER)
@@ -93,7 +85,7 @@ def test_an_unlisted_voice_is_forbidden_naming_the_voice_even_when_it_is_active(
     assert_refusal(response, *FORBIDDEN_VOICE)
 
 
-def test_an_unlisted_voice_that_is_not_active_is_forbidden_and_not_unavailable() -> (
+def test_an_unlisted_voice_that_is_not_offered_is_forbidden_and_not_unavailable() -> (
     None
 ):
     response = _speak(_app(valid_callers([PIPER])), QWEN)
@@ -101,7 +93,7 @@ def test_an_unlisted_voice_that_is_not_active_is_forbidden_and_not_unavailable()
     assert_refusal(response, *FORBIDDEN_VOICE)
 
 
-def test_a_listed_voice_that_is_not_active_is_unavailable() -> None:
+def test_a_listed_voice_that_is_not_offered_is_unavailable() -> None:
     response = _speak(_app(valid_callers([PIPER, QWEN])), QWEN)
 
     assert_refusal(
@@ -112,7 +104,7 @@ def test_a_listed_voice_that_is_not_active_is_unavailable() -> None:
 def test_an_unlisted_voice_is_refused_without_waiting_for_the_busy_gate() -> None:
     async def scenario() -> tuple[SpeakCall, SpeakCall]:
         voice = GatedSpeaking()
-        runtime = _runtime_with_active(PIPER, voice)
+        runtime = fake_runtime(voice)
         app = create_control_app(
             Settings(busy_wait_seconds=60), runtime, valid_callers([PIPER])
         )
@@ -134,19 +126,19 @@ def test_an_unlisted_voice_is_refused_without_waiting_for_the_busy_gate() -> Non
     assert RETRY_AFTER_HEADER.lower() not in {name.lower() for name in refused.headers}
 
 
-@pytest.mark.parametrize("active", [PIPER, QWEN])
-def test_each_app_is_judged_by_its_own_list(active: VoiceId) -> None:
+@pytest.mark.parametrize("offered", [PIPER, QWEN])
+def test_each_app_is_judged_by_its_own_list(offered: VoiceId) -> None:
     callers = callers_of_two_apps([PIPER], [QWEN])
-    client = _app(callers, active)
+    client = _app(callers, offered)
     quiz = valid_headers(minting=MINTING)
     other = valid_headers(minting=OTHER_MINTING)
 
-    listed_by_quiz = _speak(client, active, quiz)
-    listed_by_other = _speak(client, active, other)
+    listed_by_quiz = _speak(client, offered, quiz)
+    listed_by_other = _speak(client, offered, other)
 
     owner, stranger = (
         (listed_by_quiz, listed_by_other)
-        if active is PIPER
+        if offered is PIPER
         else (listed_by_other, listed_by_quiz)
     )
     assert owner.status_code == HTTP_200_OK

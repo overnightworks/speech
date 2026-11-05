@@ -37,9 +37,8 @@ def _starting(hearing: FakeHearing | None) -> Runtime:
         None,
         memory_probe=lambda: 0,
         dependencies=RuntimeDependencies(
-            voice=VoiceId.PIPER,
             engine_factory=lambda _voice: FakeSpeaking(),
-            artifact_checker=lambda _voice: True,
+            missing_artifacts=lambda _voice: (),
         ),
         hearing=Hearing(hearing, LoopClock()),
     )
