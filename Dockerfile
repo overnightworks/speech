@@ -9,13 +9,18 @@ WORKDIR /app
 
 # uv and git exist only in this stage, because uv needs git to fetch the
 # git-pinned webauth; the final stage copies the environment and carries neither.
+# uv's downloads land in a build cache that outlives the build, so a build hal's
+# 1800 s cap kills keeps what it fetched and the next one goes on from there; the
+# cache lies outside every layer, so the installed environment is the same.
 FROM python-base AS dependencies
 COPY --from=uv /uv /usr/local/bin/uv
-# The interpreter is the image's own, so uv never downloads another one.
+# The interpreter is the image's own, so uv never downloads another one. The
+# cache is another filesystem, so uv copies from it instead of linking.
 ENV UV_PYTHON_DOWNLOADS=never \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_COMPILE_BYTECODE=1 \
-    UV_NO_CACHE=1
+    UV_CACHE_DIR=/var/cache/uv \
+    UV_LINK_MODE=copy
 RUN apt-get update \
  && apt-get install --yes --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
@@ -26,14 +31,16 @@ COPY providers/provider-contract/pyproject.toml providers/provider-contract/pypr
 # whose build script would run third-party code during the image build. The
 # repository's own distributions and the git-pinned webauth are sources and
 # build in the next step, with the exact build tools their pyprojects pin.
-RUN uv sync --locked --no-dev --no-editable --no-install-project --no-build \
+RUN --mount=type=cache,id=speech-runtime-uv,target=/var/cache/uv \
+    uv sync --locked --no-dev --no-editable --no-install-project --no-build \
     --no-install-package overnightworks-webauth \
     --no-install-package overnightworks-speech-runtime-client \
     --no-install-package overnightworks-speech-runtime-provider-contract
 COPY packages/client/src packages/client/src
 COPY providers/provider-contract/src providers/provider-contract/src
 COPY src src
-RUN uv sync --locked --no-dev --no-editable
+RUN --mount=type=cache,id=speech-runtime-uv,target=/var/cache/uv \
+    uv sync --locked --no-dev --no-editable
 
 # Qwen's environment lies where SPEECH_PROVIDER_ROOT finds its worker. The
 # first step is wheel-only like the service's; it leaves out the lock's one
@@ -44,27 +51,37 @@ COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_PYTHON_DOWNLOADS=never \
     UV_PROJECT_ENVIRONMENT=${SPEECH_PROVIDER_ROOT}/qwen/.venv \
     UV_COMPILE_BYTECODE=1 \
-    UV_NO_CACHE=1
+    UV_CACHE_DIR=/var/cache/uv \
+    UV_LINK_MODE=copy
 WORKDIR /build/providers/qwen
 COPY providers/qwen/pyproject.toml providers/qwen/uv.lock ./
 COPY providers/provider-contract/pyproject.toml ../provider-contract/pyproject.toml
-RUN uv sync --locked --no-dev --no-editable --no-install-project --no-build \
+RUN --mount=type=cache,id=speech-runtime-uv,target=/var/cache/uv \
+    uv sync --locked --no-dev --no-editable --no-install-project --no-build \
     --no-install-package sox \
     --no-install-package overnightworks-speech-runtime-provider-contract
 COPY providers/provider-contract/src ../provider-contract/src
 COPY providers/qwen/src src
-RUN uv sync --locked --no-dev --no-editable
+RUN --mount=type=cache,id=speech-runtime-uv,target=/var/cache/uv \
+    uv sync --locked --no-dev --no-editable
 
 # The voices and the hearing model are fetched here, each at its pinned
-# revision (Piper's voice also checked against its hashes); hearing's model and
-# Qwen share the one Hub cache. The Hub's own cache and logs stay in this stage.
+# revision (Piper's voice also checked against its hashes). Hearing's model and
+# Qwen go into the one Hub cache, a build cache like uv's, and the image takes a
+# copy of it. They share a step, because only a step that fetched both knows the
+# build cache holds both when it copies. The copy holds every revision the build
+# cache holds, so after a pin moves, a host whose build cache still holds the old
+# revision bakes both until that cache is pruned. The Hub's own settings and logs
+# stay in this stage.
 FROM dependencies AS weights
 ENV HF_HOME=/tmp/huggingface \
     SPEECH_VOICE_CACHE=/opt/voices \
-    SPEECH_HUGGINGFACE_CACHE=/opt/hearing
-RUN speech-runtime-fetch-voice de_DE-thorsten-medium \
- && speech-runtime-fetch-hearing-model small
-RUN speech-runtime-fetch-voice qwen3-tts-0.6b
+    SPEECH_HUGGINGFACE_CACHE=/var/cache/huggingface
+RUN speech-runtime-fetch-voice de_DE-thorsten-medium
+RUN --mount=type=cache,id=speech-runtime-huggingface,target=/var/cache/huggingface \
+    speech-runtime-fetch-hearing-model small \
+ && speech-runtime-fetch-voice qwen3-tts-0.6b \
+ && cp -a /var/cache/huggingface /opt/hearing
 
 FROM python-base
 COPY --from=dependencies /opt/venv /opt/venv
