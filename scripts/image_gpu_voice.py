@@ -68,19 +68,21 @@ def health_of(session: Session) -> Health:
 
 
 def cell_gpu_voice_not_offered(session: Session) -> None:
-    """Cell 22: by default a listed GPU voice is refused and no worker starts."""
-    hearer = hearer_of(session)
-    voice = listed_gpu_voice(session.config, hearer.baked.app)
-    require_refused_unavailable(hearer, voice)
-    require_offer(health_of(hearer), [RESIDENT_VOICE])
-    running = gpu_voice_report(hearer, probe=False).workers
+    """Cell 22: by default each app's listed GPU voice is refused, no worker starts."""
+    refused = []
+    for caller in (session, hearer_of(session)):
+        voice = listed_gpu_voice(session.config, caller.baked.app)
+        require_refused_unavailable(caller, voice)
+        refused.append(f"{caller.baked.app} naming {voice}")
+    require_offer(health_of(session), [RESIDENT_VOICE])
+    running = gpu_voice_report(session, probe=False).workers
     session.collect_log()
     started = workers_ended_before_ready(session.logs[-1])
     if running or started:
-        message = f"{voice} is not offered, yet {running=} {started=} workers"
+        message = f"no GPU voice is offered, yet {running=} {started=} workers"
         raise SystemExit(message)
     print(
-        f"cell 22: held; {hearer.baked.app} naming {voice} refused as"
+        f"cell 22: held; {' and '.join(refused)} refused as"
         f" {RefusalCode.UNAVAILABLE} param={VOICE_PARAM}, /health offers"
         f" {RESIDENT_VOICE} alone, workers running=0 started=0"
     )
