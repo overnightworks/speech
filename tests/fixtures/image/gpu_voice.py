@@ -50,7 +50,7 @@ report: dict[str, object] = {
 }
 if json.load(sys.stdin)["probe"]:
     directory = provider_directory(entrypoint)
-    probe = subprocess.run(
+    probe = subprocess.run(  # noqa: S603, RUF100 - the image's Qwen interpreter runs a fixed probe
         [str(entrypoint.with_name("python")), "-c", PROBE],
         cwd=directory,
         env=provider_environment(directory),
