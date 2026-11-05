@@ -9,6 +9,7 @@ import stat
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from io import BytesIO
@@ -153,6 +154,30 @@ def test_a_worker_keeps_numbas_cache_in_a_private_directory_gone_once_reaped(
 
     assert private == stat.S_IRWXU
     assert not numba_cache.exists()
+
+
+def test_a_worker_without_a_private_directory_is_refused_and_closes_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fatal = threading.Event()
+    engine = _engine(tmp_path)
+    engine.set_fatal_callback(fatal.set)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "no-temporary-root"))
+    refused: list[ProviderFailedError] = []
+
+    def load() -> None:
+        try:
+            engine.load()
+        except ProviderFailedError as error:
+            refused.append(error)
+
+    loader = threading.Thread(target=load, daemon=True)
+    loader.start()
+    loader.join(timeout=5)
+
+    assert refused
+    engine.close()
+    assert fatal.is_set() is False
 
 
 def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
@@ -571,6 +596,7 @@ import contextlib
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 from pathlib import Path
 

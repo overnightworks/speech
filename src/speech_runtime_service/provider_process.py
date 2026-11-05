@@ -230,16 +230,14 @@ class ProviderProcess:
 
     def _run_owner(self) -> None:
         """Own one worker; its private directory goes once the worker is reaped."""
-        with tempfile.TemporaryDirectory(prefix="speech-provider-") as scratch:
-            self._own(Path(scratch))
-
-    def _own(self, scratch: Path) -> None:
         child: subprocess.Popen[bytes] | None = None
         stderr: IO[bytes] | None = None
+        scratch: tempfile.TemporaryDirectory[str] | None = None
         lifecycle_failed = False
         try:
+            scratch = tempfile.TemporaryDirectory(prefix="speech-provider-")
             stderr = tempfile.TemporaryFile()  # noqa: SIM115 - closed on every exit below
-            child = self._spawn(stderr, scratch)
+            child = self._spawn(stderr, Path(scratch.name))
             decoder = FrameDecoder()
             os.set_blocking(_require_stdout(child).fileno(), False)
             with self._state_lock:
@@ -270,6 +268,11 @@ class ProviderProcess:
                     _close_stderr(child, stderr)
                 except Exception:
                     logger.exception("speech provider stderr cleanup failed")
+            if scratch is not None:
+                try:
+                    scratch.cleanup()
+                except Exception:
+                    logger.exception("speech provider scratch cleanup failed")
             with self._state_lock:
                 self._process = None
                 self._response_decoder = None
