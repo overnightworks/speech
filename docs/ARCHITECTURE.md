@@ -35,7 +35,8 @@ flowchart LR
   incremental decode of an uploaded recording; `clock.py` the monotonic clock
   every gate deadline is read and waited on.
 - `Dockerfile`, `compose.yaml`, `deploy/speech.toml`: the container a release
-  tag brings, with the Piper voice and the caller table baked in; see
+  tag brings, with the Piper voice, Qwen's environment and weights, and the
+  caller table baked in; see
   [Delivery](#delivery). `scripts/prove_image.py` proves it.
 - `packages/client`: the wire types an app and the service share.
 - `providers/*`: the voices that run in their own processes and environments.
@@ -110,11 +111,15 @@ flowchart LR
 ## Delivery
 
 The platform builds the image on its host from the release tag, so the tag fixes
-the code, the locked dependencies, the voice, the hearing model and the caller
-table. Nothing is fetched at start or restart: the voice and the `small` hearing
-model are in the image, and the service has no route to a registry or a hub. The
-healthcheck requires both to be ready, so a deployment that cannot hear is not
-recorded.
+the code, the locked dependencies, the voices, the hearing model and the caller
+table. Nothing is fetched at start or restart: Piper's voice, Qwen's environment
+and weights and the `small` hearing model are in the image, each fetched by a
+shipped command at its pinned revision, and the service has no route to a
+registry or a hub. The healthcheck requires Piper and hearing to be ready, so a
+deployment that cannot hear is not recorded. Qwen is offered only when the start
+setting names it, and then launches on `cuda`, the provider contract's one device
+for it, whatever device hearing uses; without a card its requests are refused
+and Piper and hearing keep serving.
 
 ```mermaid
 flowchart LR

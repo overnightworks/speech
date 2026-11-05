@@ -153,9 +153,15 @@ and hearing with `small` (`int8`, four threads), built from the locks:
 `uv sync --locked --no-dev` installs the CPU path, and the voice
 `de_DE-thorsten-medium` (checked against its hashes) and the `small` model are
 fetched at build, each at its pinned revision, so the container fetches nothing
-at start or restart. `deploy/speech.toml` is copied into the image and holds the
-issuer, the key set's internal address and the callers, presentator with `hear`
-and hopin without; a release tag fixes it. The
+at start or restart. The image also carries Qwen, which it offers only when
+`SPEECH_GPU_VOICES` names `qwen3-tts-0.6b`: its environment under
+`SPEECH_PROVIDER_ROOT` (`/opt/providers`), installed `--locked` from
+`providers/qwen/uv.lock` with wheels only except `sox` and the two local
+projects, and its weights at their pinned snapshot in the Hub cache beside
+hearing's model. That adds about 9 GB to the image. `deploy/speech.toml` is
+copied into the image and holds the issuer, the key set's internal address and
+the callers, presentator with `hear` and hopin without, each of them allowed
+`piper` and `qwen3-tts-0.6b`; a release tag fixes it. The
 service joins no default network, only the three external, internal networks
 `hal_speech_issuer`, `hal_speech_hopin` and `hal_speech_presentator`, which hal
 creates; without them `docker compose up` fails and nothing runs with egress.
@@ -173,7 +179,11 @@ on isolated networks with a test CA, a key-set server and a caller container.
 It speaks as the baked table's callers, hears a recording and a live turn as the
 app that may hear, refuses the one that may not, checks the refusals, a visible
 refusal with the key server stopped, the absence of egress, a restart and the
-negatives that make each check able to fail, and ends with `PROOF_OK`. It takes the probe lock as the stage proof does, and removes its
+negatives that make each check able to fail. On a runner without a card it
+shows Qwen refused `unavailable` with `param` `voice`: by default with no worker
+started, and offered through `tests/fixtures/image/compose.gpu-voice.yaml` with
+a worker per request that finds no CUDA device, while Piper and hearing serve
+and the container keeps running. It ends with `PROOF_OK`. It takes the probe lock as the stage proof does, and removes its
 containers, networks and image on every exit; CI runs it as the job
 `Speech: image`:
 
