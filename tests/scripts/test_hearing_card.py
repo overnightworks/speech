@@ -121,11 +121,10 @@ def test_a_holder_that_stays_silent_ends_the_stage_at_its_own_deadline(
 ) -> None:
     monkeypatch.setenv("HOLDER_SILENT", "1")
     monkeypatch.setenv("HOLDER_NOISE", "[info] loading the model")
-    monkeypatch.setattr(CARD, "HELD_WAIT_SECONDS", 0.5)
 
     with (
         pytest.raises(SystemExit, match=r"said nothing.*loading the model"),
-        CARD.held_card(),
+        CARD.held_card(wait_seconds=0.5),
     ):
         pytest.fail("the stage ran without a held card")
 

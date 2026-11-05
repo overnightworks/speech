@@ -212,21 +212,26 @@ def require_running(
         raise SystemExit(message)
 
 
-def _wait_ready(
-    base_url: str, exit_status: Callable[[], int | None]
+def wait_for_speaking_ready(
+    base_url: str,
+    exit_status: Callable[[], int | None],
+    fetch: Callable[[str, str], dict[str, object]] = get_json,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, object]:
-    deadline = time.monotonic() + READY_TIMEOUT_SECONDS
+    """Poll health until speaking is ready; end the stage on exit or timeout."""
+    deadline = clock() + READY_TIMEOUT_SECONDS
     last: dict[str, object] | None = None
-    while time.monotonic() < deadline:
+    while clock() < deadline:
         require_running(exit_status, last)
         try:
-            last = get_json(base_url, "/health")
+            last = fetch(base_url, "/health")
         except httpx2.HTTPError, json.JSONDecodeError:
-            time.sleep(0.5)
+            sleep(0.5)
             continue
         speaking = last["speaking"]
         if not isinstance(speaking, dict):
-            time.sleep(0.5)
+            sleep(0.5)
             continue
         print(
             "health",
@@ -235,7 +240,7 @@ def _wait_ready(
         )
         if speaking["ready"] is True:
             return last
-        time.sleep(0.5)
+        sleep(0.5)
     detail = "" if last is None else f": {last}"
     message = f"speaking not ready within {READY_TIMEOUT_SECONDS}s{detail}"
     raise SystemExit(message)
@@ -372,7 +377,7 @@ class RunningSpeech:
 
 
 def start_with_parent_death(
-    command: list[str], **options: object
+    command: list[str], *, parent_pid: int | None = None, **options: object
 ) -> subprocess.Popen[str]:
     """Start `command` under `setpriv` so the kernel sends it TERM with its parent.
 
@@ -383,7 +388,8 @@ def start_with_parent_death(
 
     The kernel arms the signal only once `setpriv` runs, so a parent that died
     before that would leave the child alive: the shell the child starts as checks,
-    with the signal armed, that its parent is still this process.
+    with the signal armed, that its parent is still `parent_pid` (this process by
+    default).
     """
     return subprocess.Popen(  # noqa: S603 - argv is setpriv with the caller's own command
         [
@@ -393,7 +399,7 @@ def start_with_parent_death(
             "sh",
             "-c",
             '[ "$PPID" = "$0" ] || exit 1; exec "$@"',
-            str(os.getpid()),
+            str(os.getpid() if parent_pid is None else parent_pid),
             *command,
         ],
         **options,
@@ -408,7 +414,7 @@ def speech_server(
     start: Callable[..., subprocess.Popen[str]] = start_with_parent_death,
     wait_ready: Callable[
         [str, Callable[[], int | None]], dict[str, object]
-    ] = _wait_ready,
+    ] = wait_for_speaking_ready,
 ) -> Iterator[RunningSpeech]:
     """Start speech, wait until it is ready, and stop it on the way out.
 

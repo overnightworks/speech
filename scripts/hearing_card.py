@@ -96,15 +96,15 @@ def _read_held_mib(lines: Iterable[str], said: list[str]) -> int:
     return 0
 
 
-def _await_held_mib(holder: subprocess.Popen[str]) -> int:
+def _await_held_mib(holder: subprocess.Popen[str], wait_seconds: float) -> int:
     """The mebibytes the holder says it holds; ends the stage when it never says."""
     said: list[str] = []
     reader = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     pending = reader.submit(_read_held_mib, holder.stdout or (), said)
     try:
-        held_mib = pending.result(timeout=HELD_WAIT_SECONDS)
+        held_mib = pending.result(timeout=wait_seconds)
     except concurrent.futures.TimeoutError:
-        message = f"the card holder said nothing within {HELD_WAIT_SECONDS}s: {said}"
+        message = f"the card holder said nothing within {wait_seconds}s: {said}"
         raise SystemExit(message) from None
     finally:
         reader.shutdown(wait=False)
@@ -115,7 +115,7 @@ def _await_held_mib(holder: subprocess.Popen[str]) -> int:
 
 
 @contextlib.contextmanager
-def held_card() -> Iterator[int]:
+def held_card(wait_seconds: float = HELD_WAIT_SECONDS) -> Iterator[int]:
     """Hold the card's memory in a second process; always end that process.
 
     The holder asks the kernel for TERM when the thread that entered this ends, so
@@ -132,7 +132,7 @@ def held_card() -> Iterator[int]:
         text=True,
     )
     try:
-        yield _await_held_mib(holder)
+        yield _await_held_mib(holder, wait_seconds)
         if holder.poll() is not None:
             message = (
                 f"the card holder ended with status {holder.returncode}"

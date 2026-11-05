@@ -8,7 +8,6 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
@@ -313,7 +312,6 @@ def test_the_default_start_never_blocks_a_service_that_logs_past_the_pipe(
     ids=["the last health is named", "no health ever answered"],
 )
 def test_a_wait_that_runs_out_names_the_last_health_it_saw(
-    monkeypatch: pytest.MonkeyPatch,
     health: dict[str, object] | None,
     *,
     detail_in_message: bool,
@@ -326,25 +324,26 @@ def test_a_wait_that_runs_out_names_the_last_health_it_saw(
             raise httpx2.ConnectError(refusal)
         return health
 
-    monkeypatch.setattr(
-        PROVE, "time", SimpleNamespace(monotonic=clock.now, sleep=clock.jump)
-    )
-    monkeypatch.setattr(PROVE, "get_json", answer)
-
     with pytest.raises(SystemExit, match="not ready within") as failure:
-        PROVE._wait_ready("http://127.0.0.1:1", lambda: None)  # noqa: SLF001
+        PROVE.wait_for_speaking_ready(
+            "http://127.0.0.1:1",
+            lambda: None,
+            fetch=answer,
+            clock=clock.now,
+            sleep=clock.jump,
+        )
 
     assert ("card_memory_mb" in str(failure.value)) is detail_in_message
 
 
 def test_a_child_whose_parent_is_not_its_starter_never_runs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     marker = tmp_path / "ran"
-    monkeypatch.setattr(PROVE.os, "getpid", lambda: 1)
 
     child = PROVE.start_with_parent_death(
-        [sys.executable, "-c", f"open({str(marker)!r}, 'w')"]
+        [sys.executable, "-c", f"open({str(marker)!r}, 'w')"],
+        parent_pid=1,
     )
 
     assert child.wait(timeout=30) != 0
