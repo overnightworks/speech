@@ -1,0 +1,8 @@
+claim_id = "3fcd4dbe4eda4f98be7aab7f3da7f40d"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "8b15a1cc2be3c4efcef400446bac1e0a6433bfdf"
+branch = "claude/issue-109-stage-proofs-bound-what-they-start"
+scope = ["scripts/hearing_card.py", "scripts/prove_speech.py", "tests/scripts"]
+opened_commit = "86fb31f5384bf00ea026a8e9b56fc6f15e47ddfb"
+whole_reason = "The three gaps share one owner, the stage proofs' process handling, and their tests live together under tests/scripts."
