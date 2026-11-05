@@ -1,0 +1,8 @@
+claim_id = "35b921fc893d43b5a623076f23270152"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "314c2f6534ad696e9468a040a5d603d87120ead4"
+branch = "claude/issue-155-g4-card-reservation-host-proof"
+scope = [".github/workflows/ci.yml", "Dockerfile", "README.md", "compose.yaml", "docs/ARCHITECTURE.md", "quality/baseline.toml", "scripts", "tests"]
+opened_commit = "f190fb55e2de10d763214ea00b201308ff5bbbea"
+whole_reason = "One deployable card path: the reservation, the card-less CI override, the proof that branches on the card and the build time hal's cap allows change together, or the image either cannot start in CI or reaches hal unproven on the card."
