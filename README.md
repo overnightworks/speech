@@ -60,7 +60,10 @@ Piper default:
 
 `scripts/prove_speech.py` fails the run the moment any single repetition
 misses its first-byte limit; a passing run is the proof that every repetition
-held, not just the medians.
+held, not just the medians. Qwen does not stream, so its first byte follows the
+whole sentence, and its first request also waits for the load: its limit is half
+again G0's load and first audio together, 6.9 s and 8.44 s measured in process,
+which left out the HTTP hop and the container (`scripts/speech_figures.py`).
 `scripts/prove_speech.py` writes the German WAV of the run it
 just proved to `german.wav` in a private temporary directory the script prints for a listening judgment.
 
@@ -148,8 +151,8 @@ For GPU hearing, sync with `uv sync --locked --extra gpu --group dev`.
 
 ### As a container
 
-`Dockerfile` and `compose.yaml` run the service on the CPU with the Piper voice
-and hearing with `small` (`int8`, four threads), built from the locks:
+`Dockerfile` and `compose.yaml` run the service with the Piper voice and
+hearing with `small` (`int8`, four threads) on the CPU, built from the locks:
 `uv sync --locked --no-dev` installs the CPU path, and the voice
 `de_DE-thorsten-medium` (checked against its hashes) and the `small` model are
 fetched at build, each at its pinned revision, so the container fetches nothing
@@ -158,7 +161,15 @@ at start or restart. The image also carries Qwen, which it offers only when
 `SPEECH_PROVIDER_ROOT` (`/opt/providers`), installed `--locked` from
 `providers/qwen/uv.lock` with wheels only except `sox` and the two local
 projects, and its weights at their pinned snapshot in the Hub cache beside
-hearing's model. That adds about 9 GB to the image. `deploy/speech.toml` is
+hearing's model. That adds about 9 GB to the image. uv's and the Hub's
+downloads go into BuildKit cache mounts, which outlive a build, so a build that
+hal's 1800 s cap kills leaves the next one only what it had not fetched yet;
+the image takes a copy of the Hub cache, so after a pin moves on a host whose
+build cache still holds the old revision, the image carries both until that
+cache is pruned. `compose.yaml` reserves the host's one card (`gpus`, one
+`nvidia` device, no memory budget, which is hal's to declare), so every start
+needs the nvidia runtime, Piper alone included; the card is touched only when a
+GPU voice's first request loads it. `deploy/speech.toml` is
 copied into the image and holds the issuer, the key set's internal address and
 the callers, presentator with `hear` and hopin without, each of them allowed
 `piper` and `qwen3-tts-0.6b`; a release tag fixes it. The
@@ -179,16 +190,39 @@ on isolated networks with a test CA, a key-set server and a caller container.
 It speaks as the baked table's callers, hears a recording and a live turn as the
 app that may hear, refuses the one that may not, checks the refusals, a visible
 refusal with the key server stopped, the absence of egress, a restart and the
-negatives that make each check able to fail. On a runner without a card it
-shows Qwen refused `unavailable` with `param` `voice`: by default with no worker
-started, and offered through `tests/fixtures/image/compose.gpu-voice.yaml` with
-a worker per request that finds no CUDA device, while Piper and hearing serve
-and the container keeps running. It ends with `PROOF_OK`. It takes the probe lock as the stage proof does, and removes its
-containers, networks and image on every exit; CI runs it as the job
-`Speech: image`:
+negatives that make each check able to fail. By default it shows Qwen refused
+`unavailable` with `param` `voice` and no worker started; offered through
+`tests/fixtures/image/compose.gpu-voice.yaml`, Qwen loads on its first request
+and speaks, and the proof prints its load, first audio, real-time factor and
+peak card memory beside G0's in-process figures, while Piper and hearing serve
+and the container keeps running. It ends with `PROOF_OK`. It takes the probe
+lock as the stage proof does, and removes its containers, networks and image on
+every exit, keeping the build caches.
+
+A cold build alone may take most of one lock run on this host, so the proof
+runs in stages, each its own lock run and each named with `--stage`:
+
+- `cold-build` removes the build caches the `Dockerfile` mounts and times a
+  build with no cache against hal's 1800 s cap;
+- `rebuild` times a build from those caches, with no layer cache, against half
+  of the cap, which leaves room for what a build the cap killed had not fetched
+  yet and for this host's spread, then runs the cells above;
+- `card` needs the card: by default no process of the service computes on it
+  while Piper speaks and hearing hears; while `scripts/hold_card.py` holds it,
+  a Qwen request is refused `unavailable` with `param` `voice` and Piper and
+  hearing serve; once it is free, the next request loads Qwen and speaks.
+
+`--no-card` says the machine has neither the card nor the nvidia runtime; only
+then does the proof lay `tests/fixtures/image/compose.no-card.yaml`, which drops
+the reservation, and offered Qwen then finds no CUDA device on each request.
+Without it, a machine that lacks either fails the run before the build, naming
+what it lacks. CI runs `cold-build` and then `rebuild` with `--no-card` as the
+job `Speech: image`; the host runs all three without it:
 
 ```sh
-uv run python scripts/prove_image.py
+uv run python scripts/prove_image.py --stage cold-build
+uv run python scripts/prove_image.py --stage rebuild
+uv run python scripts/prove_image.py --stage card
 ```
 
 ### Stage proofs

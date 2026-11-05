@@ -119,7 +119,13 @@ registry or a hub. The healthcheck requires Piper and hearing to be ready, so a
 deployment that cannot hear is not recorded. Qwen is offered only when the start
 setting names it, and then launches on `cuda`, the provider contract's one device
 for it, whatever device hearing uses; without a card its requests are refused
-and Piper and hearing keep serving.
+and Piper and hearing keep serving. `compose.yaml` reserves the host's one card
+for the container, with no memory budget (that budget is the platform's to
+declare), so every start needs the nvidia runtime, Piper alone included, and
+the card stays untouched until a GPU voice's first request. The platform builds
+under a fixed cap; uv's and the Hub's downloads go into build caches that
+outlive a build, so a build the cap kills leaves the next one only what it had
+not fetched.
 
 ```mermaid
 flowchart LR
