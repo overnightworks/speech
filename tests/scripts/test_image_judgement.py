@@ -414,12 +414,13 @@ def test_workers_that_each_found_no_cuda_device_pass() -> None:
     judged.require_workers_found_no_cuda_device(log, 2)
 
 
-def test_a_directory_a_reaped_worker_left_behind_fails_the_proof() -> None:
-    judged.require_no_worker_directory(judged.GpuVoiceReport([], []))
-    left = judged.GpuVoiceReport([], ["speech-provider-x"])
+def test_an_entry_a_reaped_worker_left_in_tmp_fails_the_proof() -> None:
+    before = judged.GpuVoiceReport([], ["service.log"])
+    judged.require_no_worker_residue(before, before)
+    left = judged.GpuVoiceReport([], ["service.log", "worker.log"])
 
-    with pytest.raises(SystemExit, match="speech-provider-x"):
-        judged.require_no_worker_directory(left)
+    with pytest.raises(SystemExit, match=r"\['worker.log'\]"):
+        judged.require_no_worker_residue(before, left)
 
 
 @pytest.mark.parametrize("workers", [0, 1, 2])

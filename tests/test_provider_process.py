@@ -43,6 +43,7 @@ from speech_runtime_service.voices import VoiceId
 from tests.support.worker_support import (
     assert_reaped,
     closed_provider,
+    debug_log,
     fail_every_reap,
     numba_cache,
     observed,
@@ -142,7 +143,7 @@ def python_dir(request: pytest.FixtureRequest) -> str:
 
 
 @pytest.mark.parametrize("behavior", ["normal", "startup-exit"])
-def test_each_worker_keeps_numbas_cache_in_its_own_private_directory_gone_once_reaped(
+def test_each_worker_keeps_its_temporary_state_in_a_private_directory_gone_once_reaped(
     tmp_path: Path, behavior: str
 ) -> None:
     caches = []
@@ -161,6 +162,7 @@ def test_each_worker_keeps_numbas_cache_in_its_own_private_directory_gone_once_r
     assert first_mode == second_mode == stat.S_IRWXU
     assert not first.exists()
     assert not second.exists()
+    assert not any(debug_log(cache).exists() for cache in caches)
 
 
 def test_a_worker_without_a_private_directory_is_refused_and_closes_cleanly(
@@ -242,7 +244,7 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
         "PYTHONUNBUFFERED": "1",
         "PATH": os.defpath,
         "LD_LIBRARY_PATH": str(cublas),
-        "NUMBA_CACHE_DIR": environment["NUMBA_CACHE_DIR"],
+        **dict.fromkeys(("NUMBA_CACHE_DIR", "TMPDIR"), environment["TMPDIR"]),
     }
     assert set(environment) <= {*expected_environment, "LC_CTYPE"}
     assert all(environment[key] == value for key, value in expected_environment.items())

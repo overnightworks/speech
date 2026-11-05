@@ -17,6 +17,7 @@ import argparse
 import os
 import signal
 import struct
+import tempfile
 import time
 from pathlib import Path
 
@@ -63,6 +64,9 @@ if numba_cache is not None:
     (cache / "numba-cache-mode").write_text(
         str(os.stat(numba_cache).st_mode & 0o777), encoding="utf-8"
     )
+debug_log = Path(tempfile.gettempdir()) / f"worker-debug-{{os.getpid()}}.log"
+debug_log.touch()
+(cache / "worker-debug-log").write_text(str(debug_log), encoding="utf-8")
 
 stream = os.fdopen(protocol_fd, "wb", buffering=0)
 behavior = {behavior!r}
@@ -228,6 +232,11 @@ def numba_cache(cache: Path) -> tuple[Path, int]:
     _, environment, _, _ = observed(cache)
     mode = (cache / "numba-cache-mode").read_text(encoding="utf-8")
     return Path(environment["NUMBA_CACHE_DIR"]), int(mode)
+
+
+def debug_log(cache: Path) -> Path:
+    """The log the worker left in its default temporary directory, as libraries do."""
+    return Path((cache / "worker-debug-log").read_text(encoding="utf-8"))
 
 
 def assert_reaped(pid: int) -> None:

@@ -470,12 +470,12 @@ def require_ready_within(seconds: float, start_period: str) -> None:
 class GpuVoiceReport:
     """What `gpu_voice.py` found in the service container.
 
-    `workers` are the pids of running GPU voice workers, `directories` the
-    private directories of provider workers still in its temporary directory.
+    `workers` are the pids of running GPU voice workers, `temporary` the names
+    of the entries in its temporary directory.
     """
 
     workers: list[int]
-    directories: list[str]
+    temporary: list[str]
 
 
 def require_offer(health: Health, voices: Iterable[VoiceId]) -> None:
@@ -514,10 +514,11 @@ def require_workers_found_no_cuda_device(log: str, count: int) -> None:
             raise SystemExit(message)
 
 
-def require_no_worker_directory(report: GpuVoiceReport) -> None:
-    """Fail unless no reaped worker left its private directory behind."""
-    if report.directories:
-        message = f"reaped workers left their directories: {report.directories}"
+def require_no_worker_residue(before: GpuVoiceReport, after: GpuVoiceReport) -> None:
+    """Fail unless the temporary directory holds nothing it did not hold `before`."""
+    left = sorted(set(after.temporary) - set(before.temporary))
+    if left:
+        message = f"reaped workers left in the temporary directory: {left}"
         raise SystemExit(message)
 
 

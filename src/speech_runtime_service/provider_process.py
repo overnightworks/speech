@@ -39,7 +39,7 @@ _READ_SIZE = 64 * 1024
 _STDERR_TAIL_BYTES = 4096
 ENDED_BEFORE_READY = "speech provider ended before ready"
 """The record that opens the log of a provider that ended before it was ready."""
-WORKER_DIRECTORY_PREFIX = "speech-provider-"
+_WORKER_DIRECTORY_PREFIX = "speech-provider-"
 """The name prefix of each worker's private directory in the temporary directory.
 
 It is removed before a worker's ended-before-ready record is logged.
@@ -240,7 +240,7 @@ class ProviderProcess:
         scratch: tempfile.TemporaryDirectory[str] | None = None
         lifecycle_failed = False
         try:
-            scratch = tempfile.TemporaryDirectory(prefix=WORKER_DIRECTORY_PREFIX)
+            scratch = tempfile.TemporaryDirectory(prefix=_WORKER_DIRECTORY_PREFIX)
             stderr = tempfile.TemporaryFile()  # noqa: SIM115 - closed on every exit below
             child = self._spawn(stderr, Path(scratch.name))
             decoder = FrameDecoder()
@@ -553,6 +553,10 @@ def provider_environment(provider_directory: Path, scratch: Path) -> dict[str, s
         # A numba function compiled with a cache refuses to import without a
         # writable cache directory, and the image's root is read-only.
         "NUMBA_CACHE_DIR": str(scratch),
+        # Libraries the worker imports leave files in the default temporary
+        # directory (onnxruntime a log per process, torch its compile cache),
+        # which would outlive the worker in the service's own small /tmp.
+        "TMPDIR": str(scratch),
     }
     visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
     if visible_devices is not None:
