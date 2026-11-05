@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "overnightworks-speech-runtime-client"
-version = "0.2.0"
+version = "0.2.1"
 description = "The wire between an app and the speech service: the request it sends and the refusals it reads."
 requires-python = ">=3.14"
 dependencies = ["pydantic>=2.13,<3"]
