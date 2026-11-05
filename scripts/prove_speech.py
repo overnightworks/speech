@@ -28,7 +28,7 @@ import time
 from array import array
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 import httpx2
@@ -40,6 +40,7 @@ from proof_identity import (
     mint_pair,
     proof_identity,
 )
+from speech_figures import FIRST_BYTE_LIMIT_S
 from speech_runtime_client.wire import (
     SPEECH_PATH,
     speech_request_body,
@@ -89,42 +90,6 @@ SILENCE_RMS = 0.01
 MIN_SPEECH_SECONDS = 0.4
 LOAD_CEILING = 18.0
 READY_TIMEOUT_SECONDS = 300.0
-
-
-@dataclass(frozen=True)
-class VoiceFigures:
-    """How a voice spoke `SENTENCE`: its load, first audio, speed and card memory.
-
-    `real_time_factor` is audio seconds over wall seconds, so below 1 is slower
-    than real time; `peak_card_mib` is the card's peak above its use before the
-    voice's first request.
-    """
-
-    load_seconds: float
-    first_audio_seconds: float
-    real_time_factor: float
-    peak_card_mib: int
-
-
-# Qwen on this host's RTX 3090, loaded and driven in process before the image
-# carried it, medians of five runs: the P0 plan's G0 measurement.
-QWEN_G0: Final = VoiceFigures(
-    load_seconds=6.9,
-    first_audio_seconds=8.44,
-    real_time_factor=0.78,
-    peak_card_mib=3714,
-)
-# Qwen does not stream, so its first byte comes after the whole sentence, and
-# the first request also waits for the load. G0 measured neither the HTTP hop
-# nor the container, so the limit is half as much again as G0's load and first
-# audio together.
-QWEN_FIRST_BYTE_LIMIT_S: Final = 1.5 * (
-    QWEN_G0.load_seconds + QWEN_G0.first_audio_seconds
-)
-FIRST_BYTE_LIMIT_S: Final = {
-    RESIDENT_VOICE: 0.5,
-    VoiceId.QWEN: QWEN_FIRST_BYTE_LIMIT_S,
-}
 PIPER_CACHE = Path.home() / ".cache" / "piper"
 LOOPBACK_HOST = "127.0.0.1"
 PROVIDER_ROOT = Path(__file__).resolve().parents[1] / "providers"

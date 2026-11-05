@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
 CLIENT = script_module("contract_client")
 PROVE = script_module("prove_speech")
+FIGURES = script_module("speech_figures")
 PIPER = VoiceId.PIPER.value
 
 
@@ -119,16 +120,8 @@ def test_a_request_behind_another_may_wait_out_that_request_s_whole_first_byte(
     environment = PROVE.speech_environment(8080, voice, identity)
 
     assert (
-        float(environment["SPEECH_BUSY_WAIT_SECONDS"]) > PROVE.FIRST_BYTE_LIMIT_S[voice]
-    )
-
-
-def test_qwen_s_first_byte_may_come_after_its_load_and_its_whole_sentence() -> None:
-    measured = PROVE.QWEN_G0
-
-    assert (
-        PROVE.FIRST_BYTE_LIMIT_S[VoiceId.QWEN]
-        > measured.load_seconds + measured.first_audio_seconds
+        float(environment["SPEECH_BUSY_WAIT_SECONDS"])
+        > FIGURES.FIRST_BYTE_LIMIT_S[voice]
     )
 
 
