@@ -414,6 +414,14 @@ def test_workers_that_each_found_no_cuda_device_pass() -> None:
     judged.require_workers_found_no_cuda_device(log, 2)
 
 
+def test_a_directory_a_reaped_worker_left_behind_fails_the_proof() -> None:
+    judged.require_no_worker_directory(judged.GpuVoiceReport([], []))
+    left = judged.GpuVoiceReport([], ["speech-provider-x"])
+
+    with pytest.raises(SystemExit, match="speech-provider-x"):
+        judged.require_no_worker_directory(left)
+
+
 @pytest.mark.parametrize("workers", [0, 1, 2])
 def test_each_worker_that_ended_before_ready_is_counted_from_the_log(
     workers: int,

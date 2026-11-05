@@ -19,6 +19,7 @@ from image_judgement import (
     listed_gpu_voice,
     require_gpu_voice_down,
     require_log_clean,
+    require_no_worker_directory,
     require_offer,
     require_refusal,
     require_transcript,
@@ -121,10 +122,12 @@ def cell_gpu_voice_offered(session: Session, wav: bytes) -> None:
     started = container_start(stack)
     require_refused_unavailable(offered, voice)
     require_workers_found_no_cuda_device(wait_for_workers(stack, 1), 1)
+    require_no_worker_directory(gpu_voice_report(offered))
     print(
         f"cell 23: held; {offered.baked.app} naming {voice} started a worker that"
-        f" found no CUDA device, refused as {RefusalCode.UNAVAILABLE}"
-        f" param={VOICE_PARAM}"
+        f" imported its model library on its private cache in the read-only image,"
+        f" found no CUDA device and left no directory once reaped, refused as"
+        f" {RefusalCode.UNAVAILABLE} param={VOICE_PARAM}"
     )
     require_gpu_voice_down(health_of(offered), voice)
     speak_marked(offered)
@@ -139,6 +142,7 @@ def cell_gpu_voice_offered(session: Session, wav: bytes) -> None:
     )
     require_refused_unavailable(offered, voice)
     require_workers_found_no_cuda_device(wait_for_workers(stack, 2), 2)
+    require_no_worker_directory(gpu_voice_report(offered))
     if container_start(stack) != started:
         message = f"the service container restarted: {started}"
         raise SystemExit(message)
@@ -146,6 +150,6 @@ def cell_gpu_voice_offered(session: Session, wav: bytes) -> None:
     require_log_clean(session.logs[-1], [SENTENCE], session.heard, session.tokens)
     print(
         "cell 23: held; a second request started a second worker and was refused"
-        " again on finding no CUDA device, the container did not restart, the log"
-        " holds no spoken text"
+        " again on finding no CUDA device, no worker directory is left, the"
+        " container did not restart, the log holds no spoken text"
     )

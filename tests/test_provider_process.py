@@ -44,6 +44,7 @@ from tests.support.worker_support import (
     assert_reaped,
     closed_provider,
     fail_every_reap,
+    numba_cache,
     observed,
     wait_for_starts,
 )
@@ -140,20 +141,26 @@ def python_dir(request: pytest.FixtureRequest) -> str:
     return str(request.param)
 
 
-def test_a_worker_keeps_numbas_cache_in_a_private_directory_gone_once_reaped(
-    tmp_path: Path,
+@pytest.mark.parametrize("behavior", ["normal", "startup-exit"])
+def test_each_worker_keeps_numbas_cache_in_its_own_private_directory_gone_once_reaped(
+    tmp_path: Path, behavior: str
 ) -> None:
-    root, cache = closed_provider(tmp_path)
-    engine = _provider_process(root, cache)
-    engine.load()
-    try:
-        numba_cache = Path(observed(cache)[1].get("NUMBA_CACHE_DIR", "unset"))
-        private = numba_cache.is_dir() and stat.S_IMODE(numba_cache.stat().st_mode)
-    finally:
+    caches = []
+    engines = []
+    for worker in ("first", "second"):
+        root, cache = closed_provider(tmp_path / worker, behavior)
+        engines.append(_provider_process(root, cache))
+        caches.append(cache)
+        with contextlib.suppress(ProviderFailedError):
+            engines[-1].load()
+    for engine in engines:
         engine.close()
 
-    assert private == stat.S_IRWXU
-    assert not numba_cache.exists()
+    (first, first_mode), (second, second_mode) = map(numba_cache, caches)
+    assert first != second
+    assert first_mode == second_mode == stat.S_IRWXU
+    assert not first.exists()
+    assert not second.exists()
 
 
 def test_a_worker_without_a_private_directory_is_refused_and_closes_cleanly(

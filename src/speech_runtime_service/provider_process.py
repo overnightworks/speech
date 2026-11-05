@@ -39,6 +39,11 @@ _READ_SIZE = 64 * 1024
 _STDERR_TAIL_BYTES = 4096
 ENDED_BEFORE_READY = "speech provider ended before ready"
 """The record that opens the log of a provider that ended before it was ready."""
+WORKER_DIRECTORY_PREFIX = "speech-provider-"
+"""The name prefix of each worker's private directory in the temporary directory.
+
+It is removed before a worker's ended-before-ready record is logged.
+"""
 _NVIDIA_LIBRARY_DIRECTORIES = (
     "cublas:cuda_cupti:cuda_nvrtc:cuda_runtime:cudnn:cufft:curand:"
     "cusolver:cusparse:cusparselt:nccl:nvjitlink:nvtx"
@@ -235,7 +240,7 @@ class ProviderProcess:
         scratch: tempfile.TemporaryDirectory[str] | None = None
         lifecycle_failed = False
         try:
-            scratch = tempfile.TemporaryDirectory(prefix="speech-provider-")
+            scratch = tempfile.TemporaryDirectory(prefix=WORKER_DIRECTORY_PREFIX)
             stderr = tempfile.TemporaryFile()  # noqa: SIM115 - closed on every exit below
             child = self._spawn(stderr, Path(scratch.name))
             decoder = FrameDecoder()
@@ -263,16 +268,16 @@ class ProviderProcess:
                 logger.exception("speech provider cleanup failed")
                 lifecycle_failed = True
                 self._cleanup_failed = True
-            if stderr is not None:
-                try:
-                    _close_stderr(child, stderr)
-                except Exception:
-                    logger.exception("speech provider stderr cleanup failed")
             if scratch is not None:
                 try:
                     scratch.cleanup()
                 except Exception:
                     logger.exception("speech provider scratch cleanup failed")
+            if stderr is not None:
+                try:
+                    _close_stderr(child, stderr)
+                except Exception:
+                    logger.exception("speech provider stderr cleanup failed")
             with self._state_lock:
                 self._process = None
                 self._response_decoder = None

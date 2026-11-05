@@ -6,12 +6,9 @@ import subprocess
 import sys
 import time
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 WORKER_WAIT_SECONDS = 10.0
 
@@ -60,6 +57,12 @@ with (cache / "worker-starts").open("a", encoding="utf-8") as starts:
     repr(os.getcwd()) + "\n" + repr(os.environ.copy()) + "\n" +
     repr(os.getpid()) + "\n" + repr(arguments.__dict__), encoding="utf-8"
 )
+numba_cache = os.environ.get("NUMBA_CACHE_DIR")
+if numba_cache is not None:
+    (Path(numba_cache) / "index").touch()
+    (cache / "numba-cache-mode").write_text(
+        str(os.stat(numba_cache).st_mode & 0o777), encoding="utf-8"
+    )
 
 stream = os.fdopen(protocol_fd, "wb", buffering=0)
 behavior = {behavior!r}
@@ -218,6 +221,13 @@ def observed(cache: Path) -> tuple[str, dict[str, str], int, dict[str, str]]:
         ast.literal_eval(lines[2]),
         ast.literal_eval(lines[3]),
     )
+
+
+def numba_cache(cache: Path) -> tuple[Path, int]:
+    """The worker's numba cache directory and the permission bits it found there."""
+    _, environment, _, _ = observed(cache)
+    mode = (cache / "numba-cache-mode").read_text(encoding="utf-8")
+    return Path(environment["NUMBA_CACHE_DIR"]), int(mode)
 
 
 def assert_reaped(pid: int) -> None:
