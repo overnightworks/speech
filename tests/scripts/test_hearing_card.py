@@ -8,6 +8,7 @@ import select
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -29,8 +30,11 @@ if "HOLDER_FIFO" in os.environ:
     lifeline = open(os.environ["HOLDER_FIFO"], "w")
 for line in os.environ.get("HOLDER_NOISE", "").splitlines():
     print(line, flush=True)
+if "HOLDER_SILENT" in os.environ:
+    threading.Event().wait()
 print("held", {HELD_MIB}, flush=True)
-threading.Event().wait()
+if "HOLDER_EXITS" not in os.environ:
+    threading.Event().wait()
 """
 
 KILLED_PARENT = """
@@ -43,6 +47,19 @@ with hearing_card.held_card():
     print("holding", flush=True)
     threading.Event().wait()
 """
+
+
+def has_exited(pid: int) -> bool:
+    """Block until the process is a zombie or gone, within the test's deadline."""
+    deadline = time.monotonic() + DEADLINE_SECONDS
+    while time.monotonic() < deadline:
+        try:
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except FileNotFoundError:
+            return True
+        if state in {"Z", "X"}:
+            return True
+    return False
 
 
 def holder_ends(lifeline: int) -> bool:
@@ -97,6 +114,31 @@ def test_a_holder_that_never_says_it_holds_the_card_fails_with_its_output(
 
     with pytest.raises(SystemExit, match="Using CUDA allocator"), CARD.held_card():
         pass
+
+
+def test_a_holder_that_stays_silent_ends_the_stage_at_its_own_deadline(
+    holder: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOLDER_SILENT", "1")
+    monkeypatch.setenv("HOLDER_NOISE", "[info] loading the model")
+    monkeypatch.setattr(CARD, "HELD_WAIT_SECONDS", 0.5)
+
+    with (
+        pytest.raises(SystemExit, match=r"said nothing.*loading the model"),
+        CARD.held_card(),
+    ):
+        pytest.fail("the stage ran without a held card")
+
+    assert not Path(f"/proc/{holder.read_text()}").exists()
+
+
+def test_a_holder_that_ends_after_its_line_fails_the_stage(
+    holder: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOLDER_EXITS", "1")
+
+    with pytest.raises(SystemExit, match="ended with status 0"), CARD.held_card():
+        assert has_exited(int(holder.read_text()))
 
 
 def test_the_holder_ends_when_the_proof_is_killed_outright(
