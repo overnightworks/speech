@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from speech_runtime_provider_contract import (
+    QWEN_DEVICE,
     QWEN_MODEL_ID,
     QWEN_SAMPLE_RATE,
 )
@@ -79,7 +80,7 @@ def speaking_for_voice(settings: Settings, voice: VoiceId) -> LocalSpeaking:
                 executable=provider_entrypoint(settings.provider_root, ProviderId.QWEN),
                 arguments=(
                     "--device",
-                    settings.device,
+                    QWEN_DEVICE,
                     "--cache",
                     str(settings.huggingface_cache),
                     "--speaker",

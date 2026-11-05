@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
-from speech_runtime_provider_contract import MAX_PCM_BYTES
+from speech_runtime_provider_contract import MAX_PCM_BYTES, QWEN_DEVICE
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -58,7 +58,7 @@ def test_load_uses_the_pinned_local_snapshot_and_closed_cuda_mapping(
     )
     monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(bfloat16="bfloat16"))
 
-    assert model.load_model("cuda", tmp_path) is loaded
+    assert model.load_model(QWEN_DEVICE, tmp_path) is loaded
     assert observed == {
         "snapshot": {
             "repo_id": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
