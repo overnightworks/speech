@@ -5,9 +5,11 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import stat
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from io import BytesIO
@@ -41,7 +43,9 @@ from speech_runtime_service.voices import VoiceId
 from tests.support.worker_support import (
     assert_reaped,
     closed_provider,
+    debug_log,
     fail_every_reap,
+    numba_cache,
     observed,
     wait_for_starts,
 )
@@ -138,6 +142,53 @@ def python_dir(request: pytest.FixtureRequest) -> str:
     return str(request.param)
 
 
+@pytest.mark.parametrize("behavior", ["normal", "startup-exit"])
+def test_each_worker_keeps_its_temporary_state_in_a_private_directory_gone_once_reaped(
+    tmp_path: Path, behavior: str
+) -> None:
+    caches = []
+    engines = []
+    for worker in ("first", "second"):
+        root, cache = closed_provider(tmp_path / worker, behavior)
+        engines.append(_provider_process(root, cache))
+        caches.append(cache)
+        with contextlib.suppress(ProviderFailedError):
+            engines[-1].load()
+    for engine in engines:
+        engine.close()
+
+    (first, first_mode), (second, second_mode) = map(numba_cache, caches)
+    assert first != second
+    assert first_mode == second_mode == stat.S_IRWXU
+    assert not first.exists()
+    assert not second.exists()
+    assert not any(debug_log(cache).exists() for cache in caches)
+
+
+def test_a_worker_without_a_private_directory_is_refused_and_closes_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fatal = threading.Event()
+    engine = _engine(tmp_path)
+    engine.set_fatal_callback(fatal.set)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "no-temporary-root"))
+    refused: list[ProviderFailedError] = []
+
+    def load() -> None:
+        try:
+            engine.load()
+        except ProviderFailedError as error:
+            refused.append(error)
+
+    loader = threading.Thread(target=load, daemon=True)
+    loader.start()
+    loader.join(timeout=5)
+
+    assert refused
+    engine.close()
+    assert fatal.is_set() is False
+
+
 def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, python_dir: str
 ) -> None:
@@ -193,11 +244,11 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
         "PYTHONUNBUFFERED": "1",
         "PATH": os.defpath,
         "LD_LIBRARY_PATH": str(cublas),
+        **dict.fromkeys(("NUMBA_CACHE_DIR", "TMPDIR"), environment["TMPDIR"]),
     }
     assert set(environment) <= {*expected_environment, "LC_CTYPE"}
     assert all(environment[key] == value for key, value in expected_environment.items())
-    assert len(launches) == 1
-    launch_arguments, launch = launches[0]
+    [(launch_arguments, launch)] = launches
     assert launch_arguments == [
         str(root / "qwen/.venv/bin/speech-runtime-qwen-worker"),
         "--expected-parent-pid",
@@ -554,6 +605,7 @@ import contextlib
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 from pathlib import Path
 

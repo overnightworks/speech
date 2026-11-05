@@ -15,6 +15,7 @@ import time
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum, StrEnum
+from pathlib import Path
 from typing import IO, TYPE_CHECKING
 
 from speech_runtime_provider_contract import (
@@ -28,7 +29,6 @@ from speech_runtime_provider_contract import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
-    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,13 @@ CANCEL_DRAIN_SECONDS = 5
 _COMMAND_WAIT_SECONDS = 0.25
 _READ_SIZE = 64 * 1024
 _STDERR_TAIL_BYTES = 4096
+ENDED_BEFORE_READY = "speech provider ended before ready"
+"""The record that opens the log of a provider that ended before it was ready."""
+_WORKER_DIRECTORY_PREFIX = "speech-provider-"
+"""The name prefix of each worker's private directory in the temporary directory.
+
+It is removed before a worker's ended-before-ready record is logged.
+"""
 _NVIDIA_LIBRARY_DIRECTORIES = (
     "cublas:cuda_cupti:cuda_nvrtc:cuda_runtime:cudnn:cufft:curand:"
     "cusolver:cusparse:cusparselt:nccl:nvjitlink:nvtx"
@@ -227,12 +234,15 @@ class ProviderProcess:
             self._fatal_callback = callback
 
     def _run_owner(self) -> None:
+        """Own one worker; its private directory goes once the worker is reaped."""
         child: subprocess.Popen[bytes] | None = None
         stderr: IO[bytes] | None = None
+        scratch: tempfile.TemporaryDirectory[str] | None = None
         lifecycle_failed = False
         try:
+            scratch = tempfile.TemporaryDirectory(prefix=_WORKER_DIRECTORY_PREFIX)
             stderr = tempfile.TemporaryFile()  # noqa: SIM115 - closed on every exit below
-            child = self._spawn(stderr)
+            child = self._spawn(stderr, Path(scratch.name))
             decoder = FrameDecoder()
             os.set_blocking(_require_stdout(child).fileno(), False)
             with self._state_lock:
@@ -258,6 +268,11 @@ class ProviderProcess:
                 logger.exception("speech provider cleanup failed")
                 lifecycle_failed = True
                 self._cleanup_failed = True
+            if scratch is not None:
+                try:
+                    scratch.cleanup()
+                except Exception:
+                    logger.exception("speech provider scratch cleanup failed")
             if stderr is not None:
                 try:
                     _close_stderr(child, stderr)
@@ -300,11 +315,11 @@ class ProviderProcess:
                 continue
             return command
 
-    def _spawn(self, stderr: IO[bytes]) -> subprocess.Popen[bytes]:
+    def _spawn(self, stderr: IO[bytes], scratch: Path) -> subprocess.Popen[bytes]:
         entrypoint = self._executable
         if not is_executable_file(entrypoint):
             raise ProviderUnavailableError
-        provider_directory = entrypoint.parents[2]
+        directory = provider_directory(entrypoint)
         return subprocess.Popen(  # noqa: S603 - argv is the fixed provider entrypoint and flags with no shell
             [
                 str(entrypoint),
@@ -316,8 +331,8 @@ class ProviderProcess:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=stderr,
-            cwd=provider_directory,
-            env=provider_environment(provider_directory),
+            cwd=directory,
+            env=provider_environment(directory, scratch),
             bufsize=0,
             close_fds=True,
             start_new_session=True,
@@ -478,7 +493,8 @@ def _close_stderr(child: subprocess.Popen[bytes] | None, stderr: IO[bytes]) -> N
             size = stderr.seek(0, os.SEEK_END)
             stderr.seek(max(0, size - _STDERR_TAIL_BYTES))
             logger.error(
-                "speech provider ended before ready, exit status %s, stderr tail:\n%s",
+                "%s, exit status %s, stderr tail:\n%s",
+                ENDED_BEFORE_READY,
                 child.returncode,
                 stderr.read().decode("utf-8", errors="replace"),
             )
@@ -507,6 +523,11 @@ def provider_entrypoint(
     )
 
 
+def provider_directory(entrypoint: Path) -> Path:
+    """The provider's own directory, which holds the environment of `entrypoint`."""
+    return entrypoint.parents[2]
+
+
 def is_executable_file(entrypoint: Path | None) -> bool:
     """Whether `entrypoint` names a regular file this process may execute."""
     if entrypoint is None:
@@ -518,14 +539,24 @@ def is_executable_file(entrypoint: Path | None) -> bool:
     return stat.S_ISREG(mode) and os.access(entrypoint, os.X_OK)
 
 
-def provider_environment(provider_directory: Path) -> dict[str, str]:
-    """Return the minimal offline environment, with the venv's CUDA libraries."""
+def provider_environment(provider_directory: Path, scratch: Path) -> dict[str, str]:
+    """Return the minimal offline environment, with the venv's CUDA libraries.
+
+    `scratch` is the worker's private writable directory.
+    """
     environment = {
         "HF_HUB_OFFLINE": "1",
         "TRANSFORMERS_OFFLINE": "1",
         "TOKENIZERS_PARALLELISM": "false",
         "PYTHONUNBUFFERED": "1",
         "PATH": os.defpath,
+        # A numba function compiled with a cache refuses to import without a
+        # writable cache directory, and the image's root is read-only.
+        "NUMBA_CACHE_DIR": str(scratch),
+        # Libraries the worker imports leave files in the default temporary
+        # directory (onnxruntime a log per process, torch its compile cache),
+        # which would outlive the worker in the service's own small /tmp.
+        "TMPDIR": str(scratch),
     }
     visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
     if visible_devices is not None:

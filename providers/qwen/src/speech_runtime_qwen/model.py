@@ -8,6 +8,7 @@ import numpy as np
 from speech_runtime_provider_contract import (
     MAX_PCM_BYTES,
     QWEN_ARTIFACTS,
+    QWEN_DEVICE,
     QWEN_MODEL_ID,
     QWEN_REVISION,
     QWEN_SAMPLE_RATE,
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
 
 def load_model(device: str, cache: Path) -> object:
     """Load the pinned custom-voice model from the local Hub cache."""
-    if device != "cuda":
+    if device != QWEN_DEVICE:
         message = "unsupported Qwen device"
         raise ValueError(message)
 

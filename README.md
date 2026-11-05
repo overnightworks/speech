@@ -22,7 +22,7 @@ The code was extracted, with its history, from `speech/` in
 | Role | Hugging Face | Licence | Why this one |
 | --- | --- | --- | --- |
 | Speaking (default) | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices) voice `de_DE-thorsten-medium` | Voice recordings CC0; ONNX weights under the piper-voices MIT repo. The `piper-tts` runtime is `GPL-3.0-or-later`. The HTTP boundary keeps it out of `src/speech_runtime_service` while the speech program itself carries the GPL obligations. | German is documented and not in question. #70 measured this voice on this 3090 at 0.23 s to first audio on CPU. `thorsten-high` on the same sentence took 1.21 s through this service, over the one-second first-audio target, so medium is the default. The voice does not compete with the listener for the card. |
-| Speaking (optional) | [`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice), snapshot `85e237c12c027371202489a0ec509ded67b5e4b5` | Apache-2.0 (`qwen-tts` 0.1.1) | German and English through one configured built-in preset, initially Ryan. It returns a complete 24 kHz waveform. The isolated provider accepts the repository's `cuda` setting as `cuda:0`, uses bfloat16 and package-default attention, and reads only the pinned local snapshot. Runtime quality and latency remain unmeasured. |
+| Speaking (optional) | [`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice), snapshot `85e237c12c027371202489a0ec509ded67b5e4b5` | Apache-2.0 (`qwen-tts` 0.1.1) | German and English through one configured built-in preset, initially Ryan. It returns a complete 24 kHz waveform. The isolated provider always launches on `cuda`, as `cuda:0`, uses bfloat16 and package-default attention, and reads only the pinned local snapshot. Runtime quality and latency remain unmeasured. |
 
 Hearing, optional, `SPEECH_HEARING_MODEL`: faster-whisper (MIT) with the CTranslate2 conversions of OpenAI's Whisper (MIT) in
 [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3)
@@ -69,7 +69,7 @@ Hearing on the GPU needs `nvidia-cublas-cu12` and `nvidia-cudnn-cu12`, which the
 Weights stay in:
 
 - Piper voices: `~/.cache/piper/` (`speech-runtime-fetch-voice <voice>`, pinned revision and SHA-256 in `piper_voices.py`)
-- Qwen: `~/.cache/huggingface/hub/models--Qwen--Qwen3-TTS-12Hz-0.6B-CustomVoice` (pinned snapshot `85e237c12c027371202489a0ec509ded67b5e4b5`)
+- Qwen: `~/.cache/huggingface/hub/models--Qwen--Qwen3-TTS-12Hz-0.6B-CustomVoice` (`speech-runtime-fetch-voice qwen3-tts-0.6b` into `SPEECH_HUGGINGFACE_CACHE`, pinned snapshot `85e237c12c027371202489a0ec509ded67b5e4b5`)
 
 ## Contract
 
@@ -91,7 +91,7 @@ All `SPEECH_*`:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `SPEECH_DEVICE` | `cuda` | Device for the isolated providers. Qwen accepts only `cuda` and maps it to `cuda:0`. Piper stays on CPU. |
+| `SPEECH_DEVICE` | `cuda` | Hearing's device, `cuda` or `cpu`. It moves no voice: Piper stays on the CPU, and Qwen always launches on `cuda`, the first card it sees (`cuda:0`). |
 | `SPEECH_GPU_VOICES` | empty | The GPU voices offered beside Piper, as voice ids separated by commas: `qwen3-tts-0.6b`. Piper is always offered and loads at start; its weights must be there or the process exits. A GPU voice loads on its first request; when its weights or worker are missing, the log names the missing files and its requests answer 503 `unavailable` until they are there. `piper`, an unknown id or an empty item ends the process, naming the setting |
 | `SPEECH_VOICE_CACHE` | `~/.cache/piper` | Where Piper ONNX files are kept; `speech-runtime-fetch-voice <voice>` fetches a voice there at its pinned revision, checked against its hashes (the service never fetches) |
 | `SPEECH_HUGGINGFACE_CACHE` | Provider Hub cache (normally `~/.cache/huggingface/hub`) | The shared local Hub cache for provider loading and the artifact check |
@@ -113,7 +113,8 @@ All `SPEECH_*`:
 
 When `SPEECH_HUGGINGFACE_CACHE` is absent, `HF_HUB_CACHE` and `HF_HOME` influence the provider default. An explicit `SPEECH_HUGGINGFACE_CACHE` value is already the Hub-cache root.
 
-One instance serves the one device `SPEECH_DEVICE` names, on one address; the
+One instance serves one card, on one address: hearing on the device
+`SPEECH_DEVICE` names and a GPU voice on the first card it sees. The
 platform starts one instance per card. The service holds no lock per card.
 
 At start the process loads Piper, then hearing; until both are done, every speech request answers 503 `unavailable`. If Piper cannot be loaded the process exits and names the model. A missing hearing resource leaves hearing unavailable and the process up. A GPU voice loads once, on its first request, and its waiting requests share that load; nothing unloads it.
@@ -152,9 +153,15 @@ and hearing with `small` (`int8`, four threads), built from the locks:
 `uv sync --locked --no-dev` installs the CPU path, and the voice
 `de_DE-thorsten-medium` (checked against its hashes) and the `small` model are
 fetched at build, each at its pinned revision, so the container fetches nothing
-at start or restart. `deploy/speech.toml` is copied into the image and holds the
-issuer, the key set's internal address and the callers, presentator with `hear`
-and hopin without; a release tag fixes it. The
+at start or restart. The image also carries Qwen, which it offers only when
+`SPEECH_GPU_VOICES` names `qwen3-tts-0.6b`: its environment under
+`SPEECH_PROVIDER_ROOT` (`/opt/providers`), installed `--locked` from
+`providers/qwen/uv.lock` with wheels only except `sox` and the two local
+projects, and its weights at their pinned snapshot in the Hub cache beside
+hearing's model. That adds about 9 GB to the image. `deploy/speech.toml` is
+copied into the image and holds the issuer, the key set's internal address and
+the callers, presentator with `hear` and hopin without, each of them allowed
+`piper` and `qwen3-tts-0.6b`; a release tag fixes it. The
 service joins no default network, only the three external, internal networks
 `hal_speech_issuer`, `hal_speech_hopin` and `hal_speech_presentator`, which hal
 creates; without them `docker compose up` fails and nothing runs with egress.
@@ -172,7 +179,11 @@ on isolated networks with a test CA, a key-set server and a caller container.
 It speaks as the baked table's callers, hears a recording and a live turn as the
 app that may hear, refuses the one that may not, checks the refusals, a visible
 refusal with the key server stopped, the absence of egress, a restart and the
-negatives that make each check able to fail, and ends with `PROOF_OK`. It takes the probe lock as the stage proof does, and removes its
+negatives that make each check able to fail. On a runner without a card it
+shows Qwen refused `unavailable` with `param` `voice`: by default with no worker
+started, and offered through `tests/fixtures/image/compose.gpu-voice.yaml` with
+a worker per request that finds no CUDA device, while Piper and hearing serve
+and the container keeps running. It ends with `PROOF_OK`. It takes the probe lock as the stage proof does, and removes its
 containers, networks and image on every exit; CI runs it as the job
 `Speech: image`:
 

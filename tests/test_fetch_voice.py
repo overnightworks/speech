@@ -1,4 +1,4 @@
-"""A Piper voice is fetched at its pin, checked against its hashes, and placed whole."""
+"""A voice is fetched at its pin: Piper checked and whole, a GPU voice into the Hub."""
 
 import hashlib
 import re
@@ -6,6 +6,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from speech_runtime_provider_contract import (
+    QWEN_ARTIFACTS,
+    QWEN_MODEL_ID,
+    QWEN_REVISION,
+)
 
 from speech_runtime_service import fetch_voice
 from speech_runtime_service.config import Settings
@@ -23,6 +28,7 @@ from speech_runtime_service.voices import (
     missing_artifacts,
     piper_voice_paths,
 )
+from tests.support.hear_support import write_snapshot
 
 
 def sha256(content: bytes) -> str:
@@ -161,6 +167,44 @@ def test_the_command_prints_where_the_voice_went_in_the_configured_cache(
     assert capsys.readouterr().out.strip() == str(
         piper_voice_paths(tmp_path, scenario.voice.value)[0]
     )
+
+
+@dataclass
+class SnapshotScenario:
+    """A Hub snapshot downloader that writes the files it is asked for."""
+
+    calls: list[dict[str, object]] = field(default_factory=list)
+
+    def __call__(self, repo_id: str, **options: object) -> str:
+        """Note the call, then write the snapshot as the Hub cache keeps it."""
+        self.calls.append({"repo_id": repo_id, **options})
+        return write_snapshot(
+            repo_id,
+            revision=str(options["revision"]),
+            cache_dir=Path(str(options["cache_dir"])),
+            allow_patterns=list(options["allow_patterns"]),
+        )
+
+
+def test_the_command_fetches_a_gpu_voice_by_its_id_into_the_configured_hub_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("SPEECH_HUGGINGFACE_CACHE", str(tmp_path))
+    snapshot = SnapshotScenario()
+
+    fetch_voice.main([VoiceId.QWEN.value], download_snapshot=snapshot)
+
+    printed = Path(capsys.readouterr().out.strip())
+    assert sorted(path.name for path in printed.iterdir()) == sorted(
+        {name.split("/", 1)[0] for name in QWEN_ARTIFACTS}
+    )
+    missing = missing_artifacts(Settings(huggingface_cache=tmp_path), VoiceId.QWEN)
+    assert not set(missing) & set(QWEN_ARTIFACTS)
+    assert [
+        (call["repo_id"], call["revision"], call["token"]) for call in snapshot.calls
+    ] == [(QWEN_MODEL_ID, QWEN_REVISION, False)]
 
 
 def test_the_command_refuses_a_voice_it_does_not_know() -> None:

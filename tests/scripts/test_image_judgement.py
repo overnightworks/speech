@@ -10,9 +10,11 @@ import pytest
 import image_judgement as judged
 from image_stack import REPOSITORY, LiveOutcome, Reply
 from proof_identity import mint_pair
-from speech_runtime_client.wire import RefusalCode, Transcription, refusal
+from speech_runtime_client.wire import Health, RefusalCode, Transcription, refusal
 from speech_runtime_service.config import CallerConfig, load_caller_config
 from speech_runtime_service.pcm import wav_header
+from speech_runtime_service.provider_process import ENDED_BEFORE_READY
+from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
 
 if TYPE_CHECKING:
     from proof_identity import Minting
@@ -42,8 +44,9 @@ def test_the_baked_table_names_an_app_that_hears_and_one_that_does_not(
     assert not config.apps[deaf].hear
 
 
-def test_a_table_with_no_app_of_the_wanted_kind_fails_the_proof() -> None:
-    only_deaf = CallerConfig.model_validate(
+def table_of_one_app(voices: list[str]) -> CallerConfig:
+    """A caller table whose one app, `one`, may name `voices` and may not hear."""
+    return CallerConfig.model_validate(
         {
             "identity": {
                 "issuer": "i",
@@ -53,22 +56,49 @@ def test_a_table_with_no_app_of_the_wanted_kind_fails_the_proof() -> None:
                 "group_claim": "g",
                 "service_group": "/s",
             },
-            "apps": {"one": {"workload_client": "c", "voices": ["piper"]}},
+            "apps": {"one": {"workload_client": "c", "voices": voices}},
         }
     )
 
+
+def test_a_table_with_no_app_of_the_wanted_kind_fails_the_proof() -> None:
+    table = table_of_one_app([RESIDENT_VOICE])
+
     with pytest.raises(SystemExit, match="hear=True"):
-        judged.app_that(only_deaf, hears=True)
+        judged.app_that(table, hears=True)
 
 
-def test_the_baked_caller_names_a_voice_it_may_and_one_it_may_not_speak(
+def test_the_baked_caller_speaks_the_resident_voice_its_table_lists(
     config: CallerConfig, app: str
 ) -> None:
     baked = judged.baked_caller(config, app)
 
     assert baked.hear is config.apps[app].hear
+    assert baked.voice is RESIDENT_VOICE
     assert baked.voice in config.apps[baked.app].voices
-    assert baked.other_voice not in config.apps[baked.app].voices
+
+
+def test_a_caller_whose_table_lacks_the_resident_voice_fails_the_proof() -> None:
+    table = table_of_one_app([VoiceId.QWEN])
+
+    with pytest.raises(SystemExit, match=RESIDENT_VOICE):
+        judged.baked_caller(table, "one")
+
+
+def test_the_gpu_voice_of_an_app_is_one_its_table_lists_beside_the_resident(
+    config: CallerConfig, app: str
+) -> None:
+    voice = judged.listed_gpu_voice(config, app)
+
+    assert voice is not RESIDENT_VOICE
+    assert voice in config.apps[app].voices
+
+
+def test_an_app_whose_table_lists_no_gpu_voice_fails_the_proof() -> None:
+    table = table_of_one_app([RESIDENT_VOICE])
+
+    with pytest.raises(SystemExit, match="no GPU voice"):
+        judged.listed_gpu_voice(table, "one")
 
 
 def test_tokens_minted_for_the_baked_caller_carry_its_identity(
@@ -146,6 +176,21 @@ def test_a_refusal_passes_only_as_the_expected_code_with_its_status() -> None:
     judged.require_refusal(reply, RefusalCode.FORBIDDEN)
     with pytest.raises(SystemExit):
         judged.require_refusal(reply, RefusalCode.UNAUTHORIZED)
+
+
+def test_a_refusal_asked_for_a_field_passes_only_when_it_names_that_field() -> None:
+    named = refusal(RefusalCode.UNAVAILABLE, "voice")
+    unnamed = refusal(RefusalCode.UNAVAILABLE)
+
+    judged.require_refusal(
+        Reply(named.status, named.model_dump_json().encode()),
+        RefusalCode.UNAVAILABLE,
+        param="voice",
+    )
+    unnamed_reply = Reply(unnamed.status, unnamed.model_dump_json().encode())
+
+    with pytest.raises(SystemExit, match="expected voice"):
+        judged.require_refusal(unnamed_reply, RefusalCode.UNAVAILABLE, param="voice")
 
 
 @pytest.mark.parametrize(
@@ -288,6 +333,104 @@ def test_only_a_voice_ready_with_hearing_not_ready_is_speaking_alone(
     health: dict[str, dict[str, bool]], *, alone: bool
 ) -> None:
     assert judged.is_speaking_alone(health) is alone
+
+
+def health_of(*, speaking: bool, hearing: bool, voices: dict[VoiceId, bool]) -> Health:
+    """A `/health` answer with these readinesses and offered voices."""
+    return Health.model_validate(
+        {
+            "speaking": {
+                "ready": speaking,
+                "voices": {
+                    voice.value: {"model": "m", "ready": ready, "sample_rate": 1}
+                    for voice, ready in voices.items()
+                },
+            },
+            "hearing": {"model": "small", "ready": hearing},
+            "card_memory_mb": 0,
+        }
+    )
+
+
+def test_an_offer_passes_only_as_exactly_the_voices_health_lists() -> None:
+    health = health_of(speaking=True, hearing=True, voices={RESIDENT_VOICE: True})
+
+    judged.require_offer(health, [RESIDENT_VOICE])
+    with pytest.raises(SystemExit, match="offers"):
+        judged.require_offer(health, [RESIDENT_VOICE, VoiceId.QWEN])
+
+
+@pytest.mark.parametrize(
+    ("speaking", "hearing", "gpu_voice_ready"),
+    [(True, True, True), (False, True, False), (True, False, False)],
+    ids=["gpu voice ready", "speaking not ready", "hearing not ready"],
+)
+def test_a_gpu_voice_down_needs_it_not_ready_beside_ready_speaking_and_hearing(
+    *, speaking: bool, hearing: bool, gpu_voice_ready: bool
+) -> None:
+    voices = {RESIDENT_VOICE: True, VoiceId.QWEN: gpu_voice_ready}
+    down = health_of(
+        speaking=True, hearing=True, voices={**voices, VoiceId.QWEN: False}
+    )
+
+    judged.require_gpu_voice_down(down, VoiceId.QWEN)
+    health = health_of(speaking=speaking, hearing=hearing, voices=voices)
+
+    with pytest.raises(SystemExit, match="down beside a ready service"):
+        judged.require_gpu_voice_down(health, VoiceId.QWEN)
+
+
+def worker_record(cause: str) -> str:
+    return (
+        f"ERROR {ENDED_BEFORE_READY}, exit status 1, stderr tail:\n"
+        f"Traceback (most recent call last):\nRuntimeError: {cause}\nINFO speak"
+    )
+
+
+@pytest.mark.parametrize(
+    ("causes", "fault"),
+    [
+        ([], "0 workers ended before ready, not 1"),
+        ([judged.NO_CUDA_DEVICE] * 2, "2 workers ended before ready, not 1"),
+        (
+            ["cannot cache function '__o_fold'"],
+            "(?s)another cause, exit status 1.*__o_fold",
+        ),
+    ],
+    ids=["no worker", "one worker too many", "failed before the device"],
+)
+def test_a_worker_must_end_before_ready_on_finding_no_cuda_device(
+    causes: list[str], fault: str
+) -> None:
+    log = "\n".join(["INFO start", *map(worker_record, causes)])
+
+    with pytest.raises(SystemExit, match=fault):
+        judged.require_workers_found_no_cuda_device(log, 1)
+
+
+def test_workers_that_each_found_no_cuda_device_pass() -> None:
+    log = "\n".join(["INFO start", *[worker_record(judged.NO_CUDA_DEVICE)] * 2])
+
+    judged.require_workers_found_no_cuda_device(log, 2)
+
+
+def test_an_entry_a_reaped_worker_left_in_tmp_fails_the_proof() -> None:
+    before = judged.GpuVoiceReport([], ["service.log"])
+    judged.require_no_worker_residue(before, before)
+    left = judged.GpuVoiceReport([], ["service.log", "worker.log"])
+
+    with pytest.raises(SystemExit, match=r"\['worker.log'\]"):
+        judged.require_no_worker_residue(before, left)
+
+
+@pytest.mark.parametrize("workers", [0, 1, 2])
+def test_each_worker_that_ended_before_ready_is_counted_from_the_log(
+    workers: int,
+) -> None:
+    record = f"ERROR {ENDED_BEFORE_READY}, exit status 1, stderr tail:\nboom"
+    log = "\n".join(["INFO start", *[record, "INFO speak"] * workers])
+
+    assert judged.workers_ended_before_ready(log) == workers
 
 
 def test_only_the_external_networks_of_a_rendered_compose_file_are_named() -> None:

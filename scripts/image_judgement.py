@@ -16,14 +16,17 @@ from hearing_figures import words
 from prove_speech import spoken_in_log
 from speech_runtime_client.wire import (
     REFUSAL_STATUS,
+    Health,
     Refusal,
     RefusalCode,
+    RequestField,
     RetryAfterError,
     Transcription,
     busy_wait,
 )
 from speech_runtime_service.pcm import AI_MARK
-from speech_runtime_service.voices import VoiceId
+from speech_runtime_service.provider_process import ENDED_BEFORE_READY
+from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -36,6 +39,8 @@ FORBIDDEN_PATH_PARTS: Final = frozenset({".git", "tests", "providers"})
 KEY_FILE_SUFFIXES: Final = (".pem", ".key")
 KEY_FILE_PREFIXES: Final = (".env", "id_")
 FORBIDDEN_DISTRIBUTION_PREFIX: Final = "nvidia-"
+# torch's own words when a model is moved onto `cuda` without a card.
+NO_CUDA_DEVICE: Final = "Found no NVIDIA driver on your system"
 MARK_CHUNK: Final = b"LIST"
 # Shorter words match by accident in any German or English text.
 MIN_HEARD_WORD_LENGTH: Final = 5
@@ -50,7 +55,6 @@ class BakedCaller:
     app: str
     hear: bool
     voice: VoiceId
-    other_voice: VoiceId
     key_set_host: str
     key_set_port: int
     key_set_path: str
@@ -90,20 +94,29 @@ class TmpUsage:
 
 
 def baked_caller(config: CallerConfig, app: str) -> BakedCaller:
-    """`app`, its voices and the key set's address, read from the baked table."""
-    voices = sorted(config.apps[app].voices)
-    (other_voice, *_) = sorted(set(VoiceId) - set(voices))
+    """`app`, the resident voice it speaks and the key set's address, from the table."""
+    if RESIDENT_VOICE not in config.apps[app].voices:
+        message = f"the baked table does not let {app} name {RESIDENT_VOICE}"
+        raise SystemExit(message)
     key_set = urlsplit(config.identity.jwks_url)
     assert key_set.hostname is not None  # noqa: S101 - the owner validated an https URL
     return BakedCaller(
         app=app,
         hear=config.apps[app].hear,
-        voice=voices[0],
-        other_voice=other_voice,
+        voice=RESIDENT_VOICE,
         key_set_host=key_set.hostname,
         key_set_port=key_set.port or 443,
         key_set_path=key_set.path,
     )
+
+
+def listed_gpu_voice(config: CallerConfig, app: str) -> VoiceId:
+    """The first GPU voice, by id, that the baked table lets `app` name."""
+    listed = sorted(config.apps[app].voices - {RESIDENT_VOICE})
+    if not listed:
+        message = f"the baked table lets {app} name no GPU voice"
+        raise SystemExit(message)
+    return listed[0]
 
 
 def minting_for(config: CallerConfig, baked: BakedCaller, signing: Minting) -> Minting:
@@ -175,8 +188,13 @@ def require_marked_wav(wav: bytes) -> None:
         raise SystemExit(message)
 
 
-def require_refusal(reply: Reply, expected: RefusalCode) -> None:
-    """Fail unless `reply` is the wire refusal `expected`, with its status."""
+def require_refusal(
+    reply: Reply, expected: RefusalCode, param: RequestField | None = None
+) -> None:
+    """Fail unless `reply` is the wire refusal `expected`, with its status.
+
+    With `param`, the refusal must also name that field.
+    """
     try:
         refusal = Refusal.model_validate_json(reply.body)
     except ValueError:
@@ -185,6 +203,9 @@ def require_refusal(reply: Reply, expected: RefusalCode) -> None:
     code = refusal.error.code
     if code is not expected or reply.status != REFUSAL_STATUS[code]:
         message = f"status {reply.status} refused as {code}, expected {expected}"
+        raise SystemExit(message)
+    if param is not None and refusal.error.param != param:
+        message = f"{code} named {refusal.error.param}, expected {param}"
         raise SystemExit(message)
 
 
@@ -443,3 +464,64 @@ def require_ready_within(seconds: float, start_period: str) -> None:
     if seconds > duration_seconds(start_period):
         message = f"the service took {seconds:.0f} s to be healthy, past {start_period}"
         raise SystemExit(message)
+
+
+@dataclass(frozen=True)
+class GpuVoiceReport:
+    """What `gpu_voice.py` found in the service container.
+
+    `workers` are the pids of running GPU voice workers, `temporary` the names
+    of the entries in its temporary directory.
+    """
+
+    workers: list[int]
+    temporary: list[str]
+
+
+def require_offer(health: Health, voices: Iterable[VoiceId]) -> None:
+    """Fail unless `/health` offers exactly `voices`."""
+    offered = set(health.speaking.voices)
+    if offered != {voice.value for voice in voices}:
+        message = f"/health offers {sorted(offered)}"
+        raise SystemExit(message)
+
+
+def require_gpu_voice_down(health: Health, voice: VoiceId) -> None:
+    """Fail unless `voice` is not ready while speaking and hearing are."""
+    voice_ready = health.speaking.voices[voice.value].ready
+    if not (health.speaking.ready and health.hearing.ready) or voice_ready:
+        message = (
+            f"/health is not {voice} down beside a ready service: "
+            f"speaking.ready={health.speaking.ready} "
+            f"hearing.ready={health.hearing.ready} {voice}.ready={voice_ready}"
+        )
+        raise SystemExit(message)
+
+
+def require_workers_found_no_cuda_device(log: str, count: int) -> None:
+    """Fail unless `count` workers ended before ready, each on finding no CUDA device.
+
+    Each record the service logs for such a worker carries the worker's own
+    stderr tail, so the cause is the real worker's, not a probe's.
+    """
+    records = log.split(ENDED_BEFORE_READY)[1:]
+    if len(records) != count:
+        message = f"{len(records)} workers ended before ready, not {count}"
+        raise SystemExit(message)
+    for record in records:
+        if NO_CUDA_DEVICE not in record:
+            message = f"a worker ended before ready on another cause{record}"
+            raise SystemExit(message)
+
+
+def require_no_worker_residue(before: GpuVoiceReport, after: GpuVoiceReport) -> None:
+    """Fail unless the temporary directory holds nothing it did not hold `before`."""
+    left = sorted(set(after.temporary) - set(before.temporary))
+    if left:
+        message = f"reaped workers left in the temporary directory: {left}"
+        raise SystemExit(message)
+
+
+def workers_ended_before_ready(log: str) -> int:
+    """How many provider workers a service log says ended before they were ready."""
+    return log.count(ENDED_BEFORE_READY)

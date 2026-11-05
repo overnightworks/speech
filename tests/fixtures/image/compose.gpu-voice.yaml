@@ -1,0 +1,5 @@
+# The proof's offer of the GPU voice, set as hal's override will set it.
+services:
+  speech-runtime:
+    environment:
+      SPEECH_GPU_VOICES: qwen3-tts-0.6b

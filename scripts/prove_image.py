@@ -24,10 +24,10 @@ import tomllib
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Final
+from typing import Final
 
+from image_gpu_voice import cell_gpu_voice_not_offered, cell_gpu_voice_offered
 from image_judgement import (
     ImageReport,
     TmpUsage,
@@ -55,6 +55,7 @@ from image_judgement import (
 )
 from image_stack import (
     FIXTURES,
+    HEARING_LANGUAGE,
     IMAGE,
     KEY_SERVER,
     PROJECT,
@@ -70,7 +71,11 @@ from image_stack import (
     docker,
     form_of_size,
     healthcheck_passes,
+    hearer_of,
     seconds_until_healthy,
+    service_config,
+    speak_marked,
+    start_with,
     teardown,
 )
 from proof_identity import (
@@ -89,7 +94,6 @@ from prove_speech import (
     wait_for_load,
 )
 from speech_runtime_client.wire import (
-    HearingLanguage,
     RefusalCode,
     refusal,
     speech_request_headers,
@@ -114,7 +118,6 @@ FORBIDDEN_EXECUTABLES: Final = ("git", "uv", "gcc", "cc")
 REFUSED_CONNECTION: Final = "ConnectionRefusedError"
 # What live.py reports for an upgrade the service refused.
 REFUSED_UPGRADE: Final = "InvalidStatus"
-HEARING_LANGUAGE: Final = HearingLanguage.DE.value
 FOREIGN_LANGUAGE: Final = "fr"
 # The setting a missing model is reported under, in the environment and the log.
 HEARING_MODEL_SETTING: Final = (
@@ -156,12 +159,6 @@ def _locked_set() -> set[str]:
         check=True,
     ).stdout
     return locked_distributions(export, _project_name)
-
-
-def service_config(compose: Compose) -> dict[str, Any]:
-    """The service as `compose` renders it."""
-    rendered = json.loads(compose.run("config", "--format", "json").stdout)
-    return rendered["services"][SERVICE]
 
 
 def cell_contents(plain: Compose) -> None:
@@ -245,16 +242,6 @@ def can_write_root(compose: Compose) -> bool:
     return attempt.returncode == 0
 
 
-def speak_marked(session: Session) -> bytes:
-    """One admitted speak; the WAV it returns, which must carry the AI mark."""
-    reply = session.speak(session.admitted_headers(), session.baked.voice)
-    if reply.status != HTTPStatus.OK:
-        message = f"the admitted speak answered {reply.status}"
-        raise SystemExit(message)
-    require_marked_wav(reply.body)
-    return reply.body
-
-
 def cell_speak(session: Session) -> bytes:
     """Cell 5: one admitted speak returns a marked WAV."""
     wav = speak_marked(session)
@@ -263,7 +250,10 @@ def cell_speak(session: Session) -> bytes:
 
 
 def cell_refusals(session: Session) -> None:
-    """Cell 6: no token, a token outside the group and a foreign voice are refused."""
+    """Cell 6: no token and a token outside the group are refused.
+
+    Every app in the baked table lists every voice, so no voice is forbidden.
+    """
     outside = replace(
         minting_for(session.config, session.baked, session.signing),
         service_group=f"{session.config.identity.service_group}-outside",
@@ -277,12 +267,6 @@ def cell_refusals(session: Session) -> None:
                 workload_token=pair.workload, person_token=pair.person
             ),
             session.baked.voice,
-            RefusalCode.FORBIDDEN,
-        ),
-        (
-            "a voice outside the table",
-            session.admitted_headers(),
-            session.baked.other_voice,
             RefusalCode.FORBIDDEN,
         ),
     ]
@@ -347,11 +331,6 @@ def cell_no_egress(session: Session) -> None:
         f"cell 8: held; from the service {key_server} answers and "
         f"{', '.join(PUBLIC_ADDRESSES)} do not"
     )
-
-
-def hearer_of(session: Session) -> Session:
-    """The session as the app that may hear."""
-    return replace(session, baked=session.hearer)
 
 
 def cell_hearing_ready(session: Session, plain: Compose, seconds: float) -> None:
@@ -508,14 +487,6 @@ def wait_until_speaking_alone(session: Session) -> None:
     raise SystemExit(message)
 
 
-def start_with(session: Session, override: Path) -> Compose:
-    """Recreate the service with `override` over the proof's files, without waiting."""
-    session.collect_log()
-    stack = replace(session.compose, files=(*session.compose.files, override))
-    stack.run("up", "--detach", "--no-build", "--no-deps", "--force-recreate", SERVICE)
-    return stack
-
-
 def cell_hearing_negatives(session: Session, wav: bytes) -> None:
     """Cell 20: each hearing check fails, for its own reason, on a wrong subject."""
     require_fails(
@@ -658,6 +629,19 @@ def print_teardown(outcome: Teardown) -> None:
         print("torn_down", PROJECT)
 
 
+def hearing_cells(
+    session: Session, plain: Compose, wav: bytes, started_after: float
+) -> None:
+    """Cells 13 to 19: hearing in the image, after a start `started_after` long."""
+    cell_hearing_ready(session, plain, started_after)
+    cell_recording(session, wav)
+    cell_not_enabled(session, wav)
+    cell_hearing_refusals(session, wav)
+    cell_live_turn(session, wav)
+    cell_recording_limit(session, wav)
+    cell_hearing_restart(session, wav, plain)
+
+
 def _prove() -> None:
     wait_for_load()
     config = load_caller_config(BAKED_CONFIG)
@@ -692,18 +676,14 @@ def _prove() -> None:
                 started_after = cell_start(session)
                 wav = cell_speak(session)
                 cell_refusals(session)
+                cell_gpu_voice_not_offered(session)
                 cell_key_server_stopped(session)
                 cell_restart(session)
                 cell_no_egress(session)
-                cell_hearing_ready(session, plain, started_after)
-                cell_recording(session, wav)
-                cell_not_enabled(session, wav)
-                cell_hearing_refusals(session, wav)
-                cell_live_turn(session, wav)
-                cell_recording_limit(session, wav)
-                cell_hearing_restart(session, wav, plain)
+                hearing_cells(session, plain, wav, started_after)
                 cell_hearing_negatives(session, wav)
                 cell_negatives(session, wav)
+                cell_gpu_voice_offered(session, wav)
                 cell_log(session)
                 cell_hearing_log(session)
             failed = False

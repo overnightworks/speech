@@ -6,15 +6,21 @@ import base64
 import json
 import os
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import httpx2
 
 import hearing_figures as figures
 from hearing_client import live_url, update_event
-from image_judgement import TmpUsage, minting_for, seconds_to_healthy
+from image_judgement import (
+    TmpUsage,
+    minting_for,
+    require_marked_wav,
+    seconds_to_healthy,
+)
 from proof_identity import mint_pair
 from prove_speech import SENTENCE
 from speech_runtime_client.wire import (
@@ -49,6 +55,7 @@ LIVE_WAIT_SECONDS: Final = 120
 MEMORY_PEAK_FILE: Final = "/sys/fs/cgroup/memory.peak"
 HEALTHY_TIMEOUT_SECONDS: Final = 120
 STOP_TIMEOUT_SECONDS: Final = 5
+HEARING_LANGUAGE: Final = HearingLanguage.DE.value
 
 
 def caller_service(app: str) -> str:
@@ -310,6 +317,35 @@ class Session:
     def collect_log(self) -> None:
         """Keep the service's log so far; a recreated container loses its own."""
         self.logs.append(self.compose.run("logs", "--no-color", SERVICE).stdout)
+
+
+def service_config(compose: Compose) -> dict[str, Any]:
+    """The service as `compose` renders it."""
+    rendered = json.loads(compose.run("config", "--format", "json").stdout)
+    return rendered["services"][SERVICE]
+
+
+def speak_marked(session: Session) -> bytes:
+    """One admitted speak; the WAV it returns, which must carry the AI mark."""
+    reply = session.speak(session.admitted_headers(), session.baked.voice)
+    if reply.status != HTTPStatus.OK:
+        message = f"the admitted speak answered {reply.status}"
+        raise SystemExit(message)
+    require_marked_wav(reply.body)
+    return reply.body
+
+
+def hearer_of(session: Session) -> Session:
+    """The session as the app that may hear."""
+    return replace(session, baked=session.hearer)
+
+
+def start_with(session: Session, override: Path) -> Compose:
+    """Recreate the service with `override` over the proof's files, without waiting."""
+    session.collect_log()
+    stack = replace(session.compose, files=(*session.compose.files, override))
+    stack.run("up", "--detach", "--no-build", "--no-deps", "--force-recreate", SERVICE)
+    return stack
 
 
 def healthcheck_passes(compose: Compose, healthcheck: Mapping[str, list[str]]) -> bool:

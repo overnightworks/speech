@@ -13,7 +13,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
-from speech_runtime_provider_contract import QWEN_ARTIFACTS, QWEN_SAMPLE_RATE
+from speech_runtime_provider_contract import (
+    QWEN_ARTIFACTS,
+    QWEN_DEVICE,
+    QWEN_SAMPLE_RATE,
+)
 
 from speech_runtime_client.wire import REALTIME_PATH, Health, RefusalCode
 from speech_runtime_service.pcm import pcm_from_wav
@@ -50,6 +54,7 @@ from tests.support.worker_support import (
     assert_reaped,
     hold_exits,
     is_running,
+    observed,
     release_exit,
     release_load,
     wait_for_held_exit,
@@ -122,6 +127,18 @@ def test_an_offered_voice_loads_on_its_first_request_and_then_reports_ready(
 
     assert stage.starts() == [pid]
     assert health.speaking.voices[QWEN].ready is True
+
+
+def test_a_gpu_voice_launches_on_its_providers_device_whatever_hearing_runs_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with gpu_voice_stage(tmp_path, monkeypatch, _SERVING) as stage:
+        spoken = post_speech(TestClient(stage.app()), speak_body(QWEN))
+        launched = observed(stage.cache)[3]
+
+    _assert_spoken_at(spoken, QWEN_SAMPLE_RATE)
+    assert stage.settings.device != QWEN_DEVICE
+    assert launched["device"] == QWEN_DEVICE
 
 
 def test_requests_during_one_load_share_it_and_are_served_one_after_another(
