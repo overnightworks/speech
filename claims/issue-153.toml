@@ -1,8 +1,0 @@
-claim_id = "9511fce2da994e2ba3c4e514a6dc3c9f"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "b8bf5b4a80cb2c2360a363b03f363812154caeed"
-branch = "claude/issue-153-g3-qwen-in-the-image"
-scope = [".dockerignore", ".github/workflows/ci.yml", "Dockerfile", "README.md", "deploy/speech.toml", "docs/ARCHITECTURE.md", "providers/provider-contract/src", "providers/qwen/src", "providers/qwen/tests", "scripts", "src/speech_runtime_service", "tests"]
-opened_commit = "ec05d57174e7976d50ac5a6f5358dc111cb0c678"
-whole_reason = "One shipped image: Qwen's environment, its weights, the device it launches on, the apps that may name it and the proof that the card-less image refuses it visibly change together, or the image would offer a voice it cannot carry or carry one nobody may name."
