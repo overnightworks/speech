@@ -214,8 +214,7 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
     }
     assert set(environment) <= {*expected_environment, "LC_CTYPE"}
     assert all(environment[key] == value for key, value in expected_environment.items())
-    assert len(launches) == 1
-    launch_arguments, launch = launches[0]
+    [(launch_arguments, launch)] = launches
     assert launch_arguments == [
         str(root / "qwen/.venv/bin/speech-runtime-qwen-worker"),
         "--expected-parent-pid",
