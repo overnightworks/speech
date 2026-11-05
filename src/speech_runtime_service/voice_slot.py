@@ -51,6 +51,7 @@ class VoiceSlot:
         self._closing_engine: SpeakingEngine | None = None
         self._load_job: Future[None] | None = None
         self._stopping = False
+        self._cleanup_failed = False
         self._fatal_callback: Callable[[], None] = lambda: None
 
     def begin_loading(self) -> None:
@@ -128,6 +129,7 @@ class VoiceSlot:
         """Close the pending and the active engine, then wait for a running load.
 
         `while_released` runs once the slot refuses work and before its engines close.
+        It raises once any cleanup of the slot failed, the running load's included.
         """
         with self._state_changed:
             self._stopping = True
@@ -139,13 +141,13 @@ class VoiceSlot:
             self.speaking = None
             self._ready_speaking = None
         while_released()
-        closed = [
-            self._closed(engine, _CLEANUP_FAILED) for engine in _unique_engines(engines)
-        ]
+        for engine in _unique_engines(engines):
+            self._closed(engine, _CLEANUP_FAILED)
         with self._state_changed:
             while self._load_job is not None:
                 self._state_changed.wait()
-        if not all(closed):
+            cleanup_failed = self._cleanup_failed
+        if cleanup_failed:
             raise RuntimeError(_CLEANUP_FAILED)
 
     def reconcile_failed_active(self) -> None:
@@ -214,6 +216,8 @@ class VoiceSlot:
             engine.close()
         except Exception:
             logger.exception("%s", failure)
+            with self._state_lock:
+                self._cleanup_failed = True
             self._fatal_callback()
             return False
         return True

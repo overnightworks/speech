@@ -38,7 +38,6 @@ from tests.support.worker_support import (
     WORKER_WAIT_SECONDS,
     LoadOutcome,
     assert_reaped,
-    fail_every_reap,
     hold_exits,
     is_running,
     release_exit,
@@ -87,8 +86,17 @@ def test_sigterm_during_a_load_refuses_its_waiters_reaps_the_worker_and_exits_ze
     assert serving.fatal.is_set() is False
 
 
-def test_sigterm_during_a_failed_loads_cleanup_waits_for_it_and_exits_zero(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("reap_fails", "exit_status"),
+    [(False, 0), (True, 1)],
+    ids=["reaped", "unreapable"],
+)
+def test_sigterm_during_a_failed_loads_cleanup_waits_for_it_and_exits_by_its_reap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    reap_fails: bool,
+    exit_status: int,
 ) -> None:
     async def scenario(serving: Serving, stage: GpuVoiceStage) -> tuple[bool, int]:
         async with await serving.start() as client:
@@ -108,17 +116,18 @@ def test_sigterm_during_a_failed_loads_cleanup_waits_for_it_and_exits_zero(
             assert_unavailable(await refused)
             return waited, outcome
 
-    with gpu_voice_stage(tmp_path, monkeypatch, _LOADING) as stage:
+    setup = StageSetup(started=False, reaps_fail=reap_fails)
+    with gpu_voice_stage(tmp_path, monkeypatch, setup) as stage:
         hold_exits(stage.cache)
         serving = Serving(stage, monkeypatch)
         with serving.listener:
             waited, outcome = asyncio.run(scenario(serving, stage))
 
     assert waited is True
-    assert outcome == 0
+    assert outcome == exit_status
     (pid,) = stage.starts()
     assert_reaped(pid)
-    assert serving.fatal.is_set() is False
+    assert serving.fatal.is_set() is reap_fails
 
 
 def test_a_failed_load_whose_worker_cannot_be_reaped_ends_the_service_nonzero(
@@ -135,8 +144,8 @@ def test_a_failed_load_whose_worker_cannot_be_reaped_ends_the_service_nonzero(
             await asyncio.gather(asked, return_exceptions=True)
             return outcome
 
-    with gpu_voice_stage(tmp_path, monkeypatch, _LOADING) as stage:
-        fail_every_reap(monkeypatch)
+    setup = StageSetup(started=False, reaps_fail=True)
+    with gpu_voice_stage(tmp_path, monkeypatch, setup) as stage:
         serving = Serving(stage, monkeypatch)
         with serving.listener:
             outcome = asyncio.run(scenario(serving, stage))

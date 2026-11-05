@@ -33,6 +33,7 @@ from tests.support.tcp_server_support import answers_http
 from tests.support.worker_support import (
     WORKER_WAIT_SECONDS,
     closed_provider,
+    fail_every_reap,
     release_exit,
     worker_starts,
 )
@@ -107,7 +108,8 @@ class GpuVoiceStage:
 class StageSetup:
     """The fake worker's behaviour and what the stage installs and offers.
 
-    The start load has run unless `started` is false.
+    The start load has run unless `started` is false. With `reaps_fail`, every
+    worker's cleanup fails once it is reaped, so the stage's close may raise.
     """
 
     behavior: str = "held-ready"
@@ -115,6 +117,7 @@ class StageSetup:
     qwen_installed: bool = True
     hearing: FakeHearing | None = None
     started: bool = True
+    reaps_fail: bool = False
 
 
 @contextlib.contextmanager
@@ -135,6 +138,8 @@ def gpu_voice_stage(
     if setup.qwen_installed:
         install_qwen(cache)
     ear = setup.hearing or FakeHearing()
+    if setup.reaps_fail:
+        fail_every_reap(monkeypatch)
     configured = Settings(
         gpu_voices=setup.gpu_voices,
         provider_root=root,
@@ -152,7 +157,11 @@ def gpu_voice_stage(
     finally:
         for pid in worker_starts(cache):
             release_exit(cache, pid)
-        runtime.close()
+        try:
+            runtime.close()
+        except RuntimeError:
+            if not setup.reaps_fail:
+                raise
 
 
 async def health_of(app: FastAPI) -> Health:
