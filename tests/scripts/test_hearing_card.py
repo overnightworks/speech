@@ -49,6 +49,10 @@ with hearing_card.held_card():
 """
 
 
+def holder_has_exited(pid_file: Path) -> bool:
+    return has_exited(int(pid_file.read_text()))
+
+
 def has_exited(pid: int) -> bool:
     """Block until the process is a zombie or gone, within the test's deadline."""
     deadline = time.monotonic() + DEADLINE_SECONDS
@@ -137,7 +141,7 @@ def test_a_holder_that_ends_after_its_line_fails_the_stage(
     monkeypatch.setenv("HOLDER_EXITS", "1")
 
     with pytest.raises(SystemExit, match="ended with status 0"), CARD.held_card():
-        assert has_exited(int(holder.read_text()))
+        assert holder_has_exited(holder)
 
 
 def test_the_holder_ends_when_the_proof_is_killed_outright(
