@@ -12,6 +12,7 @@ import pytest
 from speech_runtime_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 
 from speech_runtime_service.provider_process import (
+    ENDED_BEFORE_READY,
     ProviderFailedError,
     ProviderLaunch,
     ProviderProcess,
@@ -96,6 +97,7 @@ def test_provider_failing_to_load_the_model_logs_its_cause_and_a_reaped_status(
         engine.load()
     engine.close()
 
+    assert caplog.text.count(ENDED_BEFORE_READY) == 1
     assert "RuntimeError: model weights unreadable" in caplog.text
     # Whether the service's stop or the provider's own exit comes first is a
     # race; either way the reaped provider has a status.
@@ -112,6 +114,6 @@ def test_ready_provider_logs_no_startup_record_and_its_stderr_reaches_no_log(
         assert list(engine.pcm_chunks("caller secret words", "de")) == [b"\x00\x01"]
         engine.close()
 
-    assert "ended before ready" not in caplog.text
+    assert ENDED_BEFORE_READY not in caplog.text
     assert "caller secret words" not in caplog.text
     assert (tmp_path / "cache/stderr-target").read_text() == os.devnull

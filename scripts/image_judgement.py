@@ -16,14 +16,17 @@ from hearing_figures import words
 from prove_speech import spoken_in_log
 from speech_runtime_client.wire import (
     REFUSAL_STATUS,
+    Health,
     Refusal,
     RefusalCode,
+    RequestField,
     RetryAfterError,
     Transcription,
     busy_wait,
 )
 from speech_runtime_service.pcm import AI_MARK
-from speech_runtime_service.voices import VoiceId
+from speech_runtime_service.provider_process import ENDED_BEFORE_READY
+from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -50,7 +53,6 @@ class BakedCaller:
     app: str
     hear: bool
     voice: VoiceId
-    other_voice: VoiceId
     key_set_host: str
     key_set_port: int
     key_set_path: str
@@ -90,20 +92,29 @@ class TmpUsage:
 
 
 def baked_caller(config: CallerConfig, app: str) -> BakedCaller:
-    """`app`, its voices and the key set's address, read from the baked table."""
-    voices = sorted(config.apps[app].voices)
-    (other_voice, *_) = sorted(set(VoiceId) - set(voices))
+    """`app`, the resident voice it speaks and the key set's address, from the table."""
+    if RESIDENT_VOICE not in config.apps[app].voices:
+        message = f"the baked table does not let {app} name {RESIDENT_VOICE}"
+        raise SystemExit(message)
     key_set = urlsplit(config.identity.jwks_url)
     assert key_set.hostname is not None  # noqa: S101 - the owner validated an https URL
     return BakedCaller(
         app=app,
         hear=config.apps[app].hear,
-        voice=voices[0],
-        other_voice=other_voice,
+        voice=RESIDENT_VOICE,
         key_set_host=key_set.hostname,
         key_set_port=key_set.port or 443,
         key_set_path=key_set.path,
     )
+
+
+def listed_gpu_voice(config: CallerConfig, app: str) -> VoiceId:
+    """The first GPU voice, by id, that the baked table lets `app` name."""
+    listed = sorted(config.apps[app].voices - {RESIDENT_VOICE})
+    if not listed:
+        message = f"the baked table lets {app} name no GPU voice"
+        raise SystemExit(message)
+    return listed[0]
 
 
 def minting_for(config: CallerConfig, baked: BakedCaller, signing: Minting) -> Minting:
@@ -175,8 +186,13 @@ def require_marked_wav(wav: bytes) -> None:
         raise SystemExit(message)
 
 
-def require_refusal(reply: Reply, expected: RefusalCode) -> None:
-    """Fail unless `reply` is the wire refusal `expected`, with its status."""
+def require_refusal(
+    reply: Reply, expected: RefusalCode, param: RequestField | None = None
+) -> None:
+    """Fail unless `reply` is the wire refusal `expected`, with its status.
+
+    With `param`, the refusal must also name that field.
+    """
     try:
         refusal = Refusal.model_validate_json(reply.body)
     except ValueError:
@@ -185,6 +201,9 @@ def require_refusal(reply: Reply, expected: RefusalCode) -> None:
     code = refusal.error.code
     if code is not expected or reply.status != REFUSAL_STATUS[code]:
         message = f"status {reply.status} refused as {code}, expected {expected}"
+        raise SystemExit(message)
+    if param is not None and refusal.error.param != param:
+        message = f"{code} named {refusal.error.param}, expected {param}"
         raise SystemExit(message)
 
 
@@ -443,3 +462,52 @@ def require_ready_within(seconds: float, start_period: str) -> None:
     if seconds > duration_seconds(start_period):
         message = f"the service took {seconds:.0f} s to be healthy, past {start_period}"
         raise SystemExit(message)
+
+
+@dataclass(frozen=True)
+class GpuVoiceReport:
+    """What `gpu_voice.py` found in the service container.
+
+    `workers` are the pids of running GPU voice workers. `cuda` is whether the
+    voice's own environment, started as its worker is, sees a CUDA device; None
+    when its model library did not import, with the last line it wrote in `error`.
+    """
+
+    workers: list[int]
+    cuda: bool | None
+    error: str | None
+
+
+def require_offer(health: Health, voices: Iterable[VoiceId]) -> None:
+    """Fail unless `/health` offers exactly `voices`."""
+    offered = set(health.speaking.voices)
+    if offered != {voice.value for voice in voices}:
+        message = f"/health offers {sorted(offered)}"
+        raise SystemExit(message)
+
+
+def require_gpu_voice_down(health: Health, voice: VoiceId) -> None:
+    """Fail unless `voice` is not ready while speaking and hearing are."""
+    voice_ready = health.speaking.voices[voice.value].ready
+    if not (health.speaking.ready and health.hearing.ready) or voice_ready:
+        message = (
+            f"/health is not {voice} down beside a ready service: "
+            f"speaking.ready={health.speaking.ready} "
+            f"hearing.ready={health.hearing.ready} {voice}.ready={voice_ready}"
+        )
+        raise SystemExit(message)
+
+
+def require_no_cuda_device(report: GpuVoiceReport) -> None:
+    """Fail unless the GPU voice's environment imports and sees no CUDA device."""
+    if report.cuda is None:
+        message = f"the GPU voice's environment does not import: {report.error}"
+        raise SystemExit(message)
+    if report.cuda:
+        message = "the GPU voice's environment sees a CUDA device"
+        raise SystemExit(message)
+
+
+def workers_ended_before_ready(log: str) -> int:
+    """How many provider workers a service log says ended before they were ready."""
+    return log.count(ENDED_BEFORE_READY)

@@ -37,6 +37,8 @@ CANCEL_DRAIN_SECONDS = 5
 _COMMAND_WAIT_SECONDS = 0.25
 _READ_SIZE = 64 * 1024
 _STDERR_TAIL_BYTES = 4096
+ENDED_BEFORE_READY = "speech provider ended before ready"
+"""The record that opens the log of a provider that ended before it was ready."""
 _NVIDIA_LIBRARY_DIRECTORIES = (
     "cublas:cuda_cupti:cuda_nvrtc:cuda_runtime:cudnn:cufft:curand:"
     "cusolver:cusparse:cusparselt:nccl:nvjitlink:nvtx"
@@ -304,7 +306,7 @@ class ProviderProcess:
         entrypoint = self._executable
         if not is_executable_file(entrypoint):
             raise ProviderUnavailableError
-        provider_directory = entrypoint.parents[2]
+        directory = provider_directory(entrypoint)
         return subprocess.Popen(  # noqa: S603 - argv is the fixed provider entrypoint and flags with no shell
             [
                 str(entrypoint),
@@ -316,8 +318,8 @@ class ProviderProcess:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=stderr,
-            cwd=provider_directory,
-            env=provider_environment(provider_directory),
+            cwd=directory,
+            env=provider_environment(directory),
             bufsize=0,
             close_fds=True,
             start_new_session=True,
@@ -478,7 +480,8 @@ def _close_stderr(child: subprocess.Popen[bytes] | None, stderr: IO[bytes]) -> N
             size = stderr.seek(0, os.SEEK_END)
             stderr.seek(max(0, size - _STDERR_TAIL_BYTES))
             logger.error(
-                "speech provider ended before ready, exit status %s, stderr tail:\n%s",
+                "%s, exit status %s, stderr tail:\n%s",
+                ENDED_BEFORE_READY,
                 child.returncode,
                 stderr.read().decode("utf-8", errors="replace"),
             )
@@ -505,6 +508,11 @@ def provider_entrypoint(
         / "bin"
         / (f"speech-runtime-{provider.value}-worker")
     )
+
+
+def provider_directory(entrypoint: Path) -> Path:
+    """The provider's own directory, which holds the environment of `entrypoint`."""
+    return entrypoint.parents[2]
 
 
 def is_executable_file(entrypoint: Path | None) -> bool:
