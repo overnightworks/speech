@@ -1,7 +1,7 @@
 # Measured by `quality baseline write`. Entries only ever go down.
 
 [function_lines."tests/test_main.py"]
-"test_shutdown_closes_a_pending_real_adapter_before_awaiting_tasks" = 86
+"test_shutdown_closes_a_pending_real_adapter_before_awaiting_tasks" = 85
 
 [function_lines."tests/test_provider_process.py"]
 "test_direct_closed_entrypoint_streams_after_transient_loader_exits" = 78
