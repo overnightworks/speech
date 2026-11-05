@@ -53,6 +53,7 @@ from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId, model_for_voi
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
     from types import FrameType
+    from typing import IO
 
 SENTENCE = (
     "Die Kamera zeigt den Vortragenden, während im Hintergrund "
@@ -379,9 +380,23 @@ def start_with_parent_death(
     this from the thread that lives as long as the proof, never from a worker
     thread, or the child dies when that worker returns. A proof killed outright
     then leaves no child holding the card.
+
+    The kernel arms the signal only once `setpriv` runs, so a parent that died
+    before that would leave the child alive: the shell the child starts as checks,
+    with the signal armed, that its parent is still this process.
     """
     return subprocess.Popen(  # noqa: S603 - argv is setpriv with the caller's own command
-        [SETPRIV, "--pdeathsig", "TERM", *command], **options
+        [
+            SETPRIV,
+            "--pdeathsig",
+            "TERM",
+            "sh",
+            "-c",
+            '[ "$PPID" = "$0" ] || exit 1; exec "$@"',
+            str(os.getpid()),
+            *command,
+        ],
+        **options,
     )
 
 
@@ -398,16 +413,27 @@ def speech_server(
     """Start speech, wait until it is ready, and stop it on the way out.
 
     The log must hold neither of the proof's own sentences nor any text the
-    caller adds to `spoken_texts`.
+    caller adds to `spoken_texts`. It goes to a file, so a service that logs more
+    than a pipe holds is never blocked by the proof, which reads it after the stop.
     """
-    server = start(
-        [sys.executable, "-m", "speech_runtime_service"],
-        cwd=work_directory,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
+    with tempfile.TemporaryFile("w+", encoding="utf-8") as log_file:
+        server = start(
+            [sys.executable, "-m", "speech_runtime_service"],
+            cwd=work_directory,
+            env=env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        yield from _run_and_stop(server, base_url, wait_ready, log_file)
+
+
+def _run_and_stop(
+    server: subprocess.Popen[str],
+    base_url: str,
+    wait_ready: Callable[[str, Callable[[], int | None]], dict[str, object]],
+    log_file: IO[str],
+) -> Iterator[RunningSpeech]:
     proof_failed = True
     running: RunningSpeech | None = None
     try:
@@ -423,7 +449,8 @@ def speech_server(
         except subprocess.TimeoutExpired:
             server.kill()
             server.wait(timeout=5)
-        log = server.stdout.read() if server.stdout is not None else ""
+        log_file.seek(0)
+        log = log_file.read()
         if log:
             print("server_log_tail:")
             print(log[-4000:])

@@ -8,17 +8,21 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
+import httpx2
 import pytest
 
+from tests.support.clock_support import FakeClock
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
 PROVE = script_module("prove_speech")
+PIPE_BYTES = 65536
 
 
 @pytest.mark.parametrize(
@@ -255,3 +259,93 @@ def test_a_service_ends_when_the_thread_that_started_it_ends() -> None:
         child.kill()
         child.wait()
         child.stdout.close()
+
+
+FAKE_SERVICE = """
+import os, sys
+for number in range(LINES):
+    print("log line", number, "x" * 100, flush=True)
+print("last line", flush=True)
+with open(os.environ["SERVICE_LOGGED_FIFO"], "w") as logged:
+    logged.write("done")
+import threading
+threading.Event().wait()
+"""
+
+
+def test_the_default_start_never_blocks_a_service_that_logs_past_the_pipe(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    package = tmp_path / "packages" / "speech_runtime_service"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "__main__.py").write_text(
+        FAKE_SERVICE.replace("LINES", str(PIPE_BYTES // 100 * 2))
+    )
+    logged = tmp_path / "logged"
+    os.mkfifo(logged)
+    env = {
+        "PATH": os.environ["PATH"],
+        "PYTHONPATH": str(tmp_path / "packages"),
+        "SERVICE_LOGGED_FIFO": str(logged),
+    }
+
+    def wait_until_logged(*_: object) -> dict[str, object]:
+        assert logged.read_text() == "done"
+        return {}
+
+    with PROVE.speech_server(
+        "http://127.0.0.1:1", env, tmp_path, wait_ready=wait_until_logged
+    ):
+        pass
+
+    output = capsys.readouterr().out
+    assert "last line" in output
+    assert "server_exit" in output
+
+
+@pytest.mark.parametrize(
+    ("health", "detail_in_message"),
+    [
+        ({"speaking": {"ready": False}, "card_memory_mb": 7}, True),
+        (None, False),
+    ],
+    ids=["the last health is named", "no health ever answered"],
+)
+def test_a_wait_that_runs_out_names_the_last_health_it_saw(
+    monkeypatch: pytest.MonkeyPatch,
+    health: dict[str, object] | None,
+    *,
+    detail_in_message: bool,
+) -> None:
+    clock = FakeClock()
+
+    def answer(*_: object) -> dict[str, object]:
+        if health is None:
+            refusal = "refused"
+            raise httpx2.ConnectError(refusal)
+        return health
+
+    monkeypatch.setattr(
+        PROVE, "time", SimpleNamespace(monotonic=clock.now, sleep=clock.jump)
+    )
+    monkeypatch.setattr(PROVE, "get_json", answer)
+
+    with pytest.raises(SystemExit, match="not ready within") as failure:
+        PROVE._wait_ready("http://127.0.0.1:1", lambda: None)  # noqa: SLF001
+
+    assert ("card_memory_mb" in str(failure.value)) is detail_in_message
+
+
+def test_a_child_whose_parent_is_not_its_starter_never_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = tmp_path / "ran"
+    monkeypatch.setattr(PROVE.os, "getpid", lambda: 1)
+
+    child = PROVE.start_with_parent_death(
+        [sys.executable, "-c", f"open({str(marker)!r}, 'w')"]
+    )
+
+    assert child.wait(timeout=30) != 0
+    assert not marker.exists()
