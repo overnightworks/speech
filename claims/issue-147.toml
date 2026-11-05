@@ -1,8 +1,0 @@
-claim_id = "bcf04bde4fce46d5a50571025bac4cde"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "cf6084e0880c04e30544331fe1739b393c3169f9"
-branch = "claude/issue-147-g1c-piper-resident-lazy-gpu-voices"
-scope = ["README.md", "docs/ARCHITECTURE.md", "docs/wire.md", "quality/baseline.toml", "scripts", "src/speech_runtime_service", "tests"]
-opened_commit = "0cc4fc1c010666ee00c3460e94a4891e055bfa66"
-whole_reason = "One failure boundary: the start setting is the lazy load's only production caller, and review finding 2 forbids a main state that offers a GPU voice before its load is lazy and isolated, so the setting, the slot's load job, the route's wait, the proofs, the tests and the docs land together."
