@@ -175,8 +175,9 @@ def test_the_busy_wait_of_a_request_that_waited_for_the_load_starts_at_its_end(
         waits = LoadWaits(stage.runtime)
         calls = [SpeakCall(app, speak_body(QWEN)) for _ in range(2)]
         await asyncio.to_thread(waits.wait_for, 2)
+        # Both requests had their tokens accepted before they took hold of the load.
+        passed = time.monotonic() + busy_wait_seconds
         (pid,) = await asyncio.to_thread(wait_for_starts, stage.cache, 1)
-        passed = max(call.began for call in calls) + busy_wait_seconds
         while time.monotonic() <= passed:  # noqa: ASYNC110 - the load outlasts the busy wait
             await asyncio.sleep(0.01)
         release_load(stage.cache, pid, LoadOutcome.READY)
