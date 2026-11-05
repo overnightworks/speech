@@ -16,15 +16,18 @@ from speech_runtime_client.wire import (
     BusyWait,
     ClientEventError,
     Health,
+    HearingHealth,
     HearingLanguage,
     RefusalCode,
     RetryAfterError,
     SessionCreated,
     SessionUpdate,
+    SpeakingHealth,
     TranscriptDelta,
     TranscriptFailed,
     TranscriptionRequest,
     TranscriptionSession,
+    VoiceHealth,
     busy_wait,
     error_event,
     item_failure,
@@ -308,6 +311,55 @@ def test_a_health_answer_ignores_a_key_it_does_not_know() -> None:
     body["hearing"] = {"model": "h", "ready": False, "later": 1}
 
     assert Health.model_validate(body) == Health.model_validate(_health_body())
+
+
+def _with_value(path: tuple[str, ...], value: object) -> dict[str, object]:
+    body = _health_body()
+    node: dict[str, object] = body
+    for key in path[:-1]:
+        node = node[key]  # type: ignore[assignment]
+    node[path[-1]] = value
+    return body
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("speaking", "ready"),
+        ("speaking", "voices", "v", "ready"),
+        ("hearing", "ready"),
+    ],
+)
+@pytest.mark.parametrize("value", ["true", 1, None])
+def test_a_health_readiness_that_is_not_a_boolean_is_refused(
+    path: tuple[str, ...], value: object
+) -> None:
+    with pytest.raises(ValidationError):
+        Health.model_validate(_with_value(path, value))
+
+
+@pytest.mark.parametrize(
+    "path", [("speaking", "voices", "v", "sample_rate"), ("card_memory_mb",)]
+)
+@pytest.mark.parametrize("value", ["7", 7.5])
+def test_a_health_integer_that_is_not_an_integer_is_refused(
+    path: tuple[str, ...], value: object
+) -> None:
+    with pytest.raises(ValidationError):
+        Health.model_validate(_with_value(path, value))
+
+
+def test_a_health_body_built_through_the_models_still_parses() -> None:
+    built = Health(
+        speaking=SpeakingHealth(
+            ready=True,
+            voices={"v": VoiceHealth(model="m", ready=True, sample_rate=SAMPLE_RATE)},
+        ),
+        hearing=HearingHealth(model="h", ready=False),
+        card_memory_mb=CARD_MEMORY_MB,
+    )
+
+    assert Health.model_validate(built.model_dump(mode="json")) == built
 
 
 def test_a_health_answer_is_frozen() -> None:
