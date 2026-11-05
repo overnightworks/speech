@@ -20,7 +20,7 @@ from speech_runtime_provider_contract import (
 )
 
 from speech_runtime_client.wire import HEALTH_PATH, Health
-from speech_runtime_service import __main__, service
+from speech_runtime_service import __main__
 from speech_runtime_service.config import Settings
 from speech_runtime_service.control import create_control_app
 from speech_runtime_service.hearing import Hearing
@@ -44,8 +44,6 @@ if TYPE_CHECKING:
 
     import pytest
     from fastapi import FastAPI
-
-    from speech_runtime_service.clock import Clock
 
 PIPER_SAMPLE_RATE = 22_050
 PIPER_PCM = b"\x00\x01"
@@ -137,11 +135,6 @@ def gpu_voice_stage(
     if setup.qwen_installed:
         install_qwen(cache)
     ear = setup.hearing or FakeHearing()
-
-    def fake_hearing(_settings: Settings, clock: Clock) -> Hearing:
-        return Hearing(ear, clock)
-
-    monkeypatch.setattr(service, "hearing_from_settings", fake_hearing)
     configured = Settings(
         gpu_voices=setup.gpu_voices,
         provider_root=root,
@@ -151,6 +144,7 @@ def gpu_voice_stage(
         **settings,
     )
     runtime = Runtime.from_settings(configured)
+    runtime.hearing = Hearing(ear, runtime.clock)
     try:
         if setup.started:
             runtime.load()
