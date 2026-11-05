@@ -50,12 +50,12 @@ DURATION_PART: Final = re.compile(r"(\d+)([hms])")
 DURATION_SECONDS: Final = {"h": 3600, "m": 60, "s": 1}
 # hal builds an app's image under this cap and kills a build that runs past it.
 HAL_BUILD_CAP_SECONDS: Final = 1800
-# A build that the cap killed after it fetched everything runs again with
-# nothing left to fetch, which is what a rebuild from the build caches measures.
-# Half the cap leaves room for what a killed build had not fetched yet and for
-# this host's spread: its cold builds took from 1053 to 1512 s.
+# hal's next build after one the cap killed takes the killed one's layers and
+# build caches and fetches only what is missing, so a second build from the same
+# caches must end well inside the cap. Half of it leaves room for what a killed
+# build had not fetched and for this host's spread: cold builds took 1017 to
+# 1512 s here.
 REBUILD_LIMIT_SECONDS: Final = HAL_BUILD_CAP_SECONDS // 2
-CACHE_MOUNT: Final = re.compile(r"--mount=type=cache,id=(?P<id>[\w.-]+)")
 NVIDIA_RUNTIME: Final = "nvidia"
 
 
@@ -539,7 +539,7 @@ def workers_ended_before_ready(log: str) -> int:
 
 
 class Build(StrEnum):
-    """A timed build: with no cache at all, or from the caches a cold build filled."""
+    """A timed build: with no cache at all, or from the caches a cold one left."""
 
     COLD = "cold"
     REBUILD = "rebuild"
@@ -557,11 +557,6 @@ def require_build_within(build: Build, seconds: float) -> None:
     if seconds > limit:
         message = f"the {build} build took {seconds:.0f} s, past its {limit} s"
         raise SystemExit(message)
-
-
-def cache_mount_ids(dockerfile: str) -> list[str]:
-    """The ids of the build caches the Dockerfile's steps mount, each once."""
-    return sorted({match["id"] for match in CACHE_MOUNT.finditer(dockerfile)})
 
 
 def card_faults(card_listing: str, runtimes: Iterable[str]) -> list[str]:

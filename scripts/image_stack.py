@@ -167,15 +167,6 @@ def require_card() -> None:
         raise SystemExit(message)
 
 
-def prune_build_caches(ids: list[str]) -> None:
-    """Remove the build caches the Dockerfile mounts under `ids`, and only those."""
-    for cache in ids:
-        docker(
-            "builder", "prune", "--force", "--filter", "type=exec.cachemount",
-            "--filter", f"description~={cache}.$",
-        )  # fmt: skip
-
-
 def run_in(
     compose: Compose, container: str, fixture: str, specification: object
 ) -> str:

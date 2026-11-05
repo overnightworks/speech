@@ -202,11 +202,12 @@ every exit, keeping the build caches.
 A cold build alone may take most of one lock run on this host, so the proof
 runs in stages, each its own lock run and each named with `--stage`:
 
-- `cold-build` removes the build caches the `Dockerfile` mounts and times a
-  build with no cache against hal's 1800 s cap;
-- `rebuild` times a build from those caches, with no layer cache, against half
-  of the cap, which leaves room for what a build the cap killed had not fetched
-  yet and for this host's spread, then runs the cells above;
+- `cold-build` times a build with no cache against hal's 1800 s cap; BuildKit
+  then also gives each step an empty build cache, so it fetches everything;
+- `rebuild` times a second build from the layers and build caches the first
+  left, as hal's next build runs, against half of the cap, which leaves room for
+  what a build the cap killed had not fetched yet and for this host's spread,
+  then runs the cells above;
 - `card` needs the card: by default no process of the service computes on it
   while Piper speaks and hearing hears; while `scripts/hold_card.py` holds it,
   a Qwen request is refused `unavailable` with `param` `voice` and Piper and

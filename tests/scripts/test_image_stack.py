@@ -105,24 +105,6 @@ def test_a_machine_with_the_card_and_the_runtime_passes(
     image_stack.require_card()
 
 
-def test_only_the_named_build_caches_are_pruned(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    commands: list[list[str]] = []
-    monkeypatch.setattr(image_stack, "docker", answering("", commands))
-
-    image_stack.prune_build_caches(["uv-downloads", "hub"])
-
-    assert [command[:3] for command in commands] == [
-        ["builder", "prune", "--force"]
-    ] * 2
-    assert [
-        [word for word in command if word.startswith("description~=")]
-        for command in commands
-    ] == [["description~=uv-downloads.$"], ["description~=hub.$"]]
-    assert all("type=exec.cachemount" in command for command in commands)
-
-
 def test_the_pids_of_a_container_are_read_from_its_process_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

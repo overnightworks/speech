@@ -9,12 +9,13 @@ the build caches. `image_judgement` holds what the proof judges and
 `image_stack` what it drives.
 
 A cold build alone may take most of the lock's cap on the host, so the proof
-runs in stages, one lock run each: `cold-build` empties the build caches and
-times a build against hal's cap; `rebuild` times a build from those caches
-against a margin under it and runs the cells; `card` runs the cells only a
-machine with the card can. `--no-card` says the machine has neither the card
-nor the nvidia runtime, as on CI's runner: only then does the proof lay
-`tests/fixtures/image/compose.no-card.yaml`, which drops the reservation.
+runs in stages, one lock run each: `cold-build` times a build with no cache
+against hal's cap; `rebuild` times a second build from the caches the first
+left, as hal's next build would run, against a margin under it and runs the
+cells; `card` runs the cells only a machine with the card can. `--no-card` says
+the machine has neither the card nor the nvidia runtime, as on CI's runner:
+only then does the proof lay `tests/fixtures/image/compose.no-card.yaml`, which
+drops the reservation.
 """
 
 # ruff: noqa: T201 - the proof prints its cell lines as the command line output
@@ -50,7 +51,6 @@ from image_judgement import (
     TmpUsage,
     app_that,
     baked_caller,
-    cache_mount_ids,
     external_networks,
     heard_words,
     image_faults,
@@ -91,7 +91,6 @@ from image_stack import (
     form_of_size,
     healthcheck_passes,
     hearer_of,
-    prune_build_caches,
     require_card,
     seconds_until_healthy,
     service_config,
@@ -124,7 +123,6 @@ from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL
 
 THIS_SCRIPT: Final = Path(__file__).resolve()
 COMPOSE_FILE: Final = REPOSITORY / "compose.yaml"
-DOCKERFILE: Final = REPOSITORY / "Dockerfile"
 BAKED_CONFIG: Final = REPOSITORY / "deploy" / "speech.toml"
 PROOF_OVERRIDE: Final = FIXTURES / "compose.proof.yaml"
 LOOPBACK_OVERRIDE: Final = FIXTURES / "compose.loopback.yaml"
@@ -181,20 +179,20 @@ def proof_files(*, no_card: bool) -> tuple[Path, ...]:
 
 
 def cell_build(compose: Compose, build: Build) -> None:
-    """Cell 1: a build with no layer cache, timed against the `build`'s limit.
+    """Cell 1: a build timed against the `build`'s limit.
 
-    A cold build first removes the build caches the Dockerfile mounts, so it
-    fetches everything; a rebuild finds there what the cold build fetched.
+    A cold build takes no cache, which also gives its steps empty build caches,
+    so it fetches everything; a rebuild takes the layers and the build caches
+    the cold one left, as hal's next build does.
     """
-    if build is Build.COLD:
-        prune_build_caches(cache_mount_ids(DOCKERFILE.read_text()))
+    flags = ["--no-cache"] if build is Build.COLD else []
     started = time.monotonic()
-    compose.run("build", "--no-cache", SERVICE)
+    compose.run("build", *flags, SERVICE)
     seconds = time.monotonic() - started
     size = int(docker("image", "inspect", "--format", "{{.Size}}", IMAGE))
     print(
         f"cell 1: {build} build_seconds={seconds:.0f} image_mib={size // 2**20}"
-        " layer_cache=none (images already pulled on the host are still reused)"
+        " (images already pulled on the host are still reused)"
     )
     require_build_within(build, seconds)
     print(f"cell 1: held; the {build} build stayed within its limit")

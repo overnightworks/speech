@@ -700,22 +700,6 @@ def test_a_cold_build_is_held_to_hal_s_cap_and_a_rebuild_to_a_margin_under_it() 
     assert limits[judged.Build.REBUILD] < judged.HAL_BUILD_CAP_SECONDS
 
 
-def test_the_build_caches_are_named_once_each_from_the_steps_that_mount_them() -> None:
-    dockerfile = (
-        "RUN --mount=type=cache,id=uv-downloads,target=/var/cache/uv uv sync\n"
-        "RUN apt-get update\n"
-        "RUN --mount=type=cache,id=uv-downloads,target=/var/cache/uv uv sync\n"
-        "RUN --mount=type=cache,id=hub.weights,target=/hub fetch\n"
-        "RUN --mount=type=secret,id=token cat /run/secrets/token\n"
-    )
-
-    assert judged.cache_mount_ids(dockerfile) == ["hub.weights", "uv-downloads"]
-
-
-def test_the_shipped_dockerfile_mounts_build_caches_the_proof_can_name() -> None:
-    assert judged.cache_mount_ids((REPOSITORY / "Dockerfile").read_text())
-
-
 @pytest.mark.parametrize(
     ("card_listing", "runtimes", "named"),
     [
