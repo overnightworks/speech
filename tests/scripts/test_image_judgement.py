@@ -62,8 +62,10 @@ def table_of_one_app(voices: list[str]) -> CallerConfig:
 
 
 def test_a_table_with_no_app_of_the_wanted_kind_fails_the_proof() -> None:
+    table = table_of_one_app([RESIDENT_VOICE])
+
     with pytest.raises(SystemExit, match="hear=True"):
-        judged.app_that(table_of_one_app([RESIDENT_VOICE]), hears=True)
+        judged.app_that(table, hears=True)
 
 
 def test_the_baked_caller_speaks_the_resident_voice_its_table_lists(
@@ -77,8 +79,10 @@ def test_the_baked_caller_speaks_the_resident_voice_its_table_lists(
 
 
 def test_a_caller_whose_table_lacks_the_resident_voice_fails_the_proof() -> None:
+    table = table_of_one_app([VoiceId.QWEN])
+
     with pytest.raises(SystemExit, match=RESIDENT_VOICE):
-        judged.baked_caller(table_of_one_app([VoiceId.QWEN]), "one")
+        judged.baked_caller(table, "one")
 
 
 def test_the_gpu_voice_of_an_app_is_one_its_table_lists_beside_the_resident(
@@ -91,8 +95,10 @@ def test_the_gpu_voice_of_an_app_is_one_its_table_lists_beside_the_resident(
 
 
 def test_an_app_whose_table_lists_no_gpu_voice_fails_the_proof() -> None:
+    table = table_of_one_app([RESIDENT_VOICE])
+
     with pytest.raises(SystemExit, match="no GPU voice"):
-        judged.listed_gpu_voice(table_of_one_app([RESIDENT_VOICE]), "one")
+        judged.listed_gpu_voice(table, "one")
 
 
 def test_tokens_minted_for_the_baked_caller_carry_its_identity(
@@ -181,12 +187,10 @@ def test_a_refusal_asked_for_a_field_passes_only_when_it_names_that_field() -> N
         RefusalCode.UNAVAILABLE,
         param="voice",
     )
+    unnamed_reply = Reply(unnamed.status, unnamed.model_dump_json().encode())
+
     with pytest.raises(SystemExit, match="expected voice"):
-        judged.require_refusal(
-            Reply(unnamed.status, unnamed.model_dump_json().encode()),
-            RefusalCode.UNAVAILABLE,
-            param="voice",
-        )
+        judged.require_refusal(unnamed_reply, RefusalCode.UNAVAILABLE, param="voice")
 
 
 @pytest.mark.parametrize(
@@ -370,10 +374,10 @@ def test_a_gpu_voice_down_needs_it_not_ready_beside_ready_speaking_and_hearing(
     )
 
     judged.require_gpu_voice_down(down, VoiceId.QWEN)
+    health = health_of(speaking=speaking, hearing=hearing, voices=voices)
+
     with pytest.raises(SystemExit, match="down beside a ready service"):
-        judged.require_gpu_voice_down(
-            health_of(speaking=speaking, hearing=hearing, voices=voices), VoiceId.QWEN
-        )
+        judged.require_gpu_voice_down(health, VoiceId.QWEN)
 
 
 @pytest.mark.parametrize(
@@ -385,8 +389,10 @@ def test_a_gpu_voice_environment_must_import_and_see_no_cuda_device(
     *, cuda: bool | None, error: str | None, fault: str
 ) -> None:
     judged.require_no_cuda_device(judged.GpuVoiceReport([], cuda=False, error=None))
+    report = judged.GpuVoiceReport([], cuda, error)
+
     with pytest.raises(SystemExit, match=fault):
-        judged.require_no_cuda_device(judged.GpuVoiceReport([], cuda, error))
+        judged.require_no_cuda_device(report)
 
 
 @pytest.mark.parametrize("workers", [0, 1, 2])
