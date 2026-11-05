@@ -9,7 +9,9 @@ import sys
 from typing import TYPE_CHECKING
 
 import pytest
+import yaml
 
+import image_stack
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
@@ -138,7 +140,7 @@ def test_a_failed_removal_of_the_temporary_files_fails_the_proof_loudly(
     )
     try:
         with pytest.raises(PermissionError):
-            PROVE._prove()  # noqa: SLF001 - the whole run is the entry point under test
+            PROVE._prove(PROVE.Stage.REBUILD, no_card=True)  # noqa: SLF001 - the whole run is the entry point under test
     finally:
         stuck.chmod(0o700)
 
@@ -175,3 +177,84 @@ def test_the_teardown_prints_its_outcome_in_order(
     assert captured.out.startswith(stdout_starts)
     assert ("torn_down" in captured.out) is (not stderr)
     assert captured.err == stderr
+
+
+@pytest.mark.parametrize(
+    ("arguments", "stage", "no_card"),
+    [
+        (["--stage", "cold-build", "--no-card"], "cold-build", True),
+        (["--stage", "rebuild"], "rebuild", False),
+        (["--stage", "card"], "card", False),
+    ],
+)
+def test_the_proof_runs_the_stage_it_is_named_and_hears_the_card_flag(
+    arguments: list[str], stage: str, *, no_card: bool
+) -> None:
+    parsed = PROVE.parse_image_arguments(arguments)
+
+    assert (parsed.stage, parsed.no_card) == (PROVE.Stage(stage), no_card)
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        pytest.param([], id="no stage"),
+        pytest.param(["--stage", "card", "--no-card"], id="the card stage without one"),
+    ],
+)
+def test_a_run_the_proof_cannot_honour_ends_before_anything_starts(
+    arguments: list[str],
+) -> None:
+    with pytest.raises(SystemExit):
+        PROVE.parse_image_arguments(arguments)
+
+
+def test_only_a_machine_without_the_card_lays_the_override_that_drops_it() -> None:
+    assert PROVE.proof_files(no_card=False) == (PROVE.COMPOSE_FILE,)
+    assert PROVE.proof_files(no_card=True) == (
+        PROVE.COMPOSE_FILE,
+        PROVE.NO_CARD_OVERRIDE,
+    )
+
+
+RESET = object()
+
+
+class ResetLoader(yaml.SafeLoader):
+    """Reads Compose's `!reset` as `RESET`, the mark of a key the override removes."""
+
+
+ResetLoader.add_constructor("!reset", lambda *_: RESET)
+
+
+def test_the_no_card_override_removes_only_keys_compose_yaml_declares() -> None:
+    shipped = yaml.safe_load(PROVE.COMPOSE_FILE.read_text())["services"]
+    override = yaml.load(PROVE.NO_CARD_OVERRIDE.read_text(), ResetLoader)  # noqa: S506 - a SafeLoader subclass
+    removed = {
+        (service, key)
+        for service, definition in override["services"].items()
+        for key, value in definition.items()
+        if value is RESET
+    }
+
+    assert removed
+    assert all(key in shipped[service] for service, key in removed)
+
+
+def test_a_machine_without_the_card_fails_the_proof_before_it_builds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[tuple[str, ...]] = []
+
+    def docker(*arguments: str, **_: object) -> str:
+        commands.append(arguments)
+        return '{"runc": {}}'
+
+    monkeypatch.setattr(PROVE, "wait_for_load", lambda: None)
+    monkeypatch.setattr(image_stack, "docker", docker)
+    monkeypatch.setattr(image_stack, "query_nvidia", lambda *_: "unavailable: none")
+
+    with pytest.raises(SystemExit, match="no card"):
+        PROVE._prove(PROVE.Stage.REBUILD, no_card=False)  # noqa: SLF001 - the whole run is the entry point under test
+
+    assert [command[0] for command in commands] == ["info"]

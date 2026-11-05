@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime
+from enum import StrEnum
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -12,8 +13,9 @@ from urllib.parse import urlsplit
 
 from packaging.markers import Marker
 
-from hearing_figures import words
+from hearing_figures import peak_over_baseline, words
 from prove_speech import spoken_in_log
+from speech_figures import VoiceFigures
 from speech_runtime_client.wire import (
     REFUSAL_STATUS,
     Health,
@@ -24,7 +26,7 @@ from speech_runtime_client.wire import (
     Transcription,
     busy_wait,
 )
-from speech_runtime_service.pcm import AI_MARK
+from speech_runtime_service.pcm import AI_MARK, BYTES_PER_SAMPLE, pcm_from_wav
 from speech_runtime_service.provider_process import ENDED_BEFORE_READY
 from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
 
@@ -46,6 +48,15 @@ MARK_CHUNK: Final = b"LIST"
 MIN_HEARD_WORD_LENGTH: Final = 5
 DURATION_PART: Final = re.compile(r"(\d+)([hms])")
 DURATION_SECONDS: Final = {"h": 3600, "m": 60, "s": 1}
+# hal builds an app's image under this cap and kills a build that runs past it.
+HAL_BUILD_CAP_SECONDS: Final = 1800
+# A build that the cap killed after it fetched everything runs again with
+# nothing left to fetch, which is what a rebuild from the build caches measures.
+# Half the cap leaves room for what a killed build had not fetched yet and for
+# this host's spread: its cold builds took from 1053 to 1512 s.
+REBUILD_LIMIT_SECONDS: Final = HAL_BUILD_CAP_SECONDS // 2
+CACHE_MOUNT: Final = re.compile(r"--mount=type=cache,id=(?P<id>[\w.-]+)")
+NVIDIA_RUNTIME: Final = "nvidia"
 
 
 @dataclass(frozen=True)
@@ -525,3 +536,74 @@ def require_no_worker_residue(before: GpuVoiceReport, after: GpuVoiceReport) -> 
 def workers_ended_before_ready(log: str) -> int:
     """How many provider workers a service log says ended before they were ready."""
     return log.count(ENDED_BEFORE_READY)
+
+
+class Build(StrEnum):
+    """A timed build: with no cache at all, or from the caches a cold build filled."""
+
+    COLD = "cold"
+    REBUILD = "rebuild"
+
+
+BUILD_LIMIT_SECONDS: Final = {
+    Build.COLD: HAL_BUILD_CAP_SECONDS,
+    Build.REBUILD: REBUILD_LIMIT_SECONDS,
+}
+
+
+def require_build_within(build: Build, seconds: float) -> None:
+    """Fail unless the `build` took no longer than its limit."""
+    limit = BUILD_LIMIT_SECONDS[build]
+    if seconds > limit:
+        message = f"the {build} build took {seconds:.0f} s, past its {limit} s"
+        raise SystemExit(message)
+
+
+def cache_mount_ids(dockerfile: str) -> list[str]:
+    """The ids of the build caches the Dockerfile's steps mount, each once."""
+    return sorted({match["id"] for match in CACHE_MOUNT.finditer(dockerfile)})
+
+
+def card_faults(card_listing: str, runtimes: Iterable[str]) -> list[str]:
+    """Why Docker cannot give a container the card: no card, or no nvidia runtime.
+
+    `card_listing` is `nvidia-smi --list-gpus` or its `unavailable:` note, and
+    `runtimes` the runtimes `docker info` names.
+    """
+    faults = []
+    if card_listing.startswith("unavailable:") or not card_listing.strip():
+        faults.append(f"no card: {card_listing or 'nvidia-smi lists none'}")
+    if NVIDIA_RUNTIME not in runtimes:
+        faults.append(f"Docker names no {NVIDIA_RUNTIME} runtime")
+    return faults
+
+
+def compute_pids(listing: str) -> set[int]:
+    """The pids `nvidia-smi --query-compute-apps=pid` lists; fails on its note."""
+    if listing.startswith("unavailable:"):
+        message = f"the card's compute processes cannot be read: {listing}"
+        raise SystemExit(message)
+    return {int(pid) for pid in listing.split()}
+
+
+def audio_seconds(wav: bytes) -> float:
+    """How long the WAV `wav` plays."""
+    rate, pcm = pcm_from_wav(wav)
+    return len(pcm) / BYTES_PER_SAMPLE / rate
+
+
+def card_figures(
+    first: Reply, again: Reply, baseline_mib: int, samples_mib: list[int]
+) -> VoiceFigures:
+    """A GPU voice's figures from its first request and the same request again.
+
+    The first request waits for the load and the second does not, so the load is
+    what the first one's first byte took beyond the second's. The card's peak
+    is sampled during the first request, over its use before it.
+    """
+    return VoiceFigures(
+        load_seconds=first.first_byte_seconds - again.first_byte_seconds,
+        first_audio_seconds=again.first_byte_seconds,
+        real_time_factor=audio_seconds(again.body) / again.seconds,
+        peak_card_mib=peak_over_baseline(baseline_mib, samples_mib),
+    )

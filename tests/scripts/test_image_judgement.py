@@ -680,3 +680,96 @@ def test_a_service_that_was_healthy_after_its_start_period_fails_the_proof() -> 
 
     with pytest.raises(SystemExit, match="past 30s"):
         judged.require_ready_within(30.1, "30s")
+
+
+@pytest.mark.parametrize("build", list(judged.Build))
+def test_a_build_passes_at_its_limit_and_fails_past_it_naming_which_build(
+    build: judged.Build,
+) -> None:
+    limit = judged.BUILD_LIMIT_SECONDS[build]
+    judged.require_build_within(build, limit)
+
+    with pytest.raises(SystemExit, match=f"the {build} build"):
+        judged.require_build_within(build, limit + 1)
+
+
+def test_a_cold_build_is_held_to_hal_s_cap_and_a_rebuild_to_a_margin_under_it() -> None:
+    limits = judged.BUILD_LIMIT_SECONDS
+
+    assert limits[judged.Build.COLD] == judged.HAL_BUILD_CAP_SECONDS
+    assert limits[judged.Build.REBUILD] < judged.HAL_BUILD_CAP_SECONDS
+
+
+def test_the_build_caches_are_named_once_each_from_the_steps_that_mount_them() -> None:
+    dockerfile = (
+        "RUN --mount=type=cache,id=uv-downloads,target=/var/cache/uv uv sync\n"
+        "RUN apt-get update\n"
+        "RUN --mount=type=cache,id=uv-downloads,target=/var/cache/uv uv sync\n"
+        "RUN --mount=type=cache,id=hub.weights,target=/hub fetch\n"
+        "RUN --mount=type=secret,id=token cat /run/secrets/token\n"
+    )
+
+    assert judged.cache_mount_ids(dockerfile) == ["hub.weights", "uv-downloads"]
+
+
+def test_the_shipped_dockerfile_mounts_build_caches_the_proof_can_name() -> None:
+    assert judged.cache_mount_ids((REPOSITORY / "Dockerfile").read_text())
+
+
+@pytest.mark.parametrize(
+    ("card_listing", "runtimes", "named"),
+    [
+        pytest.param(
+            "GPU 0: a card (UUID: GPU-1)", ["runc", "nvidia"], [], id="card and runtime"
+        ),
+        pytest.param(
+            "unavailable: nvidia-smi not found", ["runc", "nvidia"], ["no card"],
+            id="no nvidia-smi",
+        ),
+        pytest.param("", ["runc", "nvidia"], ["no card"], id="no card listed"),
+        pytest.param(
+            "GPU 0: a card (UUID: GPU-1)", ["runc"], ["no nvidia runtime"],
+            id="no runtime",
+        ),
+        pytest.param(
+            "unavailable: driver gone", ["runc"], ["no card", "no nvidia runtime"],
+            id="neither",
+        ),
+    ],
+)  # fmt: skip
+def test_a_machine_that_cannot_give_the_card_is_told_what_it_lacks(
+    card_listing: str, runtimes: list[str], named: list[str]
+) -> None:
+    faults = judged.card_faults(card_listing, runtimes)
+
+    assert len(faults) == len(named)
+    assert all(what in fault for what, fault in zip(named, faults, strict=True))
+
+
+@pytest.mark.parametrize(
+    ("listing", "pids"),
+    [("", set()), ("4242\n", {4242}), ("4242\n17\n", {4242, 17})],
+)
+def test_the_card_s_compute_processes_are_read_as_pids(
+    listing: str, pids: set[int]
+) -> None:
+    assert judged.compute_pids(listing) == pids
+
+
+def test_unreadable_compute_processes_fail_the_proof() -> None:
+    with pytest.raises(SystemExit, match="cannot be read"):
+        judged.compute_pids("unavailable: nvidia-smi not found")
+
+
+def test_a_gpu_voice_s_figures_come_from_its_first_request_and_the_same_again() -> None:
+    audio_seconds, baseline_mib, peak_mib = 3, 1000, 4700
+    sentence = wav_header(SAMPLE_RATE) + bytes(audio_seconds * SAMPLE_RATE * 2)
+    first = Reply(200, sentence, first_byte_seconds=15.0, seconds=15.5)
+    again = Reply(200, sentence, first_byte_seconds=8.0, seconds=4.0)
+
+    figures = judged.card_figures(first, again, baseline_mib, [1000, peak_mib, 4500])
+
+    assert figures.load_seconds == pytest.approx(7.0)
+    assert figures.first_audio_seconds == pytest.approx(8.0)
+    assert figures.real_time_factor == pytest.approx(audio_seconds / 4.0)
+    assert figures.peak_card_mib == peak_mib - baseline_mib

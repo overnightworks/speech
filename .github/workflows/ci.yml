@@ -104,8 +104,8 @@ jobs:
   image:
     name: "Speech: image"
     runs-on: ubuntu-24.04
-    # The proof holds its own 1800 s cap, build included.
-    timeout-minutes: 35
+    # Each of the proof's two stages holds its own 1800 s cap, its build included.
+    timeout-minutes: 65
     steps:
       - name: Check out the event commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -122,8 +122,13 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked --all-groups
 
-      - name: Build the image and prove it on isolated networks
-        run: uv run --locked python scripts/prove_image.py
+      # The runner has neither the card nor the nvidia runtime, so the proof
+      # drops the card reservation; the host proves it in its own stage.
+      - name: Build the image cold, timed against hal's cap
+        run: uv run --locked python scripts/prove_image.py --stage cold-build --no-card
+
+      - name: Rebuild it from the build caches and prove it on isolated networks
+        run: uv run --locked python scripts/prove_image.py --stage rebuild --no-card
 
   keycloak-token-shapes:
     name: keycloak-token-shapes

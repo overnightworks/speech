@@ -21,6 +21,14 @@ services:
       - hal_speech_issuer
       - hal_speech_hopin
       - hal_speech_presentator
+    # The host's one card, for a GPU voice the start setting offers; it loads
+    # there on its first request. Its memory is not bounded here: that budget is
+    # hal's to declare. With the reservation every start needs the nvidia
+    # runtime, Piper alone included.
+    gpus:
+      - driver: nvidia
+        count: 1
+        capabilities: [gpu]
     cap_drop:
       - ALL
     security_opt:

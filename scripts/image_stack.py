@@ -17,12 +17,13 @@ import hearing_figures as figures
 from hearing_client import live_url, update_event
 from image_judgement import (
     TmpUsage,
+    card_faults,
     minting_for,
     require_marked_wav,
     seconds_to_healthy,
 )
 from proof_identity import mint_pair
-from prove_speech import SENTENCE
+from prove_speech import SENTENCE, query_nvidia
 from speech_runtime_client.wire import (
     CONTENT_TYPE_HEADER,
     MODEL,
@@ -65,11 +66,17 @@ def caller_service(app: str) -> str:
 
 @dataclass(frozen=True)
 class Reply:
-    """One answer, or the lack of it, as the caller container saw it."""
+    """One answer, or the lack of it, as the caller container saw it.
+
+    `first_byte_seconds` and `seconds` run from the request's start to the
+    body's first byte and to its end.
+    """
 
     status: int
     body: bytes
     headers: Mapping[str, str] = field(default_factory=dict)
+    first_byte_seconds: float = 0.0
+    seconds: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -141,6 +148,34 @@ def container_of(compose: Compose, service: str) -> str:
     return compose.run("ps", "--quiet", service).stdout.strip()
 
 
+def container_pids(compose: Compose, service: str) -> set[int]:
+    """The host's pids of every process in the one container of `service`."""
+    listing = docker("top", container_of(compose, service), "-eo", "pid")
+    return {int(pid) for pid in listing.split()[1:]}
+
+
+def require_card() -> None:
+    """Fail unless the machine has the card and Docker has the nvidia runtime."""
+    runtimes = json.loads(docker("info", "--format", "{{json .Runtimes}}"))
+    faults = card_faults(query_nvidia("--list-gpus"), runtimes)
+    if faults:
+        message = (
+            "compose.yaml reserves the card, but this machine cannot give it: "
+            + "; ".join(faults)
+            + "; on a machine without one, say so with --no-card"
+        )
+        raise SystemExit(message)
+
+
+def prune_build_caches(ids: list[str]) -> None:
+    """Remove the build caches the Dockerfile mounts under `ids`, and only those."""
+    for cache in ids:
+        docker(
+            "builder", "prune", "--force", "--filter", "type=exec.cachemount",
+            "--filter", f"description~={cache}.$",
+        )  # fmt: skip
+
+
 def run_in(
     compose: Compose, container: str, fixture: str, specification: object
 ) -> str:
@@ -170,7 +205,13 @@ def send(
     if "error" in answer:
         message = f"no answer from {url}: {answer['error']}"
         raise SystemExit(message)
-    return Reply(answer["status"], base64.b64decode(answer["body"]), answer["headers"])
+    return Reply(
+        answer["status"],
+        base64.b64decode(answer["body"]),
+        answer["headers"],
+        answer["first_byte_seconds"],
+        answer["seconds"],
+    )
 
 
 @dataclass(frozen=True)

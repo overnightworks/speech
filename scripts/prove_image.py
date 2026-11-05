@@ -4,14 +4,25 @@
 external networks become internal ones, a test CA takes the secret's place, and
 a key-set server and a caller container join. The tokens carry the issuer,
 audience, group and caller of the baked `deploy/speech.toml`. The proof takes
-/tmp/probe-stack.lock like `prove_speech.py` and removes everything it made.
-`image_judgement` holds what the proof judges and `image_stack` what it drives.
+/tmp/probe-stack.lock like `prove_speech.py` and removes everything it made but
+the build caches. `image_judgement` holds what the proof judges and
+`image_stack` what it drives.
+
+A cold build alone may take most of the lock's cap on the host, so the proof
+runs in stages, one lock run each: `cold-build` empties the build caches and
+times a build against hal's cap; `rebuild` times a build from those caches
+against a margin under it and runs the cells; `card` runs the cells only a
+machine with the card can. `--no-card` says the machine has neither the card
+nor the nvidia runtime, as on CI's runner: only then does the proof lay
+`tests/fixtures/image/compose.no-card.yaml`, which drops the reservation.
 """
 
 # ruff: noqa: T201 - the proof prints its cell lines as the command line output
 
 from __future__ import annotations
 
+import argparse
+import functools
 import json
 import os
 import shutil
@@ -24,15 +35,22 @@ import tomllib
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from enum import StrEnum
 from pathlib import Path
 from typing import Final
 
-from image_gpu_voice import cell_gpu_voice_not_offered, cell_gpu_voice_offered
+from image_gpu_voice import (
+    card_cells,
+    cell_gpu_voice_not_offered,
+    cell_gpu_voice_offered,
+)
 from image_judgement import (
+    Build,
     ImageReport,
     TmpUsage,
     app_that,
     baked_caller,
+    cache_mount_ids,
     external_networks,
     heard_words,
     image_faults,
@@ -40,6 +58,7 @@ from image_judgement import (
     live_texts,
     locked_distributions,
     minting_for,
+    require_build_within,
     require_fails,
     require_final,
     require_heard,
@@ -72,6 +91,8 @@ from image_stack import (
     form_of_size,
     healthcheck_passes,
     hearer_of,
+    prune_build_caches,
+    require_card,
     seconds_until_healthy,
     service_config,
     speak_marked,
@@ -88,7 +109,6 @@ from prove_speech import (
     LOCK_HELD_ENV,
     LOCK_PATH,
     SENTENCE,
-    parse_arguments,
     prove_under_lock,
     run_under_lock,
     wait_for_load,
@@ -104,14 +124,13 @@ from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL
 
 THIS_SCRIPT: Final = Path(__file__).resolve()
 COMPOSE_FILE: Final = REPOSITORY / "compose.yaml"
+DOCKERFILE: Final = REPOSITORY / "Dockerfile"
 BAKED_CONFIG: Final = REPOSITORY / "deploy" / "speech.toml"
 PROOF_OVERRIDE: Final = FIXTURES / "compose.proof.yaml"
 LOOPBACK_OVERRIDE: Final = FIXTURES / "compose.loopback.yaml"
 NO_MODEL_OVERRIDE: Final = FIXTURES / "compose.no-model.yaml"
 MISSING_MODEL_OVERRIDE: Final = FIXTURES / "compose.missing-model.yaml"
-
-# hal builds with a cap of 1800 s; a build past half of it is a finding.
-BUILD_LIMIT_SECONDS: Final = 900
+NO_CARD_OVERRIDE: Final = FIXTURES / "compose.no-card.yaml"
 PUBLIC_ADDRESSES: Final = ("1.1.1.1:443", "huggingface.co:443")
 FORBIDDEN_EXECUTABLES: Final = ("git", "uv", "gcc", "cc")
 # What caller.py reports for a connection nothing listens on.
@@ -129,19 +148,56 @@ BURST_SIZE: Final = 5
 ANSWER_WAIT_SECONDS: Final = 60
 
 
-def cell_build(compose: Compose) -> None:
-    """Cell 1: a build with no layer cache, timed."""
+class Stage(StrEnum):
+    """One lock run of the image proof."""
+
+    COLD_BUILD = "cold-build"
+    REBUILD = "rebuild"
+    CARD = "card"
+
+
+def parse_image_arguments(arguments: list[str]) -> argparse.Namespace:
+    """Read the stage and the card flag before anything starts; typos exit here."""
+    parser = argparse.ArgumentParser(
+        description="Image proof of the speech service under the probe-stack lock.",
+        allow_abbrev=False,
+    )
+    parser.add_argument("--stage", required=True, type=Stage, choices=list(Stage))
+    parser.add_argument(
+        "--no-card",
+        action="store_true",
+        help="the machine has neither the card nor the nvidia runtime, as CI's"
+        " runner; the proof then drops the card reservation",
+    )
+    parsed = parser.parse_args(arguments)
+    if parsed.stage is Stage.CARD and parsed.no_card:
+        parser.error(f"the {Stage.CARD} stage needs the card")
+    return parsed
+
+
+def proof_files(*, no_card: bool) -> tuple[Path, ...]:
+    """`compose.yaml`, and on a machine without the card the override that drops it."""
+    return (COMPOSE_FILE, NO_CARD_OVERRIDE) if no_card else (COMPOSE_FILE,)
+
+
+def cell_build(compose: Compose, build: Build) -> None:
+    """Cell 1: a build with no layer cache, timed against the `build`'s limit.
+
+    A cold build first removes the build caches the Dockerfile mounts, so it
+    fetches everything; a rebuild finds there what the cold build fetched.
+    """
+    if build is Build.COLD:
+        prune_build_caches(cache_mount_ids(DOCKERFILE.read_text()))
     started = time.monotonic()
     compose.run("build", "--no-cache", SERVICE)
     seconds = time.monotonic() - started
     size = int(docker("image", "inspect", "--format", "{{.Size}}", IMAGE))
     print(
-        f"cell 1: build_seconds={seconds:.0f} image_mib={size // 2**20}"
+        f"cell 1: {build} build_seconds={seconds:.0f} image_mib={size // 2**20}"
         " layer_cache=none (images already pulled on the host are still reused)"
     )
-    if seconds > BUILD_LIMIT_SECONDS:
-        message = f"the build took {seconds:.0f} s, past {BUILD_LIMIT_SECONDS} s"
-        raise SystemExit(message)
+    require_build_within(build, seconds)
+    print(f"cell 1: held; the {build} build stayed within its limit")
 
 
 def _project_name(path: str) -> str:
@@ -629,6 +685,28 @@ def print_teardown(outcome: Teardown) -> None:
         print("torn_down", PROJECT)
 
 
+def rebuild_cells(
+    session: Session, plain: Compose, names: list[str], *, card: bool
+) -> None:
+    """Cells 1 to 23: the rebuild, then the image on isolated networks."""
+    cell_build(session.compose, Build.REBUILD)
+    cell_contents(plain)
+    cell_absent_networks(plain, names)
+    started_after = cell_start(session)
+    wav = cell_speak(session)
+    cell_refusals(session)
+    cell_gpu_voice_not_offered(session)
+    cell_key_server_stopped(session)
+    cell_restart(session)
+    cell_no_egress(session)
+    hearing_cells(session, plain, wav, started_after)
+    cell_hearing_negatives(session, wav)
+    cell_negatives(session, wav)
+    cell_gpu_voice_offered(session, wav, card=card)
+    cell_log(session)
+    cell_hearing_log(session)
+
+
 def hearing_cells(
     session: Session, plain: Compose, wav: bytes, started_after: float
 ) -> None:
@@ -642,8 +720,10 @@ def hearing_cells(
     cell_hearing_restart(session, wav, plain)
 
 
-def _prove() -> None:
+def _prove(stage: Stage, *, no_card: bool) -> None:
     wait_for_load()
+    if not no_card:
+        require_card()
     config = load_caller_config(BAKED_CONFIG)
     baked = baked_caller(config, app_that(config, hears=False))
     hearer = baked_caller(config, app_that(config, hears=True))
@@ -653,8 +733,9 @@ def _prove() -> None:
         "PROOF_KEY_SET_PATH": baked.key_set_path,
         "PROOF_KEY_SET_HOST": baked.key_set_host,
     }
-    plain = Compose((COMPOSE_FILE,), {})
-    compose = Compose((COMPOSE_FILE, PROOF_OVERRIDE), environment)
+    files = proof_files(no_card=no_card)
+    plain = Compose(files, {})
+    compose = Compose((*files, PROOF_OVERRIDE), environment)
     failed = True
     try:
         try:
@@ -670,22 +751,12 @@ def _prove() -> None:
                     fetch_key_set(identity.jwks_url, identity.ca_path),
                 )
                 session = Session(compose, config, baked, hearer, signing, [], [], [])
-                cell_build(compose)
-                cell_contents(plain)
-                cell_absent_networks(plain, names)
-                started_after = cell_start(session)
-                wav = cell_speak(session)
-                cell_refusals(session)
-                cell_gpu_voice_not_offered(session)
-                cell_key_server_stopped(session)
-                cell_restart(session)
-                cell_no_egress(session)
-                hearing_cells(session, plain, wav, started_after)
-                cell_hearing_negatives(session, wav)
-                cell_negatives(session, wav)
-                cell_gpu_voice_offered(session, wav)
-                cell_log(session)
-                cell_hearing_log(session)
+                if stage is Stage.COLD_BUILD:
+                    cell_build(compose, Build.COLD)
+                elif stage is Stage.REBUILD:
+                    rebuild_cells(session, plain, names, card=not no_card)
+                else:
+                    card_cells(session)
             failed = False
         finally:
             outcome = teardown(compose, failed=failed)
@@ -699,14 +770,17 @@ def _prove() -> None:
 
 
 def main() -> None:
-    """Run the image proof, taking the probe-stack lock through the fleet form."""
-    parse_arguments(sys.argv[1:])
+    """Run one stage of the image proof under the probe-stack lock."""
+    arguments = parse_image_arguments(sys.argv[1:])
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
     if LOCK_HELD_ENV not in os.environ:
         print("waiting_for_lock", LOCK_PATH)
         raise SystemExit(run_under_lock(sys.argv[1:], script=THIS_SCRIPT))
-    prove_under_lock(os.environ, _prove)
+    prove_under_lock(
+        os.environ,
+        functools.partial(_prove, arguments.stage, no_card=arguments.no_card),
+    )
 
 
 if __name__ == "__main__":

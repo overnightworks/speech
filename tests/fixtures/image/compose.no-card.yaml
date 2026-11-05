@@ -1,0 +1,6 @@
+# Laid by scripts/prove_image.py only when it is told the machine has no card,
+# as CI's image job does: the runner has neither a card nor the nvidia runtime,
+# so the reservation would stop every start.
+services:
+  speech-runtime:
+    gpus: !reset null

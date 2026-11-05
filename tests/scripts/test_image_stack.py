@@ -67,3 +67,70 @@ def test_a_recording_form_carries_the_language_it_is_given_even_a_foreign_one() 
 
     assert b'name="language"\r\n\r\nfr' in form.body
     assert b'name="file"; filename="recording.wav"' in form.body
+
+
+def answering(output: str, commands: list[list[str]]) -> object:
+    """A fake for `docker`: it keeps each command and answers `output`."""
+
+    def docker(*arguments: str, **_: object) -> str:
+        commands.append(list(arguments))
+        return output
+
+    return docker
+
+
+def test_a_machine_without_the_card_is_refused_before_anything_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(image_stack, "docker", answering('{"runc": {}}', []))
+    monkeypatch.setattr(
+        image_stack, "query_nvidia", lambda *_: "unavailable: nvidia-smi not found"
+    )
+
+    with pytest.raises(SystemExit) as stopped:
+        image_stack.require_card()
+
+    assert "no card" in str(stopped.value.code)
+    assert "no nvidia runtime" in str(stopped.value.code)
+    assert "--no-card" in str(stopped.value.code)
+
+
+def test_a_machine_with_the_card_and_the_runtime_passes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtimes = '{"runc": {}, "nvidia": {}}'
+    monkeypatch.setattr(image_stack, "docker", answering(runtimes, []))
+    monkeypatch.setattr(image_stack, "query_nvidia", lambda *_: "GPU 0: a card")
+
+    image_stack.require_card()
+
+
+def test_only_the_named_build_caches_are_pruned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(image_stack, "docker", answering("", commands))
+
+    image_stack.prune_build_caches(["uv-downloads", "hub"])
+
+    assert [command[:3] for command in commands] == [
+        ["builder", "prune", "--force"]
+    ] * 2
+    assert [
+        [word for word in command if word.startswith("description~=")]
+        for command in commands
+    ] == [["description~=uv-downloads.$"], ["description~=hub.$"]]
+    assert all("type=exec.cachemount" in command for command in commands)
+
+
+def test_the_pids_of_a_container_are_read_from_its_process_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(image_stack, "docker", answering("PID\n4242\n4300\n", []))
+    monkeypatch.setattr(image_stack, "container_of", lambda *_: "container")
+
+    pids = image_stack.container_pids(
+        image_stack.Compose((REPOSITORY / "compose.yaml",), {}), "speech-runtime"
+    )
+
+    assert pids == {4242, 4300}
