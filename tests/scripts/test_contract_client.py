@@ -112,6 +112,26 @@ def test_prove_offers_the_service_exactly_the_voice_it_speaks(
     assert Settings().gpu_voices == ({voice} - {VoiceId.PIPER})
 
 
+@pytest.mark.parametrize("voice", list(VoiceId))
+def test_a_request_behind_another_may_wait_out_that_request_s_whole_first_byte(
+    identity: ProofIdentity, voice: VoiceId
+) -> None:
+    environment = PROVE.speech_environment(8080, voice, identity)
+
+    assert (
+        float(environment["SPEECH_BUSY_WAIT_SECONDS"]) > PROVE.FIRST_BYTE_LIMIT_S[voice]
+    )
+
+
+def test_qwen_s_first_byte_may_come_after_its_load_and_its_whole_sentence() -> None:
+    measured = PROVE.QWEN_G0
+
+    assert (
+        PROVE.FIRST_BYTE_LIMIT_S[VoiceId.QWEN]
+        > measured.load_seconds + measured.first_audio_seconds
+    )
+
+
 def test_prove_keeps_a_provider_root_the_caller_set(
     monkeypatch: pytest.MonkeyPatch, identity: ProofIdentity
 ) -> None:

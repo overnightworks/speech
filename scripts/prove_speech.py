@@ -28,7 +28,7 @@ import time
 from array import array
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 from urllib.parse import urlsplit
 
 import httpx2
@@ -89,7 +89,42 @@ SILENCE_RMS = 0.01
 MIN_SPEECH_SECONDS = 0.4
 LOAD_CEILING = 18.0
 READY_TIMEOUT_SECONDS = 300.0
-PIPER_FIRST_BYTE_LIMIT_S = 0.5
+
+
+@dataclass(frozen=True)
+class VoiceFigures:
+    """How a voice spoke `SENTENCE`: its load, first audio, speed and card memory.
+
+    `real_time_factor` is audio seconds over wall seconds, so below 1 is slower
+    than real time; `peak_card_mib` is the card's peak above its use before the
+    voice's first request.
+    """
+
+    load_seconds: float
+    first_audio_seconds: float
+    real_time_factor: float
+    peak_card_mib: int
+
+
+# Qwen on this host's RTX 3090, loaded and driven in process before the image
+# carried it, medians of five runs: the P0 plan's G0 measurement.
+QWEN_G0: Final = VoiceFigures(
+    load_seconds=6.9,
+    first_audio_seconds=8.44,
+    real_time_factor=0.78,
+    peak_card_mib=3714,
+)
+# Qwen does not stream, so its first byte comes after the whole sentence, and
+# the first request also waits for the load. G0 measured neither the HTTP hop
+# nor the container, so the limit is half as much again as G0's load and first
+# audio together.
+QWEN_FIRST_BYTE_LIMIT_S: Final = 1.5 * (
+    QWEN_G0.load_seconds + QWEN_G0.first_audio_seconds
+)
+FIRST_BYTE_LIMIT_S: Final = {
+    RESIDENT_VOICE: 0.5,
+    VoiceId.QWEN: QWEN_FIRST_BYTE_LIMIT_S,
+}
 PIPER_CACHE = Path.home() / ".cache" / "piper"
 LOOPBACK_HOST = "127.0.0.1"
 PROVIDER_ROOT = Path(__file__).resolve().parents[1] / "providers"
@@ -585,14 +620,14 @@ def _prove_speak(base_url: str, voice: VoiceId, minting: Minting) -> bytes:
         functools.partial(speak_measured, base_url, minting=minting),
         SENTENCE,
         voice.value,
-        limit=PIPER_FIRST_BYTE_LIMIT_S,
+        limit=FIRST_BYTE_LIMIT_S[voice],
         label="speak_wire_de",
     )
     return german
 
 
 def _prove_concurrent_speak(base_url: str, voice: VoiceId, minting: Minting) -> None:
-    limit = PIPER_FIRST_BYTE_LIMIT_S
+    limit = FIRST_BYTE_LIMIT_S[voice]
     results: dict[str, tuple[bytes, float, float]] = {}
     errors: list[str] = []
 
@@ -723,7 +758,7 @@ def speech_environment(
     if hearing_model is not None:
         env["SPEECH_HEARING_MODEL"] = hearing_model
     env["SPEECH_BUSY_WAIT_SECONDS"] = str(
-        PIPER_FIRST_BYTE_LIMIT_S + CONCURRENT_EXTRA_WAIT_SECONDS
+        FIRST_BYTE_LIMIT_S[voice] + CONCURRENT_EXTRA_WAIT_SECONDS
     )
     env.setdefault("HF_HUB_OFFLINE", "1")
     env.setdefault("TRANSFORMERS_OFFLINE", "1")
