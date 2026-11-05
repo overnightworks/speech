@@ -10,8 +10,9 @@ WORKDIR /app
 # uv and git exist only in this stage, because uv needs git to fetch the
 # git-pinned webauth; the final stage copies the environment and carries neither.
 # uv's downloads land in a build cache that outlives the build, so a build hal's
-# 1800 s cap kills keeps what it fetched and the next one goes on from there; the
-# cache lies outside every layer, so the installed environment is the same.
+# 1800 s cap kills keeps every wheel it finished fetching, and the next one
+# fetches the rest, a wheel still downloading at the kill again whole; the cache
+# lies outside every layer, so the installed environment is the same.
 FROM python-base AS dependencies
 COPY --from=uv /uv /usr/local/bin/uv
 # The interpreter is the image's own, so uv never downloads another one. The

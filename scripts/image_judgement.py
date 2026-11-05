@@ -53,8 +53,9 @@ HAL_BUILD_CAP_SECONDS: Final = 1800
 # hal's next build after one the cap killed takes the killed one's layers and
 # build caches and fetches only what is missing, so a second build from the same
 # caches must end well inside the cap. Half of it leaves room for what a killed
-# build had not fetched and for this host's spread: cold builds took 1017 to
-# 1512 s here.
+# build had not finished fetching, which uv fetches again whole, and for this
+# host's spread: cold builds took 1017 to 1512 s here, and a build after one
+# killed at 600 s took 739 s, fetching again the 2.8 GiB of wheels in flight.
 REBUILD_LIMIT_SECONDS: Final = HAL_BUILD_CAP_SECONDS // 2
 NVIDIA_RUNTIME: Final = "nvidia"
 

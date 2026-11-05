@@ -125,7 +125,7 @@ declare), so every start needs the nvidia runtime, Piper alone included, and
 the card stays untouched until a GPU voice's first request. The platform builds
 under a fixed cap; uv's and the Hub's downloads go into build caches that
 outlive a build, so a build the cap kills leaves the next one only what it had
-not fetched.
+not finished fetching.
 
 ```mermaid
 flowchart LR
