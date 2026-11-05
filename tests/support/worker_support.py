@@ -2,6 +2,7 @@
 
 import ast
 import os
+import subprocess
 import sys
 import time
 from enum import StrEnum
@@ -222,3 +223,43 @@ def observed(cache: Path) -> tuple[str, dict[str, str], int, dict[str, str]]:
 def assert_reaped(pid: int) -> None:
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
+
+
+def is_running(pid: int) -> bool:
+    """Whether the process `pid` still exists, not yet reaped."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def fail_every_reap(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Make each worker started from now on fail its cleanup once it is reaped.
+
+    The returned list fills with the pids of those workers, in start order.
+    """
+    real_popen = subprocess.Popen
+    started: list[int] = []
+
+    class ReapedThenFailing:
+        def __init__(self, process: subprocess.Popen[bytes]) -> None:
+            self._process = process
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._process, name)
+
+        def wait(self, timeout: float | None = None) -> int:
+            self._process.wait(timeout=timeout)
+            message = "cleanup failed after reap"
+            raise RuntimeError(message)
+
+    def popen(*arguments: object, **keywords: object) -> ReapedThenFailing:
+        process = real_popen(*arguments, **keywords)
+        started.append(process.pid)
+        return ReapedThenFailing(process)
+
+    monkeypatch.setattr(
+        "speech_runtime_service.provider_process.subprocess.Popen", popen
+    )
+    return started

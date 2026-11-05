@@ -41,6 +41,7 @@ from speech_runtime_service.voices import VoiceId
 from tests.support.worker_support import (
     assert_reaped,
     closed_provider,
+    fail_every_reap,
     observed,
     wait_for_starts,
 )
@@ -519,32 +520,7 @@ def test_cleanup_failure_reaps_and_reports_fatal_lifecycle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fatal = threading.Event()
-    real_popen = subprocess.Popen
-    started: list[int] = []
-
-    class FailingCleanupProcess:
-        def __init__(self, process: subprocess.Popen) -> None:
-            self._process = process
-
-        def __getattr__(self, name: str) -> object:
-            return getattr(self._process, name)
-
-        def wait(self, timeout: float | None = None) -> int:
-            self._process.wait(timeout=timeout)
-            message = "cleanup failed after reap"
-            raise RuntimeError(message)
-
-    def failing_cleanup_popen(
-        *arguments: object, **keywords: object
-    ) -> FailingCleanupProcess:
-        process = real_popen(*arguments, **keywords)
-        started.append(process.pid)
-        return FailingCleanupProcess(process)
-
-    monkeypatch.setattr(
-        "speech_runtime_service.provider_process.subprocess.Popen",
-        failing_cleanup_popen,
-    )
+    started = fail_every_reap(monkeypatch)
     engine = _engine(tmp_path)
     engine.set_fatal_callback(fatal.set)
     engine.load()

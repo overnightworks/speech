@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import socket
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
+import httpx2
 from speech_runtime_provider_contract import (
     QWEN_ARTIFACTS,
     QWEN_MODEL_ID,
@@ -17,15 +20,16 @@ from speech_runtime_provider_contract import (
 )
 
 from speech_runtime_client.wire import HEALTH_PATH, Health
-from speech_runtime_service import service
+from speech_runtime_service import __main__, service
 from speech_runtime_service.config import Settings
 from speech_runtime_service.control import create_control_app
 from speech_runtime_service.hearing import Hearing
 from speech_runtime_service.service import Runtime
 from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL, VoiceId
 from tests.support.hear_support import FakeHearing
-from tests.support.identity_support import valid_callers
+from tests.support.identity_support import valid_callers, valid_headers
 from tests.support.speak_support import ASGI_TIMEOUT_SECONDS, wav_body
+from tests.support.tcp_server_support import answers_http
 from tests.support.worker_support import (
     WORKER_WAIT_SECONDS,
     closed_provider,
@@ -34,7 +38,7 @@ from tests.support.worker_support import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
     from concurrent.futures import Future
     from pathlib import Path
 
@@ -45,6 +49,7 @@ if TYPE_CHECKING:
 
 PIPER_SAMPLE_RATE = 22_050
 PIPER_PCM = b"\x00\x01"
+LOOPBACK = "127.0.0.1"
 
 
 def touch_snapshot(
@@ -206,3 +211,69 @@ class LoadWaits:
             assert self._changed.wait_for(
                 lambda: self._count >= count, timeout=WORKER_WAIT_SECONDS
             ), f"{count} requests never waited for the load"
+
+
+def speak_headers() -> dict[str, str]:
+    """The headers of a speak request with a valid pair of tokens."""
+    return {"content-type": "application/json", **valid_headers()}
+
+
+class Serving:
+    """`__main__`'s serve loop over a stage's runtime, on a loopback listener.
+
+    It stops as its SIGTERM handler stops it; `fatal` notes the fatal callback.
+    """
+
+    def __init__(self, stage: GpuVoiceStage, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Route `__main__` to the stage's runtime; nothing serves until `start`."""
+        self._stage = stage
+        self._stopping: list[asyncio.Event] = []
+        self.fatal = threading.Event()
+        runtime = stage.runtime
+        set_fatal_callback = runtime.set_fatal_callback
+
+        def noting_fatal(callback: Callable[[], None]) -> None:
+            def both() -> None:
+                self.fatal.set()
+                callback()
+
+            set_fatal_callback(both)
+
+        runtime.set_fatal_callback = noting_fatal
+        monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
+        monkeypatch.setattr(__main__, "prepare_cuda_libraries", lambda: None)
+        monkeypatch.setattr(__main__, "_install_signal_handlers", self._stopping.append)
+        self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.listener.bind((LOOPBACK, 0))
+        self.listener.listen()
+        self.port: int = self.listener.getsockname()[1]
+        self._task: asyncio.Task[int] | None = None
+
+    async def start(self) -> httpx2.AsyncClient:
+        """Serve; once the start load ended, a client whose tokens are valid."""
+        self._task = asyncio.create_task(
+            __main__._serve_on(  # noqa: SLF001 - the serve loop behind the TCP listener
+                self._stage.settings, valid_callers(), self.listener
+            )
+        )
+        deadline = time.monotonic() + WORKER_WAIT_SECONDS
+        while not await asyncio.to_thread(answers_http, self.port):
+            assert time.monotonic() < deadline
+        while self._stage.runtime.loading:
+            assert time.monotonic() < deadline
+            await asyncio.sleep(0.01)
+        return httpx2.AsyncClient(
+            base_url=f"http://{LOOPBACK}:{self.port}",
+            timeout=WORKER_WAIT_SECONDS,
+            headers=speak_headers(),
+        )
+
+    def sigterm(self) -> None:
+        """Stop the serve loop as its SIGTERM handler does."""
+        self._stopping[0].set()
+
+    @property
+    def task(self) -> asyncio.Task[int]:
+        """The running serve loop; its result is the exit status."""
+        assert self._task is not None
+        return self._task

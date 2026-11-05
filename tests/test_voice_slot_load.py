@@ -5,24 +5,19 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
-import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
-import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from speech_runtime_provider_contract import QWEN_ARTIFACTS, QWEN_SAMPLE_RATE
 
-from speech_runtime_client.wire import SPEECH_PATH, Health, RefusalCode
-from speech_runtime_service import __main__
+from speech_runtime_client.wire import REALTIME_PATH, Health, RefusalCode
 from speech_runtime_service.pcm import pcm_from_wav
-from speech_runtime_service.service import Runtime
 from speech_runtime_service.voices import VoiceId
-from tests.support.fakes_support import FakeSpeaking, GatedSpeaking
 from tests.support.gpu_voice_support import (
     PIPER_SAMPLE_RATE,
     LoadWaits,
@@ -31,29 +26,30 @@ from tests.support.gpu_voice_support import (
     health_of,
 )
 from tests.support.hear_support import (
+    HEARD_TEXT,
     FakeHearing,
     multipart_body,
     post_recording,
     recording,
 )
-from tests.support.identity_support import valid_callers, valid_headers
+from tests.support.identity_support import valid_headers
+from tests.support.live_support import COMPLETED, append, audio, commit, update
 from tests.support.speak_support import (
     SpeakCall,
-    app_over,
     assert_call_refusal,
+    assert_refusal,
     assert_unavailable,
-    fake_runtime,
     gate_acquisition_began,
     gate_is_free,
     post_speech,
     speak_body,
 )
-from tests.support.tcp_server_support import answers_http, listens_on
 from tests.support.worker_support import (
     WORKER_WAIT_SECONDS,
     LoadOutcome,
     assert_reaped,
     hold_exits,
+    is_running,
     release_exit,
     release_load,
     wait_for_held_exit,
@@ -88,19 +84,25 @@ def _assert_piper_and_hearing_serve(client: TestClient) -> None:
     assert heard.status_code == HTTPStatus.OK
 
 
+def _assert_a_live_turn_is_heard(client: TestClient) -> None:
+    with client.websocket_connect(
+        f"{REALTIME_PATH}?intent=transcription", headers=valid_headers()
+    ) as socket:
+        assert socket.receive_json()["type"] == "session.created"
+        socket.send_text(update())
+        assert socket.receive_json()["type"] == "session.updated"
+        socket.send_text(append(audio(0.5)))
+        socket.send_text(commit())
+        final = [socket.receive_json() for _ in range(4)][-1]
+
+    assert (final["type"], final["transcript"]) == (COMPLETED, HEARD_TEXT)
+
+
 def _speak_in_background(
     pool: ThreadPoolExecutor, stage: GpuVoiceStage, voice: str = QWEN
 ) -> Callable[[], ClientResponse]:
     pending = pool.submit(post_speech, TestClient(stage.app()), speak_body(voice))
     return lambda: pending.result(timeout=WORKER_WAIT_SECONDS)
-
-
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
 
 
 def test_an_offered_voice_loads_on_its_first_request_and_then_reports_ready(
@@ -205,6 +207,7 @@ def test_piper_hearing_and_health_answer_while_a_gpu_voice_loads(
         (pid,) = wait_for_starts(stage.cache, 1)
 
         _assert_piper_and_hearing_serve(client)
+        _assert_a_live_turn_is_heard(client)
         health = _health(client)
         release_load(stage.cache, pid, LoadOutcome.READY)
         _assert_spoken_at(spoken(), QWEN_SAMPLE_RATE)
@@ -294,7 +297,7 @@ def test_a_request_during_a_failed_loads_cleanup_shares_its_refusal_and_starts_n
 
         health = _health(client)
         _assert_piper_and_hearing_serve(client)
-        still_running = _alive(pid)
+        still_running = is_running(pid)
         release_exit(stage.cache, pid)
         assert_unavailable(first())
         assert_unavailable(second())
@@ -334,7 +337,9 @@ def test_a_worker_that_dies_after_it_was_ready_turns_its_voice_unready_and_reloa
 def test_a_crash_mid_synthesis_refuses_the_waiter_after_its_lease_and_the_next_reloads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def scenario(stage: GpuVoiceStage) -> tuple[SpeakCall, list[int], bool]:
+    async def scenario(
+        stage: GpuVoiceStage,
+    ) -> tuple[object, SpeakCall, list[int], bool]:
         app = stage.app()
         warm = SpeakCall(app, speak_body(QWEN))
         await warm.finish()
@@ -345,17 +350,18 @@ def test_a_crash_mid_synthesis_refuses_the_waiter_after_its_lease_and_the_next_r
         waiting = SpeakCall(app, speak_body(QWEN))
         await queued.wait()
         os.kill(pid, signal.SIGKILL)
-        await asyncio.gather(streaming.task, return_exceptions=True)
+        (streamed,) = await asyncio.gather(streaming.task, return_exceptions=True)
         await waiting.finish()
         free = gate_is_free(stage.runtime, VoiceId.QWEN)
         later = [SpeakCall(app, speak_body(voice)) for voice in (PIPER, QWEN)]
         for call in later:
             await call.finish()
-        return waiting, [call.status_code for call in later], free
+        return streamed, waiting, [call.status_code for call in later], free
 
     with gpu_voice_stage(tmp_path, monkeypatch, _SERVING) as stage:
-        waiting, statuses, free = asyncio.run(scenario(stage))
+        streamed, waiting, statuses, free = asyncio.run(scenario(stage))
 
+    assert isinstance(streamed, Exception)
     assert_call_refusal(
         waiting, HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE, "voice"
     )
@@ -390,22 +396,6 @@ def test_an_offered_voice_whose_files_are_missing_is_refused_and_named_in_the_lo
     named = QWEN_ARTIFACTS if missing == "weights" else (worker.name,)
     refusal_log = [r.getMessage() for r in caplog.records if QWEN in r.getMessage()]
     assert all(any(name in line for line in refusal_log) for name in named)
-
-
-def test_a_failed_gpu_engine_that_cannot_be_closed_ends_the_service() -> None:
-    fatal = threading.Event()
-
-    class StuckSpeaking(FakeSpeaking):
-        def close(self) -> None:
-            raise OSError
-
-    runtime = fake_runtime(StuckSpeaking(fail=True), VoiceId.QWEN)
-    runtime.set_fatal_callback(fatal.set)
-
-    refused = post_speech(TestClient(app_over(runtime)), speak_body(QWEN))
-
-    assert_unavailable(refused)
-    assert fatal.is_set() is True
 
 
 def test_while_the_start_load_runs_no_voice_is_ready_and_every_voice_is_refused(
@@ -448,7 +438,7 @@ class _HeldEar(FakeHearing):
         assert self.release_load.wait(WORKER_WAIT_SECONDS)
 
 
-def test_once_shutdown_begins_no_voice_is_reported_ready(
+def test_once_shutdown_begins_health_and_the_refusal_agree_that_no_voice_is_ready(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with gpu_voice_stage(tmp_path, monkeypatch, _SERVING) as stage:
@@ -456,146 +446,26 @@ def test_once_shutdown_begins_no_voice_is_reported_ready(
         _assert_spoken_at(post_speech(client, speak_body(QWEN)), QWEN_SAMPLE_RATE)
         stage.runtime.begin_shutdown()
         health = _health(client)
+        refused = [post_speech(client, speak_body(voice)) for voice in (PIPER, QWEN)]
 
     assert health.speaking.ready is False
     assert not any(voice.ready for voice in health.speaking.voices.values())
-
-
-def test_a_request_waiting_at_the_gate_when_the_service_stops_is_refused_not_busy() -> (
-    None
-):
-    async def scenario() -> SpeakCall:
-        voice = GatedSpeaking()
-        runtime = fake_runtime(voice)
-        app = app_over(runtime, busy_wait_seconds=0.2)
-        holder = SpeakCall(app)
-        await holder.status()
-        await asyncio.to_thread(voice.entered_first_step.wait, WORKER_WAIT_SECONDS)
-        queued = gate_acquisition_began(runtime)
-        waiting = SpeakCall(app)
-        await queued.wait()
-        runtime.begin_shutdown()
-        await waiting.finish()
-        voice.release_all()
-        await asyncio.gather(holder.task, return_exceptions=True)
-        return waiting
-
-    waiting = asyncio.run(scenario())
-
-    assert_call_refusal(
-        waiting, HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE, "voice"
-    )
-
-
-class _Serving:
-    """`__main__`'s serve loop over a stage's runtime, stopped as SIGTERM stops it."""
-
-    def __init__(self, stage: GpuVoiceStage, monkeypatch: pytest.MonkeyPatch) -> None:
-        self._stage = stage
-        self._stopping: list[asyncio.Event] = []
-        self.fatal = threading.Event()
-        runtime = stage.runtime
-        set_fatal_callback = runtime.set_fatal_callback
-
-        def noting_fatal(callback: Callable[[], None]) -> None:
-            def both() -> None:
-                self.fatal.set()
-                callback()
-
-            set_fatal_callback(both)
-
-        runtime.set_fatal_callback = noting_fatal
-        monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
-        monkeypatch.setattr(__main__, "prepare_cuda_libraries", lambda: None)
-        monkeypatch.setattr(__main__, "_install_signal_handlers", self._stopping.append)
-        self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.listener.bind(("127.0.0.1", 0))
-        self.listener.listen()
-        self.port = self.listener.getsockname()[1]
-        self.task: asyncio.Task[int] | None = None
-
-    async def start(self) -> httpx2.AsyncClient:
-        self.task = asyncio.create_task(
-            __main__._serve_on(  # noqa: SLF001 - the serve loop behind the TCP listener
-                self._stage.settings, valid_callers(), self.listener
-            )
-        )
-        deadline = time.monotonic() + WORKER_WAIT_SECONDS
-        while not await asyncio.to_thread(answers_http, self.port):
-            assert time.monotonic() < deadline
-        while self._stage.runtime.loading:
-            assert time.monotonic() < deadline
-            await asyncio.sleep(0.01)
-        return httpx2.AsyncClient(
-            base_url=f"http://127.0.0.1:{self.port}",
-            timeout=WORKER_WAIT_SECONDS,
-            headers={"content-type": "application/json", **valid_headers()},
-        )
-
-    def sigterm(self) -> None:
-        self._stopping[0].set()
-
-
-def test_sigterm_during_a_load_refuses_its_waiters_reaps_the_worker_and_exits_zero(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    async def scenario(serving: _Serving, stage: GpuVoiceStage) -> tuple[int, list]:
-        async with await serving.start() as client:
-            waits = LoadWaits(stage.runtime)
-            waiters = [
-                asyncio.create_task(client.post(SPEECH_PATH, content=speak_body(QWEN)))
-                for _ in range(2)
-            ]
-            await asyncio.to_thread(waits.wait_for, 2)
-            await asyncio.to_thread(wait_for_starts, stage.cache, 1)
-            serving.sigterm()
-            assert serving.task is not None
-            outcome = await serving.task
-            return outcome, await asyncio.gather(*waiters)
-
-    with gpu_voice_stage(tmp_path, monkeypatch, StageSetup(started=False)) as stage:
-        serving = _Serving(stage, monkeypatch)
-        with serving.listener:
-            outcome, responses = asyncio.run(scenario(serving, stage))
-
-    assert outcome == 0
-    for response in responses:
+    for response in refused:
         assert_unavailable(response)
-    (pid,) = stage.starts()
-    assert_reaped(pid)
-    assert serving.fatal.is_set() is False
 
 
-def test_sigterm_during_a_failed_loads_cleanup_waits_for_it_and_exits_zero(
+def test_a_loaded_gpu_voice_stays_loaded_and_no_route_lists_voices(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def scenario(serving: _Serving, stage: GpuVoiceStage) -> tuple[bool, int]:
-        async with await serving.start() as client:
-            refused = asyncio.create_task(
-                client.post(SPEECH_PATH, content=speak_body(QWEN))
-            )
-            (pid,) = await asyncio.to_thread(wait_for_starts, stage.cache, 1)
-            release_load(stage.cache, pid, LoadOutcome.FAILED)
-            await asyncio.to_thread(wait_for_held_exit, stage.cache, pid)
-            serving.sigterm()
-            deadline = time.monotonic() + WORKER_WAIT_SECONDS
-            while await asyncio.to_thread(listens_on, serving.port):
-                assert time.monotonic() < deadline
-            assert serving.task is not None
-            waited = not serving.task.done() and _alive(pid)
-            release_exit(stage.cache, pid)
-            outcome = await serving.task
-            assert_unavailable(await refused)
-            return waited, outcome
+    with gpu_voice_stage(tmp_path, monkeypatch, _SERVING) as stage:
+        client = TestClient(stage.app())
+        _assert_spoken_at(post_speech(client, speak_body(QWEN)), QWEN_SAMPLE_RATE)
+        listed = client.get("/v1/voices", headers=valid_headers())
+        health = _health(client)
+        _assert_spoken_at(post_speech(client, speak_body(QWEN)), QWEN_SAMPLE_RATE)
+        (pid,) = stage.starts()
+        running = is_running(pid)
 
-    with gpu_voice_stage(tmp_path, monkeypatch, StageSetup(started=False)) as stage:
-        hold_exits(stage.cache)
-        serving = _Serving(stage, monkeypatch)
-        with serving.listener:
-            waited, outcome = asyncio.run(scenario(serving, stage))
-
-    assert waited is True
-    assert outcome == 0
-    (pid,) = stage.starts()
-    assert_reaped(pid)
-    assert serving.fatal.is_set() is False
+    assert_refusal(listed, HTTPStatus.NOT_FOUND, RefusalCode.NOT_FOUND, None)
+    assert health.speaking.voices[QWEN].ready is True
+    assert running is True
