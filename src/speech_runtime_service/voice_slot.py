@@ -49,7 +49,7 @@ class VoiceSlot:
         self._ready_speaking = speaking if speaking and speaking.ready else None
         self._pending_engine: SpeakingEngine | None = None
         self._closing_engine: SpeakingEngine | None = None
-        self._load_job: Future[None] | None = None
+        self._load_job: Future[SpeakingEngine | None] | None = None
         self._stopping = False
         self._cleanup_failed = False
         self._fatal_callback: Callable[[], None] = lambda: None
@@ -73,18 +73,18 @@ class VoiceSlot:
         finally:
             self._finish_loading(engine, registered=registered)
 
-    def shared_load(self) -> Future[None] | None:
+    def shared_load(self) -> Future[SpeakingEngine | None] | None:
         """The voice's one running load, started on its own thread when none runs.
 
-        It resolves once an engine is published, or once a failed load has closed
-        and reaped what it built; `None` once the slot stops.
+        It resolves with the engine it left ready, or with `None` once a failed
+        load has closed and reaped what it built; `None` once the slot stops.
         """
         with self._state_lock:
             if self._stopping:
                 return None
             if self._load_job is not None:
                 return self._load_job
-            job: Future[None] = Future()
+            job: Future[SpeakingEngine | None] = Future()
             # A running future refuses `cancel`, so no waiter can end the shared load.
             job.set_running_or_notify_cancel()
             self._load_job = job
@@ -104,10 +104,7 @@ class VoiceSlot:
         `reconcile_failed_active` or the next load does that, off the loop.
         """
         with self._state_lock:
-            speaking = self.speaking
-            if self.loading or self._stopping or speaking is None or not speaking.ready:
-                return None
-            return speaking
+            return self._capturable()
 
     def begin_shutdown(self) -> None:
         """Refuse new work before the server starts its own shutdown."""
@@ -185,7 +182,7 @@ class VoiceSlot:
             model=speaking.model_name, ready=ready, sample_rate=speaking.sample_rate
         )
 
-    def _run_load_job(self, job: Future[None]) -> None:
+    def _run_load_job(self, job: Future[SpeakingEngine | None]) -> None:
         try:
             if self._retire_dead_engine():
                 self.load()
@@ -195,8 +192,9 @@ class VoiceSlot:
             with self._state_changed:
                 self.loading = False
                 self._load_job = None
+                loaded = self._capturable()
                 self._state_changed.notify_all()
-            job.set_result(None)
+            job.set_result(loaded)
 
     def _retire_dead_engine(self) -> bool:
         """Close the engine a crash left, before any new one; whether a load is due."""
@@ -221,6 +219,13 @@ class VoiceSlot:
             self._fatal_callback()
             return False
         return True
+
+    def _capturable(self) -> SpeakingEngine | None:
+        """The engine a request may speak with now; the caller holds the state lock."""
+        speaking = self.speaking
+        if self.loading or self._stopping or speaking is None or not speaking.ready:
+            return None
+        return speaking
 
     def _construct_engine(self) -> SpeakingEngine:
         engine_factory = self._dependencies.engine_factory

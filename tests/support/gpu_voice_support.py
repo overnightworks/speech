@@ -46,6 +46,8 @@ if TYPE_CHECKING:
     import pytest
     from fastapi import FastAPI
 
+    from speech_runtime_service.service import SpeakingEngine
+
 PIPER_SAMPLE_RATE = 22_050
 PIPER_PCM = b"\x00\x01"
 LOOPBACK = "127.0.0.1"
@@ -199,7 +201,7 @@ class LoadWaits:
         self._changed = threading.Condition()
         hand_out = runtime.load_on_demand
 
-        def counted(voice: VoiceId) -> Future[None] | None:
+        def counted(voice: VoiceId) -> Future[SpeakingEngine | None] | None:
             load = hand_out(voice)
             with self._changed:
                 self._count += 1

@@ -180,8 +180,11 @@ class _SpeechRoute:
             return None
         # `wrap_future` alone would pass this request's cancellation on to the
         # load every waiter shares; the shield keeps it to this request.
-        await asyncio.shield(asyncio.wrap_future(load))
-        return self._runtime.capture(voice)
+        loaded = await asyncio.shield(asyncio.wrap_future(load))
+        # The outcome is this request's load's, never that of a retry since.
+        if loaded is None or self._runtime.capture(voice) is not loaded:
+            return None
+        return loaded
 
     async def _checked(self, request: Request) -> tuple[str, VoiceId] | JSONResponse:
         raw = await _read_within(request, self._settings.max_body_bytes)

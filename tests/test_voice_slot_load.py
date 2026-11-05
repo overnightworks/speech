@@ -278,6 +278,34 @@ def test_the_request_after_a_failed_load_starts_a_new_worker_once_the_first_is_r
         _assert_spoken_at(spoken(), QWEN_SAMPLE_RATE)
 
 
+def test_a_waiter_of_a_failed_load_is_refused_though_a_retry_loaded_before_it_resumed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario(stage: GpuVoiceStage) -> SpeakCall:
+        waits = LoadWaits(stage.runtime)
+        call = SpeakCall(stage.app(), speak_body(QWEN))
+        await asyncio.to_thread(waits.wait_for, 1)
+        (first,) = await asyncio.to_thread(wait_for_starts, stage.cache, 1)
+        # The loop stays blocked until the retry has loaded, so the waiter of the
+        # failed load resumes only once a ready engine replaced it.
+        failed_load = stage.runtime.load_on_demand(VoiceId.QWEN)
+        release_load(stage.cache, first, LoadOutcome.FAILED)
+        failed_load.result(timeout=WORKER_WAIT_SECONDS)
+        retry = stage.runtime.load_on_demand(VoiceId.QWEN)
+        _, second = wait_for_starts(stage.cache, 2)
+        release_load(stage.cache, second, LoadOutcome.READY)
+        retry.result(timeout=WORKER_WAIT_SECONDS)
+        await call.finish()
+        return call
+
+    with gpu_voice_stage(tmp_path, monkeypatch) as stage:
+        call = asyncio.run(scenario(stage))
+
+    assert_call_refusal(
+        call, HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE, "voice"
+    )
+
+
 def test_a_request_during_a_failed_loads_cleanup_shares_its_refusal_and_starts_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

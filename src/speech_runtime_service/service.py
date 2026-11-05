@@ -122,7 +122,7 @@ class Runtime:
             return None
         return self.slots[voice].capture()
 
-    def load_on_demand(self, voice: VoiceId) -> Future[None] | None:
+    def load_on_demand(self, voice: VoiceId) -> Future[SpeakingEngine | None] | None:
         """The GPU voice's shared load, started if none runs; `None` if none may."""
         if voice is RESIDENT_VOICE or self._resident.loading:
             return None
