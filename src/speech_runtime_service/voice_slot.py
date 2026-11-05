@@ -4,19 +4,28 @@ from __future__ import annotations
 
 import logging
 import threading
+from concurrent.futures import Future
 from typing import TYPE_CHECKING
 
 from speech_runtime_client.wire import VoiceHealth
 from speech_runtime_service.admission_gate import AdmissionGate
-from speech_runtime_service.voices import model_for_voice
+from speech_runtime_service.failures import log_failure
+from speech_runtime_service.voices import model_for_voice, sample_rate_before_load
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from speech_runtime_service.clock import LoopClock
     from speech_runtime_service.service import RuntimeDependencies, SpeakingEngine
+    from speech_runtime_service.voices import VoiceId
 
 logger = logging.getLogger(__name__)
+
+_CLEANUP_FAILED = "speaking engine cleanup failed"
+
+
+def _nothing() -> None:
+    """Run nothing after a publication."""
 
 
 class VoiceSlot:
@@ -24,11 +33,13 @@ class VoiceSlot:
 
     def __init__(
         self,
+        voice: VoiceId,
         dependencies: RuntimeDependencies,
         clock: LoopClock,
         speaking: SpeakingEngine | None = None,
     ) -> None:
-        """Hold `speaking` if it is ready; otherwise nothing runs until `load`."""
+        """Hold `speaking` if it is ready; otherwise nothing runs until a load."""
+        self.voice = voice
         self.speaking = speaking
         self.gate = AdmissionGate(clock)
         self.loading = False
@@ -38,6 +49,7 @@ class VoiceSlot:
         self._ready_speaking = speaking if speaking and speaking.ready else None
         self._pending_engine: SpeakingEngine | None = None
         self._closing_engine: SpeakingEngine | None = None
+        self._load_job: Future[None] | None = None
         self._stopping = False
         self._fatal_callback: Callable[[], None] = lambda: None
 
@@ -46,7 +58,7 @@ class VoiceSlot:
         with self._state_lock:
             self.loading = True
 
-    def load(self, after_publish: Callable[[], None]) -> None:
+    def load(self, after_publish: Callable[[], None] = _nothing) -> None:
         """Build and load the engine, publish it, then run `after_publish`."""
         engine: SpeakingEngine | None = None
         registered = False
@@ -60,12 +72,35 @@ class VoiceSlot:
         finally:
             self._finish_loading(engine, registered=registered)
 
+    def shared_load(self) -> Future[None] | None:
+        """The voice's one running load, started on its own thread when none runs.
+
+        It resolves once an engine is published, or once a failed load has closed
+        and reaped what it built; `None` once the slot stops.
+        """
+        with self._state_lock:
+            if self._stopping:
+                return None
+            if self._load_job is not None:
+                return self._load_job
+            job: Future[None] = Future()
+            # A running future refuses `cancel`, so no waiter can end the shared load.
+            job.set_running_or_notify_cancel()
+            self._load_job = job
+            self.loading = True
+        threading.Thread(
+            target=self._run_load_job,
+            args=(job,),
+            name=f"speech-voice-load-{self.voice.value}",
+        ).start()
+        return job
+
     def capture(self) -> SpeakingEngine | None:
         """Capture one stable engine for an entire streaming response.
 
         It takes only the state lock, which every holder keeps briefly, so a
         caller on the event loop is never held up by a failed engine's close;
-        `reconcile_failed_active` does that, after the refusal.
+        `reconcile_failed_active` or the next load does that, off the loop.
         """
         with self._state_lock:
             speaking = self.speaking
@@ -89,8 +124,8 @@ class VoiceSlot:
             if callable(setter):
                 setter(callback)
 
-    def close(self, while_released: Callable[[], None]) -> None:
-        """Close the pending and the active engine outside the state lock.
+    def close(self, while_released: Callable[[], None] = _nothing) -> None:
+        """Close the pending and the active engine, then wait for a running load.
 
         `while_released` runs once the slot refuses work and before its engines close.
         """
@@ -104,17 +139,14 @@ class VoiceSlot:
             self.speaking = None
             self._ready_speaking = None
         while_released()
-        failed = False
-        for engine in _unique_engines(engines):
-            try:
-                engine.close()
-            except Exception:
-                failed = True
-                logger.exception("speaking engine cleanup failed")
-        if failed:
-            self._fatal_callback()
-            message = "speaking engine cleanup failed"
-            raise RuntimeError(message)
+        closed = [
+            self._closed(engine, _CLEANUP_FAILED) for engine in _unique_engines(engines)
+        ]
+        with self._state_changed:
+            while self._load_job is not None:
+                self._state_changed.wait()
+        if not all(closed):
+            raise RuntimeError(_CLEANUP_FAILED)
 
     def reconcile_failed_active(self) -> None:
         """Close an active engine that stopped being ready."""
@@ -131,42 +163,73 @@ class VoiceSlot:
             self._ready_speaking = None
             self._closing_engine = active
         try:
-            active.close()
-        except Exception:
-            logger.exception("failed speaking engine cleanup failed")
-            self._fatal_callback()
+            self._closed(active, "failed speaking engine cleanup failed")
         finally:
             with self._state_changed:
                 self._closing_engine = None
                 self._state_changed.notify_all()
 
-    def health(self) -> VoiceHealth:
-        """The voice's part of GET /health: its catalogue facts, ready or not."""
+    def health(self, *, ready: bool) -> VoiceHealth:
+        """The voice's part of GET /health: its catalogue facts, and `ready`."""
         with self._state_lock:
             speaking = self.speaking
         if speaking is None:
             return VoiceHealth(
-                model=model_for_voice(self._dependencies.voice),
+                model=model_for_voice(self.voice),
                 ready=False,
-                sample_rate=0,
+                sample_rate=sample_rate_before_load(self.voice),
             )
         return VoiceHealth(
-            model=speaking.model_name,
-            ready=speaking.ready,
-            sample_rate=speaking.sample_rate,
+            model=speaking.model_name, ready=ready, sample_rate=speaking.sample_rate
         )
 
+    def _run_load_job(self, job: Future[None]) -> None:
+        try:
+            if self._retire_dead_engine():
+                self.load()
+        except Exception as error:  # noqa: BLE001 - its waiters read the outcome as the slot's readiness
+            log_failure(logger, f"voice {self.voice.value} failed to load", error)
+        finally:
+            with self._state_changed:
+                self.loading = False
+                self._load_job = None
+                self._state_changed.notify_all()
+            job.set_result(None)
+
+    def _retire_dead_engine(self) -> bool:
+        """Close the engine a crash left, before any new one; whether a load is due."""
+        with self._state_changed:
+            while self._closing_engine is not None:
+                self._state_changed.wait()
+            dead = self.speaking
+            if dead is not None and dead.ready:
+                return False
+            self.speaking = None
+            self._ready_speaking = None
+        return dead is None or self._closed(dead, "dead speaking engine cleanup failed")
+
+    def _closed(self, engine: SpeakingEngine, failure: str) -> bool:
+        """Close `engine`; a failed close is fatal, because a worker may remain."""
+        try:
+            engine.close()
+        except Exception:
+            logger.exception("%s", failure)
+            self._fatal_callback()
+            return False
+        return True
+
     def _construct_engine(self) -> SpeakingEngine:
-        voice = self._dependencies.voice
         engine_factory = self._dependencies.engine_factory
-        artifact_checker = self._dependencies.artifact_checker
-        if engine_factory is None or artifact_checker is None:
+        missing_artifacts = self._dependencies.missing_artifacts
+        if engine_factory is None or missing_artifacts is None:
             message = "the runtime has no engine factory"
             raise RuntimeError(message)
-        if not artifact_checker(voice):
-            message = f"voice {voice.value} is not installed"
+        missing = missing_artifacts(self.voice)
+        if missing:
+            logger.error("voice %s is missing %s", self.voice.value, ", ".join(missing))
+            message = f"voice {self.voice.value} is not installed"
             raise RuntimeError(message)
-        engine = engine_factory(voice)
+        engine = engine_factory(self.voice)
         setter = getattr(engine, "set_fatal_callback", None)
         if callable(setter):
             setter(self._fatal_callback)
@@ -196,11 +259,7 @@ class VoiceSlot:
             if still_pending:
                 self._pending_engine = None
         if engine is not None and (still_pending or not registered):
-            try:
-                engine.close()
-            except Exception:
-                logger.exception("uncommitted speaking engine cleanup failed")
-                self._fatal_callback()
+            self._closed(engine, "uncommitted speaking engine cleanup failed")
 
 
 def _unique_engines(

@@ -118,8 +118,7 @@ def test_failed_loader_stops_the_server_and_closes_the_listener(
         None,
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: FakeSpeaking(fail=True),
-            artifact_checker=lambda _voice: True,
-            voice=VoiceId.PIPER,
+            missing_artifacts=lambda _voice: (),
         ),
     )
 
@@ -204,8 +203,7 @@ while True:
         None,
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: engine,
-            artifact_checker=lambda _voice: True,
-            voice=VoiceId.QWEN,
+            missing_artifacts=lambda _voice: (),
         ),
     )
     real_popen = subprocess.Popen
@@ -259,8 +257,7 @@ def test_owned_speaking_failure_stops_the_server_and_returns_failure(
         speaking,
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: speaking,
-            artifact_checker=lambda _voice: True,
-            voice=VoiceId.PIPER,
+            missing_artifacts=lambda _voice: (),
         ),
     )
 
@@ -310,8 +307,7 @@ def test_orchestrator_serves_health_from_its_loading_runtime(
         memory_probe=lambda: card_memory_mb,
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: _BlockedSpeaking(started, release),
-            artifact_checker=lambda _voice: True,
-            voice=VoiceId.PIPER,
+            missing_artifacts=lambda _voice: (),
         ),
     )
 

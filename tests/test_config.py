@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
-from speech_runtime_provider_contract import QWEN_MODEL_ID
 
 from speech_runtime_service.config import (
     QwenSpeaker,
@@ -13,9 +12,7 @@ from speech_runtime_service.config import (
 )
 from speech_runtime_service.hearing_models import HearingModel
 from speech_runtime_service.pcm import wav_header
-from speech_runtime_service.voices import (
-    DEFAULT_SPEAKING_MODEL,
-)
+from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE
 
 if TYPE_CHECKING:
@@ -39,12 +36,12 @@ def test_a_stale_setting_in_the_environment_is_ignored(
 
 def test_settings_read_speech_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SPEECH_DEVICE", "cpu")
-    monkeypatch.setenv("SPEECH_SPEAKING_MODEL", QWEN_MODEL_ID)
+    monkeypatch.setenv("SPEECH_GPU_VOICES", VoiceId.QWEN.value)
 
     settings = Settings()
 
     assert settings.device == "cpu"
-    assert settings.speaking_model == QWEN_MODEL_ID
+    assert settings.gpu_voices == {VoiceId.QWEN}
 
 
 @pytest.mark.parametrize(
@@ -163,26 +160,38 @@ def test_settings_refuse_a_port_that_is_not_a_tcp_port(
         Settings()
 
 
-@pytest.mark.parametrize(
-    "model",
-    [
-        DEFAULT_SPEAKING_MODEL,
-        QWEN_MODEL_ID,
-    ],
-)
-def test_every_catalogue_voice_model_is_a_speaking_model(
-    monkeypatch: pytest.MonkeyPatch, model: str
-) -> None:
-    monkeypatch.setenv("SPEECH_SPEAKING_MODEL", model)
+def test_no_gpu_voice_is_offered_by_default() -> None:
+    assert Settings().gpu_voices == frozenset()
 
-    assert Settings().speaking_model == model
+
+@pytest.mark.parametrize("value", ["", " "])
+def test_an_empty_gpu_voice_setting_offers_none(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("SPEECH_GPU_VOICES", value)
+
+    assert Settings().gpu_voices == frozenset()
+
+
+@pytest.mark.parametrize(
+    "voice", [voice for voice in VoiceId if voice is not RESIDENT_VOICE]
+)
+def test_every_gpu_voice_of_the_catalogue_can_be_offered(
+    monkeypatch: pytest.MonkeyPatch, voice: VoiceId
+) -> None:
+    monkeypatch.setenv("SPEECH_GPU_VOICES", f" {voice.value} ")
+
+    assert Settings().gpu_voices == {voice}
 
 
 @pytest.mark.parametrize(
     ("environment", "value", "reason"),
     [
         ("SPEECH_PROVIDER_ROOT", "relative/providers", "provider root"),
-        ("SPEECH_SPEAKING_MODEL", "unsupported-baseline", "speaking model"),
+        ("SPEECH_GPU_VOICES", RESIDENT_VOICE.value, "SPEECH_GPU_VOICES"),
+        ("SPEECH_GPU_VOICES", "alloy", "SPEECH_GPU_VOICES"),
+        ("SPEECH_GPU_VOICES", f"{VoiceId.QWEN.value},", "SPEECH_GPU_VOICES"),
+        ("SPEECH_GPU_VOICES", f",{VoiceId.QWEN.value}", "SPEECH_GPU_VOICES"),
     ],
 )
 def test_settings_refuses_unsafe_voice_configuration(

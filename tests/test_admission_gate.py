@@ -326,7 +326,7 @@ def test_a_request_refused_at_once_leaves_no_place_taken_for_the_next() -> None:
 
     assert refused == HTTP_429_TOO_MANY_REQUESTS
     assert served == HTTP_200_OK
-    assert gate_is_free(runtime)
+    assert gate_is_free(runtime, VoiceId.QWEN)
 
 
 def _async_runtime(
@@ -377,7 +377,7 @@ def test_after_a_busy_refusal_the_next_request_is_served_and_the_gate_is_free() 
 
     assert refused == HTTP_429_TOO_MANY_REQUESTS
     assert served == HTTP_200_OK
-    assert gate_is_free(runtime)
+    assert gate_is_free(runtime, VoiceId.QWEN)
 
 
 async def _status_of(call: SpeakCall) -> int:
@@ -407,8 +407,13 @@ def _leave_gate_free(_runtime: Runtime) -> Lease | None:
     return None
 
 
+def _stop_the_service(runtime: Runtime) -> Lease | None:
+    runtime.begin_shutdown()
+    return None
+
+
 def _hold_gate(runtime: Runtime) -> Lease | None:
-    return synthesis_gate(runtime).try_acquire()
+    return synthesis_gate(runtime, VoiceId.QWEN).try_acquire()
 
 
 @pytest.mark.parametrize(
@@ -418,10 +423,10 @@ def _hold_gate(runtime: Runtime) -> Lease | None:
             b"{}", _leave_gate_free, HTTP_422_UNPROCESSABLE_CONTENT, id="invalid-body"
         ),
         pytest.param(
-            speak_body(VoiceId.PIPER.value),
-            _leave_gate_free,
+            speak_body(QWEN),
+            _stop_the_service,
             HTTP_503_SERVICE_UNAVAILABLE,
-            id="voice-is-not-the-active-one",
+            id="the-service-is-stopping",
         ),
         pytest.param(
             speak_body(QWEN),
@@ -445,7 +450,7 @@ def test_a_refusal_leaves_the_gate_free_once_its_holder_lets_go(
     assert response.status_code == status
     if held is not None:
         held.close()
-    assert gate_is_free(runtime)
+    assert gate_is_free(runtime, VoiceId.QWEN)
 
 
 def test_a_request_cancelled_while_it_waits_for_the_gate_leaves_nothing_behind() -> (
@@ -454,9 +459,9 @@ def test_a_request_cancelled_while_it_waits_for_the_gate_leaves_nothing_behind()
     async def scenario() -> tuple[Runtime, int]:
         runtime = fake_runtime(FakeSpeaking(), VoiceId.QWEN)
         app = app_over(runtime, busy_wait_seconds=ASGI_TIMEOUT_SECONDS)
-        held = synthesis_gate(runtime).try_acquire()
+        held = synthesis_gate(runtime, VoiceId.QWEN).try_acquire()
         assert held is not None
-        waiting_began = gate_acquisition_began(runtime)
+        waiting_began = gate_acquisition_began(runtime, VoiceId.QWEN)
         waiting = SpeakCall(app, speak_body(QWEN))
         await waiting_began.wait()
         waiting.task.cancel()
@@ -467,7 +472,7 @@ def test_a_request_cancelled_while_it_waits_for_the_gate_leaves_nothing_behind()
     runtime, served = asyncio.run(scenario())
 
     assert served == HTTP_200_OK
-    assert gate_is_free(runtime)
+    assert gate_is_free(runtime, VoiceId.QWEN)
 
 
 def test_a_stream_holding_every_worker_cannot_push_the_busy_answer_past_the_wait() -> (
@@ -498,7 +503,7 @@ def test_a_stream_holding_every_worker_cannot_push_the_busy_answer_past_the_wait
     assert second.headers[RETRY_AFTER_HEADER.lower()] == "1"
     assert first.status_code == HTTP_200_OK
     assert later == HTTP_200_OK
-    assert gate_is_free(runtime)
+    assert gate_is_free(runtime, VoiceId.QWEN)
 
 
 def test_a_free_gate_answers_within_the_wait_though_every_worker_is_occupied() -> None:
@@ -527,7 +532,7 @@ def test_a_free_gate_answers_within_the_wait_though_every_worker_is_occupied() -
 
     assert call.status_code == HTTP_200_OK
     assert call.started_after < SHORT_WAIT_SECONDS + SLACK_SECONDS
-    assert gate_is_free(runtime)
+    assert gate_is_free(runtime, VoiceId.QWEN)
 
 
 def test_a_failed_voice_whose_close_blocks_is_still_answered_within_the_wait() -> None:

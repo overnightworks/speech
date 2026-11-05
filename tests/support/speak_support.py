@@ -13,7 +13,7 @@ from speech_runtime_client.wire import SPEECH_PATH, RefusalCode, speech_request_
 from speech_runtime_service.config import Settings
 from speech_runtime_service.control import create_control_app
 from speech_runtime_service.service import Runtime, RuntimeDependencies
-from speech_runtime_service.voices import VoiceId
+from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.identity_support import valid_callers, valid_headers
 
@@ -225,13 +225,24 @@ class SpeakCall:
 
 
 def fake_runtime(
-    speaking: SpeakingEngine | None = None, voice: VoiceId = VoiceId.PIPER
+    speaking: SpeakingEngine | None = None, voice: VoiceId = RESIDENT_VOICE
 ) -> Runtime:
-    """A runtime over a fake engine that speaks as `voice`."""
+    """A runtime whose `voice` speaks with `speaking`, a fake by default.
+
+    Piper holds `speaking` at once; a GPU voice is offered and loads it on its
+    first request, beside a fake Piper.
+    """
+    engine = speaking or FakeSpeaking()
+    if voice is RESIDENT_VOICE:
+        return Runtime(engine, memory_probe=lambda: 0)
     return Runtime(
-        speaking or FakeSpeaking(),
+        FakeSpeaking(),
         memory_probe=lambda: 0,
-        dependencies=RuntimeDependencies(voice=voice),
+        dependencies=RuntimeDependencies(
+            gpu_voices=frozenset({voice}),
+            engine_factory=lambda _voice: engine,
+            missing_artifacts=lambda _voice: (),
+        ),
     )
 
 
@@ -240,20 +251,21 @@ def app_over(runtime: Runtime, **settings: float) -> FastAPI:
     return create_control_app(Settings(**settings), runtime, valid_callers())
 
 
-def synthesis_gate(runtime: Runtime) -> AdmissionGate:
-    """The admission gate of the runtime's one voice slot."""
-    (slot,) = runtime.slots.values()
-    return slot.gate
+def synthesis_gate(runtime: Runtime, voice: VoiceId = RESIDENT_VOICE) -> AdmissionGate:
+    """The admission gate of `voice`'s slot."""
+    return runtime.slots[voice].gate
 
 
-def gate_acquisition_began(runtime: Runtime) -> asyncio.Event:
+def gate_acquisition_began(
+    runtime: Runtime, voice: VoiceId = RESIDENT_VOICE
+) -> asyncio.Event:
     """An event set when a request calls the gate's `acquire`.
 
     `acquire` queues its waiter before its first suspension, so a test that
     resumes on this event finds the waiter queued.
     """
     began = asyncio.Event()
-    gate = synthesis_gate(runtime)
+    gate = synthesis_gate(runtime, voice)
     acquire = gate.acquire
 
     async def noting(deadline: float, max_waiters: int) -> Lease | None:
@@ -264,9 +276,9 @@ def gate_acquisition_began(runtime: Runtime) -> asyncio.Event:
     return began
 
 
-def gate_is_free(runtime: Runtime) -> bool:
-    """Whether the synthesis gate is free: no request left its lease behind."""
-    lease = synthesis_gate(runtime).try_acquire()
+def gate_is_free(runtime: Runtime, voice: VoiceId = RESIDENT_VOICE) -> bool:
+    """Whether `voice`'s synthesis gate is free: no request left its lease behind."""
+    lease = synthesis_gate(runtime, voice).try_acquire()
     if lease is None:
         return False
     lease.close()

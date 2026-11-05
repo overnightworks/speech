@@ -16,7 +16,6 @@ import pytest
 from speech_runtime_service import __main__
 from speech_runtime_service.config import Settings
 from speech_runtime_service.service import Runtime, RuntimeDependencies
-from speech_runtime_service.voices import VoiceId
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.identity_support import (
     caller_configuration_text,
@@ -47,8 +46,7 @@ Runtime.from_settings = lambda _settings: Runtime(
     None,
     dependencies=RuntimeDependencies(
         engine_factory=lambda _voice: FakeSpeaking(),
-        artifact_checker=lambda _voice: True,
-        voice=VoiceId.PIPER,
+        missing_artifacts=lambda _voice: (),
     ),
 )
 settings = Settings(port=int(os.environ["SPEECH_PORT"]))
@@ -218,8 +216,7 @@ def _loadable_runtime() -> Runtime:
         None,
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: FakeSpeaking(),
-            artifact_checker=lambda _voice: True,
-            voice=VoiceId.PIPER,
+            missing_artifacts=lambda _voice: (),
         ),
     )
 
