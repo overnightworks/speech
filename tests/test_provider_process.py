@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import stat
 import struct
 import subprocess
 import sys
@@ -138,6 +139,22 @@ def python_dir(request: pytest.FixtureRequest) -> str:
     return str(request.param)
 
 
+def test_a_worker_keeps_numbas_cache_in_a_private_directory_gone_once_reaped(
+    tmp_path: Path,
+) -> None:
+    root, cache = closed_provider(tmp_path)
+    engine = _provider_process(root, cache)
+    engine.load()
+    try:
+        numba_cache = Path(observed(cache)[1].get("NUMBA_CACHE_DIR", "unset"))
+        private = numba_cache.is_dir() and stat.S_IMODE(numba_cache.stat().st_mode)
+    finally:
+        engine.close()
+
+    assert private == stat.S_IRWXU
+    assert not numba_cache.exists()
+
+
 def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, python_dir: str
 ) -> None:
@@ -193,6 +210,7 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
         "PYTHONUNBUFFERED": "1",
         "PATH": os.defpath,
         "LD_LIBRARY_PATH": str(cublas),
+        "NUMBA_CACHE_DIR": environment["NUMBA_CACHE_DIR"],
     }
     assert set(environment) <= {*expected_environment, "LC_CTYPE"}
     assert all(environment[key] == value for key, value in expected_environment.items())

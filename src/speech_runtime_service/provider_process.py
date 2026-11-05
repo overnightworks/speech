@@ -15,6 +15,7 @@ import time
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum, StrEnum
+from pathlib import Path
 from typing import IO, TYPE_CHECKING
 
 from speech_runtime_provider_contract import (
@@ -28,7 +29,6 @@ from speech_runtime_provider_contract import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
-    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -229,12 +229,17 @@ class ProviderProcess:
             self._fatal_callback = callback
 
     def _run_owner(self) -> None:
+        """Own one worker; its private directory goes once the worker is reaped."""
+        with tempfile.TemporaryDirectory(prefix="speech-provider-") as scratch:
+            self._own(Path(scratch))
+
+    def _own(self, scratch: Path) -> None:
         child: subprocess.Popen[bytes] | None = None
         stderr: IO[bytes] | None = None
         lifecycle_failed = False
         try:
             stderr = tempfile.TemporaryFile()  # noqa: SIM115 - closed on every exit below
-            child = self._spawn(stderr)
+            child = self._spawn(stderr, scratch)
             decoder = FrameDecoder()
             os.set_blocking(_require_stdout(child).fileno(), False)
             with self._state_lock:
@@ -302,7 +307,7 @@ class ProviderProcess:
                 continue
             return command
 
-    def _spawn(self, stderr: IO[bytes]) -> subprocess.Popen[bytes]:
+    def _spawn(self, stderr: IO[bytes], scratch: Path) -> subprocess.Popen[bytes]:
         entrypoint = self._executable
         if not is_executable_file(entrypoint):
             raise ProviderUnavailableError
@@ -319,7 +324,7 @@ class ProviderProcess:
             stdout=subprocess.PIPE,
             stderr=stderr,
             cwd=directory,
-            env=provider_environment(directory),
+            env=provider_environment(directory, scratch),
             bufsize=0,
             close_fds=True,
             start_new_session=True,
@@ -526,14 +531,20 @@ def is_executable_file(entrypoint: Path | None) -> bool:
     return stat.S_ISREG(mode) and os.access(entrypoint, os.X_OK)
 
 
-def provider_environment(provider_directory: Path) -> dict[str, str]:
-    """Return the minimal offline environment, with the venv's CUDA libraries."""
+def provider_environment(provider_directory: Path, scratch: Path) -> dict[str, str]:
+    """Return the minimal offline environment, with the venv's CUDA libraries.
+
+    `scratch` is the worker's private writable directory.
+    """
     environment = {
         "HF_HUB_OFFLINE": "1",
         "TRANSFORMERS_OFFLINE": "1",
         "TOKENIZERS_PARALLELISM": "false",
         "PYTHONUNBUFFERED": "1",
         "PATH": os.defpath,
+        # A numba function compiled with a cache refuses to import without a
+        # writable cache directory, and the image's root is read-only.
+        "NUMBA_CACHE_DIR": str(scratch),
     }
     visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
     if visible_devices is not None:

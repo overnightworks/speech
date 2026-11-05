@@ -31,7 +31,7 @@ def _cuda_library_directory(
 
 
 def test_no_cuda_packages_leave_the_library_path_unset(tmp_path: Path) -> None:
-    assert "LD_LIBRARY_PATH" not in provider_environment(tmp_path)
+    assert "LD_LIBRARY_PATH" not in provider_environment(tmp_path, tmp_path / "scratch")
 
 
 @pytest.mark.parametrize("python_directory", ["python3.12", "python3.14"])
@@ -41,7 +41,7 @@ def test_library_path_names_the_cuda_packages_of_any_python_three_venv(
     cublas = _cuda_library_directory(tmp_path, python_directory, "cublas")
     cudnn = _cuda_library_directory(tmp_path, python_directory, "cudnn")
 
-    environment = provider_environment(tmp_path)
+    environment = provider_environment(tmp_path, tmp_path / "scratch")
 
     assert environment["LD_LIBRARY_PATH"] == os.pathsep.join([str(cublas), str(cudnn)])
 
@@ -52,7 +52,10 @@ def test_visible_devices_are_passed_through_when_set(
 ) -> None:
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", visible_devices)
 
-    assert provider_environment(tmp_path)["CUDA_VISIBLE_DEVICES"] == visible_devices
+    assert (
+        provider_environment(tmp_path, tmp_path / "scratch")["CUDA_VISIBLE_DEVICES"]
+        == visible_devices
+    )
 
 
 def test_visible_devices_stay_unset_when_the_parent_has_none(
@@ -60,4 +63,6 @@ def test_visible_devices_stay_unset_when_the_parent_has_none(
 ) -> None:
     monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
 
-    assert "CUDA_VISIBLE_DEVICES" not in provider_environment(tmp_path)
+    assert "CUDA_VISIBLE_DEVICES" not in provider_environment(
+        tmp_path, tmp_path / "scratch"
+    )

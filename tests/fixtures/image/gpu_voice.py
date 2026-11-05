@@ -10,6 +10,7 @@ library and asks torch whether a CUDA device is there.
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from speech_runtime_service.config import load_settings
@@ -50,15 +51,16 @@ report: dict[str, object] = {
 }
 if json.load(sys.stdin)["probe"]:
     directory = provider_directory(entrypoint)
-    probe = subprocess.run(  # noqa: S603, RUF100 - the image's Qwen interpreter runs a fixed probe
-        [str(entrypoint.with_name("python")), "-c", PROBE],
-        cwd=directory,
-        env=provider_environment(directory),
-        capture_output=True,
-        text=True,
-        timeout=PROBE_TIMEOUT_SECONDS,
-        check=False,
-    )
+    with tempfile.TemporaryDirectory() as scratch:
+        probe = subprocess.run(  # noqa: S603, RUF100 - the image's Qwen interpreter runs a fixed probe
+            [str(entrypoint.with_name("python")), "-c", PROBE],
+            cwd=directory,
+            env=provider_environment(directory, Path(scratch)),
+            capture_output=True,
+            text=True,
+            timeout=PROBE_TIMEOUT_SECONDS,
+            check=False,
+        )
     if probe.returncode == 0:
         report["cuda"] = json.loads(probe.stdout.splitlines()[-1])
     else:
