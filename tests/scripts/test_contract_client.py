@@ -17,6 +17,7 @@ from speech_runtime_client.wire import (
     CONTENT_TYPE_HEADER,
     WORKLOAD_TOKEN_HEADER,
 )
+from speech_runtime_service.config import Settings
 from speech_runtime_service.pcm import pcm_from_wav
 from speech_runtime_service.service import Runtime
 from speech_runtime_service.voices import VoiceId
@@ -85,11 +86,30 @@ def test_prove_points_the_service_at_the_repository_provider_environments(
 ) -> None:
     monkeypatch.delenv("SPEECH_PROVIDER_ROOT", raising=False)
 
-    environment = PROVE.speech_environment(8080, "model", identity)
+    environment = PROVE.speech_environment(8080, VoiceId.PIPER, identity)
 
     provider_root = Path(environment["SPEECH_PROVIDER_ROOT"])
     assert provider_root.is_absolute()
     assert (provider_root / "qwen" / "pyproject.toml").is_file()
+
+
+@pytest.mark.parametrize("named", [frozenset(), frozenset({VoiceId.QWEN})])
+def test_prove_speaks_the_gpu_voice_the_offer_names_else_piper(
+    named: frozenset[VoiceId],
+) -> None:
+    assert PROVE.proof_voice(named) is next(iter(named), VoiceId.PIPER)
+
+
+@pytest.mark.parametrize("voice", list(VoiceId))
+def test_prove_offers_the_service_exactly_the_voice_it_speaks(
+    monkeypatch: pytest.MonkeyPatch, identity: ProofIdentity, voice: VoiceId
+) -> None:
+    monkeypatch.setenv("SPEECH_GPU_VOICES", VoiceId.QWEN.value)
+
+    environment = PROVE.speech_environment(8080, voice, identity)
+
+    monkeypatch.setenv("SPEECH_GPU_VOICES", environment["SPEECH_GPU_VOICES"])
+    assert Settings().gpu_voices == ({voice} - {VoiceId.PIPER})
 
 
 def test_prove_keeps_a_provider_root_the_caller_set(
@@ -97,7 +117,7 @@ def test_prove_keeps_a_provider_root_the_caller_set(
 ) -> None:
     monkeypatch.setenv("SPEECH_PROVIDER_ROOT", "/elsewhere")
 
-    environment = PROVE.speech_environment(8080, "model", identity)
+    environment = PROVE.speech_environment(8080, VoiceId.PIPER, identity)
 
     assert environment["SPEECH_PROVIDER_ROOT"] == "/elsewhere"
 
@@ -108,7 +128,7 @@ def test_prove_defaults_to_the_card_proof(
     for name in ("SPEECH_DEVICE", "CUDA_VISIBLE_DEVICES"):
         monkeypatch.delenv(name, raising=False)
 
-    environment = PROVE.speech_environment(8080, "model", identity)
+    environment = PROVE.speech_environment(8080, VoiceId.PIPER, identity)
 
     assert environment["SPEECH_DEVICE"] == "cuda"
     assert "CUDA_VISIBLE_DEVICES" not in environment
@@ -119,7 +139,7 @@ def test_prove_takes_the_device_and_hides_the_card_on_the_cpu(
 ) -> None:
     monkeypatch.setenv("SPEECH_DEVICE", "cpu")
 
-    environment = PROVE.speech_environment(8080, "model", identity)
+    environment = PROVE.speech_environment(8080, VoiceId.PIPER, identity)
 
     assert environment["SPEECH_DEVICE"] == "cpu"
     assert environment["CUDA_VISIBLE_DEVICES"] == ""
@@ -230,7 +250,7 @@ def test_the_contract_client_command_passes_the_minting_file_path_and_no_secret(
 def test_prove_hands_the_service_its_configuration_and_the_proofs_ca(
     identity: ProofIdentity,
 ) -> None:
-    environment = PROVE.speech_environment(8080, "model", identity)
+    environment = PROVE.speech_environment(8080, VoiceId.PIPER, identity)
 
     assert environment["SPEECH_CONFIG_FILE"] == str(identity.configuration_path)
     assert environment["SSL_CERT_FILE"] == str(identity.ca_path)
@@ -241,7 +261,7 @@ def test_prove_binds_the_service_to_the_loopback_port_it_picked(
 ) -> None:
     port = PROVE.free_local_port()
 
-    environment = PROVE.speech_environment(port, "model", identity)
+    environment = PROVE.speech_environment(port, VoiceId.PIPER, identity)
 
     assert environment["SPEECH_HOST"] == "127.0.0.1"
     assert environment["SPEECH_PORT"] == str(port)

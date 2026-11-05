@@ -45,10 +45,10 @@ from speech_runtime_client.wire import (
     speech_request_body,
     speech_request_headers,
 )
+from speech_runtime_service.config import load_settings
 from speech_runtime_service.cuda_libs import cuda_library_dirs
 from speech_runtime_service.pcm import BYTES_PER_SAMPLE
-from speech_runtime_service.service import voice_for_model
-from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL
+from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId, model_for_voice
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -73,8 +73,8 @@ FLOCK_COMMAND_UNAVAILABLE_STATUS = 69
 # up to 5 s, so 15 s at worst, with the providers stopped through the server.
 # The hearing proof adds the card holder it stops after its server: up to 10 s
 # more, so 25 s at worst.
-# The proof speaks through the model named by SPEECH_SPEAKING_MODEL (Piper
-# by default). A CPU Piper run needs only a small fraction of the cap, and the
+# The proof speaks the GPU voice SPEECH_GPU_VOICES names, else Piper. A CPU
+# Piper run needs only a small fraction of the cap, and the
 # server exits within the grace after the proof body ends.
 CAP_SECONDS = 1800
 KILL_GRACE_SECONDS = 30
@@ -312,13 +312,9 @@ def speak_measured(
     return body, first_byte_at - start, end - start
 
 
-def voice_id(model: str) -> str:
-    """The catalogue id of the voice whose speaking model is `model`."""
-    voice = voice_for_model(model)
-    if voice is None:
-        message = f"{model} is not a baseline speaking model"
-        raise SystemExit(message)
-    return voice.value
+def proof_voice(gpu_voices: frozenset[VoiceId]) -> VoiceId:
+    """The voice a proof speaks: the GPU voice the offer names, else Piper."""
+    return min(gpu_voices, default=RESIDENT_VOICE)
 
 
 def query_nvidia(*arguments: str) -> str:
@@ -464,14 +460,14 @@ def _require_log_without_text(log: str, texts: Iterable[str]) -> None:
         raise SystemExit(message)
 
 
-def _require_speaking(health: dict[str, object], model: str) -> None:
+def _require_speaking(health: dict[str, object], voice: VoiceId) -> None:
     speaking = health["speaking"]
     if not isinstance(speaking, dict):
         message = f"health speaking is not an object: {speaking!r}"
         raise SystemExit(message)
-    voice = speaking["voices"].get(voice_id(model))
-    if voice is None or voice["model"] != model:
-        message = f"speaking.voices has no voice for {model!r}: {speaking!r}"
+    offered = speaking["voices"].get(voice.value)
+    if offered is None or offered["model"] != model_for_voice(voice):
+        message = f"speaking.voices does not offer {voice.value!r}: {speaking!r}"
         raise SystemExit(message)
 
 
@@ -545,32 +541,31 @@ def _prove_speak_medians(
     return wavs[-1], median_ttfa, median_rtf
 
 
-def _prove_speak(base_url: str, model: str, minting: Minting) -> bytes:
+def _prove_speak(base_url: str, voice: VoiceId, minting: Minting) -> bytes:
     """Speak German MEASURE_REPETITIONS times.
 
     `_prove_one_speak` fails the run the moment any single repetition misses
-    `model`'s first-byte limit; a passing run is the proof that every
+    the first-byte limit; a passing run is the proof that every
     repetition held, not just the median.
     """
     german, _ttfa, _rtf = _prove_speak_medians(
         functools.partial(speak_measured, base_url, minting=minting),
         SENTENCE,
-        voice_id(model),
+        voice.value,
         limit=PIPER_FIRST_BYTE_LIMIT_S,
         label="speak_wire_de",
     )
     return german
 
 
-def _prove_concurrent_speak(base_url: str, model: str, minting: Minting) -> None:
+def _prove_concurrent_speak(base_url: str, voice: VoiceId, minting: Minting) -> None:
     limit = PIPER_FIRST_BYTE_LIMIT_S
-    voice = voice_id(model)
     results: dict[str, tuple[bytes, float, float]] = {}
     errors: list[str] = []
 
     def run(key: str, text: str) -> None:
         try:
-            results[key] = speak_measured(base_url, text, voice, minting)
+            results[key] = speak_measured(base_url, text, voice.value, minting)
         except Exception as error:
             LOGGER.exception("concurrent speak %s failed", key)
             errors.append(f"{key}: {error}")
@@ -629,15 +624,15 @@ def contract_client_command(base_url: str, voice: str, minting_path: Path) -> li
 
 
 def _prove_contract(
-    base_url: str, env: dict[str, str], minting_path: Path, work_directory: Path
+    base_url: str,
+    env: dict[str, str],
+    voice: VoiceId,
+    minting_path: Path,
+    work_directory: Path,
 ) -> None:
     print("contract_client_start")
     completed = subprocess.run(  # noqa: S603 - argv is this interpreter and this repository's client script with no shell
-        contract_client_command(
-            base_url,
-            voice_id(env["SPEECH_SPEAKING_MODEL"]),
-            minting_path,
-        ),
+        contract_client_command(base_url, voice.value, minting_path),
         check=False,
         cwd=work_directory,
         env=env,
@@ -672,12 +667,12 @@ def add_cuda_library_path(env: dict[str, str]) -> None:
 
 def speech_environment(
     port: int,
-    speaking_model: str,
+    voice: VoiceId,
     identity: ProofIdentity,
     device: str | None = None,
     hearing_model: str | None = None,
 ) -> dict[str, str]:
-    """Return the process environment binding the loopback port with the model.
+    """Return the process environment binding the loopback port, offering `voice`.
 
     `device` defaults to `SPEECH_DEVICE` from the caller's environment, else
     `cuda`; `hearing_model` is left unset when absent.
@@ -691,7 +686,7 @@ def speech_environment(
     env["SPEECH_DEVICE"] = device or os.environ.get("SPEECH_DEVICE", "cuda")
     if env["SPEECH_DEVICE"] == "cpu":
         env["CUDA_VISIBLE_DEVICES"] = ""
-    env["SPEECH_SPEAKING_MODEL"] = speaking_model
+    env["SPEECH_GPU_VOICES"] = "" if voice is RESIDENT_VOICE else voice.value
     if hearing_model is not None:
         env["SPEECH_HEARING_MODEL"] = hearing_model
     env["SPEECH_BUSY_WAIT_SECONDS"] = str(
@@ -718,14 +713,11 @@ def _prove() -> None:
     work_directory = Path(tempfile.mkdtemp(prefix="speech-"))
     port = free_local_port()
     base_url = f"http://{LOOPBACK_HOST}:{port}"
-    speaking_model = os.environ.get(
-        "SPEECH_SPEAKING_MODEL",
-        DEFAULT_SPEAKING_MODEL,
-    )
+    voice = proof_voice(load_settings().gpu_voices)
     try:
-        with proof_identity(work_directory, voice_id(speaking_model)) as identity:
+        with proof_identity(work_directory, voice.value) as identity:
             minting = load_minting(identity.minting_path)
-            env = speech_environment(port, speaking_model, identity)
+            env = speech_environment(port, voice, identity)
             with speech_server(base_url, env, work_directory) as running:
                 print("health_ready", json.dumps(running.health, sort_keys=True))
                 print("load_to_ready_s", f"{running.ready_seconds:.1f}")
@@ -734,17 +726,19 @@ def _prove() -> None:
                     _nvidia_compute_pids(),
                     f"speech_pid={running.process.pid}",
                 )
-                _require_speaking(running.health, speaking_model)
+                _require_speaking(running.health, voice)
                 print("gpu_resident", nvidia_memory())
                 print("piper_cache", PIPER_CACHE)
-                german = _prove_speak(base_url, speaking_model, minting)
+                german = _prove_speak(base_url, voice, minting)
                 german_wav = (
                     Path(tempfile.mkdtemp(prefix="speech-proof-")) / "german.wav"
                 )
                 german_wav.write_bytes(german)
                 print("german_wav", german_wav)
-                _prove_concurrent_speak(base_url, speaking_model, minting)
-                _prove_contract(base_url, env, identity.minting_path, work_directory)
+                _prove_concurrent_speak(base_url, voice, minting)
+                _prove_contract(
+                    base_url, env, voice, identity.minting_path, work_directory
+                )
                 print("peak_rss_mib", f"{running.peak_rss_mib():.0f}")
         print("gpu_after", nvidia_memory())
         print("caches_kept")
