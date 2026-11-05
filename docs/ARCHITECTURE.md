@@ -5,8 +5,9 @@ what it trusts.
 
 ## Purpose
 
-One process keeps a German voice, and optionally a hearing model, resident on
-the home server and serves them to Presentator and to apps that speak or have a
+One process keeps the German Piper voice, and optionally a hearing model,
+resident on the home server, loads each GPU voice the operator offers on its
+first request, and serves them to Presentator and to apps that speak or have a
 recording heard for a person.
 [`README.md`](../README.md) holds the contract and the settings,
 [`wire.md`](wire.md) the speech and transcription wire.
@@ -38,6 +39,36 @@ flowchart LR
   [Delivery](#delivery). `scripts/prove_image.py` proves it.
 - `packages/client`: the wire types an app and the service share.
 - `providers/*`: the voices that run in their own processes and environments.
+
+### Speaking
+
+- **The offer.** `voices.py` owns the closed catalogue and its residency fact:
+  Piper is resident, every other voice is a GPU voice. `Runtime.from_settings`
+  composes the offer, Piper's slot plus one slot per voice `SPEECH_GPU_VOICES`
+  names, so no state offers voices without Piper. The offer decides which voice
+  may take the card; the caller table decides which app may name it.
+- **Piper at start, a GPU voice on its first request.** The start loads Piper,
+  then hearing; a failed Piper load ends the process. A GPU slot stays idle,
+  with no process and no CUDA context, until a request names it. Its first
+  request starts the slot's one load job on a thread the slot owns, and every
+  request for that voice awaits the same job. Nothing unloads a voice.
+- **Three load rules.** A request that leaves never cancels a shared load: the
+  job's future runs before its thread starts and requests await it shielded. A
+  load first checks the voice's pinned files and worker, and a failed load
+  closes and reaps what it built, and any worker a crash left, before it
+  resolves, so a retry starts only once no worker of that voice remains. An
+  engine is closed only off the event loop: on the job's thread, the start and
+  stop threads, or Starlette's threadpool.
+- **Failure isolation.** A failed load, missing files or a crashed worker make
+  that voice refuse 503 `unavailable` with `param` `voice` and report itself
+  not ready, while Piper and hearing keep serving; the next request loads it
+  again. A worker that cannot be reaped ends the process.
+- **One readiness.** `/health` and the refusal read the same answer, so no voice
+  is ready during the start load or once shutdown began, and `speaking.ready`
+  is Piper's. A request that held its voice's gate across a stop or a crash is
+  refused `unavailable`, never `busy`.
+- **One gate per voice.** Each voice's slot owns an `AdmissionGate` with the
+  speaking limits, so a long GPU synthesis never makes Piper `busy`.
 
 ### Hearing
 
