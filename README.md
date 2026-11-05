@@ -69,7 +69,7 @@ Hearing on the GPU needs `nvidia-cublas-cu12` and `nvidia-cudnn-cu12`, which the
 Weights stay in:
 
 - Piper voices: `~/.cache/piper/` (`speech-runtime-fetch-voice <voice>`, pinned revision and SHA-256 in `piper_voices.py`)
-- Qwen: `~/.cache/huggingface/hub/models--Qwen--Qwen3-TTS-12Hz-0.6B-CustomVoice` (pinned snapshot `85e237c12c027371202489a0ec509ded67b5e4b5`)
+- Qwen: `~/.cache/huggingface/hub/models--Qwen--Qwen3-TTS-12Hz-0.6B-CustomVoice` (`speech-runtime-fetch-voice qwen3-tts-0.6b` into `SPEECH_HUGGINGFACE_CACHE`, pinned snapshot `85e237c12c027371202489a0ec509ded67b5e4b5`)
 
 ## Contract
 

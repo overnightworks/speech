@@ -1,11 +1,12 @@
-"""The closed voice catalogue and its side-effect-free artifact check."""
+"""The closed voice catalogue, its side-effect-free artifact check and Qwen's fetch."""
 
 from __future__ import annotations
 
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
-from huggingface_hub import try_to_load_from_cache
+from huggingface_hub import snapshot_download, try_to_load_from_cache
 from speech_runtime_provider_contract import (
     QWEN_ARTIFACTS,
     QWEN_MODEL_ID,
@@ -20,7 +21,7 @@ from speech_runtime_service.provider_process import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from collections.abc import Callable
 
     from speech_runtime_service.config import Settings
 
@@ -76,6 +77,22 @@ def missing_artifacts(settings: Settings, voice: VoiceId) -> tuple[str, ...]:
             entrypoint.name if entrypoint is not None else "SPEECH_PROVIDER_ROOT"
         )
     return tuple(missing)
+
+
+def fetch_qwen(cache: Path, download: Callable[..., str] = snapshot_download) -> Path:
+    """Download Qwen's pinned files into the Hub cache `cache`; return their snapshot.
+
+    No token is sent. `download` is the Hugging Face snapshot downloader.
+    """
+    return Path(
+        download(
+            QWEN_MODEL_ID,
+            revision=QWEN_REVISION,
+            cache_dir=cache,
+            allow_patterns=list(QWEN_ARTIFACTS),
+            token=False,
+        )
+    )
 
 
 def piper_voice_paths(directory: Path, model: str) -> tuple[Path, Path]:

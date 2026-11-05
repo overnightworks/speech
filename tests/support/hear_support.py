@@ -185,5 +185,7 @@ def write_snapshot(
     )
     snapshot.mkdir(parents=True)
     for filename in allow_patterns:
-        (snapshot / filename).write_text("weights")
+        artifact = snapshot / filename
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text("weights")
     return str(snapshot)
