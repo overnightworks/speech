@@ -21,6 +21,8 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StrictBool,
+    StrictInt,
     TypeAdapter,
     ValidationError,
     field_validator,
@@ -109,8 +111,8 @@ class VoiceHealth(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     model: str
-    ready: bool
-    sample_rate: int
+    ready: StrictBool
+    sample_rate: StrictInt
 
 
 class SpeakingHealth(BaseModel):
@@ -118,7 +120,7 @@ class SpeakingHealth(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    ready: bool
+    ready: StrictBool
     voices: dict[str, VoiceHealth]
 
 
@@ -128,7 +130,7 @@ class HearingHealth(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     model: str
-    ready: bool
+    ready: StrictBool
 
 
 class Health(BaseModel):
@@ -138,7 +140,7 @@ class Health(BaseModel):
 
     speaking: SpeakingHealth
     hearing: HearingHealth
-    card_memory_mb: int
+    card_memory_mb: StrictInt
 
 
 def speech_request_body(text: str, voice: str) -> bytes:
