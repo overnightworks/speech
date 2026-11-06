@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import subprocess
+from typing import TYPE_CHECKING
 
 import pytest
 
 import image_stack
 from image_stack import REPOSITORY
+from tests.support.docker_support import DockerOnPath
+from tests.support.nvidia_support import FakeNvidiaSmi
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class FakeDocker:
@@ -69,23 +75,11 @@ def test_a_recording_form_carries_the_language_it_is_given_even_a_foreign_one() 
     assert b'name="file"; filename="recording.wav"' in form.body
 
 
-def answering(output: str, commands: list[list[str]]) -> object:
-    """A fake for `docker`: it keeps each command and answers `output`."""
-
-    def docker(*arguments: str, **_: object) -> str:
-        commands.append(list(arguments))
-        return output
-
-    return docker
-
-
 def test_a_machine_without_the_card_is_refused_before_anything_starts(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(image_stack, "docker", answering('{"runc": {}}', []))
-    monkeypatch.setattr(
-        image_stack, "query_nvidia", lambda *_: "unavailable: nvidia-smi not found"
-    )
+    DockerOnPath(tmp_path, monkeypatch, {"info": '{"runc": {}}'})
+    FakeNvidiaSmi(tmp_path, monkeypatch).fail()
 
     with pytest.raises(SystemExit) as stopped:
         image_stack.require_card()
@@ -96,20 +90,22 @@ def test_a_machine_without_the_card_is_refused_before_anything_starts(
 
 
 def test_a_machine_with_the_card_and_the_runtime_passes(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    runtimes = '{"runc": {}, "nvidia": {}}'
-    monkeypatch.setattr(image_stack, "docker", answering(runtimes, []))
-    monkeypatch.setattr(image_stack, "query_nvidia", lambda *_: "GPU 0: a card")
+    DockerOnPath(tmp_path, monkeypatch, {"info": '{"runc": {}, "nvidia": {}}'})
+    FakeNvidiaSmi(tmp_path, monkeypatch).use(0)
 
     image_stack.require_card()
 
 
 def test_the_pids_of_a_container_are_read_from_its_process_list(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(image_stack, "docker", answering("PID\n4242\n4300\n", []))
-    monkeypatch.setattr(image_stack, "container_of", lambda *_: "container")
+    DockerOnPath(
+        tmp_path,
+        monkeypatch,
+        {"ps --quiet": "container", "top container": "PID\n4242\n4300"},
+    )
 
     pids = image_stack.container_pids(
         image_stack.Compose((REPOSITORY / "compose.yaml",), {}), "speech-runtime"

@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING
 import pytest
 import yaml
 
-import image_stack
+from tests.support.docker_support import DockerOnPath
+from tests.support.nvidia_support import FakeNvidiaSmi
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
@@ -242,19 +243,13 @@ def test_the_no_card_override_removes_only_keys_compose_yaml_declares() -> None:
 
 
 def test_a_machine_without_the_card_fails_the_proof_before_it_builds(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    commands: list[tuple[str, ...]] = []
-
-    def docker(*arguments: str, **_: object) -> str:
-        commands.append(arguments)
-        return '{"runc": {}}'
-
+    docker = DockerOnPath(tmp_path, monkeypatch, {"info": '{"runc": {}}'})
+    FakeNvidiaSmi(tmp_path, monkeypatch).fail()
     monkeypatch.setattr(PROVE, "wait_for_load", lambda: None)
-    monkeypatch.setattr(image_stack, "docker", docker)
-    monkeypatch.setattr(image_stack, "query_nvidia", lambda *_: "unavailable: none")
 
     with pytest.raises(SystemExit, match="no card"):
         PROVE._prove(PROVE.Stage.REBUILD, no_card=False)  # noqa: SLF001 - the whole run is the entry point under test
 
-    assert [command[0] for command in commands] == ["info"]
+    assert [command.split()[0] for command in docker.commands] == ["info"]
