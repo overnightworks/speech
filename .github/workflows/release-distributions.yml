@@ -1,0 +1,96 @@
+name: Release distributions
+
+# The three distributions' release: one X.Y.Z, proven installable by Git pin at
+# the gated commit, then the git tag. Every quality call below is pinned at
+# quality's main, because no quality tag ships the release path yet.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to release, X.Y.Z"
+        required: true
+        type: string
+
+concurrency:
+  group: release-distributions
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  gate:
+    name: Gate
+    # quality's main at 7715afe; no quality tag ships the release path yet
+    uses: overnightworks/quality/.github/workflows/release-gate.yml@7715afe5c911a00ae3076057691e0b5d4e4a65f7
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: read
+    with:
+      version: ${{ inputs.version }}
+
+  build:
+    name: Build
+    needs: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      notes: ${{ steps.install.outputs.notes }}
+    env:
+      VERSION: ${{ inputs.version }}
+      COMMIT: ${{ needs.gate.outputs.commit }}
+    steps:
+      - name: Check out the gated commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.COMMIT }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.10.9"
+          enable-cache: false
+
+      - name: Refuse unless every distribution's version equals the version
+        run: python3 scripts/check_release.py "$VERSION"
+
+      - name: Install each distribution by its Git pin into an empty project
+        id: install
+        run: |
+          rows=$(python3 scripts/check_release.py --rows)
+          python_version=$(cat "$GITHUB_WORKSPACE/.python-version")
+          pins=""
+          while IFS='|' read -r distribution directory module; do
+            fragment=""
+            if [ "$directory" != "." ]; then fragment="#subdirectory=$directory"; fi
+            repository="git+https://github.com/$GITHUB_REPOSITORY"
+            host="$RUNNER_TEMP/host-$module"
+            uv init --bare --no-workspace --python "$python_version" "$host"
+            (cd "$host" && uv add "$distribution @ $repository@$COMMIT$fragment" && uv run python -c "import $module")
+            pins+="- \`$distribution @ $repository@v$VERSION$fragment\`"$'\n'
+          done <<<"$rows"
+          delimiter="notes-$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+          {
+            echo "notes<<$delimiter"
+            printf 'Install by Git pin at this tag:\n\n%s' "$pins"
+            echo
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+  tag:
+    name: Tag
+    needs:
+      - gate
+      - build
+    # quality's main at 7715afe; no quality tag ships the release path yet
+    uses: overnightworks/quality/.github/workflows/release-tag.yml@7715afe5c911a00ae3076057691e0b5d4e4a65f7
+    permissions:
+      contents: write
+    with:
+      version: ${{ inputs.version }}
+      commit: ${{ needs.gate.outputs.commit }}
+      notes: ${{ needs.build.outputs.notes }}

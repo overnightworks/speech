@@ -33,9 +33,9 @@ flowchart LR
   holds the resampler; `hearing_models.py` the pinned models; `recording.py` the
   incremental decode of an uploaded recording; `clock.py` the monotonic clock
   every gate deadline is read and waited on.
-- `Dockerfile`, `compose.yaml`, `deploy/speech.toml`: the container a release
+- `Dockerfile`, `compose.yaml`, `deploy/speech.toml`: the container the dated
   tag brings, with the Piper voice, Qwen's environment and weights, and the
-  caller table baked in; see
+  caller table baked in; the release builds, attests and pushes it to GHCR, see
   [Delivery](#delivery). `scripts/prove_image.py` proves it.
 - `packages/client`: the wire types an app and the service share.
 - `providers/*`: the voices that run in their own processes and environments.
@@ -108,16 +108,16 @@ flowchart LR
 
 ## Delivery
 
-The platform builds the image on its host from the release tag, so the tag fixes
-the code, the locked dependencies, the voices, the hearing model and the caller
-table. Nothing is fetched at start or restart: Piper's voice, Qwen's environment
-and weights and the `small` hearing model are in the image, each fetched by a
-shipped command at its pinned revision, and the service has no route to a
-registry or a hub. The healthcheck requires Piper and hearing to be ready, so a
-deployment that cannot hear is not recorded. Qwen is offered only when the start
-setting names it, and then launches on `cuda`, the provider contract's one device
-for it, whatever device hearing uses; without a card its requests are refused
-and Piper and hearing keep serving.
+The release builds, attests and pushes the image to GHCR. hal builds its own
+from the dated tag, so the tag fixes the code, locked dependencies, voices,
+hearing model and caller table. Nothing is fetched at start or restart: Piper's
+voice, Qwen's environment and weights and the `small` hearing model are in the
+image, each fetched by a shipped command at its pinned revision, and the service
+has no route to a registry or a hub. The healthcheck requires Piper and hearing
+to be ready, so a deployment that cannot hear is not recorded. Qwen is offered
+only when the start setting names it, and then launches on `cuda`, the provider
+contract's one device for it, whatever device hearing uses; without a card its
+requests are refused and Piper and hearing keep serving.
 
 The service sits on three external, internal networks and no default one: one
 shared with the gateway that carries the key set, and one per app, shared with
@@ -159,7 +159,7 @@ The root is read-only, the user is not root and no capability is kept.
   and arbitrates nothing. `SPEECH_GPU_VOICES` is his switch, Piper alone by
   default, and a loaded GPU voice keeps the card until the process ends.
 - **The service never downloads.** Shipped commands fetch voices and hearing
-  models at a pinned revision, so a release tag fixes what runs and the
+  models at a pinned revision, so the dated tag fixes what runs and the
   container needs no egress.
 - **Piper is resident and on the CPU.** A taken card never silences speaking,
   and a failed Piper load ends the process.

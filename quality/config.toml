@@ -7,7 +7,7 @@ reason = "the uv workspace's member distributions"
 
 [[root.allow]]
 entry = "deploy/"
-reason = "the settings the image bakes, so a release tag fixes whom the service trusts"
+reason = "the settings the image bakes, so the dated tag fixes whom the service trusts"
 
 [[root.allow]]
 entry = "providers/"

@@ -73,6 +73,6 @@ COPY --from=weights /opt/voices /opt/voices
 COPY --from=weights /opt/hearing /opt/hearing
 COPY deploy/speech.toml deploy/speech.toml
 RUN useradd --no-create-home --uid 1001 speech
-USER speech
+USER 1001
 
 CMD ["speech-runtime-service"]
