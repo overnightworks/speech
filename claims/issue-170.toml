@@ -1,0 +1,7 @@
+claim_id = "f4f2920f54524e528c4198ccd6b5436a"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "3f7b2b649eff354216f2b4eddbd9ce86defc681f"
+branch = "claude/issue-170-vision-heading"
+scope = ["docs/VISION.md"]
+opened_commit = "4bf437db134e32943cd8c8801db6754ace53c020"
