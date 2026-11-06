@@ -1,24 +1,6 @@
 [gate]
 mandatory_jobs = ["Speech: lint, tests", "Speech: Qwen provider", "Speech: image", "keycloak-token-shapes"]
 
-[[gate.loosened]]
-what = 'mandatory job "Speech: Chatterbox provider" removed'
-item = "overnightworks/speech-runtime#135"
-date = 2026-11-04
-reason = "the Chatterbox voice is deleted with its provider, so its job no longer exists"
-
-[[gate.loosened]]
-what = 'mandatory job "Speech: VoxCPM provider" removed'
-item = "overnightworks/speech-runtime#133"
-date = 2026-11-04
-reason = "the VoxCPM voice is deleted with its provider, so its job no longer exists"
-
-[[gate.loosened]]
-what = 'mandatory job "Speech: Magpie provider" removed'
-item = "overnightworks/speech-runtime#133"
-date = 2026-11-04
-reason = "the Magpie voice is deleted with its provider, so its job no longer exists"
-
 [[root.allow]]
 entry = "packages/"
 reason = "the uv workspace's member distributions"

@@ -119,7 +119,6 @@ class IdentityConfig(_FileModel):
     workload_role: str
     group_claim: str
     service_group: str
-    leeway_seconds: int = Field(default=0, ge=0)
 
     @field_validator("jwks_url")
     @classmethod

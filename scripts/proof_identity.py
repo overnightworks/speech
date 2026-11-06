@@ -289,7 +289,6 @@ def _configuration_text(minting: Minting, jwks_url: str, voice: str) -> str:
             f"workload_role = {value(minting.workload_role)}",
             f"group_claim = {value(minting.group_claim)}",
             f"service_group = {value(minting.service_group)}",
-            "leeway_seconds = 0",
             "",
             f"[apps.{APP}]",
             f"workload_client = {value(minting.client_id)}",

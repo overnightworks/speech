@@ -138,7 +138,6 @@ def test_the_service_configuration_holds_no_key_material_and_names_the_voice(
         "workload_role": minting.workload_role,
         "group_claim": minting.group_claim,
         "service_group": minting.service_group,
-        "leeway_seconds": 0,
     }
     assert configuration["apps"] == {
         "proof": {

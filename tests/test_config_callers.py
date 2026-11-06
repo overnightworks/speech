@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
 SENTINEL = "SENTINEL-KEY-SET-CREDENTIAL"
 HTTP_ADDRESS = f"http://identity.test/certs?credential={SENTINEL}"
-LARGE_LEEWAY = 100_000_000
 QUIZ_TABLE = (
     f'[apps.{APP}]\nworkload_client = "{MINTING.client_id}"\nvoices = ["piper"]\n'
 )
@@ -36,7 +35,6 @@ def test_the_file_is_read_into_the_identity_and_the_apps(tmp_path: Path) -> None
 
     assert config.identity.issuer == ISSUER
     assert config.identity.service_group == MINTING.service_group
-    assert config.identity.leeway_seconds == 0
     assert config.apps[APP].workload_client == MINTING.client_id
     assert config.apps[APP].voices == ALL_VOICES
 
@@ -51,14 +49,6 @@ def test_an_app_hears_only_when_its_table_says_so(tmp_path: Path) -> None:
 
     assert not deaf.apps[APP].hear
     assert hearing.apps[APP].hear
-
-
-def test_leeway_has_no_upper_cap(tmp_path: Path) -> None:
-    text = caller_configuration_text(identity=f"leeway_seconds = {LARGE_LEEWAY}")
-
-    config = load_caller_config(write_caller_configuration(tmp_path, text))
-
-    assert config.identity.leeway_seconds == LARGE_LEEWAY
 
 
 @pytest.mark.parametrize(
@@ -82,7 +72,7 @@ def test_leeway_has_no_upper_cap(tmp_path: Path) -> None:
                 apps=f'[apps.{APP}]\nworkload_client = 7\nvoices = ["piper"]\n'
             ),
         ),
-        ("leeway_seconds", caller_configuration_text(identity="leeway_seconds = -1")),
+        ("leeway_seconds", caller_configuration_text(identity="leeway_seconds = 0")),
         (
             "apps",
             caller_configuration_text(
@@ -97,7 +87,7 @@ def test_leeway_has_no_upper_cap(tmp_path: Path) -> None:
         "one workload client for two apps",
         "no apps",
         "client id not a string",
-        "negative leeway",
+        "identity names a leeway",
         "app name of two segments",
     ],
 )
