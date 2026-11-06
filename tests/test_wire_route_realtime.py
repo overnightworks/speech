@@ -226,7 +226,7 @@ def test_a_session_beyond_the_bound_is_denied_as_busy_until_one_leaves() -> None
 def test_a_recording_is_heard_while_a_live_session_sits_idle() -> None:
     """WIRE-54: an idle session holds its place only, never the decode."""
     engine = FakeHearing()
-    client = _client(engine)
+    client = _client(engine, hearing_busy_wait_seconds=0)
 
     with client.websocket_connect(URL, headers=valid_headers()) as idle:
         idle.receive_json()
