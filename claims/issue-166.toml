@@ -1,8 +1,0 @@
-claim_id = "6799b47d25f3448890e00f9db136b53d"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "0a2d97603c851f656b9f34ec74ce88a2f768859a"
-branch = "claude/issue-166-wire-rule-ids"
-scope = ["docs/wire.md", "packages/client/tests/test_wire.py", "tests"]
-opened_commit = "9185a7fa7ba0cda2bf93329de4dfb5bc3e7c6499"
-whole_reason = "Each rule's ID and its test's citation land together, or the spec names IDs no test cites."
