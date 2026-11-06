@@ -165,9 +165,8 @@ hearing's model. That adds about 9 GB to the image. uv's and the Hub's
 downloads go into BuildKit cache mounts, which outlive a build, so a build that
 hal's 1800 s cap kills leaves the next one only what it had not finished
 fetching (uv fetches a wheel it was still downloading again whole); the image
-takes a copy of the Hub cache, so after a pin moves on a host whose build cache
-still holds the old revision, the image carries both until that cache is
-pruned. `compose.yaml` reserves the host's one card (`gpus`, one
+takes from the Hub cache only the snapshots of the pinned revisions, so a
+revision an earlier pin left in the build cache never reaches it. `compose.yaml` reserves the host's one card (`gpus`, one
 `nvidia` device, no memory budget, which is hal's to declare), so every start
 needs the nvidia runtime, Piper alone included; the card is touched only when a
 GPU voice's first request loads it. `deploy/speech.toml` is

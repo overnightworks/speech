@@ -68,21 +68,31 @@ RUN --mount=type=cache,id=speech-runtime-uv,target=/var/cache/uv \
 
 # The voices and the hearing model are fetched here, each at its pinned
 # revision (Piper's voice also checked against its hashes). Hearing's model and
-# Qwen go into the one Hub cache, a build cache like uv's, and the image takes a
-# copy of it. They share a step, because only a step that fetched both knows the
-# build cache holds both when it copies. The copy holds every revision the build
-# cache holds, so after a pin moves, a host whose build cache still holds the old
-# revision bakes both until that cache is pruned. The Hub's own settings and logs
-# stay in this stage.
+# Qwen go into the one Hub cache, a build cache like uv's, and the image takes
+# from it only the snapshots the fetches name, with the blobs they link to, so a
+# revision an earlier pin left in that cache never reaches the image. They share
+# a step, because only a step that fetched both can copy both out of the build
+# cache. The Hub's own settings and logs stay in this stage.
 FROM dependencies AS weights
 ENV HF_HOME=/tmp/huggingface \
     SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/var/cache/huggingface
 RUN speech-runtime-fetch-voice de_DE-thorsten-medium
 RUN --mount=type=cache,id=speech-runtime-huggingface,target=/var/cache/huggingface \
-    speech-runtime-fetch-hearing-model small \
- && speech-runtime-fetch-voice qwen3-tts-0.6b \
- && cp -a /var/cache/huggingface /opt/hearing
+    set -eu \
+ && hearing=$(speech-runtime-fetch-hearing-model small) \
+ && qwen=$(speech-runtime-fetch-voice qwen3-tts-0.6b) \
+ && mkdir /opt/hearing \
+ && cd /var/cache/huggingface \
+ && for snapshot in "$hearing" "$qwen"; do \
+      cp -a --parents "$(realpath -s --relative-to=. "$snapshot")" /opt/hearing; \
+      for link in $(find "$snapshot" -type l); do \
+        cp -a --parents \
+          "$(realpath -s --relative-to=. "$(dirname "$link")/$(readlink "$link")")" \
+          /opt/hearing; \
+        cp -a --parents "$(realpath --relative-to=. "$link")" /opt/hearing; \
+      done; \
+    done
 
 FROM python-base
 COPY --from=dependencies /opt/venv /opt/venv

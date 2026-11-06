@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import runpy
+import subprocess
 import sys
 from typing import TYPE_CHECKING
 
@@ -253,3 +255,64 @@ def test_a_machine_without_the_card_fails_the_proof_before_it_builds(
         PROVE._prove(PROVE.Stage.REBUILD, no_card=False)  # noqa: SLF001 - the whole run is the entry point under test
 
     assert [command.split()[0] for command in docker.commands] == ["info"]
+
+
+HUB_CACHE_STEP = re.compile(
+    r"^RUN --mount=type=cache,id=speech-runtime-huggingface,target=\S+ \\\n"
+    r"(?P<script>(?:.*\\\n)*.*)$",
+    re.MULTILINE,
+)
+
+
+def hub_snapshot(
+    cache: Path, repository: str, revision: str, files: dict[str, str]
+) -> Path:
+    """A snapshot in a Hub cache whose files link to a blob that links to a chunk."""
+    snapshot = cache / f"models--{repository}" / "snapshots" / revision
+    for name, content in files.items():
+        flat = f"{revision}-{name.replace('/', '-')}"
+        chunk = cache / "blobs" / "ab" / flat
+        blob = snapshot.parents[1] / "blobs" / flat
+        link = snapshot / name
+        for path in (chunk, blob, link):
+            path.parent.mkdir(parents=True, exist_ok=True)
+        chunk.write_text(content)
+        blob.symlink_to(os.path.relpath(chunk, blob.parent))
+        link.symlink_to(os.path.relpath(blob, link.parent))
+    return snapshot
+
+
+def test_the_image_takes_only_the_pinned_snapshots_from_the_hub_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pinned = {"model.bin": "weights", "speech_tokenizer/config.json": "tokenizer"}
+    cache, image = tmp_path / "cache", tmp_path / "image"
+    hearing = hub_snapshot(cache, "owner--hearing", "pinned", pinned)
+    hub_snapshot(cache, "owner--hearing", "retained", {"model.bin": "an old pin"})
+    voice = hub_snapshot(cache, "owner--voice", "pinned", pinned)
+    fetches = tmp_path / "fetches"
+    fetches.mkdir()
+    for command, snapshot in (
+        ("speech-runtime-fetch-hearing-model", hearing),
+        ("speech-runtime-fetch-voice", voice),
+    ):
+        (fetches / command).write_text(f"#!/bin/sh\necho {snapshot}\n")
+        (fetches / command).chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fetches}{os.pathsep}{os.environ['PATH']}")
+    step = HUB_CACHE_STEP.search((PROVE.REPOSITORY / "Dockerfile").read_text())
+    assert step
+    script = (
+        step["script"]
+        .replace("\\\n", " ")
+        .replace("/var/cache/huggingface", str(cache))
+        .replace("/opt/hearing", str(image))
+    )
+
+    subprocess.run(["sh", "-c", script], check=True, capture_output=True)  # noqa: S607 - the Dockerfile's own step, on a throwaway cache
+
+    for repository in ("owner--hearing", "owner--voice"):
+        snapshots = image / f"models--{repository}" / "snapshots"
+        assert [path.name for path in snapshots.iterdir()] == ["pinned"]
+        assert {
+            name: (snapshots / "pinned" / name).read_text() for name in pinned
+        } == pinned
