@@ -24,6 +24,8 @@ CAP_PLUS_SECONDS = 31
 def test_finals_of_several_sessions_are_served_in_arrival_order_before_file_jobs() -> (
     None
 ):
+    """WIRE-84: finals of several sessions are served in arrival order."""
+
     async def scenario() -> tuple[list[int], int]:
         engine = FakeHearing()
         hearing = loaded(engine, FakeClock())
@@ -52,6 +54,8 @@ def test_finals_of_several_sessions_are_served_in_arrival_order_before_file_jobs
 
 
 def test_a_second_ended_turn_decodes_before_a_waiting_file_job_and_follows() -> None:
+    """WIRE-79, WIRE-84: a second ended turn decodes before a waiting recording."""
+
     async def scenario() -> tuple[FakeSocket, int]:
         engine = FakeHearing(hold=True)
         clock = FakeClock()
@@ -86,6 +90,8 @@ def test_a_second_ended_turn_decodes_before_a_waiting_file_job_and_follows() -> 
 def test_a_stalled_send_of_the_first_completed_does_not_hold_the_second_decode() -> (
     None
 ):
+    """WIRE-84: a stalled send does not hold the second decode."""
+
     async def scenario() -> tuple[FakeSocket, int]:
         engine = FakeHearing(hold=True)
         clock = FakeClock()
@@ -114,6 +120,8 @@ def test_a_stalled_send_of_the_first_completed_does_not_hold_the_second_decode()
 
 
 def test_a_stalled_send_at_the_second_turns_end_lets_nothing_pass_its_decode() -> None:
+    """WIRE-84: a stalled send at the second turns end lets nothing pass its decode."""
+
     async def scenario() -> tuple[list[int], int]:
         engine = FakeHearing(hold=True)
         clock = FakeClock()
@@ -149,6 +157,8 @@ def test_a_stalled_send_at_the_second_turns_end_lets_nothing_pass_its_decode() -
 
 
 def test_a_capped_turn_behind_a_stalled_send_queues_before_a_file_job() -> None:
+    """WIRE-66, WIRE-84: a capped turn queues before a waiting recording."""
+
     async def scenario() -> int:
         engine = FakeHearing()
         clock = FakeClock()
@@ -178,6 +188,8 @@ def test_a_capped_turn_behind_a_stalled_send_queues_before_a_file_job() -> None:
 
 
 def test_a_final_whose_turn_end_send_stalls_past_its_wait_is_never_heard() -> None:
+    """WIRE-85: a final whose turn end send stalls past its wait is never heard."""
+
     async def scenario() -> tuple[FakeSocket, FakeHearing]:
         engine = FakeHearing()
         clock = FakeClock()
@@ -204,6 +216,8 @@ def test_a_final_whose_turn_end_send_stalls_past_its_wait_is_never_heard() -> No
 
 
 def test_a_turn_that_ends_stands_in_the_gates_queue_before_a_waiting_file_job() -> None:
+    """WIRE-84: a turn that ends stands in the gates queue before a waiting file job."""
+
     async def scenario() -> tuple[bool, bool]:
         engine = FakeHearing()
         clock = FakeClock()
@@ -227,6 +241,8 @@ def test_a_turn_that_ends_stands_in_the_gates_queue_before_a_waiting_file_job() 
 
 
 def test_a_waiting_turn_is_heard_after_the_outstanding_final() -> None:
+    """WIRE-79, WIRE-84: a waiting turn is heard after the outstanding final."""
+
     async def scenario() -> FakeSocket:
         engine = FakeHearing(hold=True)
         session, socket = await started(loaded(engine, FakeClock()))

@@ -47,6 +47,7 @@ def _starting(hearing: FakeHearing | None) -> Runtime:
 def test_a_load_that_lacks_the_resource_leaves_speaking_up_hearing_unavailable() -> (
     None
 ):
+    """WIRE-40, WIRE-129: a load that lacks the resource leaves speaking up."""
     engine = FakeHearing(load_error=ResourceUnavailableError("the card is full"))
     runtime = _starting(engine)
 
@@ -76,6 +77,7 @@ def test_a_load_that_fails_otherwise_stops_the_start_naming_the_setting() -> Non
 
 
 def test_a_loaded_engine_is_ready_in_health() -> None:
+    """WIRE-128, WIRE-129: a loaded engine is ready in health."""
     engine = FakeHearing()
     runtime = _starting(engine)
 
@@ -97,6 +99,7 @@ def test_closing_the_runtime_frees_the_hearing_engine() -> None:
 
 
 def test_without_a_hearing_model_health_names_hearing_unavailable() -> None:
+    """WIRE-128: without a hearing model health names hearing unavailable."""
     runtime = _starting(None)
 
     runtime.load()
@@ -116,6 +119,7 @@ def test_a_configured_model_that_was_not_fetched_stops_the_start(
 def test_a_configured_model_that_was_fetched_is_named_in_health_before_it_loads(
     tmp_path: Path,
 ) -> None:
+    """WIRE-128, WIRE-129: a fetched model is named in health before it loads."""
     hearing_models.fetch_model(HearingModel.SMALL, tmp_path, write_snapshot)
     settings = Settings(hearing_model=HearingModel.SMALL, huggingface_cache=tmp_path)
 

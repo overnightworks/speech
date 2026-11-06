@@ -69,6 +69,7 @@ def _assert_denied(
 
 
 def test_a_session_hears_a_committed_turn_and_ends_when_the_client_leaves() -> None:
+    """WIRE-03, WIRE-48, WIRE-55, WIRE-56, WIRE-63: a session hears a committed turn."""
     with _client().websocket_connect(URL, headers=valid_headers()) as socket:
         assert socket.receive_json()["type"] == "session.created"
         socket.send_text(update("en"))
@@ -87,6 +88,7 @@ def test_a_session_hears_a_committed_turn_and_ends_when_the_client_leaves() -> N
 
 
 def test_a_setup_in_another_language_ends_the_session_with_an_error() -> None:
+    """WIRE-57, WIRE-58, WIRE-77: a setup in another language ends the session."""
     with _client().websocket_connect(URL, headers=valid_headers()) as socket:
         socket.receive_json()
         socket.send_text(update("fr"))
@@ -120,6 +122,7 @@ def test_an_app_without_the_hear_permission_is_told_so_before_everything_else(
     settings: dict[str, int],
     hold_a_place: bool,
 ) -> None:
+    """WIRE-51, WIRE-99: an app without hear is denied as not enabled."""
     runtime = hear_runtime(engine)
     if hold_a_place:
         assert runtime.hearing.open_session(settings["max_hearing_sessions"])
@@ -133,6 +136,7 @@ def test_an_app_without_the_hear_permission_is_told_so_before_everything_else(
 
 
 def test_a_caller_without_tokens_is_told_so_before_anything_else() -> None:
+    """WIRE-50, WIRE-51, WIRE-97: a caller without tokens is told so first."""
     runtime = hear_runtime(None)
     assert runtime.hearing.open_session(1)
     client = TestClient(hear_app(runtime, max_hearing_sessions=1))
@@ -144,6 +148,7 @@ def test_a_caller_without_tokens_is_told_so_before_anything_else() -> None:
 
 
 def test_a_person_outside_the_service_group_is_forbidden() -> None:
+    """WIRE-51, WIRE-98: a person outside the service group is forbidden."""
     pair = valid_pair()
     headers = {
         WORKLOAD_TOKEN_HEADER: pair.workload,
@@ -183,10 +188,12 @@ def test_a_person_outside_the_service_group_is_forbidden() -> None:
 def test_an_upgrade_that_is_not_the_one_route_is_denied(
     url: str, status: int, code: RefusalCode, param: str | None
 ) -> None:
+    """WIRE-51, WIRE-53, WIRE-96: an upgrade that is not the one route is denied."""
     _assert_denied(_denied(_client(), url), status, code, param)
 
 
 def test_hearing_that_is_unavailable_denies_the_upgrade() -> None:
+    """WIRE-51, WIRE-103: hearing that is unavailable denies the upgrade."""
     client = TestClient(hear_app(hear_runtime(None)))
 
     _assert_denied(
@@ -198,6 +205,7 @@ def test_hearing_that_is_unavailable_denies_the_upgrade() -> None:
 
 
 def test_a_session_beyond_the_bound_is_denied_as_busy_until_one_leaves() -> None:
+    """WIRE-52, WIRE-119: a session beyond the bound is denied as busy."""
     client = _client(max_hearing_sessions=1)
 
     with client.websocket_connect(URL, headers=valid_headers()) as first:

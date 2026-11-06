@@ -294,6 +294,7 @@ def test_owned_speaking_failure_stops_the_server_and_returns_failure(
 def test_orchestrator_serves_health_from_its_loading_runtime(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-123: orchestrator serves health from its loading runtime."""
     started = threading.Event()
     release = threading.Event()
     observed: dict[str, object] = {}
@@ -432,6 +433,7 @@ def test_serve_refuses_to_start_without_a_readable_caller_configuration(
     monkeypatch: pytest.MonkeyPatch,
     file_name: str | None,
 ) -> None:
+    """WIRE-112: serve refuses to start without a readable configuration."""
     monkeypatch.setattr(
         Runtime,
         "from_settings",

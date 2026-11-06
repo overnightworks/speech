@@ -239,6 +239,8 @@ def test_a_request_the_stop_meets_on_a_kept_alive_connection_is_unavailable_not_
         [Serving, GpuVoiceStage, http.client.HTTPConnection], Awaitable[None]
     ],
 ) -> None:
+    """WIRE-103: a request the stop meets is unavailable, not busy."""
+
     async def scenario(
         serving: Serving, stage: GpuVoiceStage
     ) -> tuple[int, dict[str, object], int]:
@@ -265,6 +267,8 @@ def test_a_request_the_stop_meets_on_a_kept_alive_connection_is_unavailable_not_
 def test_a_request_waiting_at_the_gate_when_the_service_stops_is_refused_not_busy() -> (
     None
 ):
+    """WIRE-103: a request waiting at the gate when the service stops is not busy."""
+
     async def scenario() -> SpeakCall:
         voice = GatedSpeaking()
         runtime = fake_runtime(voice)

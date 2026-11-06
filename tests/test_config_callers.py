@@ -31,6 +31,7 @@ QUIZ_TABLE = (
 
 
 def test_the_file_is_read_into_the_identity_and_the_apps(tmp_path: Path) -> None:
+    """WIRE-113, WIRE-114: the file is read into the identity and the apps."""
     config = load_caller_config(write_caller_configuration(tmp_path))
 
     assert config.identity.issuer == ISSUER
@@ -40,6 +41,7 @@ def test_the_file_is_read_into_the_identity_and_the_apps(tmp_path: Path) -> None
 
 
 def test_an_app_hears_only_when_its_table_says_so(tmp_path: Path) -> None:
+    """WIRE-39, WIRE-114: an app hears only when its table says so."""
     deaf = load_caller_config(write_caller_configuration(tmp_path))
     hearing = load_caller_config(
         write_caller_configuration(
@@ -94,6 +96,7 @@ def test_an_app_hears_only_when_its_table_says_so(tmp_path: Path) -> None:
 def test_a_bad_file_fails_naming_the_field_and_not_its_value(
     tmp_path: Path, field: str, text: str
 ) -> None:
+    """WIRE-112, WIRE-113, WIRE-114, WIRE-116: a bad file fails naming the field."""
     path = write_caller_configuration(tmp_path, text)
 
     with pytest.raises(ValidationError) as failure:
@@ -111,6 +114,7 @@ def test_a_bad_file_fails_naming_the_field_and_not_its_value(
 def test_a_service_group_that_is_not_a_group_path_fails_at_startup(
     tmp_path: Path, malformed: str
 ) -> None:
+    """WIRE-112, WIRE-113: a service group that is not a group path fails at startup."""
     text = caller_configuration_text().replace(
         json.dumps(MINTING.service_group), json.dumps(malformed)
     )
@@ -123,6 +127,7 @@ def test_a_service_group_that_is_not_a_group_path_fails_at_startup(
 
 
 def test_the_key_set_address_stays_out_of_every_repr() -> None:
+    """WIRE-113: the key set address stays out of every repr."""
     config = caller_config(jwks_url=HTTP_ADDRESS.replace("http:", "https:"))
 
     shown = repr(config) + repr(config.identity) + repr(callers_over())
@@ -131,6 +136,7 @@ def test_the_key_set_address_stays_out_of_every_repr() -> None:
 
 
 def test_the_configuration_file_must_be_absolute() -> None:
+    """WIRE-112: the configuration file must be absolute."""
     with pytest.raises(ValidationError):
         Settings(config_file="relative.toml")
 
@@ -150,6 +156,7 @@ def test_the_configuration_file_must_be_absolute() -> None:
 def test_an_app_table_without_a_valid_voice_list_fails_naming_the_key(
     tmp_path: Path, table: str, field: str
 ) -> None:
+    """WIRE-112, WIRE-114, WIRE-115, WIRE-116: a bad voice list fails naming the key."""
     path = write_caller_configuration(tmp_path, caller_configuration_text(apps=table))
 
     with pytest.raises(ValidationError) as failure:

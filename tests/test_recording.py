@@ -21,6 +21,7 @@ def test_a_recording_is_decoded_to_the_rate_the_engine_hears() -> None:
 
 
 def test_a_recording_longer_than_the_limit_is_refused_not_cut() -> None:
+    """WIRE-42: a recording longer than the limit is refused not cut."""
     audio = recording(seconds=1.0)
 
     with pytest.raises(RecordingTooLongError):
@@ -28,6 +29,7 @@ def test_a_recording_longer_than_the_limit_is_refused_not_cut() -> None:
 
 
 def test_a_recording_exactly_as_long_as_the_limit_is_decoded() -> None:
+    """WIRE-42: a recording exactly as long as the limit is decoded."""
     pcm = decode_recording(recording(seconds=1.0), 1.0)
 
     assert len(pcm) == HEARING_SAMPLE_RATE * BYTES_PER_SAMPLE
@@ -39,5 +41,6 @@ def test_a_recording_exactly_as_long_as_the_limit_is_decoded() -> None:
     ids=["empty", "garbage", "cut-header", "no-samples"],
 )
 def test_bytes_that_are_not_sound_are_refused(bytes_sent: bytes) -> None:
+    """WIRE-45: bytes that are not sound are refused."""
     with pytest.raises(UndecodableRecordingError):
         decode_recording(bytes_sent, NO_LIMIT_SECONDS)

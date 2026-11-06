@@ -113,6 +113,7 @@ def _speak_in_background(
 def test_an_offered_voice_loads_on_its_first_request_and_then_reports_ready(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-09, WIRE-125, WIRE-126: a voice loads on first request, then is ready."""
     with (
         gpu_voice_stage(tmp_path, monkeypatch) as stage,
         ThreadPoolExecutor() as pool,
@@ -144,6 +145,7 @@ def test_a_gpu_voice_launches_on_its_providers_device_whatever_hearing_runs_on(
 def test_requests_during_one_load_share_it_and_are_served_one_after_another(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-09, WIRE-25: requests during one load share it and are served in turn."""
     with (
         gpu_voice_stage(tmp_path, monkeypatch) as stage,
         ThreadPoolExecutor() as pool,
@@ -187,6 +189,7 @@ def test_a_cancelled_waiter_leaves_the_shared_load_running_for_the_others(
 def test_the_busy_wait_of_a_request_that_waited_for_the_load_starts_at_its_end(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-17, WIRE-25: the busy wait of a loading request starts at its end."""
     busy_wait_seconds = 0.2
 
     async def scenario(stage: GpuVoiceStage) -> list[int]:
@@ -215,6 +218,7 @@ def test_the_busy_wait_of_a_request_that_waited_for_the_load_starts_at_its_end(
 def test_piper_hearing_and_health_answer_while_a_gpu_voice_loads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-122, WIRE-126: piper hearing and health answer while a gpu voice loads."""
     with (
         gpu_voice_stage(tmp_path, monkeypatch) as stage,
         ThreadPoolExecutor() as pool,
@@ -251,6 +255,7 @@ def test_a_failed_load_refuses_every_waiter_and_leaves_piper_and_hearing(
     outcome: LoadOutcome | None,
     waiters: int,
 ) -> None:
+    """WIRE-103, WIRE-126: a failed load refuses every waiter."""
     fatal = threading.Event()
     with (
         gpu_voice_stage(tmp_path, monkeypatch, StageSetup(behavior)) as stage,
@@ -298,6 +303,8 @@ def test_the_request_after_a_failed_load_starts_a_new_worker_once_the_first_is_r
 def test_a_waiter_of_a_failed_load_is_refused_though_a_retry_loaded_before_it_resumed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-103: a waiter of a failed load is refused."""
+
     async def scenario(stage: GpuVoiceStage) -> SpeakCall:
         waits = LoadWaits(stage.runtime)
         call = SpeakCall(stage.app(), speak_body(QWEN))
@@ -326,6 +333,7 @@ def test_a_waiter_of_a_failed_load_is_refused_though_a_retry_loaded_before_it_re
 def test_a_request_during_a_failed_loads_cleanup_shares_its_refusal_and_starts_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-103, WIRE-126: a request during a failed load's cleanup is refused."""
     with (
         gpu_voice_stage(tmp_path, monkeypatch) as stage,
         ThreadPoolExecutor() as pool,
@@ -357,6 +365,7 @@ def test_a_request_during_a_failed_loads_cleanup_shares_its_refusal_and_starts_n
 def test_a_worker_that_dies_after_it_was_ready_turns_its_voice_unready_and_reloads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, death: str
 ) -> None:
+    """WIRE-103, WIRE-126: a worker that dies turns its voice unready."""
     fatal = threading.Event()
     with gpu_voice_stage(tmp_path, monkeypatch, _SERVING) as stage:
         stage.runtime.set_fatal_callback(fatal.set)
@@ -382,6 +391,8 @@ def test_a_worker_that_dies_after_it_was_ready_turns_its_voice_unready_and_reloa
 def test_a_crash_mid_synthesis_refuses_the_waiter_after_its_lease_and_the_next_reloads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-103: a crash mid synthesis refuses the waiter."""
+
     async def scenario(
         stage: GpuVoiceStage,
     ) -> tuple[object, SpeakCall, list[int], bool]:
@@ -422,6 +433,7 @@ def test_an_offered_voice_whose_files_are_missing_is_refused_and_named_in_the_lo
     caplog: pytest.LogCaptureFixture,
     missing: str,
 ) -> None:
+    """WIRE-103, WIRE-126: an offered voice whose files are missing is refused."""
     with gpu_voice_stage(
         tmp_path, monkeypatch, StageSetup("normal", qwen_installed=missing != "weights")
     ) as stage:
@@ -446,6 +458,7 @@ def test_an_offered_voice_whose_files_are_missing_is_refused_and_named_in_the_lo
 def test_while_the_start_load_runs_no_voice_is_ready_and_every_voice_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-103, WIRE-123, WIRE-126: during the start load every voice is refused."""
     ear = _HeldEar()
     with gpu_voice_stage(
         tmp_path, monkeypatch, StageSetup("normal", hearing=ear, started=False)
@@ -486,6 +499,7 @@ class _HeldEar(FakeHearing):
 def test_once_shutdown_begins_health_and_the_refusal_agree_that_no_voice_is_ready(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-103, WIRE-126: after shutdown began no voice is ready or served."""
     with gpu_voice_stage(tmp_path, monkeypatch, _SERVING) as stage:
         client = TestClient(stage.app())
         _assert_spoken_at(post_speech(client, speak_body(QWEN)), QWEN_SAMPLE_RATE)
@@ -502,6 +516,7 @@ def test_once_shutdown_begins_health_and_the_refusal_agree_that_no_voice_is_read
 def test_a_loaded_gpu_voice_stays_loaded_and_no_route_lists_voices(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-126, WIRE-130: a loaded GPU voice stays loaded and no route lists voices."""
     with gpu_voice_stage(tmp_path, monkeypatch, _SERVING) as stage:
         client = TestClient(stage.app())
         _assert_spoken_at(post_speech(client, speak_body(QWEN)), QWEN_SAMPLE_RATE)

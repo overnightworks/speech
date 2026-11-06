@@ -71,6 +71,7 @@ def _speak(
 
 
 def test_an_app_names_a_listed_offered_voice_and_is_spoken_to() -> None:
+    """WIRE-07, WIRE-08: an app names a listed offered voice and is spoken to."""
     response = _speak(_app(valid_callers([PIPER])), PIPER)
 
     assert response.status_code == HTTP_200_OK
@@ -80,6 +81,7 @@ def test_an_app_names_a_listed_offered_voice_and_is_spoken_to() -> None:
 def test_an_unlisted_voice_is_forbidden_naming_the_voice_even_when_it_is_offered() -> (
     None
 ):
+    """WIRE-08, WIRE-18, WIRE-98: an unlisted voice is forbidden though offered."""
     response = _speak(_app(valid_callers([QWEN])), PIPER)
 
     assert_refusal(response, *FORBIDDEN_VOICE)
@@ -88,12 +90,14 @@ def test_an_unlisted_voice_is_forbidden_naming_the_voice_even_when_it_is_offered
 def test_an_unlisted_voice_that_is_not_offered_is_forbidden_and_not_unavailable() -> (
     None
 ):
+    """WIRE-18: an unlisted voice that is not offered is forbidden, not unavailable."""
     response = _speak(_app(valid_callers([PIPER])), QWEN)
 
     assert_refusal(response, *FORBIDDEN_VOICE)
 
 
 def test_a_listed_voice_that_is_not_offered_is_unavailable() -> None:
+    """WIRE-07, WIRE-103: a listed voice that is not offered is unavailable."""
     response = _speak(_app(valid_callers([PIPER, QWEN])), QWEN)
 
     assert_refusal(
@@ -102,6 +106,8 @@ def test_a_listed_voice_that_is_not_offered_is_unavailable() -> None:
 
 
 def test_an_unlisted_voice_is_refused_without_waiting_for_the_busy_gate() -> None:
+    """WIRE-18: an unlisted voice is refused without waiting for the busy gate."""
+
     async def scenario() -> tuple[SpeakCall, SpeakCall]:
         voice = GatedSpeaking()
         runtime = fake_runtime(voice)
@@ -128,6 +134,7 @@ def test_an_unlisted_voice_is_refused_without_waiting_for_the_busy_gate() -> Non
 
 @pytest.mark.parametrize("offered", [PIPER, QWEN])
 def test_each_app_is_judged_by_its_own_list(offered: VoiceId) -> None:
+    """WIRE-08: each app is judged by its own list."""
     callers = callers_of_two_apps([PIPER], [QWEN])
     client = _app(callers, offered)
     quiz = valid_headers(minting=MINTING)
@@ -146,6 +153,7 @@ def test_each_app_is_judged_by_its_own_list(offered: VoiceId) -> None:
 
 
 def test_an_oversized_input_is_unprocessable_before_the_voice_is_checked() -> None:
+    """WIRE-06, WIRE-18: an oversized input is unprocessable before the voice check."""
     client = _app(valid_callers([PIPER]), max_input_characters=5)
     body = json.dumps(
         json.loads(speak_body(QWEN.value)) | {"input": "far too long"}
@@ -159,6 +167,7 @@ def test_an_oversized_input_is_unprocessable_before_the_voice_is_checked() -> No
 
 
 def test_missing_tokens_are_unauthorized_before_the_voice_is_checked() -> None:
+    """WIRE-16: missing tokens are unauthorized before the voice is checked."""
     response = post_speech(
         TestClient(speak_app(callers=valid_callers([PIPER]))),
         speak_body(QWEN.value),
@@ -172,6 +181,7 @@ def test_missing_tokens_are_unauthorized_before_the_voice_is_checked() -> None:
 def test_a_voice_outside_the_catalogue_stays_invalid_and_not_forbidden(
     voice: str,
 ) -> None:
+    """WIRE-19: a voice outside the catalogue stays invalid and not forbidden."""
     response = post_speech(
         TestClient(speak_app(callers=valid_callers([PIPER]))), speak_body(voice)
     )
@@ -184,6 +194,7 @@ def test_a_voice_outside_the_catalogue_stays_invalid_and_not_forbidden(
 def test_a_voice_refusal_leaks_no_token_subject_input_app_or_voice_list(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """WIRE-18: a voice refusal leaks no voice list."""
     caplog.set_level(logging.DEBUG)
     callers = callers_of_two_apps([PIPER], [PIPER, QWEN])
     headers = valid_headers()

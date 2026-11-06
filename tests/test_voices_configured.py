@@ -42,6 +42,7 @@ _PIPER_ONLY = StageSetup(gpu_voices=frozenset())
 def test_by_default_only_piper_is_offered_and_it_speaks_without_a_worker(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-07, WIRE-107, WIRE-125: by default only Piper is offered."""
     with gpu_voice_stage(tmp_path, monkeypatch, _PIPER_ONLY) as stage:
         client = TestClient(stage.app())
         spoken = post_speech(client, speak_body(PIPER))
@@ -58,6 +59,7 @@ def test_by_default_only_piper_is_offered_and_it_speaks_without_a_worker(
 def test_a_named_gpu_voice_is_offered_but_not_started_until_a_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-07, WIRE-107, WIRE-126: a named GPU voice is offered, loaded on request."""
     with gpu_voice_stage(tmp_path, monkeypatch) as stage:
         health = Health.model_validate(TestClient(stage.app()).get("/health").json())
 
@@ -76,6 +78,7 @@ def test_a_named_gpu_voice_is_offered_but_not_started_until_a_request(
 def test_a_listed_voice_that_is_not_offered_is_unavailable_and_starts_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-07, WIRE-103: a listed voice that is not offered is unavailable."""
     with gpu_voice_stage(tmp_path, monkeypatch, _PIPER_ONLY) as stage:
         refused = post_speech(TestClient(stage.app()), speak_body(QWEN))
 
@@ -86,6 +89,7 @@ def test_a_listed_voice_that_is_not_offered_is_unavailable_and_starts_nothing(
 def test_an_offered_voice_the_app_does_not_list_is_forbidden_and_starts_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-08, WIRE-98: an offered voice the app does not list is forbidden."""
     with gpu_voice_stage(tmp_path, monkeypatch) as stage:
         app = create_control_app(
             stage.settings, stage.runtime, valid_callers([VoiceId.PIPER])
@@ -133,6 +137,7 @@ def test_a_selection_file_from_an_older_build_is_ignored_and_nothing_is_written(
     ],
 )
 def test_voice_administration_is_not_mounted(method: str, path: str) -> None:
+    """WIRE-130: voice administration is not mounted."""
     speaking = FakeSpeaking()
     client = TestClient(
         create_control_app(Settings(), fake_runtime(speaking), valid_callers())
@@ -145,6 +150,7 @@ def test_voice_administration_is_not_mounted(method: str, path: str) -> None:
 
 
 def test_hearing_is_not_mounted() -> None:
+    """WIRE-130: hearing is not mounted."""
     client = TestClient(create_control_app(Settings(), fake_runtime(), valid_callers()))
 
     with pytest.raises(WebSocketDisconnect), client.websocket_connect("/hear"):
