@@ -10,8 +10,8 @@ The root is the speech service (`src/`, `tests/`, `scripts/`). Each
 `providers/provider-contract` is the shared source the others install from.
 `packages/client` is the speech wire's client distribution, a uv workspace member of the root: linted and tested from the root, and the one owner of the wire's types.
 The GPU providers are live code: the models are kept and used. An advisory no
-relock reaches is allowlisted in `quality/config.toml` against
-overnightworks/speech-runtime#2, with the model-library cap that holds it.
+relock reaches is allowlisted in `quality/config.toml`; each record names its
+owning item and the model-library cap that holds it.
 
 ## Checks
 
