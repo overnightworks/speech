@@ -1,4 +1,4 @@
-# Whom the service trusts; the image bakes this file, so a release tag fixes it.
+# Whom the service trusts; the image bakes this file, so the dated tag fixes it.
 # It holds no secret. The issuer is the public name tokens carry; the key set is
 # fetched through hal's internal gateway.
 [identity]

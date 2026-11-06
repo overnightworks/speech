@@ -1,16 +1,13 @@
 name: Release
 
-# The tag is the whole release: nothing is published elsewhere, and the tag
-# ruleset makes it immutable. Every gate therefore runs before the tag exists.
+# The app's release: one dated version, the image built, attested and pushed,
+# then the git tag. Every quality call below is pinned at quality's main, because
+# no quality tag ships the release path yet.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to release, X.Y.Z"
-        required: true
-        type: string
-      commit:
-        description: "The approved commit, 40 lowercase hex characters, main's head"
+        description: "The version to release, YYYY.MM.DD.N"
         required: true
         type: string
 
@@ -23,130 +20,40 @@ permissions: {}
 jobs:
   gate:
     name: Gate
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # quality's main at 7715afe; no quality tag ships the release path yet
+    uses: overnightworks/quality/.github/workflows/release-gate.yml@7715afe5c911a00ae3076057691e0b5d4e4a65f7
     permissions:
+      actions: read
+      checks: read
       contents: read
-      actions: read # reads CI's run on the commit
-    outputs:
-      notes: ${{ steps.install.outputs.notes }}
-    env:
-      GH_TOKEN: ${{ github.token }}
-      VERSION: ${{ inputs.version }}
-      COMMIT: ${{ inputs.commit }}
-    steps:
-      - name: Refuse any ref but main
-        env:
-          DISPATCH_REF: ${{ github.ref }}
-        run: |
-          if [ "$DISPATCH_REF" != "refs/heads/main" ]; then
-            echo "Refused: dispatched from $DISPATCH_REF, a release is dispatched from main." >&2
-            exit 1
-          fi
+      pull-requests: read
+    with:
+      version: ${{ inputs.version }}
+      form: YYYY.MM.DD.N
 
-      - name: Refuse a malformed version or commit
-        run: |
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Refused: the version is not a full X.Y.Z." >&2
-            exit 1
-          fi
-          if ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Refused: the commit is not a full 40-character lowercase SHA." >&2
-            exit 1
-          fi
-
-      - name: Check out main's head
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: "0.10.9"
-
-      - name: Refuse unless the commit is the checked-out head of main
-        run: |
-          if [ "$(git rev-parse HEAD)" != "$COMMIT" ]; then
-            echo "Refused: the commit is not the one checked out, main's head." >&2
-            exit 1
-          fi
-          main_head=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
-          if [ "$main_head" != "$COMMIT" ]; then
-            echo "Refused: the commit is not main's head ($main_head)." >&2
-            exit 1
-          fi
-
-      - name: Refuse a tag that exists
-        run: |
-          taken=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v$VERSION" \
-            --jq '[.[] | select(.ref == "refs/tags/v" + env.VERSION)] | length')
-          if [ "$taken" != "0" ]; then
-            echo "Refused: the tag v$VERSION exists." >&2
-            exit 1
-          fi
-
-      - name: Refuse unless CI's push run on the commit is green with the quality verdict
-        run: |
-          gh run list --workflow ci.yml --event push --commit "$COMMIT" \
-            --json databaseId,conclusion > runs.json
-          run_id=$(jq -r 'map(select(.conclusion == "success")) | first | .databaseId // empty' runs.json)
-          if [ -z "$run_id" ]; then
-            echo "Refused: CI has no green push run on $COMMIT." >&2
-            exit 1
-          fi
-          verdicts=$(gh run view "$run_id" --json jobs \
-            --jq '[.jobs[] | select(.name == "quality / verdict" and .conclusion == "success")] | length')
-          if [ "$verdicts" != "1" ]; then
-            echo "Refused: run $run_id has no green quality / verdict." >&2
-            exit 1
-          fi
-
-      - name: Refuse unless every distribution's version equals the version
-        run: python3 scripts/check_release.py "$VERSION"
-
-      - name: Install each distribution by its Git pin into an empty project
-        id: install
-        run: |
-          rows=$(python3 scripts/check_release.py --rows)
-          python_version=$(cat "$GITHUB_WORKSPACE/.python-version")
-          pins=""
-          while IFS='|' read -r distribution directory module; do
-            fragment=""
-            if [ "$directory" != "." ]; then fragment="#subdirectory=$directory"; fi
-            repository="git+https://github.com/$GITHUB_REPOSITORY"
-            host="$RUNNER_TEMP/host-$module"
-            uv init --bare --no-workspace --python "$python_version" "$host"
-            (cd "$host" && uv add "$distribution @ $repository@$COMMIT$fragment" && uv run python -c "import $module")
-            pins+="- \`$distribution @ $repository@v$VERSION$fragment\`"$'\n'
-          done <<<"$rows"
-          delimiter="notes-$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-          {
-            echo "notes<<$delimiter"
-            printf 'Install by Git pin at this tag:\n\n%s' "$pins"
-            echo
-            echo "$delimiter"
-          } >> "$GITHUB_OUTPUT"
+  image:
+    name: Image
+    needs: gate
+    # quality's main at 7715afe; no quality tag ships the release path yet
+    uses: overnightworks/quality/.github/workflows/image.yml@7715afe5c911a00ae3076057691e0b5d4e4a65f7
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    with:
+      version: ${{ inputs.version }}
+      push: true
 
   tag:
     name: Tag
-    needs: gate
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    needs:
+      - gate
+      - image
+    # quality's main at 7715afe; no quality tag ships the release path yet
+    uses: overnightworks/quality/.github/workflows/release-tag.yml@7715afe5c911a00ae3076057691e0b5d4e4a65f7
     permissions:
-      contents: write # creates the tag and the release
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      VERSION: ${{ inputs.version }}
-      COMMIT: ${{ inputs.commit }}
-      NOTES: ${{ needs.gate.outputs.notes }}
-    steps:
-      # The ref is created at the gated commit and fails if the tag exists, so
-      # the release can never name another commit than the one that passed.
-      - name: Create the tag at the gated commit, then the release on it
-        run: |
-          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
-            -f "ref=refs/tags/v$VERSION" -f "sha=$COMMIT"
-          gh release create "v$VERSION" --verify-tag --generate-notes \
-            --notes "$NOTES" --title "v$VERSION"
+      contents: write
+    with:
+      version: ${{ inputs.version }}
+      commit: ${{ needs.gate.outputs.commit }}

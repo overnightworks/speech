@@ -88,6 +88,22 @@ The client owns the wire's types. The service is an application: its pin
 installs the CPU path, and GPU hearing needs the pin with `[gpu]`.
 `scripts/check_release.py` holds the distributions at one version.
 
+## Release
+
+The operator releases by dispatching a workflow with a version; his yes covers
+whatever `main` holds at the dispatch, and release tags are his:
+
+```bash
+gh workflow run release.yml -f version=YYYY.MM.DD.N
+gh workflow run release-distributions.yml -f version=X.Y.Z
+```
+
+`release.yml` releases the app: it builds, attests and pushes the image to GHCR,
+then sets the dated tag `vYYYY.MM.DD.N`. `release-distributions.yml` releases the
+three distributions at one `X.Y.Z`. Both run quality's release gate; its refusals
+and the path itself are in
+[quality's `docs/release.md`](https://github.com/overnightworks/quality/blob/7715afe5c911a00ae3076057691e0b5d4e4a65f7/docs/release.md).
+
 ## Proofs
 
 Each proof takes `/tmp/probe-stack.lock` itself, waits for the machine to be
