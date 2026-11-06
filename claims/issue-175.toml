@@ -1,0 +1,8 @@
+claim_id = "1bd5ca451f1c48dc848cb03f69af6088"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "b8544e7f998a8851e72d85b366be849c42930b09"
+branch = "claude/issue-175-release-image"
+scope = [".github/workflows/release-distributions.yml", ".github/workflows/release.yml", "Dockerfile", "README.md", "deploy/speech.toml", "docs/ARCHITECTURE.md", "quality/config.toml", "scripts/check_release.py"]
+opened_commit = "939d806c23bd584934b8989cecc31000a6424388"
+whole_reason = "The app's dated release takes release.yml, which the distributions' X.Y.Z release leaves in the same change; split, either the distributions lose their release for a landing or two gates run side by side."
