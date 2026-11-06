@@ -81,6 +81,7 @@ starts:
   parsing the body. **WIRE-27** It answers only a caller whose tokens are accepted.
 
 **WIRE-28** A refused request holds no place, so the next one is served.
+**WIRE-132** A speak request whose caller has gone frees its voice for the next request.
 
 ## Hearing a recording
 
@@ -101,7 +102,7 @@ length, the decoding itself.
 
 **WIRE-36** Any other field (`prompt`, `temperature`, `timestamp_granularities[]`, ...) is
 refused. **WIRE-37** The answer is `200` with `{"text": "..."}`; **WIRE-38** the same recording gives
-the same text.
+the same text, because the service decodes greedily, at temperature 0.
 
 **WIRE-39** An app hears only if its table in `SPEECH_CONFIG_FILE` says `hear = true`;
 otherwise the answer is `not_enabled`, after the tokens are accepted. **WIRE-40** Hearing
@@ -300,3 +301,5 @@ which leaves speaking up.
 
 **WIRE-130** Version 1 has no voice administration: `/v1/voices` answers
 `not_found`, and the service mounts no `/hear` and no `/voices*` route at all.
+**WIRE-131** The service serves no API documentation: `/docs`, `/redoc` and
+`/openapi.json` answer `404`.

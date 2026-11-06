@@ -157,6 +157,7 @@ def test_any_other_runtime_error_of_the_load_is_not_hidden(
 def test_the_audio_is_heard_greedily_at_temperature_zero_in_the_asked_language(
     library: type[_FakeWhisperModel], tmp_path: Path, language: HearingLanguage
 ) -> None:
+    """WIRE-38: the audio is decoded greedily at temperature 0, so it reads the same."""
     engine = _engine(tmp_path, library)
     engine.load()
 
