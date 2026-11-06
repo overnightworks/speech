@@ -1,8 +1,0 @@
-claim_id = "31828aea56d4474b9837222919092371"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "314c2f6534ad696e9468a040a5d603d87120ead4"
-branch = "claude/issue-159-remove-the-ballast"
-scope = ["docs/ARCHITECTURE.md", "docs/wire.md", "quality/config.toml", "scripts/proof_identity.py", "src/speech_runtime_service/callers.py", "src/speech_runtime_service/config.py", "src/speech_runtime_service/provider_process.py", "tests/scripts/test_proof_identity.py", "tests/test_config_callers.py", "tests/test_wire_route_voices.py"]
-opened_commit = "bc7ccb9cea07ea8163306727337482dd6df58005"
-whole_reason = "One approved cleanup batch: four small removals the operator approved together, each a few lines, which one review and one CI run prove more cheaply than four."
