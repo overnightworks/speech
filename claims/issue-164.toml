@@ -3,5 +3,6 @@ agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
 role = "builder"
 base = "763b469ea0d1cd6d82479cb107e9e47c1079d006"
 branch = "claude/issue-164-readme-and-architecture-document-set"
-scope = ["README.md", "docs/ARCHITECTURE.md", "tests/scripts/test_contract_client.py"]
+scope = ["README.md", "docs/ARCHITECTURE.md", "src/speech_runtime_service/__main__.py", "tests/scripts/test_contract_client.py", "tests/test_main_serve_lifecycle.py"]
 opened_commit = "04409ccfc68b095e7f5242a0ed6dcbc6057ef29f"
+whole_reason = "The README stops owning the settings, so the help that points readers there and its test change in the same landing, or the help sends them to a table that is gone."
