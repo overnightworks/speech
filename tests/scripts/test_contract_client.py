@@ -146,7 +146,7 @@ def test_prove_takes_the_device_and_hides_the_card_on_the_cpu(
 
 
 def test_peak_resident_memory_is_read_from_the_process_status_in_mebibytes() -> None:
-    """#515 Change: peak resident memory from the process status."""
+    """Change: peak resident memory from the process status."""
     status = "Name:\tpython\nVmPeak:\t 9999 kB\nVmHWM:\t 2048000 kB\nVmRSS:\t 1 kB\n"
 
     assert PROVE.peak_rss_mib(status) == pytest.approx(2000.0)
@@ -156,7 +156,7 @@ def test_peak_resident_memory_is_read_from_the_process_status_in_mebibytes() -> 
 def test_prove_exits_before_any_start_on_help_or_an_unknown_argument(
     arguments: list[str],
 ) -> None:
-    """#515 Never: --help and an unknown argument never start a proof."""
+    """Never: --help and an unknown argument never start a proof."""
     with pytest.raises(SystemExit) as exit_info:
         PROVE.parse_arguments(arguments)
 
