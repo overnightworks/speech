@@ -1,7 +1,0 @@
-claim_id = "4836060ee61b4e149735d9be38a47c2d"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "0a2d97603c851f656b9f34ec74ce88a2f768859a"
-branch = "claude/issue-167-vision-as-blessed"
-scope = ["docs/VISION.md"]
-opened_commit = "66b7f3f62182d09c266c136af555e6b176d73137"
