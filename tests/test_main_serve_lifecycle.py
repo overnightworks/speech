@@ -41,7 +41,6 @@ from speech_runtime_service.service import Runtime, RuntimeDependencies
 from speech_runtime_service.voices import VoiceId
 from tests.support.fakes_support import FakeSpeaking
 
-__main__.prepare_cuda_libraries = lambda: None
 Runtime.from_settings = lambda _settings: Runtime(
     None,
     dependencies=RuntimeDependencies(
@@ -201,7 +200,6 @@ def test_serve_listens_only_on_one_tcp_socket_of_the_configured_address(
     port = free_loopback_port()
     runtime = _loadable_runtime()
     monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
-    monkeypatch.setattr(__main__, "prepare_cuda_libraries", lambda: None)
     monkeypatch.setattr(__main__, "build_server", observed_server)
     monkeypatch.setattr(__main__, "_install_signal_handlers", install)
 

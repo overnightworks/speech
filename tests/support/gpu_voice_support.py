@@ -246,7 +246,6 @@ class Serving:
 
         runtime.set_fatal_callback = noting_fatal
         monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
-        monkeypatch.setattr(__main__, "prepare_cuda_libraries", lambda: None)
         monkeypatch.setattr(__main__, "_install_signal_handlers", self._stopping.append)
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.listener.bind((LOOPBACK, 0))

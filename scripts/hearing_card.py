@@ -15,10 +15,10 @@ from typing import TYPE_CHECKING, Self
 
 import hearing_figures as figures
 from prove_speech import (
-    add_cuda_library_path,
     query_nvidia,
     start_with_parent_death,
 )
+from speech_runtime_service.cuda_libs import cuda_library_dirs
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -33,6 +33,14 @@ FREED_POLL_SECONDS = 0.5
 HOLDER_STOP_SECONDS = 10
 HELD_WAIT_SECONDS = 120.0
 HELD_LINE = re.compile(r"held (?P<mib>\d+)")
+
+
+def add_cuda_library_path(env: dict[str, str]) -> None:
+    """Put the bundled CUDA libraries on `env`'s loader path."""
+    cuda_dirs = ":".join(str(path) for path in cuda_library_dirs())
+    if cuda_dirs:
+        existing = env.get("LD_LIBRARY_PATH", "")
+        env["LD_LIBRARY_PATH"] = f"{cuda_dirs}:{existing}" if existing else cuda_dirs
 
 
 def used_mib() -> int:

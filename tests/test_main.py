@@ -142,7 +142,6 @@ def test_failed_loader_stops_the_server_and_closes_the_listener(
             await self._stopped.wait()
 
     monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
-    monkeypatch.setattr(__main__, "prepare_cuda_libraries", lambda: None)
     monkeypatch.setattr(__main__, "build_server", lambda _app: Server())
     monkeypatch.setattr(__main__, "_install_signal_handlers", lambda _stopping: None)
 
@@ -228,7 +227,6 @@ while True:
         stopping.append(stop)
 
     monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
-    monkeypatch.setattr(__main__, "prepare_cuda_libraries", lambda: None)
     monkeypatch.setattr(__main__, "build_server", lambda _app: server)
     monkeypatch.setattr(__main__, "_install_signal_handlers", install)
     monkeypatch.setattr(
@@ -281,7 +279,6 @@ def test_owned_speaking_failure_stops_the_server_and_returns_failure(
 
     server = Server()
     monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
-    monkeypatch.setattr(__main__, "prepare_cuda_libraries", lambda: None)
     monkeypatch.setattr(__main__, "build_server", lambda _app: server)
     monkeypatch.setattr(__main__, "_install_signal_handlers", lambda _stopping: None)
 
@@ -317,7 +314,6 @@ def test_orchestrator_serves_health_from_its_loading_runtime(
         return server
 
     monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
-    monkeypatch.setattr(__main__, "prepare_cuda_libraries", lambda: None)
     monkeypatch.setattr(__main__, "build_server", healthy_server)
     monkeypatch.setattr(__main__, "_install_signal_handlers", lambda _stopping: None)
 
@@ -388,7 +384,6 @@ def test_signal_exit_is_zero_and_closes_the_listener(
             await self._stopped.wait()
 
     monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
-    monkeypatch.setattr(__main__, "prepare_cuda_libraries", lambda: None)
     monkeypatch.setattr(__main__, "build_server", lambda _app: Server())
     monkeypatch.setattr(
         __main__,
@@ -416,7 +411,6 @@ def test_server_ending_on_its_own_returns_failure_and_closes_the_listener(
             del sockets
 
     monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
-    monkeypatch.setattr(__main__, "prepare_cuda_libraries", lambda: None)
     monkeypatch.setattr(__main__, "build_server", lambda _app: Server())
     monkeypatch.setattr(__main__, "_install_signal_handlers", lambda _stopping: None)
 
@@ -438,9 +432,6 @@ def test_serve_refuses_to_start_without_a_readable_caller_configuration(
     monkeypatch: pytest.MonkeyPatch,
     file_name: str | None,
 ) -> None:
-    monkeypatch.setattr(
-        __main__, "prepare_cuda_libraries", lambda: pytest.fail("prepared CUDA")
-    )
     monkeypatch.setattr(
         Runtime,
         "from_settings",
@@ -469,9 +460,6 @@ def test_serve_exits_nonzero_naming_the_address_before_any_runtime_work(
     caplog: pytest.LogCaptureFixture,
     taken: bool,  # noqa: FBT001 - a parametrized case selector
 ) -> None:
-    monkeypatch.setattr(
-        __main__, "prepare_cuda_libraries", lambda: pytest.fail("prepared CUDA")
-    )
     monkeypatch.setattr(
         Runtime,
         "from_settings",
