@@ -47,6 +47,8 @@ async def _one_question(session: LiveSession) -> None:
 
 
 def test_the_session_opens_with_the_default_session() -> None:
+    """WIRE-55, WIRE-68: the session opens with the default session."""
+
     async def scenario() -> FakeSocket:
         _, socket = await started(loaded(FakeHearing(), FakeClock()))
         return socket
@@ -58,6 +60,8 @@ def test_the_session_opens_with_the_default_session() -> None:
 
 
 def test_a_question_without_a_commit_is_announced_ended_and_heard_once() -> None:
+    """WIRE-65, WIRE-66, WIRE-70, WIRE-72: a question is heard without a commit."""
+
     async def scenario() -> FakeSocket:
         session, socket = await started(loaded(FakeHearing(), FakeClock()))
         await _one_question(session)
@@ -88,6 +92,8 @@ def test_a_question_without_a_commit_is_announced_ended_and_heard_once() -> None
     ids=["without-an-update", "updated-to-english"],
 )
 def test_a_session_hears_in_its_language(messages: list[str], language: str) -> None:
+    """WIRE-56, WIRE-57: a session hears in its language."""
+
     async def scenario() -> FakeHearing:
         engine = FakeHearing()
         session, _ = await started(loaded(engine, FakeClock()))
@@ -103,6 +109,8 @@ def test_a_session_hears_in_its_language(messages: list[str], language: str) -> 
 
 
 def test_a_valid_update_is_answered_with_the_applied_session() -> None:
+    """WIRE-56, WIRE-69: a valid update is answered with the applied session."""
+
     async def scenario() -> FakeSocket:
         session, socket = await started(loaded(FakeHearing(), FakeClock()))
         await session.on_message(update("en"))
@@ -115,6 +123,8 @@ def test_a_valid_update_is_answered_with_the_applied_session() -> None:
 
 
 def test_two_questions_make_two_items_chained_by_their_predecessor() -> None:
+    """WIRE-73, WIRE-74, WIRE-79: two questions make two chained items."""
+
     async def scenario() -> FakeSocket:
         session, socket = await started(loaded(FakeHearing(), FakeClock()))
         for _ in range(2):
@@ -139,6 +149,8 @@ def test_two_questions_make_two_items_chained_by_their_predecessor() -> None:
 
 
 def test_deltas_carry_the_words_two_decodes_agree_on() -> None:
+    """WIRE-71: deltas carry the words two decodes agree on."""
+
     async def scenario() -> FakeSocket:
         clock = FakeClock()
         session, socket = await started(loaded(FakeHearing(), clock))
@@ -160,6 +172,8 @@ def test_deltas_carry_the_words_two_decodes_agree_on() -> None:
 
 
 def test_a_contended_partial_tick_is_skipped_without_an_error() -> None:
+    """WIRE-86: a contended partial tick is skipped without an error."""
+
     async def scenario() -> tuple[FakeSocket, FakeHearing]:
         engine = FakeHearing()
         hearing = loaded(engine, FakeClock())
@@ -178,6 +192,8 @@ def test_a_contended_partial_tick_is_skipped_without_an_error() -> None:
 
 
 def test_a_commit_mid_speech_ends_the_turn_without_a_speech_stopped() -> None:
+    """WIRE-63, WIRE-72: a commit mid speech ends the turn without a speech stopped."""
+
     async def scenario() -> FakeSocket:
         session, socket = await started(loaded(FakeHearing(), FakeClock()))
         await commit_a_turn(session)
@@ -194,6 +210,8 @@ def test_a_commit_mid_speech_ends_the_turn_without_a_speech_stopped() -> None:
 
 
 def test_a_commit_with_no_audio_ends_the_session_failing_the_announced_item() -> None:
+    """WIRE-62, WIRE-64, WIRE-76: a commit with no audio ends the session."""
+
     async def scenario() -> FakeSocket:
         engine = FakeHearing(hold=True)
         session, socket = await started(loaded(engine, FakeClock()))
@@ -235,6 +253,8 @@ def test_a_commit_with_no_audio_ends_the_session_failing_the_announced_item() ->
 def test_a_message_that_breaks_the_protocol_ends_the_session(
     message: str | None, param: str | None
 ) -> None:
+    """WIRE-49, WIRE-59, WIRE-60, WIRE-61: a protocol break ends the session."""
+
     async def scenario() -> FakeSocket:
         session, socket = await started(loaded(FakeHearing(), FakeClock()))
         await session.on_message(message)
@@ -252,6 +272,8 @@ def test_a_message_that_breaks_the_protocol_ends_the_session(
     ids=["a-second-update", "an-update-after-audio"],
 )
 def test_the_setup_is_one_update_before_the_first_audio(messages: list[str]) -> None:
+    """WIRE-56, WIRE-58: the setup is one update before the first audio."""
+
     async def scenario() -> FakeSocket:
         session, socket = await started(loaded(FakeHearing(), FakeClock()))
         for message in messages:
@@ -274,6 +296,8 @@ def test_a_session_that_ended_takes_nothing_more() -> None:
 
 
 def test_an_item_whose_final_decode_is_empty_completes_once_with_empty_text() -> None:
+    """WIRE-75, WIRE-80: an empty final decode completes once with empty text."""
+
     async def scenario() -> FakeSocket:
         session, socket = await started(loaded(FakeHearing(text=""), FakeClock()))
         await _one_question(session)
@@ -291,6 +315,8 @@ def test_an_item_whose_final_decode_is_empty_completes_once_with_empty_text() ->
 
 
 def test_a_decode_failure_fails_every_announced_item_then_errors_and_closes() -> None:
+    """WIRE-76, WIRE-80, WIRE-81, WIRE-82: a decode failure ends the session."""
+
     async def scenario() -> FakeSocket:
         engine = FakeHearing(hold=True)
         session, socket = await started(loaded(engine, FakeClock()))
@@ -326,6 +352,8 @@ def test_no_log_record_holds_the_heard_text_of_a_failed_decode(
 
 
 def test_a_lost_engine_ends_the_session_as_unavailable() -> None:
+    """WIRE-81, WIRE-82: a lost engine ends the session as unavailable."""
+
     async def scenario() -> FakeSocket:
         hearing = loaded(FakeHearing(), FakeClock())
         session, socket = await started(hearing)
@@ -337,6 +365,8 @@ def test_a_lost_engine_ends_the_session_as_unavailable() -> None:
 
 
 def test_a_second_ended_turn_while_one_waits_ends_the_session_as_busy() -> None:
+    """WIRE-67, WIRE-81: a turn past two outstanding ends the session busy."""
+
     async def scenario() -> FakeSocket:
         engine = FakeHearing(hold=True)
         session, socket = await started(loaded(engine, FakeClock()))
@@ -355,6 +385,8 @@ def test_a_second_ended_turn_while_one_waits_ends_the_session_as_busy() -> None:
 
 
 def test_a_final_whose_wait_ran_out_is_never_started_on_a_free_decode() -> None:
+    """WIRE-81, WIRE-85: a final past its wait is never started on a free decode."""
+
     async def scenario() -> tuple[FakeSocket, FakeHearing]:
         engine = FakeHearing()
         session, socket = await started(
@@ -371,6 +403,8 @@ def test_a_final_whose_wait_ran_out_is_never_started_on_a_free_decode() -> None:
 
 
 def test_a_final_that_waits_out_its_time_leaves_the_running_decode_its_lease() -> None:
+    """WIRE-85, WIRE-87: a final past its wait leaves the running decode its lease."""
+
     async def scenario() -> tuple[FakeSocket, bool, bool]:
         clock = FakeClock()
         hearing = loaded(FakeHearing(), clock)
@@ -394,6 +428,8 @@ def test_a_final_that_waits_out_its_time_leaves_the_running_decode_its_lease() -
 
 
 def test_a_disconnect_mid_decode_sends_nothing_and_holds_the_decode() -> None:
+    """WIRE-83, WIRE-87: a disconnect mid decode sends nothing and holds the decode."""
+
     async def scenario() -> tuple[int, int, bool, bool, int]:
         engine = FakeHearing(hold=True)
         hearing = loaded(engine, FakeClock())
@@ -447,6 +483,8 @@ def test_a_partial_not_yet_started_when_the_client_leaves_never_runs() -> None:
 
 
 def test_a_result_that_arrives_after_the_session_ended_is_dropped() -> None:
+    """WIRE-80, WIRE-81: a result that arrives after the session ended is dropped."""
+
     async def scenario() -> FakeSocket:
         engine = FakeHearing(hold=True)
         hearing = loaded(engine, FakeClock())
@@ -488,6 +526,8 @@ def test_the_poll_runs_every_three_tenths_of_a_second() -> None:
 
 
 def test_a_waiting_turn_that_outlasts_its_wait_ends_the_session_as_busy() -> None:
+    """WIRE-81, WIRE-82, WIRE-85: a waiting turn past its wait ends it as busy."""
+
     async def scenario() -> FakeSocket:
         engine = FakeHearing(hold=True)
         clock = FakeClock()
@@ -508,6 +548,8 @@ def test_a_waiting_turn_that_outlasts_its_wait_ends_the_session_as_busy() -> Non
 
 
 def test_audio_past_the_retention_bound_ends_the_session_as_busy() -> None:
+    """WIRE-67, WIRE-81: audio past the retention bound ends the session as busy."""
+
     async def scenario() -> FakeSocket:
         engine = FakeHearing(hold=True)
         session, socket = await started(loaded(engine, FakeClock()))
@@ -520,6 +562,8 @@ def test_audio_past_the_retention_bound_ends_the_session_as_busy() -> None:
 
 
 def test_a_turn_that_fell_silent_while_one_waits_ends_the_session_as_busy() -> None:
+    """WIRE-67, WIRE-81: a turn ending while two wait ends the session as busy."""
+
     async def scenario() -> FakeSocket:
         engine = FakeHearing(hold=True)
         session, socket = await started(loaded(engine, FakeClock()))
@@ -534,6 +578,8 @@ def test_a_turn_that_fell_silent_while_one_waits_ends_the_session_as_busy() -> N
 
 
 def test_deltas_hold_back_words_the_decodes_disagree_on() -> None:
+    """WIRE-71: deltas hold back words the decodes disagree on."""
+
     async def scenario() -> FakeSocket:
         engine = FakeHearing("Guten Tag")
         clock = FakeClock()
@@ -553,6 +599,8 @@ def test_deltas_hold_back_words_the_decodes_disagree_on() -> None:
 
 
 def test_a_partial_that_fails_ends_the_session_as_unavailable() -> None:
+    """WIRE-81, WIRE-82: a partial that fails ends the session as unavailable."""
+
     async def scenario() -> FakeSocket:
         engine = FakeHearing()
         engine.fail_transcription = True
@@ -566,6 +614,8 @@ def test_a_partial_that_fails_ends_the_session_as_unavailable() -> None:
 
 
 def test_a_partial_after_the_engine_was_lost_ends_the_session_as_unavailable() -> None:
+    """WIRE-81, WIRE-82: a partial after the engine was lost ends it unavailable."""
+
     async def scenario() -> FakeSocket:
         hearing = loaded(FakeHearing(), FakeClock())
         session, socket = await started(hearing)
@@ -578,6 +628,8 @@ def test_a_partial_after_the_engine_was_lost_ends_the_session_as_unavailable() -
 
 
 def test_a_partial_that_returns_after_its_turn_ended_adds_no_delta() -> None:
+    """WIRE-71: a partial that returns after its turn ended adds no delta."""
+
     async def scenario() -> FakeSocket:
         engine = FakeHearing(hold=True)
         session, socket = await started(loaded(engine, FakeClock()))

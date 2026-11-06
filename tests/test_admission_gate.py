@@ -270,6 +270,7 @@ def _busy(response: Response, wait_header: str) -> None:
 def test_a_request_that_finds_the_gate_held_waits_then_is_told_to_retry_after(
     wait: float, retry_after: str
 ) -> None:
+    """WIRE-22, WIRE-24, WIRE-102: a request finding the gate held waits, then busy."""
     runtime = fake_runtime()
     client = TestClient(app_over(runtime, busy_wait_seconds=wait))
     held = synthesis_gate(runtime).try_acquire()
@@ -283,6 +284,8 @@ def test_a_request_that_finds_the_gate_held_waits_then_is_told_to_retry_after(
 
 
 def test_a_request_beyond_the_waiting_places_is_told_busy_at_once() -> None:
+    """WIRE-23, WIRE-102: a request beyond the waiting places is told busy at once."""
+
     async def scenario() -> tuple[GatedSpeaking, SpeakCall, SpeakCall]:
         voice = GatedSpeaking()
         runtime = fake_runtime(voice, VoiceId.QWEN)
@@ -309,6 +312,8 @@ def test_a_request_beyond_the_waiting_places_is_told_busy_at_once() -> None:
 
 
 def test_a_request_refused_at_once_leaves_no_place_taken_for_the_next() -> None:
+    """WIRE-28: a request refused at once leaves no place taken for the next."""
+
     async def scenario() -> tuple[Runtime, int, int]:
         voice = GatedSpeaking()
         runtime = fake_runtime(voice, VoiceId.QWEN)
@@ -339,6 +344,8 @@ def _async_runtime(
 def test_a_second_request_is_told_busy_within_the_wait_while_the_first_streams() -> (
     None
 ):
+    """WIRE-24, WIRE-102: a second request is told busy within the wait."""
+
     async def scenario() -> tuple[SpeakCall, SpeakCall, bytes]:
         voice = GatedSpeaking()
         _, app = _async_runtime(voice)
@@ -359,6 +366,8 @@ def test_a_second_request_is_told_busy_within_the_wait_while_the_first_streams()
 
 
 def test_after_a_busy_refusal_the_next_request_is_served_and_the_gate_is_free() -> None:
+    """WIRE-28: after a busy refusal the next request is served and the gate is free."""
+
     async def scenario() -> tuple[Runtime, int, int]:
         voice = GatedSpeaking()
         runtime, app = _async_runtime(voice)
@@ -387,6 +396,8 @@ async def _status_of(call: SpeakCall) -> int:
 
 
 def test_two_requests_within_the_wait_are_served_one_synthesis_at_a_time() -> None:
+    """WIRE-21, WIRE-22: two requests within the wait are served in turn."""
+
     async def scenario() -> tuple[GatedSpeaking, list[int]]:
         voice = GatedSpeaking()
         _, app = _async_runtime(voice, ASGI_TIMEOUT_SECONDS)
@@ -441,6 +452,7 @@ def test_a_refusal_leaves_the_gate_free_once_its_holder_lets_go(
     hold_gate: Callable[[Runtime], Lease | None],
     status: int,
 ) -> None:
+    """WIRE-28: a refusal leaves the gate free once its holder lets go."""
     runtime = fake_runtime(FakeSpeaking(), VoiceId.QWEN)
     held = hold_gate(runtime)
     client = TestClient(app_over(runtime, busy_wait_seconds=0))
@@ -478,6 +490,8 @@ def test_a_request_cancelled_while_it_waits_for_the_gate_leaves_nothing_behind()
 def test_a_stream_holding_every_worker_cannot_push_the_busy_answer_past_the_wait() -> (
     None
 ):
+    """WIRE-24, WIRE-102: a busy answer is not pushed past the wait."""
+
     async def scenario() -> tuple[Runtime, SpeakCall, SpeakCall, int]:
         anyio.to_thread.current_default_thread_limiter().total_tokens = 1
         voice = GatedSpeaking()
@@ -536,6 +550,7 @@ def test_a_free_gate_answers_within_the_wait_though_every_worker_is_occupied() -
 
 
 def test_a_failed_voice_whose_close_blocks_is_still_answered_within_the_wait() -> None:
+    """WIRE-103: a failed voice whose close blocks is still answered within the wait."""
     release_close = threading.Event()
     closing = threading.Event()
 

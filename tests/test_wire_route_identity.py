@@ -127,6 +127,7 @@ def test_a_caller_refused_by_identity_is_not_told_the_body_is_too_large(
     tokens: Callable[[str], tuple[str | None, str | None]],
     expected: tuple[int, RefusalCode],
 ) -> None:
+    """WIRE-27, WIRE-97, WIRE-98: identity is judged before the body size."""
     issuer = Issuer(settings=Settings(max_body_bytes=1))
     _, person = issuer.tokens()
 
@@ -136,6 +137,7 @@ def test_a_caller_refused_by_identity_is_not_told_the_body_is_too_large(
 
 
 def test_a_valid_pair_is_served_a_wav_with_its_comment() -> None:
+    """WIRE-12, WIRE-89: a valid pair is served a wav with its comment."""
     response = Issuer().speak_valid()
 
     assert response.status_code == HTTP_200_OK
@@ -143,6 +145,7 @@ def test_a_valid_pair_is_served_a_wav_with_its_comment() -> None:
 
 
 def test_the_bearer_scheme_is_case_insensitive() -> None:
+    """WIRE-12: the bearer scheme is case insensitive."""
     issuer = Issuer()
     workload, person = issuer.tokens()
 
@@ -156,6 +159,7 @@ def test_the_bearer_scheme_is_case_insensitive() -> None:
 
 
 def test_basic_authorization_counts_as_no_person_token() -> None:
+    """WIRE-12, WIRE-97: basic authorization counts as no person token."""
     issuer = Issuer()
     workload, person = issuer.tokens()
 
@@ -170,6 +174,7 @@ def test_basic_authorization_counts_as_no_person_token() -> None:
 
 @pytest.mark.parametrize("sent", ["workload only", "person only", "neither"])
 def test_a_missing_token_is_unauthorized(sent: str) -> None:
+    """WIRE-12, WIRE-20, WIRE-97: a missing token is unauthorized."""
     issuer = Issuer()
     workload, person = issuer.tokens()
     tokens = {
@@ -233,6 +238,7 @@ def _signed_by(key: SigningKey, key_identifier: str) -> Callable[[str, Clocks], 
 def test_a_token_that_cannot_be_verified_is_unauthorized(
     damaged: str, damage: Callable[[str, Clocks], str]
 ) -> None:
+    """WIRE-13, WIRE-97: a token that cannot be verified is unauthorized."""
     issuer = Issuer()
     workload, person = issuer.tokens()
     if damaged == "workload":
@@ -244,6 +250,7 @@ def test_a_token_that_cannot_be_verified_is_unauthorized(
 
 
 def test_a_person_group_claim_of_null_is_unauthorized() -> None:
+    """WIRE-97: a person group claim of null is unauthorized."""
     issuer = Issuer()
     workload, person = issuer.tokens()
 
@@ -282,6 +289,7 @@ def test_a_person_group_claim_of_null_is_unauthorized() -> None:
 def test_tokens_that_do_not_permit_the_request_are_forbidden(
     damaged: str, damage: Callable[[str, Clocks], str]
 ) -> None:
+    """WIRE-14, WIRE-15, WIRE-98: tokens that do not permit the request: forbidden."""
     issuer = Issuer()
     workload, person = issuer.tokens()
     if damaged == "workload":
@@ -306,6 +314,7 @@ def test_a_workload_token_that_lives_301_seconds_is_served() -> None:
 
 
 def test_a_person_token_sent_as_the_workload_token_is_forbidden() -> None:
+    """WIRE-14, WIRE-98: a person token sent as the workload token is forbidden."""
     issuer = Issuer()
     _workload, person = issuer.tokens()
 
@@ -313,6 +322,7 @@ def test_a_person_token_sent_as_the_workload_token_is_forbidden() -> None:
 
 
 def test_a_person_in_a_subgroup_of_the_app_group_is_served() -> None:
+    """WIRE-15: a person in a subgroup of the app group is served."""
     issuer = Issuer()
     workload, person = issuer.tokens()
 
@@ -327,6 +337,7 @@ def test_a_person_in_a_subgroup_of_the_app_group_is_served() -> None:
 def test_a_missing_person_token_is_unauthorized_though_the_app_is_unregistered() -> (
     None
 ):
+    """WIRE-97: a missing person token is unauthorized, registered app or not."""
     issuer = Issuer()
     workload, _person = issuer.tokens()
 
@@ -336,6 +347,7 @@ def test_a_missing_person_token_is_unauthorized_though_the_app_is_unregistered()
 
 
 def test_the_key_set_being_down_is_unavailable_before_an_unregistered_app() -> None:
+    """WIRE-103: the key set being down is unavailable before an unregistered app."""
     issuer = Issuer()
     issuer.key_set.down = True
     workload, person = issuer.tokens()
@@ -346,6 +358,7 @@ def test_the_key_set_being_down_is_unavailable_before_an_unregistered_app() -> N
 
 
 def test_a_cached_key_set_serves_while_the_issuer_is_down() -> None:
+    """WIRE-103: a cached key set serves while the issuer is down."""
     issuer = Issuer()
     assert issuer.speak_valid().status_code == HTTP_200_OK
     issuer.key_set.down = True
@@ -354,6 +367,7 @@ def test_a_cached_key_set_serves_while_the_issuer_is_down() -> None:
 
 
 def test_an_expired_cached_key_set_is_unavailable_while_the_issuer_is_down() -> None:
+    """WIRE-103: an expired cached key set is unavailable while the issuer is down."""
     issuer = Issuer()
     assert issuer.speak_valid().status_code == HTTP_200_OK
     issuer.key_set.down = True
@@ -383,6 +397,7 @@ def test_a_rotated_key_is_refused_within_the_refresh_cooldown() -> None:
 
 
 def test_identity_is_judged_before_the_body() -> None:
+    """WIRE-16: identity is judged before the body."""
     issuer = Issuer()
 
     response = post_speech(issuer.client, b"{}", {})
@@ -391,6 +406,7 @@ def test_identity_is_judged_before_the_body() -> None:
 
 
 def test_a_refused_identity_never_reads_the_body() -> None:
+    """WIRE-16: a refused identity never reads the body."""
     app = speak_app()
     received = False
     sent: list[dict[str, object]] = []
@@ -410,6 +426,7 @@ def test_a_refused_identity_never_reads_the_body() -> None:
 
 
 def test_a_valid_pair_with_an_invalid_body_is_unprocessable() -> None:
+    """WIRE-100: a valid pair with an invalid body is unprocessable."""
     issuer = Issuer()
     workload, person = issuer.tokens()
     response = post_speech(
@@ -422,6 +439,7 @@ def test_a_valid_pair_with_an_invalid_body_is_unprocessable() -> None:
 
 
 def test_the_busy_wait_starts_after_a_slow_identity_check() -> None:
+    """WIRE-17, WIRE-24: the busy wait starts after a slow identity check."""
     busy_wait_seconds = 0.2
     deadlines: list[float] = []
     check_released_at: list[float] = []
@@ -536,6 +554,7 @@ def _unavailable_causes() -> list[Response]:
 def test_every_refusal_is_in_openai_form_and_says_the_same_whatever_its_cause(
     expected: tuple[int, RefusalCode], causes: Callable[[], list[Response]]
 ) -> None:
+    """WIRE-91, WIRE-92, WIRE-93, WIRE-94: every refusal is in OpenAI form."""
     responses = causes()
 
     for response in responses:

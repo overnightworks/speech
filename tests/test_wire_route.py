@@ -145,6 +145,7 @@ def test_another_version_is_refused_as_unsupported(method: str, path: str) -> No
 def test_any_other_path_or_method_under_version_one_is_not_found(
     method: str, path: str
 ) -> None:
+    """WIRE-96, WIRE-105: any other path or method under version one is not found."""
     response = TestClient(speak_app()).request(method, path, follow_redirects=False)
 
     assert_refusal(response, HTTP_404_NOT_FOUND, RefusalCode.NOT_FOUND, None)
@@ -162,6 +163,7 @@ def test_head_on_the_speech_path_answers_the_status_and_type_without_a_body() ->
 def test_a_path_that_is_no_version_path_gets_the_apps_default_not_found(
     path: str,
 ) -> None:
+    """WIRE-106: a path that is no version path gets the apps default not found."""
     response = TestClient(speak_app()).post(path)
 
     assert response.status_code == HTTP_404_NOT_FOUND
@@ -207,6 +209,7 @@ _REFUSED_BODIES = [
 def test_an_invalid_body_is_refused_naming_only_a_field_of_the_request_model(
     body: bytes, param: str | None
 ) -> None:
+    """WIRE-04, WIRE-05, WIRE-06, WIRE-10, WIRE-11: an invalid body is refused."""
     response = post_speech(TestClient(speak_app()), body)
 
     assert_refusal(
@@ -238,6 +241,7 @@ def _assert_input_limit(
 def test_the_input_limit_is_configurable_and_may_exceed_openais(
     limit: int, lengths_served: list[int], length_refused: int
 ) -> None:
+    """WIRE-06, WIRE-111: the input limit is configurable and may exceed openais."""
     _assert_input_limit(
         Settings(max_input_characters=limit), lengths_served, length_refused
     )
@@ -265,6 +269,7 @@ def _over_the_limit_app() -> tuple[FastAPI, int]:
 def test_a_body_over_the_limit_is_too_large_whatever_it_holds(
     excess_body: Callable[[int], bytes],
 ) -> None:
+    """WIRE-26, WIRE-101: a body over the limit is too large whatever it holds."""
     app, limit = _over_the_limit_app()
 
     response = post_speech(TestClient(app), excess_body(limit))

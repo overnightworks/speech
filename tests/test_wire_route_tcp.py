@@ -99,6 +99,8 @@ def _assert_whole_wav(status_code: int, body: bytes, voice: GatedSpeaking) -> No
 
 
 def test_tcp_streams_speak_while_the_voice_is_still_synthesizing() -> None:
+    """WIRE-01, WIRE-88: tcp streams speak while the voice is still synthesizing."""
+
     async def scenario() -> tuple[GatedSpeaking, int, bytes, bytes]:
         voice = GatedSpeaking(hold_last_chunk=True)
         voice.release_first_step.set()
@@ -150,6 +152,8 @@ def test_tcp_speak_disconnect_frees_the_voice_for_the_next_caller() -> None:
 
 
 def test_a_speak_holds_the_one_synthesis_gate() -> None:
+    """WIRE-21: a speak holds the one synthesis gate."""
+
     async def scenario() -> tuple[GatedSpeaking, bool, httpx2.Response, bool]:
         voice = GatedSpeaking()
         runtime = _gated_runtime(voice)
@@ -179,6 +183,8 @@ def test_a_speak_holds_the_one_synthesis_gate() -> None:
 def test_tcp_speak_failure_aborts_the_body_and_the_next_request_is_whole(
     chunks_before_failing: int,
 ) -> None:
+    """WIRE-90: tcp speak failure aborts the body and the next request is whole."""
+
     async def scenario() -> tuple[bool, httpx2.Response]:
         voice = FailingSpeaking(chunks_before_failing=chunks_before_failing)
         async with (
@@ -213,6 +219,8 @@ def test_tcp_serves_no_api_documentation(path: str) -> None:
 
 
 def test_tcp_refuses_a_speak_without_the_persons_token() -> None:
+    """WIRE-20, WIRE-97: tcp refuses a speak without the persons token."""
+
     async def scenario() -> tuple[httpx2.Response, httpx2.Response]:
         headers = valid_headers()
         del headers[AUTHORIZATION_HEADER]
@@ -251,6 +259,8 @@ def test_tcp_refuses_a_speak_without_the_persons_token() -> None:
 def test_tcp_answers_without_tokens_only_health_and_the_wires_plain_refusals(
     method: str, path: str, status: int, code: RefusalCode | None
 ) -> None:
+    """WIRE-95, WIRE-96, WIRE-122, WIRE-130: only health and plain refusals answer."""
+
     async def scenario() -> httpx2.Response:
         async with (
             serving_over_tcp(_gated_runtime(FakeSpeaking())) as server,
@@ -267,6 +277,7 @@ def test_tcp_answers_without_tokens_only_health_and_the_wires_plain_refusals(
 
 
 def test_tcp_refuses_a_websocket_upgrade_off_the_wire() -> None:
+    """WIRE-130: tcp refuses a websocket upgrade off the wire."""
     upgrade = (
         b"GET /hear HTTP/1.1\r\nHost: speech\r\nUpgrade: websocket\r\n"
         b"Connection: Upgrade\r\nSec-WebSocket-Version: 13\r\n"
@@ -290,6 +301,8 @@ def test_tcp_refuses_a_websocket_upgrade_off_the_wire() -> None:
 
 
 def test_tcp_denies_a_realtime_upgrade_without_tokens_in_the_error_form() -> None:
+    """WIRE-51, WIRE-97: a realtime upgrade without tokens is denied as 401."""
+
     async def scenario() -> tuple[int, dict[str, dict[str, object]]]:
         async with serving_over_tcp(_gated_runtime(FakeSpeaking())) as server:
             host, port = _address(server)

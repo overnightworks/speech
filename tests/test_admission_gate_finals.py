@@ -15,6 +15,8 @@ async def _settle() -> None:
 
 
 def test_finals_are_served_in_arrival_order_before_every_waiting_file_job() -> None:
+    """WIRE-84: finals are served in arrival order before every waiting file job."""
+
     async def scenario() -> list[str]:
         clock = FakeClock()
         gate = AdmissionGate(clock)
@@ -47,6 +49,8 @@ def test_finals_are_served_in_arrival_order_before_every_waiting_file_job() -> N
 
 
 def test_a_final_whose_deadline_passed_is_never_started_on_a_free_gate() -> None:
+    """WIRE-85: a final whose deadline passed is never started on a free gate."""
+
     async def scenario() -> tuple[object, bool]:
         clock = FakeClock()
         gate = AdmissionGate(clock)
@@ -60,6 +64,8 @@ def test_a_final_whose_deadline_passed_is_never_started_on_a_free_gate() -> None
 
 
 def test_a_final_that_expires_in_the_queue_leaves_the_running_lease_alone() -> None:
+    """WIRE-85, WIRE-87: a final that expires queued spares the running lease."""
+
     async def scenario() -> tuple[object, bool, bool]:
         clock = FakeClock()
         gate = AdmissionGate(clock)
@@ -86,6 +92,8 @@ def test_a_final_that_expires_in_the_queue_leaves_the_running_lease_alone() -> N
 
 
 def test_a_final_handed_the_gate_after_its_deadline_is_not_started() -> None:
+    """WIRE-85: a final handed the gate after its deadline is not started."""
+
     async def scenario() -> tuple[object, bool]:
         clock = FakeClock()
         gate = AdmissionGate(clock)

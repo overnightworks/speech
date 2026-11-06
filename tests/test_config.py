@@ -35,6 +35,7 @@ def test_a_stale_setting_in_the_environment_is_ignored(
 
 
 def test_settings_read_speech_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WIRE-107: settings read speech environment."""
     monkeypatch.setenv("SPEECH_DEVICE", "cpu")
     monkeypatch.setenv("SPEECH_GPU_VOICES", VoiceId.QWEN.value)
 
@@ -67,6 +68,7 @@ def test_settings_read_speech_environment(monkeypatch: pytest.MonkeyPatch) -> No
 def test_the_wire_settings_refuse_values_that_cannot_hold(
     monkeypatch: pytest.MonkeyPatch, name: str, value: str
 ) -> None:
+    """WIRE-108, WIRE-109, WIRE-110, WIRE-111, WIRE-121: bad values are refused."""
     monkeypatch.setenv(name, value)
 
     with pytest.raises(ValidationError, match=name.removeprefix("SPEECH_").lower()):
@@ -76,6 +78,7 @@ def test_the_wire_settings_refuse_values_that_cannot_hold(
 def test_the_wire_settings_accept_the_smallest_whole_limit_and_no_wait(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """WIRE-108, WIRE-109, WIRE-110, WIRE-111: the smallest whole limit is accepted."""
     monkeypatch.setenv("SPEECH_BUSY_WAIT_SECONDS", "0")
     monkeypatch.setenv("SPEECH_MAX_INPUT_CHARACTERS", "1")
     monkeypatch.setenv("SPEECH_MAX_WAITING_REQUESTS", "0")
@@ -92,6 +95,7 @@ def test_the_wire_settings_accept_the_smallest_whole_limit_and_no_wait(
 def test_the_hearing_settings_are_read_from_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """WIRE-117, WIRE-118, WIRE-121: hearing settings are read from the environment."""
     monkeypatch.setenv("SPEECH_HEARING_MODEL", HearingModel.LARGE_V3.value)
     monkeypatch.setenv("SPEECH_HEARING_BUSY_WAIT_SECONDS", "0")
     monkeypatch.setenv("SPEECH_HEARING_MAX_WAITING_REQUESTS", "0")
@@ -129,6 +133,7 @@ def test_settings_preserves_an_explicit_huggingface_cache(
 def test_settings_bind_to_a_loopback_tcp_port_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """WIRE-01: settings bind to a loopback tcp port by default."""
     monkeypatch.delenv("SPEECH_HOST", raising=False)
     monkeypatch.delenv("SPEECH_PORT", raising=False)
 
@@ -141,6 +146,7 @@ def test_settings_bind_to_a_loopback_tcp_port_by_default(
 def test_settings_read_the_bind_address_from_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """WIRE-01: settings read the bind address from the environment."""
     all_interfaces = "0.0.0.0"  # noqa: S104 - the container form of the bind address
     monkeypatch.setenv("SPEECH_HOST", all_interfaces)
     monkeypatch.setenv("SPEECH_PORT", "65535")
@@ -154,6 +160,7 @@ def test_settings_read_the_bind_address_from_the_environment(
 def test_settings_refuse_a_port_that_is_not_a_tcp_port(
     monkeypatch: pytest.MonkeyPatch, port: str
 ) -> None:
+    """WIRE-01: settings refuse a port that is not a tcp port."""
     monkeypatch.setenv("SPEECH_PORT", port)
 
     with pytest.raises(ValidationError, match="port"):
@@ -161,6 +168,7 @@ def test_settings_refuse_a_port_that_is_not_a_tcp_port(
 
 
 def test_no_gpu_voice_is_offered_by_default() -> None:
+    """WIRE-107: no gpu voice is offered by default."""
     assert Settings().gpu_voices == frozenset()
 
 
@@ -168,6 +176,7 @@ def test_no_gpu_voice_is_offered_by_default() -> None:
 def test_an_empty_gpu_voice_setting_offers_none(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
+    """WIRE-107: an empty gpu voice setting offers none."""
     monkeypatch.setenv("SPEECH_GPU_VOICES", value)
 
     assert Settings().gpu_voices == frozenset()
@@ -179,6 +188,7 @@ def test_an_empty_gpu_voice_setting_offers_none(
 def test_every_gpu_voice_of_the_catalogue_can_be_offered(
     monkeypatch: pytest.MonkeyPatch, voice: VoiceId
 ) -> None:
+    """WIRE-107: every gpu voice of the catalogue can be offered."""
     monkeypatch.setenv("SPEECH_GPU_VOICES", f" {voice.value} ")
 
     assert Settings().gpu_voices == {voice}
@@ -197,6 +207,7 @@ def test_every_gpu_voice_of_the_catalogue_can_be_offered(
 def test_settings_refuses_unsafe_voice_configuration(
     monkeypatch: pytest.MonkeyPatch, environment: str, value: str, reason: str
 ) -> None:
+    """WIRE-107: settings refuses unsafe voice configuration."""
     monkeypatch.setenv(environment, value)
 
     with pytest.raises(ValueError, match=reason) as refused:

@@ -39,6 +39,7 @@ BUSY = REFUSAL_STATUS[RefusalCode.BUSY]
 
 
 def test_busy_answer_gives_the_wait_in_seconds() -> None:
+    """WIRE-104: a busy answer gives the wait in whole seconds."""
     assert busy_wait(BUSY, {RETRY_AFTER_HEADER: "5"}) == BusyWait(retry_after_seconds=5)
 
 
@@ -51,6 +52,7 @@ def test_header_name_is_matched_case_insensitively() -> None:
     [s for s in (*REFUSAL_STATUS.values(), HTTPStatus.OK) if s != BUSY],
 )
 def test_other_statuses_give_no_wait(status: HTTPStatus) -> None:
+    """WIRE-104: any status but busy gives no wait."""
     assert busy_wait(status, {RETRY_AFTER_HEADER: "5"}) is None
 
 
@@ -67,6 +69,7 @@ def test_other_statuses_give_no_wait(status: HTTPStatus) -> None:
     ids=["missing", "negative", "fraction", "http-date", "empty", "zero"],
 )
 def test_busy_answer_without_whole_seconds_fails_loud(headers: dict[str, str]) -> None:
+    """WIRE-104: a busy answer without whole seconds fails loud."""
     with pytest.raises(RetryAfterError, match=RETRY_AFTER_HEADER):
         busy_wait(BUSY, headers)
 
@@ -242,6 +245,7 @@ def test_the_default_session_is_german_pcm_at_24_khz_with_server_detection() -> 
 
 
 def test_every_server_event_carries_a_fresh_event_id() -> None:
+    """WIRE-78: every server event has a fresh event_id."""
     first = TranscriptDelta(item_id="item", delta="a")
     second = TranscriptDelta(item_id="item", delta="a")
 
@@ -306,6 +310,7 @@ def test_a_health_body_parses_into_the_typed_answer() -> None:
 
 
 def test_a_health_answer_ignores_a_key_it_does_not_know() -> None:
+    """WIRE-127: a health answer ignores a key it does not know."""
     body = _health_body()
     body["later"] = 1
     body["hearing"] = {"model": "h", "ready": False, "later": 1}

@@ -84,6 +84,7 @@ def test_sigterm_stops_the_real_server_and_exits_zero_with_nothing_listening(
 def test_python_dash_m_starts_the_service_listening_on_the_configured_port(
     tmp_path: Path,
 ) -> None:
+    """WIRE-01: python dash m starts the service listening on the configured port."""
     port = free_loopback_port()
     speech_root = Path(__file__).resolve().parents[1]
     environment = {
@@ -158,6 +159,7 @@ def test_an_unknown_argument_is_a_usage_error_without_starting(
 def test_serve_listens_only_on_one_tcp_socket_of_the_configured_address(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WIRE-01: serve listens only on one tcp socket of the configured address."""
     built: list[uvicorn.Server] = []
     stopping: list[asyncio.Event] = []
     build_server = __main__.build_server
@@ -233,6 +235,7 @@ def _loadable_runtime() -> Runtime:
 def test_the_service_does_not_start_when_an_apps_voices_are_wrong(
     tmp_path: Path, apps: str, named: str
 ) -> None:
+    """WIRE-112, WIRE-114, WIRE-115, WIRE-116: wrong voices stop the start."""
     speech_root = Path(__file__).resolve().parents[1]
     environment = {
         **os.environ,

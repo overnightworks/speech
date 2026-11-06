@@ -82,6 +82,7 @@ def _valid() -> bytes:
 
 
 def test_a_recording_is_answered_with_its_text() -> None:
+    """WIRE-02, WIRE-37: a recording is answered with its text."""
     response = post_recording(_client(), _valid())
 
     assert response.status_code == HTTP_200_OK
@@ -89,6 +90,7 @@ def test_a_recording_is_answered_with_its_text() -> None:
 
 
 def test_a_recording_without_a_language_is_heard_as_german() -> None:
+    """WIRE-34: a recording without a language is heard as german."""
     engine = FakeHearing()
 
     post_recording(_client(engine), _valid())
@@ -97,6 +99,7 @@ def test_a_recording_without_a_language_is_heard_as_german() -> None:
 
 
 def test_a_recording_is_heard_in_the_language_asked_for() -> None:
+    """WIRE-34: a recording is heard in the language asked for."""
     engine = FakeHearing()
 
     post_recording(_client(engine), multipart_body(ENGLISH, recording()))
@@ -118,6 +121,7 @@ def test_a_recording_is_heard_in_the_language_asked_for() -> None:
 def test_a_form_that_is_not_the_one_shape_is_refused_without_a_decode(
     fields: dict[str, str], param: str | None
 ) -> None:
+    """WIRE-31, WIRE-33, WIRE-34, WIRE-35, WIRE-36: another form shape is refused."""
     engine = FakeHearing()
 
     response = post_recording(_client(engine), multipart_body(fields, recording()))
@@ -140,6 +144,7 @@ def test_a_form_that_is_not_the_one_shape_is_refused_without_a_decode(
 def test_a_request_without_a_recording_is_refused_as_the_file(
     body: bytes, param: str
 ) -> None:
+    """WIRE-32, WIRE-46: a request without a recording is refused as the file."""
     response = post_recording(_client(), body)
 
     assert_refusal(
@@ -148,6 +153,7 @@ def test_a_request_without_a_recording_is_refused_as_the_file(
 
 
 def test_a_recording_that_is_not_audio_is_refused_as_the_file() -> None:
+    """WIRE-45: a recording that is not audio is refused as the file."""
     engine = FakeHearing()
 
     response = post_recording(_client(engine), multipart_body(file=b"not sound" * 99))
@@ -159,6 +165,7 @@ def test_a_recording_that_is_not_audio_is_refused_as_the_file() -> None:
 
 
 def test_a_recording_longer_than_the_length_cap_is_too_large_and_never_heard() -> None:
+    """WIRE-42: a recording longer than the length cap is too large and never heard."""
     engine = FakeHearing()
     client = _client(engine, max_recording_seconds=0.25)
 
@@ -179,6 +186,7 @@ def test_a_recording_longer_than_the_length_cap_is_too_large_and_never_heard() -
 def test_an_app_without_the_hear_permission_is_refused_as_not_enabled_first(
     engine: FakeHearing | None, settings: dict[str, int]
 ) -> None:
+    """WIRE-30, WIRE-39, WIRE-99: an app without hear is refused as not enabled."""
     runtime = hear_runtime(engine)
     callers = valid_callers()
     client = TestClient(create_control_app(Settings(**settings), runtime, callers))
@@ -215,6 +223,7 @@ def test_a_caller_without_tokens_is_told_so_before_anything_else(
     settings: dict[str, float],
     arrange: Callable[[Runtime], None] | None,
 ) -> None:
+    """WIRE-29, WIRE-30, WIRE-97: a caller without tokens is told so first."""
     runtime = hear_runtime(engine)
     if arrange is not None:
         arrange(runtime)
@@ -227,6 +236,7 @@ def test_a_caller_without_tokens_is_told_so_before_anything_else(
 
 
 def test_a_person_outside_the_service_group_is_forbidden() -> None:
+    """WIRE-15, WIRE-98: a person outside the service group is forbidden."""
     pair = valid_pair()
     headers = {
         WORKLOAD_TOKEN_HEADER: pair.workload,
@@ -242,6 +252,7 @@ def test_a_person_outside_the_service_group_is_forbidden() -> None:
 def test_a_body_over_the_byte_cap_is_too_large_before_it_is_parsed(
     *, chunked: bool
 ) -> None:
+    """WIRE-41: a body over the byte cap is too large before it is parsed."""
     engine = FakeHearing()
     unparseable = b"x" * 4096
     content: bytes | Iterator[bytes] = (
@@ -266,6 +277,7 @@ def test_a_body_over_the_byte_cap_is_too_large_before_it_is_parsed(
 def test_a_body_of_exactly_the_byte_cap_is_read_and_one_byte_more_is_not(
     cap_beyond_body: int, status: int
 ) -> None:
+    """WIRE-41: a body of exactly the byte cap is read and one byte more is not."""
     body = _valid()
 
     response = post_recording(
@@ -276,6 +288,7 @@ def test_a_body_of_exactly_the_byte_cap_is_read_and_one_byte_more_is_not(
 
 
 def test_the_route_answers_the_wrong_version_before_anything_else() -> None:
+    """WIRE-95: the route answers the wrong version before anything else."""
     response = _client().post("/v2/audio/transcriptions", content=_valid())
 
     assert_refusal(
@@ -284,6 +297,7 @@ def test_the_route_answers_the_wrong_version_before_anything_else() -> None:
 
 
 def test_without_a_hearing_model_hearing_is_unavailable_and_speaking_works() -> None:
+    """WIRE-40, WIRE-103: without a hearing model hearing is unavailable."""
     runtime = hear_runtime(None)
     client = TestClient(hear_app(runtime))
 
@@ -299,6 +313,7 @@ def test_without_a_hearing_model_hearing_is_unavailable_and_speaking_works() -> 
 def test_a_request_that_finds_the_decode_taken_waits_then_is_told_to_retry_after() -> (
     None
 ):
+    """WIRE-43, WIRE-102: a request finding the decode taken waits, then busy."""
     runtime = hear_runtime(FakeHearing())
     client = TestClient(hear_app(runtime, hearing_busy_wait_seconds=SHORT_WAIT_SECONDS))
     _hold_the_decode(runtime)
@@ -310,6 +325,8 @@ def test_a_request_that_finds_the_decode_taken_waits_then_is_told_to_retry_after
 
 
 def test_a_request_beyond_the_waiting_places_is_told_busy_at_once() -> None:
+    """WIRE-43, WIRE-102: a request beyond the waiting places is told busy at once."""
+
     async def scenario() -> tuple[FakeHearing, object, float]:
         engine = FakeHearing(hold=True)
         app = hear_app(
@@ -335,6 +352,8 @@ def test_a_request_beyond_the_waiting_places_is_told_busy_at_once() -> None:
 def test_a_malformed_form_waits_for_the_decode_and_frees_it_for_the_one_behind() -> (
     None
 ):
+    """WIRE-47: a malformed form waits for the decode like any request."""
+
     async def scenario() -> tuple[bool, int, int]:
         runtime = hear_runtime(FakeHearing())
         app = hear_app(runtime, hearing_busy_wait_seconds=WAIT_SECONDS)
@@ -381,6 +400,8 @@ def test_an_error_in_the_parse_frees_the_decode_for_the_next_recording(
 
 
 def test_speaking_and_hearing_run_side_by_side_each_under_its_own_bound() -> None:
+    """WIRE-21: speaking and hearing run side by side each under its own bound."""
+
     async def scenario() -> tuple[int, int]:
         engine = FakeHearing(hold=True)
         runtime = hear_runtime(engine)
@@ -400,6 +421,7 @@ def test_speaking_and_hearing_run_side_by_side_each_under_its_own_bound() -> Non
 
 
 def test_a_held_synthesis_does_not_refuse_a_recording() -> None:
+    """WIRE-21: a held synthesis does not refuse a recording."""
     runtime = hear_runtime(FakeHearing())
     held = synthesis_gate(runtime).try_acquire()
     assert held is not None
@@ -411,6 +433,7 @@ def test_a_held_synthesis_does_not_refuse_a_recording() -> None:
 
 
 def test_a_held_decode_does_not_refuse_speaking() -> None:
+    """WIRE-21: a held decode does not refuse speaking."""
     runtime = hear_runtime(FakeHearing())
     _hold_the_decode(runtime)
     client = TestClient(hear_app(runtime, hearing_max_waiting_requests=0))
@@ -433,6 +456,7 @@ def test_a_held_decode_does_not_refuse_speaking() -> None:
 def test_a_finished_request_leaves_the_decode_free(
     arrange: Callable[[FakeHearing], None],
 ) -> None:
+    """WIRE-44: a finished request leaves the decode free."""
     engine = FakeHearing()
     arrange(engine)
     runtime = hear_runtime(engine)
@@ -444,6 +468,7 @@ def test_a_finished_request_leaves_the_decode_free(
 
 
 def test_a_failed_decode_is_unavailable() -> None:
+    """WIRE-40, WIRE-103: a failed decode is unavailable."""
     engine = FakeHearing()
     engine.fail_transcription = True
 
@@ -455,6 +480,8 @@ def test_a_failed_decode_is_unavailable() -> None:
 
 
 def test_the_decode_is_held_until_the_engine_returns_though_the_caller_left() -> None:
+    """WIRE-44: the decode is held until the engine returns though the caller left."""
+
     async def scenario() -> tuple[bool, Lease | None]:
         engine = FakeHearing(hold=True)
         runtime = hear_runtime(engine)

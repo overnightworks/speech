@@ -14,6 +14,7 @@ from tests.support.fakes_support import (
 
 
 def test_health_answers_while_models_are_not_ready() -> None:
+    """WIRE-122, WIRE-123, WIRE-124, WIRE-125, WIRE-126: health answers mid-load."""
     card_memory_mb = 17
     client = TestClient(
         an_app(
@@ -39,6 +40,7 @@ def test_health_answers_while_models_are_not_ready() -> None:
 
 
 def test_health_reports_a_voices_sample_rate() -> None:
+    """WIRE-125: health reports a voices sample rate."""
     speaking = FakeSpeaking()
     speaking.sample_rate = QWEN_SAMPLE_RATE
 
@@ -49,6 +51,7 @@ def test_health_reports_a_voices_sample_rate() -> None:
 
 
 def test_health_reports_ready_models() -> None:
+    """WIRE-124, WIRE-126: health reports ready models."""
     card_memory_mb = 9
     body = TestClient(an_app(memory_probe=lambda: card_memory_mb)).get("/health").json()
 
@@ -60,6 +63,7 @@ def test_health_reports_ready_models() -> None:
 
 
 def test_a_voice_that_is_not_loaded_reports_its_catalogue_model_not_ready() -> None:
+    """WIRE-125, WIRE-126: a voice that is not loaded reports its catalogue model."""
     runtime = Runtime(None)
 
     voice = runtime.health().speaking.voices[VoiceId.PIPER.value]

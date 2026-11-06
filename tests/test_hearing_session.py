@@ -35,6 +35,7 @@ def _session() -> tuple[HearingSession, _Clock]:
 
 
 def test_the_first_speech_of_a_turn_starts_it_once_at_its_audio_position() -> None:
+    """WIRE-70: the first speech of a turn starts it once at its audio position."""
     session, _ = _session()
     session.add(_level(0.5, 0))
 
@@ -46,6 +47,7 @@ def test_the_first_speech_of_a_turn_starts_it_once_at_its_audio_position() -> No
 
 
 def test_a_turn_ends_at_seven_tenths_of_a_second_of_silence_and_not_at_six() -> None:
+    """WIRE-66: a turn ends at seven tenths of a second of silence and not at six."""
     session, _ = _session()
     session.add(_level(1.0, 5000))
     session.add(_level(0.6, 0))
@@ -80,6 +82,7 @@ def test_the_silence_threshold_is_an_rms_of_two_hundredths(
 def test_audio_that_crosses_the_cap_ends_the_turn_at_the_cap_and_opens_the_next() -> (
     None
 ):
+    """WIRE-66: audio that crosses the cap ends the turn at the cap."""
     session, _ = _session()
 
     events = session.add(_level(31.0, 5000))
@@ -146,6 +149,7 @@ def test_a_partial_is_not_due_before_speech() -> None:
 
 
 def test_a_commit_ends_the_open_turn_at_once_for_the_client() -> None:
+    """WIRE-63: a commit ends the open turn at once for the client."""
     session, _ = _session()
     session.add(_level(0.3, 5000))
 
@@ -165,6 +169,7 @@ def test_a_commit_with_no_audio_since_the_last_turn_ended_is_nothing() -> None:
 
 
 def test_a_turn_starts_where_the_last_one_ended() -> None:
+    """WIRE-70: a turn starts where the last one ended."""
     session, _ = _session()
     session.add(_level(0.3, 5000))
     session.commit()
