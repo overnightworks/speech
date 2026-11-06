@@ -1,0 +1,7 @@
+claim_id = "b12257387ff94fe7812e28657d7787f8"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "763b469ea0d1cd6d82479cb107e9e47c1079d006"
+branch = "claude/issue-164-readme-and-architecture-document-set"
+scope = ["README.md", "docs/ARCHITECTURE.md", "tests/scripts/test_contract_client.py"]
+opened_commit = "04409ccfc68b095e7f5242a0ed6dcbc6057ef29f"
