@@ -158,6 +158,13 @@ def container_start(stack: Compose) -> tuple[str, str, int]:
     return container, inspected["State"]["StartedAt"], inspected["RestartCount"]
 
 
+def require_not_restarted(stack: Compose, started: tuple[str, str, int]) -> None:
+    """Fail when the service container is not the one `started` names, still up."""
+    if container_start(stack) != started:
+        message = f"the service container restarted: {started}"
+        raise SystemExit(message)
+
+
 def start_offered(session: Session) -> tuple[Session, VoiceId]:
     """Recreate the service offering its GPU voice; the app that names it, and it.
 
@@ -209,9 +216,7 @@ def speak_on_the_card(offered: Session, voice: VoiceId, wav: bytes) -> None:
         f" peak_card_mib={figures.peak_card_mib} (G0 {QWEN_G0.peak_card_mib})"
     )
     require_piper_and_hearing(offered, wav)
-    if container_start(offered.compose) != started:
-        message = f"the service container restarted: {started}"
-        raise SystemExit(message)
+    require_not_restarted(offered.compose, started)
     require_clean_log(offered)
     print(
         f"cell 23: held; then {RESIDENT_VOICE} speaks, {offered.baked.app}'s"
@@ -243,9 +248,7 @@ def fail_without_a_card(offered: Session, voice: VoiceId, wav: bytes) -> None:
     require_refused_unavailable(offered, voice)
     require_workers_found_no_cuda_device(wait_for_workers(stack, 2), 2)
     require_no_worker_residue(before, gpu_voice_report(offered))
-    if container_start(stack) != started:
-        message = f"the service container restarted: {started}"
-        raise SystemExit(message)
+    require_not_restarted(stack, started)
     require_clean_log(offered)
     print(
         "cell 23: held; a second request started a second worker and was refused"
@@ -286,6 +289,7 @@ def cell_card_held_then_freed(session: Session, wav: bytes) -> None:
     """Cells 25 and 26: refused while the card is held, loaded once it is free."""
     baseline = used_mib()
     offered, voice = start_offered(session)
+    started = container_start(offered.compose)
     with held_card() as held_mib:
         require_refused_unavailable(offered, voice)
         require_gpu_voice_down(health_of(offered), voice)
@@ -301,10 +305,12 @@ def cell_card_held_then_freed(session: Session, wav: bytes) -> None:
         raise SystemExit(message)
     reply = speak_voice(offered, voice)
     require_voice_ready(offered, voice)
+    require_not_restarted(offered.compose, started)
     require_clean_log(offered)
     print(
         f"cell 26: held; once the card was free, the next request loaded {voice},"
-        f" which spoke after {reply.first_byte_seconds:.1f} s and is ready, and the"
+        f" which spoke after {reply.first_byte_seconds:.1f} s and is ready, the"
+        " container did not restart through the held and freed requests, and the"
         " log holds no spoken text"
     )
 
