@@ -1,4 +1,3 @@
-body_contract = "block"
 dependency_paths = [
   ".github/workflows/",
   "pyproject.toml",
