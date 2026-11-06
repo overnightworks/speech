@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 _USAGE_DESCRIPTION = "Serve the speech wire over TCP."
 _USAGE_EPILOG = (
     "Configuration comes from the SPEECH_* environment and the file named by "
-    "SPEECH_CONFIG_FILE; the settings table in README.md lists every one."
+    "SPEECH_CONFIG_FILE; docs/wire.md lists every one."
 )
 
 
