@@ -1,0 +1,8 @@
+claim_id = "f42f77f2443c4b84b60b0ca0627541ec"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "3f7b2b649eff354216f2b4eddbd9ce86defc681f"
+branch = "claude/issue-172-wire-gaps"
+scope = ["docs/wire.md", "tests"]
+opened_commit = "969211877799aa85a2a0c012099ae45edd478cd8"
+whole_reason = "The spec's new and reworded rules and the tests that cite them land together, or the spec names IDs no test cites."
