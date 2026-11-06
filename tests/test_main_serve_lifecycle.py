@@ -134,7 +134,7 @@ def test_help_prints_usage_and_exits_zero_without_loading_settings(
     assert finished.returncode == 0
     assert "usage:" in finished.stdout
     assert "SPEECH_CONFIG_FILE" in finished.stdout
-    assert "README" in finished.stdout
+    assert "docs/wire.md" in finished.stdout
     assert finished.stderr == ""
 
 

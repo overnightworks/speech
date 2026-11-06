@@ -8,9 +8,8 @@ what it trusts.
 One process keeps the German Piper voice, and optionally a hearing model,
 resident on the home server, loads each GPU voice the operator offers on its
 first request, and serves them to Presentator and to apps that speak or have a
-recording heard for a person.
-[`README.md`](../README.md) holds the contract and the settings,
-[`wire.md`](wire.md) the speech and transcription wire.
+recording heard for a person. [`README.md`](../README.md) starts it,
+[`wire.md`](wire.md) holds the wire and its settings.
 
 ## Context
 
@@ -91,14 +90,13 @@ flowchart LR
   call has returned: CTranslate2 cannot be interrupted, so a caller that left
   does not free the decode.
 - **One submission owner.** `Hearing` owns a one-worker executor for file and
-  live decodes. A decode is submitted with its lease: the worker closes the lease
-  when the native call returns, the future's done-callback when it was cancelled
-  before it started, and the submitter when the submission fails. At shutdown
-  `Hearing` takes no new submission and frees the engine after the running decode
-  returns.
+  live decodes. A decode carries its lease: the worker closes it when the native
+  call returns, the done-callback when the decode was cancelled before it
+  started, the submitter when the submission fails. At shutdown `Hearing` takes
+  no new submission and frees the engine after the running decode returns.
 - **The live session.** `/v1/realtime` is one state machine per socket. Receiving
   never waits for a decode: audio is resampled from 24 to 16 kHz and scheduled
-  into turns (C2: silence after speech, or the 30 s cap), and decodes run in the
+  into turns (silence after speech, or the 30 s cap), and decodes run in the
   worker. One lock orders messages, polls and results, and the session alone
   decides each item's terminal event, once; a result that arrives after its item's
   terminal is dropped. A session holds two ended turns and the open turn. Both
@@ -120,13 +118,6 @@ deployment that cannot hear is not recorded. Qwen is offered only when the start
 setting names it, and then launches on `cuda`, the provider contract's one device
 for it, whatever device hearing uses; without a card its requests are refused
 and Piper and hearing keep serving.
-
-```mermaid
-flowchart LR
-    app[App container] -->|speak| service[speech-runtime]
-    service -->|key set, https, CA from a file secret| gateway[Internal gateway]
-    gateway --> issuer[Identity issuer]
-```
 
 The service sits on three external, internal networks and no default one: one
 shared with the gateway that carries the key set, and one per app, shared with
@@ -162,10 +153,48 @@ The root is read-only, the user is not root and no capability is kept.
   no spoken or heard text reaches a log.
 - A refusal never says which token or claim failed beyond its code.
 
-Residues:
+## Constraints and reasons
 
-- A copied token works until its `exp`, with no leeway; tokens carry
-  no sender constraint.
-- The issuer's `account` audience stays in a token's `aud` (webauth#516,
-  invariant 3).
-- `/health` carries no token; the network boundary is its only guard.
+- **The operator owns the card.** The service knows nothing of another GPU user
+  and arbitrates nothing. `SPEECH_GPU_VOICES` is his switch, Piper alone by
+  default, and a loaded GPU voice keeps the card until the process ends.
+- **The service never downloads.** Shipped commands fetch voices and hearing
+  models at a pinned revision, so a release tag fixes what runs and the
+  container needs no egress.
+- **Piper is resident and on the CPU.** A taken card never silences speaking,
+  and a failed Piper load ends the process.
+
+## Not chosen
+
+- **Kokoro-German:** the official Kokoro has no documented German and the
+  community fine-tune warns it is undertrained; reopens when German is trained.
+- **XTTS-v2 and its forks:** the Coqui Public Model License excludes commercial
+  use; reopens if the weights get a permissive licence.
+- **Orpheus (`Thorsten-Voice/tv-orpheus-v1`):** a 3B talker of about 8 GB, its
+  first audio never measured here; reopens when it is measured inside the
+  one-second first-audio target.
+- **Chatterbox, Magpie and VoxCPM:** each GPU voice costs its own environment,
+  weights and card proof; reopens when the operator names a voice he wants.
+- **Piper `thorsten-high`:** first audio took 1.21 s through the service, over
+  the one-second target; reopens if the target moves.
+- **Streaming Qwen:** `qwen-tts` 0.1.1 returns a complete waveform; reopens with
+  a release that streams.
+- **Freeing a GPU voice or arbitrating the card in the service:** the operator
+  turns a voice off in the setting; reopens when he forgets that often, with a
+  second card or with a platform-level reservation.
+
+## Risks
+
+- The platform moves to k3s and Flux, which replace Compose and hal. Until the
+  switch `compose.yaml` runs the service, naming no GPU voice and reserving no
+  card: it speaks with Piper and hears on the CPU. The card reservation and its
+  proof wait for the platform's GPU design.
+- A GPU voice is proven with a fake worker and an image proof on a runner
+  without a card; Qwen has not run in the image on the target card, so its
+  latency through the service is unmeasured.
+- Qwen's first audio can take longer than `SPEECH_BUSY_WAIT_SECONDS`, so a
+  second request for it may answer `busy` while one long sentence runs.
+- The service imports `piper-tts`, which is `GPL-3.0-or-later`, in a repository
+  licensed MIT; the obligation that follows is not settled here.
+- A copied token works until its `exp`, with no leeway; tokens carry no sender
+  constraint, and the issuer's `account` audience stays in a token's `aud`.
