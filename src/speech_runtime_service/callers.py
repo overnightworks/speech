@@ -90,7 +90,7 @@ class SpeechCallers:
                 jwks_url=identity.jwks_url,
                 workload_role=identity.workload_role,
                 group_claim=identity.group_claim,
-                leeway_seconds=identity.leeway_seconds,
+                leeway_seconds=0,  # the service accepts no clock skew
             ),
             registered_apps=registered,
             fetch_key_set=fetch_key_set,

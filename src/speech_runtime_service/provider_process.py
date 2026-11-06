@@ -319,7 +319,7 @@ class ProviderProcess:
         entrypoint = self._executable
         if not is_executable_file(entrypoint):
             raise ProviderUnavailableError
-        directory = provider_directory(entrypoint)
+        directory = entrypoint.parents[2]
         return subprocess.Popen(  # noqa: S603 - argv is the fixed provider entrypoint and flags with no shell
             [
                 str(entrypoint),
@@ -521,11 +521,6 @@ def provider_entrypoint(
         / "bin"
         / (f"speech-runtime-{provider.value}-worker")
     )
-
-
-def provider_directory(entrypoint: Path) -> Path:
-    """The provider's own directory, which holds the environment of `entrypoint`."""
-    return entrypoint.parents[2]
 
 
 def is_executable_file(entrypoint: Path | None) -> bool:

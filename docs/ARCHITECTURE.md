@@ -164,7 +164,7 @@ The root is read-only, the user is not root and no capability is kept.
 
 Residues:
 
-- A copied token works until its `exp` plus the configured leeway; tokens carry
+- A copied token works until its `exp`, with no leeway; tokens carry
   no sender constraint.
 - The issuer's `account` audience stays in a token's `aud` (webauth#516,
   invariant 3).

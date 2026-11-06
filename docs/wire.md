@@ -254,8 +254,7 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
   service trusts. The service does not start without a valid file. The
   `[identity]` table holds `issuer`, `jwks_url` (https; it may carry a
   credential and is never printed), `audience`, `workload_role`, `group_claim`,
-  `service_group` (a group path such as `/services/speech-service`) and
-  `leeway_seconds` (default 0). Each `[apps.<name>]` table, at least one,
+  `service_group` (a group path such as `/services/speech-service`). Each `[apps.<name>]` table, at least one,
   holds `workload_client`, the client id of that app's workload token; a client
   belongs to one app, and the app group `/apps/<name>` follows from the name; and
   `voices`, required, at least one catalogue id: the voices that app may name;

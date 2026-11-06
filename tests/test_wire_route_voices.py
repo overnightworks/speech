@@ -168,7 +168,7 @@ def test_missing_tokens_are_unauthorized_before_the_voice_is_checked() -> None:
     assert_refusal(response, HTTP_401_UNAUTHORIZED, RefusalCode.UNAUTHORIZED, None)
 
 
-@pytest.mark.parametrize("voice", ["alloy", "voxcpm2", "nvidia-magpie", "chatterbox"])
+@pytest.mark.parametrize("voice", ["alloy", "no-such-voice", "unlisted"])
 def test_a_voice_outside_the_catalogue_stays_invalid_and_not_forbidden(
     voice: str,
 ) -> None:
