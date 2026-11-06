@@ -60,6 +60,8 @@ def test_settings_read_speech_environment(monkeypatch: pytest.MonkeyPatch) -> No
         ("SPEECH_HEARING_MODEL", "gigantic"),
         ("SPEECH_HEARING_BUSY_WAIT_SECONDS", "-1"),
         ("SPEECH_HEARING_MAX_WAITING_REQUESTS", "-1"),
+        ("SPEECH_HEARING_FINAL_WAIT_SECONDS", "0"),
+        ("SPEECH_HEARING_FINAL_WAIT_SECONDS", "-1"),
         ("SPEECH_MAX_RECORDING_BYTES", "0"),
         ("SPEECH_MAX_RECORDING_SECONDS", "0"),
         ("SPEECH_MAX_RECORDING_SECONDS", "inf"),
@@ -68,7 +70,10 @@ def test_settings_read_speech_environment(monkeypatch: pytest.MonkeyPatch) -> No
 def test_the_wire_settings_refuse_values_that_cannot_hold(
     monkeypatch: pytest.MonkeyPatch, name: str, value: str
 ) -> None:
-    """WIRE-108, WIRE-109, WIRE-110, WIRE-111, WIRE-121: bad values are refused."""
+    """WIRE-108, WIRE-109, WIRE-110, WIRE-111, WIRE-120, WIRE-121: values are refused.
+
+    A value that cannot hold is refused, naming the setting.
+    """
     monkeypatch.setenv(name, value)
 
     with pytest.raises(ValidationError, match=name.removeprefix("SPEECH_").lower()):
@@ -95,10 +100,11 @@ def test_the_wire_settings_accept_the_smallest_whole_limit_and_no_wait(
 def test_the_hearing_settings_are_read_from_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """WIRE-117, WIRE-118, WIRE-121: hearing settings are read from the environment."""
+    """WIRE-117, WIRE-118, WIRE-120, WIRE-121: hearing settings are read."""
     monkeypatch.setenv("SPEECH_HEARING_MODEL", HearingModel.LARGE_V3.value)
     monkeypatch.setenv("SPEECH_HEARING_BUSY_WAIT_SECONDS", "0")
     monkeypatch.setenv("SPEECH_HEARING_MAX_WAITING_REQUESTS", "0")
+    monkeypatch.setenv("SPEECH_HEARING_FINAL_WAIT_SECONDS", "0.5")
     monkeypatch.setenv("SPEECH_MAX_RECORDING_BYTES", "1")
     monkeypatch.setenv("SPEECH_MAX_RECORDING_SECONDS", "0.5")
 
@@ -107,6 +113,7 @@ def test_the_hearing_settings_are_read_from_the_environment(
     assert settings.hearing_model is HearingModel.LARGE_V3
     assert settings.hearing_busy_wait_seconds == 0
     assert settings.hearing_max_waiting_requests == 0
+    assert settings.hearing_final_wait_seconds == float("0.5")
     assert settings.max_recording_bytes == 1
     assert settings.max_recording_seconds == float("0.5")
 

@@ -5,6 +5,7 @@ import asyncio
 import pytest
 from fastapi.testclient import TestClient
 from starlette.status import (
+    HTTP_200_OK,
     HTTP_400_BAD_REQUEST,
     HTTP_401_UNAUTHORIZED,
     HTTP_403_FORBIDDEN,
@@ -33,6 +34,9 @@ from tests.support.hear_support import (
     hear_app,
     hear_runtime,
     hearing_gate_is_free,
+    multipart_body,
+    post_recording,
+    recording,
 )
 from tests.support.identity_support import (
     APP,
@@ -217,6 +221,20 @@ def test_a_session_beyond_the_bound_is_denied_as_busy_until_one_leaves() -> None
     _assert_denied(denial, HTTP_429_TOO_MANY_REQUESTS, RefusalCode.BUSY, None)
     assert int(denial.headers[RETRY_AFTER_HEADER]) >= 1
     assert reopened["type"] == "session.created"
+
+
+def test_a_recording_is_heard_while_a_live_session_sits_idle() -> None:
+    """WIRE-54: an idle session holds its place only, never the decode."""
+    engine = FakeHearing()
+    client = _client(engine, hearing_busy_wait_seconds=0)
+
+    with client.websocket_connect(URL, headers=valid_headers()) as idle:
+        idle.receive_json()
+        response = post_recording(client, multipart_body(file=recording()))
+
+    assert response.status_code == HTTP_200_OK
+    assert response.json() == {"text": HEARD_TEXT}
+    assert len(engine.heard) == 1
 
 
 def _upgrade_scope() -> dict[str, object]:

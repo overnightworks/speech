@@ -127,6 +127,8 @@ def test_tcp_streams_speak_while_the_voice_is_still_synthesizing() -> None:
 
 
 def test_tcp_speak_disconnect_frees_the_voice_for_the_next_caller() -> None:
+    """WIRE-132: a speak caller that has gone leaves its voice free."""
+
     async def scenario() -> tuple[GatedSpeaking, httpx2.Response]:
         voice = GatedSpeaking(hold_last_chunk=True)
         voice.release_first_step.set()
@@ -208,6 +210,8 @@ def test_tcp_speak_failure_aborts_the_body_and_the_next_request_is_whole(
 
 @pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
 def test_tcp_serves_no_api_documentation(path: str) -> None:
+    """WIRE-131: no API documentation is served."""
+
     async def scenario() -> httpx2.Response:
         async with (
             serving_over_tcp(_gated_runtime(GatedSpeaking())) as server,
