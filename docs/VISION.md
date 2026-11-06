@@ -1,6 +1,6 @@
 # speech-runtime vision
 
-## The wish
+## What it does
 
 A speech service that gives any app a voice and an ear. It turns text into
 natural speech and speech into text with AI models, behind one interface that
