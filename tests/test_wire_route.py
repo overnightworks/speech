@@ -477,10 +477,7 @@ def test_speak_streams_a_full_response_through_the_raw_asgi_boundary() -> None:
 
 
 def test_speak_disconnect_between_chunks_frees_the_voice_for_the_next_request() -> None:
-    """WIRE-132: a caller that goes between chunks frees the voice.
-
-    ASGI2.3 cancels the send-side task while it awaits `send()` holding a chunk.
-    """
+    """WIRE-132: ASGI2.3 cancels the send-side task while `send()` holds a chunk."""
 
     async def scenario() -> tuple[list[dict[str, object]], list[dict[str, object]]]:
         voice = GatedSpeaking()
@@ -510,10 +507,7 @@ def test_speak_disconnect_between_chunks_frees_the_voice_for_the_next_request() 
 
 
 def test_speak_disconnect_during_synthesis_frees_the_voice() -> None:
-    """WIRE-132: a caller that goes during synthesis frees the voice.
-
-    ASGI2.3 defers cancellation until the in-flight thread-pool `next()` returns.
-    """
+    """WIRE-132: ASGI2.3 defers cancellation until the in-flight `next()` returns."""
 
     async def scenario() -> list[dict[str, object]]:
         voice = GatedSpeaking()
