@@ -46,7 +46,6 @@ from speech_runtime_client.wire import (
     speech_request_headers,
 )
 from speech_runtime_service.config import load_settings
-from speech_runtime_service.cuda_libs import cuda_library_dirs
 from speech_runtime_service.pcm import BYTES_PER_SAMPLE
 from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId, model_for_voice
 
@@ -690,14 +689,6 @@ def free_local_port() -> int:
         return probe.getsockname()[1]
 
 
-def add_cuda_library_path(env: dict[str, str]) -> None:
-    """Put the bundled CUDA libraries on `env`'s loader path."""
-    cuda_dirs = ":".join(str(path) for path in cuda_library_dirs())
-    if cuda_dirs:
-        existing = env.get("LD_LIBRARY_PATH", "")
-        env["LD_LIBRARY_PATH"] = f"{cuda_dirs}:{existing}" if existing else cuda_dirs
-
-
 def speech_environment(
     port: int,
     voice: VoiceId,
@@ -727,7 +718,6 @@ def speech_environment(
     )
     env.setdefault("HF_HUB_OFFLINE", "1")
     env.setdefault("TRANSFORMERS_OFFLINE", "1")
-    add_cuda_library_path(env)
     return env
 
 
