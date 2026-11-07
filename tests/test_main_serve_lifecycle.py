@@ -25,6 +25,7 @@ from tests.support.tcp_server_support import (
     answers_http,
     free_loopback_port,
     listens_on,
+    wait_until_listening,
 )
 
 if TYPE_CHECKING:
@@ -32,13 +33,8 @@ if TYPE_CHECKING:
 
     import uvicorn
 
-_SIGTERM_SERVER = """
-import asyncio
-import os
-from speech_runtime_service import __main__
-from speech_runtime_service.config import Settings
+_LOADABLE_RUNTIME = """
 from speech_runtime_service.service import Runtime, RuntimeDependencies
-from speech_runtime_service.voices import VoiceId
 from tests.support.fakes_support import FakeSpeaking
 
 Runtime.from_settings = lambda _settings: Runtime(
@@ -48,9 +44,21 @@ Runtime.from_settings = lambda _settings: Runtime(
         missing_artifacts=lambda _voice: (),
     ),
 )
+"""
+
+_SIGTERM_SERVER = (
+    """
+import asyncio
+import os
+from speech_runtime_service import __main__
+from speech_runtime_service.config import Settings
+"""
+    + _LOADABLE_RUNTIME
+    + """
 settings = Settings(port=int(os.environ["SPEECH_PORT"]))
 raise SystemExit(asyncio.run(__main__.serve(settings)))
 """
+)
 
 
 def test_sigterm_stops_the_real_server_and_exits_zero_with_nothing_listening(
@@ -87,6 +95,11 @@ def test_python_dash_m_starts_the_service_listening_on_the_configured_port(
     """WIRE-01: python dash m starts the service listening on the configured port."""
     port = free_loopback_port()
     speech_root = Path(__file__).resolve().parents[1]
+    # The interpreter imports this sitecustomize before `-m`, so the real entry
+    # point runs against a model load that succeeds and the server stays up.
+    startup_hook = tmp_path / "startup_hook"
+    startup_hook.mkdir()
+    (startup_hook / "sitecustomize.py").write_text(_LOADABLE_RUNTIME)
     environment = {
         **os.environ,
         "SPEECH_PORT": str(port),
@@ -94,7 +107,9 @@ def test_python_dash_m_starts_the_service_listening_on_the_configured_port(
         "HF_HUB_OFFLINE": "1",
         "HF_HOME": str(tmp_path / "hf"),
         "SPEECH_CONFIG_FILE": str(write_caller_configuration(tmp_path)),
-        "PYTHONPATH": str(speech_root),
+        "PYTHONPATH": os.pathsep.join(
+            [str(startup_hook), str(speech_root), str(speech_root / "scripts")]
+        ),
     }
     with subprocess.Popen(
         [sys.executable, "-m", "speech_runtime_service"],
@@ -102,10 +117,7 @@ def test_python_dash_m_starts_the_service_listening_on_the_configured_port(
         env=environment,
     ) as server:
         try:
-            deadline = time.monotonic() + 30
-            while not listens_on(port):
-                assert time.monotonic() < deadline
-                time.sleep(0.05)
+            wait_until_listening(server, port)
         finally:
             server.kill()
 
