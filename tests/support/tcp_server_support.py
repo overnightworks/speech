@@ -3,6 +3,7 @@
 import asyncio
 import http.client
 import socket
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -15,6 +16,7 @@ from tests.support.fakes_support import GATE_TIMEOUT_SECONDS
 from tests.support.identity_support import valid_callers
 
 if TYPE_CHECKING:
+    import subprocess
     from collections.abc import AsyncIterator
 
     from starlette.types import Message, Receive, Scope, Send
@@ -36,6 +38,17 @@ def listens_on(port: int) -> bool:
     """Whether a TCP connection to the loopback port is accepted."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         return probe.connect_ex((_LOOPBACK, port)) == 0
+
+
+def wait_until_listening(
+    server: subprocess.Popen[bytes], port: int, timeout_seconds: float = 30
+) -> None:
+    """Return once the loopback port accepts; fail at once if the process exited."""
+    deadline = time.monotonic() + timeout_seconds
+    while not listens_on(port):
+        assert server.poll() is None, "the process exited before it listened"
+        assert time.monotonic() < deadline, "the process never listened"
+        time.sleep(0.05)
 
 
 def answers_http(port: int) -> bool:
