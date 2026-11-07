@@ -2,9 +2,8 @@
 
 webauth proves the tokens (`ServiceCallerCheck.person_caller`); this module adds
 the policy that is the service's: only a person call is admitted, the person
-must belong to exactly the configured service group, an app may name only the
-voices its table lists. It logs
-nothing, and nothing taken from a token leaves it.
+must belong to exactly the configured service group. It logs nothing, and
+nothing taken from a token leaves it.
 """
 
 from __future__ import annotations
@@ -28,14 +27,11 @@ from speech_runtime_client.wire import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from starlette.datastructures import Headers
     from webauth.jwt_verification import KeySetFetch, MonotonicClock
     from webauth.ports import WallClock
 
     from speech_runtime_service.config import CallerConfig
-    from speech_runtime_service.voices import VoiceId
 
 _BEARER_SCHEME: Final = "bearer"
 _REFUSAL_CODE: Final = {
@@ -52,12 +48,10 @@ class SpeechCallers:
         self,
         check: ServiceCallerCheck,
         service_group: str,
-        voices_by_app: Mapping[str, frozenset[VoiceId]],
     ) -> None:
-        """Hold `check`, the person's group, and each app's voices."""
+        """Hold `check` and the person's group."""
         self._check = check
         self._service_group = service_group
-        self._voices_by_app = voices_by_app
 
     @classmethod
     def from_config(
@@ -95,8 +89,7 @@ class SpeechCallers:
             wall_clock=wall_clock,
             monotonic_clock=monotonic_clock,
         )
-        voices_by_app = {name: app.voices for name, app in config.apps.items()}
-        return cls(check, identity.service_group, voices_by_app)
+        return cls(check, identity.service_group)
 
     async def admit(self, headers: Headers) -> PersonCaller | RefusalCode:
         """The person call the request's tokens prove, or the refusal to answer."""
@@ -110,10 +103,6 @@ class SpeechCallers:
         if self._service_group not in caller.groups:
             return RefusalCode.FORBIDDEN
         return caller
-
-    def may_name(self, app: str, voice: VoiceId) -> bool:
-        """Whether the configuration lists `voice` for the admitted `app`."""
-        return voice in self._voices_by_app[app]
 
 
 def _bearer_token(authorization: str | None) -> str | None:

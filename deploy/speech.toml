@@ -11,8 +11,6 @@ service_group = "/services/speech-service"
 
 [apps.hopin]
 workload_client = "hopin"
-voices = ["piper", "qwen3-tts-0.6b"]
 
 [apps.presentator]
 workload_client = "presentator"
-voices = ["piper", "qwen3-tts-0.6b"]

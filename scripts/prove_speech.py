@@ -738,7 +738,7 @@ def _prove() -> None:
     base_url = f"http://{LOOPBACK_HOST}:{port}"
     voice = proof_voice(load_settings().gpu_voices)
     try:
-        with proof_identity(work_directory, voice.value) as identity:
+        with proof_identity(work_directory) as identity:
             minting = load_minting(identity.minting_path)
             env = speech_environment(port, voice, identity)
             with speech_server(base_url, env, work_directory) as running:

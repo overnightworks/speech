@@ -46,7 +46,7 @@ flowchart LR
   Piper is resident, every other voice is a GPU voice. `Runtime.from_settings`
   composes the offer, Piper's slot plus one slot per voice `SPEECH_GPU_VOICES`
   names, so no state offers voices without Piper. The offer decides which voice
-  may take the card; the caller table decides which app may name it.
+  may take the card.
 - **Piper at start, a GPU voice on its first request.** The start loads Piper,
   then hearing; a failed Piper load ends the process. A GPU slot stays idle,
   with no process and no CUDA context, until a request names it. Its first
@@ -146,7 +146,7 @@ The root is read-only, the user is not root and no capability is kept.
   same client, name another subject, belong to the app's group or a group below
   it and belong exactly to the configured service group. A call an app makes as itself is refused.
 - Which issuer, group and apps count is configuration
-  (`SPEECH_CONFIG_FILE`); each app may name only the voices its table lists.
+  (`SPEECH_CONFIG_FILE`).
 - No token, subject or key-set address reaches a log, an error or a repr, and
   no spoken or heard text reaches a log.
 - A refusal never says which token or claim failed beyond its code.

@@ -224,17 +224,14 @@ def _loadable_runtime() -> Runtime:
 @pytest.mark.parametrize(
     ("apps", "named"),
     [
-        ('workload_client = "quiz-client"', "voices"),
-        ('workload_client = "quiz-client"\nvoices = []', "voices"),
         ('workload_client = "quiz-client"\nvoices = ["alloy"]', "voices"),
-        ('workload_client = "quiz-client"\nvoices = "piper"', "voices"),
-        ('workload_client = "quiz-client"\nvoices = ["piper"]\nspeak = true', "speak"),
-        ('workload_client = "quiz-client"\nvoices = ["piper"]\nhear = true', "hear"),
+        ('workload_client = "quiz-client"\nspeak = true', "speak"),
+        ('workload_client = "quiz-client"\nhear = true', "hear"),
     ],
-    ids=["missing", "empty", "unknown voice", "not a list", "speak flag", "hear flag"],
+    ids=["voices key", "speak flag", "hear flag"],
 )
 def test_a_bad_app_table_stops_the_start(tmp_path: Path, apps: str, named: str) -> None:
-    """WIRE-112, WIRE-114, WIRE-115, WIRE-116: wrong voices stop the start."""
+    """WIRE-112, WIRE-114, WIRE-116: a removed or unknown app key stops the start."""
     speech_root = Path(__file__).resolve().parents[1]
     environment = {
         **os.environ,

@@ -13,8 +13,8 @@ standard works with it unchanged.
   spoken.
 - **Interchangeable models:** new voices and hearing models join by
   configuration, and no app has to change for it.
-- **Trusted callers only:** it serves the apps it knows, each with what it may
-  use, and says clearly when it cannot serve a request.
+- **Trusted callers only:** it serves the apps it knows, each with everything it
+  offers, and says clearly when it cannot serve a request.
 
 ## Who uses it today
 
@@ -25,5 +25,5 @@ through it live yet.
 
 - It does not understand or answer; it speaks and hears, and what is said
   belongs to the app.
-- It knows nothing about its callers beyond what each may use.
+- It knows nothing about its callers beyond which apps are registered.
 - It keeps nothing it hears or speaks.

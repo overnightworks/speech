@@ -27,7 +27,6 @@ from speech_runtime_client.wire import (
 )
 from speech_runtime_service.config import Settings
 from speech_runtime_service.control import create_control_app
-from speech_runtime_service.voices import VoiceId
 from tests.support.hear_support import (
     HEARD_TEXT,
     WAIT_SECONDS,
@@ -95,7 +94,7 @@ def test_a_session_hears_a_committed_turn_and_ends_when_the_client_leaves() -> N
 
 def test_a_registered_app_with_no_hearing_key_opens_a_live_session() -> None:
     """WIRE-48, WIRE-114: every registered app opens a session without a hearing key."""
-    callers = callers_of_two_apps([VoiceId.PIPER], [VoiceId.PIPER])
+    callers = callers_of_two_apps()
     client = TestClient(
         create_control_app(Settings(), hear_runtime(FakeHearing()), callers)
     )

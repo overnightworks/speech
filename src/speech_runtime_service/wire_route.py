@@ -131,8 +131,6 @@ class _SpeechRoute:
         if isinstance(parsed, JSONResponse):
             return parsed
         text, voice = parsed
-        if not self._callers.may_name(admitted.app, voice):
-            return _refused(RefusalCode.FORBIDDEN, "voice")
         engine = await self._engine(voice, accepted)
         if isinstance(engine, JSONResponse):
             return engine

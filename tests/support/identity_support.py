@@ -29,17 +29,15 @@ from speech_runtime_service.config import (
     IdentityConfig,
     load_caller_config,
 )
-from speech_runtime_service.voices import VoiceId
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable
     from pathlib import Path
 
 ISSUER = "https://identity.test/realm"
 KEY_SET_ADDRESS = "https://identity.test/certs?credential=SENTINEL-KEY-SET-CREDENTIAL"
 APP = "quiz"
 OTHER_APP = "other"
-ALL_VOICES = frozenset(VoiceId)
 KEY_BITS = 2048
 
 
@@ -161,13 +159,8 @@ OTHER_MINTING = replace(
 )
 
 
-def caller_config(
-    voices: Iterable[VoiceId] = ALL_VOICES, **identity: object
-) -> CallerConfig:
-    """The service configuration that trusts the scenario issuer.
-
-    The one app lists `voices`, by default every catalogue voice.
-    """
+def caller_config(**identity: object) -> CallerConfig:
+    """The service configuration that trusts the scenario issuer, with one app."""
     facts = {
         "issuer": MINTING.issuer,
         "jwks_url": KEY_SET_ADDRESS,
@@ -178,27 +171,16 @@ def caller_config(
     } | identity
     return CallerConfig(
         identity=IdentityConfig(**facts),
-        apps={
-            APP: AppConfig(
-                workload_client=MINTING.client_id,
-                voices=frozenset(voices),
-            )
-        },
+        apps={APP: AppConfig(workload_client=MINTING.client_id)},
     )
 
 
-def callers_of_two_apps(
-    quiz_voices: Iterable[VoiceId], other_voices: Iterable[VoiceId]
-) -> SpeechCallers:
-    """Callers on real clocks over `APP` and `OTHER_APP`, each with its own list."""
+def callers_of_two_apps() -> SpeechCallers:
+    """Callers on real clocks over `APP` and `OTHER_APP`."""
     config = caller_config()
     apps = {
-        APP: AppConfig(
-            workload_client=MINTING.client_id, voices=frozenset(quiz_voices)
-        ),
-        OTHER_APP: AppConfig(
-            workload_client=OTHER_MINTING.client_id, voices=frozenset(other_voices)
-        ),
+        APP: AppConfig(workload_client=MINTING.client_id),
+        OTHER_APP: AppConfig(workload_client=OTHER_MINTING.client_id),
     }
     return SpeechCallers.from_config(
         config.model_copy(update={"apps": apps}),
@@ -232,10 +214,10 @@ def callers_trusting(configuration_path: Path, minting: Minting) -> SpeechCaller
     )
 
 
-def valid_callers(voices: Iterable[VoiceId] = ALL_VOICES) -> SpeechCallers:
-    """Callers on real clocks that accept `valid_headers()`; the app lists `voices`."""
+def valid_callers() -> SpeechCallers:
+    """Callers on real clocks that accept `valid_headers()`."""
     return SpeechCallers.from_config(
-        caller_config(voices),
+        caller_config(),
         fetch_key_set=FakeKeySet(DEFAULT_KEY),
         wall_clock=time.time,
         monotonic_clock=time.monotonic,
@@ -286,16 +268,13 @@ def caller_configuration_text(
     *,
     identity: str = "",
     apps: str | None = None,
-    voices: Iterable[VoiceId] = ALL_VOICES,
 ) -> str:
     """The TOML file that trusts the scenario issuer, as the service reads it.
 
-    `identity` adds lines to the identity table; `apps` replaces the app tables;
-    the default app lists `voices`.
+    `identity` adds lines to the identity table; `apps` replaces the app tables.
     """
     registered = (
         f"[apps.{APP}]\nworkload_client = {json.dumps(MINTING.client_id)}\n"
-        f"voices = {json.dumps([voice.value for voice in voices])}\n"
         if apps is None
         else apps
     )

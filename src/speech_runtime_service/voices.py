@@ -38,6 +38,9 @@ class VoiceId(StrEnum):
 RESIDENT_VOICE: Final = VoiceId.PIPER
 """The voice loaded at start and always offered; every other voice is a GPU voice."""
 
+GPU_VOICES: Final = tuple(voice for voice in VoiceId if voice is not RESIDENT_VOICE)
+"""Every catalogue voice other than the resident one."""
+
 _MODELS: Final[dict[VoiceId, str]] = {
     VoiceId.PIPER: DEFAULT_SPEAKING_MODEL,
     VoiceId.QWEN: QWEN_MODEL_ID,

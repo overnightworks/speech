@@ -30,7 +30,6 @@ byte cap, and answers with a typed outcome; its module documents them.
 | WIRE-05 | `model` | `speech-runtime`. Any other value is refused, so a request naming another model is never answered by this one. |
 | WIRE-06 | `input` | Text with at least one letter or digit, at most `SPEECH_MAX_INPUT_CHARACTERS` characters (default 4096; the operator may raise it above OpenAI's 4096). |
 | WIRE-07 | `voice` | The id of an offered voice: `piper`, always offered, or `qwen3-tts-0.6b` when `SPEECH_GPU_VOICES` names it. |
-| WIRE-08 | `voice` | The voice must be listed for the calling app (`voices` in its configuration). |
 | WIRE-09 | `voice` | A GPU voice that is not loaded yet loads for this request, which waits for the load. |
 | WIRE-10 | `response_format` | `wav`. OpenAI defaults an absent field to `mp3`, so it is required here. |
 
@@ -57,10 +56,8 @@ when both tokens are valid and belong together:
 
 **WIRE-16** The service checks the headers before it reads the body, and **WIRE-17** the wait of
 `busy` starts only after the tokens are accepted, or, for a request that
-waited for its voice to load, when that load ends. **WIRE-18** A catalogue voice the app
-does not list is refused as `forbidden` after the body checks and before the
-offer is checked, so the answer never says which voices are offered; **WIRE-19** an unknown
-voice stays `invalid_request`. **WIRE-20** Calls an app makes as itself,
+waited for its voice to load, when that load ends. **WIRE-19** An unknown voice is
+`invalid_request` with `param` `voice`. **WIRE-20** Calls an app makes as itself,
 without a person, are not offered in version 1.
 
 ## Admission
@@ -229,7 +226,7 @@ names is not part of the contract.
 | WIRE-95 | `unsupported_version` | 400 | any method or upgrade on `/v{n}` or `/v{n}/...` with `n` other than 1 | |
 | WIRE-96 | `not_found` | 404 | any other path, method or upgrade under version 1 | |
 | WIRE-97 | `unauthorized` | 401 | a token is missing, malformed, expired, for another issuer or audience, badly signed, or lacks a subject or a valid group claim | `WWW-Authenticate`: `Bearer` |
-| WIRE-98 | `forbidden` | 403 | both tokens are valid but do not permit the request: not a workload token, an unregistered app, tokens of different clients or of one subject, a person outside the app group or the service group, or a voice the app's configuration does not list (`param` `voice`) | |
+| WIRE-98 | `forbidden` | 403 | both tokens are valid but do not permit the request: not a workload token, an unregistered app, tokens of different clients or of one subject, a person outside the app group or the service group | |
 | WIRE-100 | `invalid_request` | 422 | the body is not a JSON object, a field is missing, unknown or mistyped, a value is not accepted, or `input` is empty, without a letter or digit, or over the limit; for a recording: the form or `file` is missing, a field is unknown or not accepted, or the audio cannot be decoded (`param` `file`) | |
 | WIRE-101 | `too_large` | 413 | the body is over `SPEECH_MAX_BODY_BYTES` (a recording: `SPEECH_MAX_RECORDING_BYTES`), or the recording is longer than `SPEECH_MAX_RECORDING_SECONDS` (`param` `file`) | |
 | WIRE-102 | `busy` | 429 | the one synthesis (a recording: the one decode) is taken and its waiting places are taken (answered at once), or it is not free within its wait: `SPEECH_MAX_WAITING_REQUESTS` and `SPEECH_BUSY_WAIT_SECONDS`, for a recording `SPEECH_HEARING_MAX_WAITING_REQUESTS` and `SPEECH_HEARING_BUSY_WAIT_SECONDS` | `Retry-After`: the wait in whole seconds, at least 1 |
@@ -262,9 +259,8 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
   credential and is never printed), `audience`, `workload_role`, `group_claim`,
   `service_group` (a group path such as `/services/speech-service`). **WIRE-114** Each `[apps.<name>]` table, at least one,
   holds `workload_client`, the client id of that app's workload token; a client
-  belongs to one app, and the app group `/apps/<name>` follows from the name; and
-  `voices`, required, at least one catalogue id: the voices that app may name;
-  every registered app may hear. **WIRE-115** An unknown id is refused at start. **WIRE-116** Unknown keys are refused.
+  belongs to one app, and the app group `/apps/<name>` follows from the name.
+  Every registered app may name every offered voice and may hear. **WIRE-116** Unknown keys are refused.
 - **WIRE-117** `SPEECH_HEARING_MODEL` (`large-v3` or `small`, none when absent): the hearing
   model the process loads at start. With none, hearing is `unavailable`.
 - **WIRE-118** `SPEECH_HEARING_BUSY_WAIT_SECONDS` (default `30.0`, at least 0) and
