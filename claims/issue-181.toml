@@ -1,0 +1,8 @@
+claim_id = "a424923252df439997f0c540c4042118"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "b4ec4a0cd0a1b8e2e4bfc72c86daf12406e300e1"
+branch = "claude/issue-181-the-client-makes-the-bounded-speaking-ca"
+scope = ["README.md", "docs/ARCHITECTURE.md", "docs/wire.md", "packages/client/pyproject.toml", "packages/client/src/speech_runtime_client/speak.py", "providers/provider-contract/pyproject.toml", "providers/qwen/uv.lock", "pyproject.toml", "scripts/contract_client.py", "tests/scripts/test_contract_client.py", "tests/test_client_speak.py", "uv.lock"]
+opened_commit = "131d383139da2ff323eccef303f9c4ae61598b6a"
+whole_reason = "One call, its in-repo caller and the version it is released at; the docs and lock entries move with them."
