@@ -251,10 +251,14 @@ def test_an_answer_that_ends_before_it_is_whole_is_cut(
     assert outcome == Cut()
 
 
+_CANONICAL = refusal(RefusalCode.INVALID_REQUEST)
 _ECHOED = (
-    refusal(RefusalCode.INVALID_REQUEST)
+    _CANONICAL.model_copy(
+        update={
+            "error": _CANONICAL.error.model_copy(update={"message": PERSON_TOKEN}),
+        },
+    )
     .model_dump_json()
-    .replace("The request is not valid.", PERSON_TOKEN)
     .encode()
 )
 _BUSY_WITHOUT_WAIT = _refusal_response("429 Too Many Requests", RefusalCode.BUSY)
@@ -313,6 +317,15 @@ _BUSY_WITHOUT_WAIT = _refusal_response("429 Too Many Requests", RefusalCode.BUSY
             ),
             id="refusal-body-over-64-kib",
         ),
+        pytest.param(
+            _WAV_HEAD
+            + _chunk(b"RIFF")
+            + b"0\r\n"
+            + b"X-Trailer: "
+            + b"a" * 70_000
+            + b"\r\n\r\n",
+            id="trailer-line-too-long",
+        ),
     ],
 )
 def test_an_answer_that_breaks_the_wire_is_malformed(raw: bytes) -> None:
@@ -321,6 +334,14 @@ def test_an_answer_that_breaks_the_wire_is_malformed(raw: bytes) -> None:
         outcome = _speak(base_url)
 
     assert outcome == Malformed()
+
+
+def test_a_chunked_wav_with_a_trailer_is_spoken() -> None:
+    raw = _WAV_HEAD + _chunk(b"RIFF") + b"0\r\nX-Trailer: 1\r\n\r\n"
+    with _raw_listener(_sends(raw)) as (base_url, _):
+        outcome = _speak(base_url)
+
+    assert outcome == Spoken(b"RIFF")
 
 
 def test_the_request_is_the_wires_body_and_headers() -> None:
