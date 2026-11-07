@@ -1,8 +1,0 @@
-claim_id = "679656041b334b35862bedc9d77e603a"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "41b8fec3b74a62f600a387d4fd32723706396ddd"
-branch = "claude/issue-186-the-service-speaks-in-a-compressed-forma"
-scope = ["docs/wire.md", "packages/client/pyproject.toml", "packages/client/src/speech_runtime_client/speak.py", "packages/client/src/speech_runtime_client/wire.py", "packages/client/tests/test_speak.py", "packages/client/tests/test_wire.py", "providers/provider-contract/pyproject.toml", "providers/qwen/uv.lock", "pyproject.toml", "scripts/contract_client.py", "scripts/image_judgement.py", "scripts/image_stack.py", "scripts/prove_hearing.py", "scripts/prove_speech.py", "src/speech_runtime_service/audio_response.py", "src/speech_runtime_service/ogg_opus.py", "src/speech_runtime_service/service.py", "src/speech_runtime_service/wav_response.py", "src/speech_runtime_service/wire_route.py", "tests/scripts/test_contract_client.py", "tests/scripts/test_image_stack.py", "tests/scripts/test_proof_identity.py", "tests/support/hear_support.py", "tests/support/speak_support.py", "tests/test_wire_route.py", "tests/test_wire_route_client_speak.py", "tests/test_wire_route_tcp.py", "uv.lock"]
-opened_commit = "fce37582ac0755e3dc5af96241c48a89127687d9"
-whole_reason = "The format and its media type are one contract that the request type, the stream, the answer and the client's check read, so they and the body builder's callers change in one commit."
