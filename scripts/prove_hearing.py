@@ -84,7 +84,7 @@ from speech_runtime_service.hearing_models import (
 )
 from speech_runtime_service.pcm import pcm_from_wav
 from speech_runtime_service.piper_voices import PinnedVoice, fetch_voice_files
-from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
+from speech_runtime_service.voices import GPU_VOICES, RESIDENT_VOICE, VoiceId
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -101,7 +101,6 @@ if TYPE_CHECKING:
 
 
 THIS_SCRIPT = Path(__file__).resolve()
-GPU_VOICES = tuple(voice for voice in VoiceId if voice is not RESIDENT_VOICE)
 GERMAN_QUESTION = "Wie spät ist es und wann beginnt die nächste Sitzung?"
 ENGLISH_QUESTION = "What time is it and when does the next session begin?"
 GERMAN_LONG_TURN = (
@@ -235,7 +234,7 @@ def hearing_service(
     port = free_local_port()
     base_url = f"http://{LOOPBACK_HOST}:{port}"
     try:
-        with proof_identity(directory, voice.value) as identity:
+        with proof_identity(directory) as identity:
             minting = load_minting(identity.minting_path)
             environment = speech_environment(
                 port, voice, identity, device, hearing_model

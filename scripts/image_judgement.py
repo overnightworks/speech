@@ -26,7 +26,7 @@ from speech_runtime_client.wire import (
 )
 from speech_runtime_service.pcm import AI_MARK
 from speech_runtime_service.provider_process import ENDED_BEFORE_READY
-from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
+from speech_runtime_service.voices import GPU_VOICES, RESIDENT_VOICE, VoiceId
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -85,9 +85,6 @@ class TmpUsage:
 
 def baked_caller(config: CallerConfig, app: str) -> BakedCaller:
     """`app`, the resident voice it speaks and the key set's address, from the table."""
-    if RESIDENT_VOICE not in config.apps[app].voices:
-        message = f"the baked table does not let {app} name {RESIDENT_VOICE}"
-        raise SystemExit(message)
     key_set = urlsplit(config.identity.jwks_url)
     assert key_set.hostname is not None  # noqa: S101 - the owner validated an https URL
     return BakedCaller(
@@ -99,13 +96,9 @@ def baked_caller(config: CallerConfig, app: str) -> BakedCaller:
     )
 
 
-def listed_gpu_voice(config: CallerConfig, app: str) -> VoiceId:
-    """The first GPU voice, by id, that the baked table lets `app` name."""
-    listed = sorted(config.apps[app].voices - {RESIDENT_VOICE})
-    if not listed:
-        message = f"the baked table lets {app} name no GPU voice"
-        raise SystemExit(message)
-    return listed[0]
+def first_gpu_voice() -> VoiceId:
+    """The first GPU voice the catalogue holds."""
+    return GPU_VOICES[0]
 
 
 def minting_for(config: CallerConfig, baked: BakedCaller, signing: Minting) -> Minting:

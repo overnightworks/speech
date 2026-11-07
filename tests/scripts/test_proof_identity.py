@@ -123,8 +123,8 @@ def test_the_identity_directory_and_every_file_in_it_are_private(
     assert all(stat.S_IMODE(path.stat().st_mode) == OWNER_ONLY for path in files)
 
 
-def test_the_service_configuration_holds_no_key_material_and_names_the_voice(
-    identity: ProofIdentity, minting: Minting, proof_voice: str
+def test_the_service_configuration_holds_no_key_material_and_the_proof_app(
+    identity: ProofIdentity, minting: Minting
 ) -> None:
     text = identity.configuration_path.read_text()
     configuration = tomllib.loads(text)
@@ -139,18 +139,11 @@ def test_the_service_configuration_holds_no_key_material_and_names_the_voice(
         "group_claim": minting.group_claim,
         "service_group": minting.service_group,
     }
-    assert configuration["apps"] == {
-        "proof": {
-            "workload_client": minting.client_id,
-            "voices": [proof_voice],
-        }
-    }
+    assert configuration["apps"] == {"proof": {"workload_client": minting.client_id}}
 
 
-def test_leaving_the_context_stops_the_key_server(
-    tmp_path: Path, proof_voice: str
-) -> None:
-    with proof_identity(tmp_path, proof_voice) as identity:
+def test_leaving_the_context_stops_the_key_server(tmp_path: Path) -> None:
+    with proof_identity(tmp_path) as identity:
         port = int(identity.jwks_url.split(":")[-1].split("/")[0])
 
     with (

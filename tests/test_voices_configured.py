@@ -1,6 +1,5 @@
 """The start setting is the one source of the offer: Piper always, GPU voices named."""
 
-from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 import pytest
@@ -9,7 +8,7 @@ from speech_runtime_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 from starlette.status import HTTP_200_OK, HTTP_404_NOT_FOUND
 from starlette.websockets import WebSocketDisconnect
 
-from speech_runtime_client.wire import Health, RefusalCode
+from speech_runtime_client.wire import Health
 from speech_runtime_service.config import Settings
 from speech_runtime_service.control import create_control_app
 from speech_runtime_service.pcm import pcm_from_wav
@@ -21,10 +20,15 @@ from tests.support.gpu_voice_support import (
     StageSetup,
     gpu_voice_stage,
 )
-from tests.support.identity_support import valid_callers
+from tests.support.identity_support import (
+    MINTING,
+    OTHER_MINTING,
+    callers_of_two_apps,
+    valid_callers,
+    valid_headers,
+)
 from tests.support.speak_support import (
     app_over,
-    assert_refusal,
     assert_unavailable,
     fake_runtime,
     post_speech,
@@ -75,28 +79,34 @@ def test_a_named_gpu_voice_is_offered_but_not_started_until_a_request(
     assert stage.starts() == []
 
 
-def test_a_listed_voice_that_is_not_offered_is_unavailable_and_starts_nothing(
+def test_every_registered_app_speaks_an_offered_gpu_voice_through_one_worker(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """WIRE-07, WIRE-103: a listed voice that is not offered is unavailable."""
+    """WIRE-07, WIRE-09, WIRE-114: each registered app speaks an offered GPU voice."""
+    with gpu_voice_stage(tmp_path, monkeypatch, StageSetup("normal")) as stage:
+        client = TestClient(
+            create_control_app(stage.settings, stage.runtime, callers_of_two_apps())
+        )
+        spoken = [
+            post_speech(client, speak_body(QWEN), valid_headers(minting=minting))
+            for minting in (MINTING, OTHER_MINTING)
+        ]
+
+    assert [response.status_code for response in spoken] == [HTTP_200_OK] * 2
+    assert [pcm_from_wav(response.content)[0] for response in spoken] == [
+        QWEN_SAMPLE_RATE
+    ] * 2
+    assert len(stage.starts()) == 1
+
+
+def test_a_catalogue_voice_that_is_not_offered_is_unavailable_and_starts_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WIRE-07, WIRE-103: a catalogue voice that is not offered is unavailable."""
     with gpu_voice_stage(tmp_path, monkeypatch, _PIPER_ONLY) as stage:
         refused = post_speech(TestClient(stage.app()), speak_body(QWEN))
 
     assert_unavailable(refused)
-    assert stage.starts() == []
-
-
-def test_an_offered_voice_the_app_does_not_list_is_forbidden_and_starts_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """WIRE-08, WIRE-98: an offered voice the app does not list is forbidden."""
-    with gpu_voice_stage(tmp_path, monkeypatch) as stage:
-        app = create_control_app(
-            stage.settings, stage.runtime, valid_callers([VoiceId.PIPER])
-        )
-        refused = post_speech(TestClient(app), speak_body(QWEN))
-
-    assert_refusal(refused, HTTPStatus.FORBIDDEN, RefusalCode.FORBIDDEN, "voice")
     assert stage.starts() == []
 
 

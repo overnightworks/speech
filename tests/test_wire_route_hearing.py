@@ -92,7 +92,7 @@ def test_a_recording_is_answered_with_its_text() -> None:
 
 def test_a_registered_app_with_no_hearing_key_hears_a_recording() -> None:
     """WIRE-29, WIRE-114: every registered app hears; its table holds no hearing key."""
-    callers = callers_of_two_apps([VoiceId.PIPER], [VoiceId.PIPER])
+    callers = callers_of_two_apps()
     app = create_control_app(Settings(), hear_runtime(FakeHearing()), callers)
 
     response = post_recording(

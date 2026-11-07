@@ -34,53 +34,12 @@ def app(request: pytest.FixtureRequest) -> str:
     return str(request.param)
 
 
-def table_of_one_app(voices: list[str]) -> CallerConfig:
-    """A caller table whose one app, `one`, may name `voices`."""
-    return CallerConfig.model_validate(
-        {
-            "identity": {
-                "issuer": "i",
-                "jwks_url": "https://k.invalid/certs",
-                "audience": "a",
-                "workload_role": "r",
-                "group_claim": "g",
-                "service_group": "/s",
-            },
-            "apps": {"one": {"workload_client": "c", "voices": voices}},
-        }
-    )
-
-
-def test_the_baked_caller_speaks_the_resident_voice_its_table_lists(
+def test_the_baked_caller_speaks_the_resident_voice(
     config: CallerConfig, app: str
 ) -> None:
     baked = judged.baked_caller(config, app)
 
     assert baked.voice is RESIDENT_VOICE
-    assert baked.voice in config.apps[baked.app].voices
-
-
-def test_a_caller_whose_table_lacks_the_resident_voice_fails_the_proof() -> None:
-    table = table_of_one_app([VoiceId.QWEN])
-
-    with pytest.raises(SystemExit, match=RESIDENT_VOICE):
-        judged.baked_caller(table, "one")
-
-
-def test_the_gpu_voice_of_an_app_is_one_its_table_lists_beside_the_resident(
-    config: CallerConfig, app: str
-) -> None:
-    voice = judged.listed_gpu_voice(config, app)
-
-    assert voice is not RESIDENT_VOICE
-    assert voice in config.apps[app].voices
-
-
-def test_an_app_whose_table_lists_no_gpu_voice_fails_the_proof() -> None:
-    table = table_of_one_app([RESIDENT_VOICE])
-
-    with pytest.raises(SystemExit, match="no GPU voice"):
-        judged.listed_gpu_voice(table, "one")
 
 
 def test_tokens_minted_for_the_baked_caller_carry_its_identity(

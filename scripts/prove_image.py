@@ -248,10 +248,7 @@ def cell_speak(session: Session) -> bytes:
 
 
 def cell_refusals(session: Session) -> None:
-    """Cell 6: no token and a token outside the group are refused.
-
-    Every app in the baked table lists every voice, so no voice is forbidden.
-    """
+    """Cell 6: no token and a token outside the group are refused."""
     outside = replace(
         minting_for(session.config, session.baked, session.signing),
         service_group=f"{session.config.identity.service_group}-outside",
@@ -645,7 +642,7 @@ def _prove() -> None:
                 json.loads(plain.run("config", "--format", "json").stdout)
             )
             require_networks_absent(names)
-            with proof_identity(directory, baked.voice.value) as identity:
+            with proof_identity(directory) as identity:
                 signing = load_minting(identity.minting_path)
                 issue_certificates(
                     directory,
