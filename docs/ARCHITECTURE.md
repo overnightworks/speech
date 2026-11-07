@@ -37,7 +37,7 @@ flowchart LR
   tag brings, with the Piper voice, Qwen's environment and weights, and the
   caller table baked in; the release builds, attests and pushes it to GHCR, see
   [Delivery](#delivery). `scripts/prove_image.py` proves it.
-- `packages/client`: the wire types an app and the service share.
+- `packages/client`: the wire types an app and the service share, and the bounded speaking call an app makes.
 - `providers/*`: the voices that run in their own processes and environments.
 
 ### Speaking
