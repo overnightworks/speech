@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 
 from proof_identity import Minting, load_minting, mint_pair
 from speech_runtime_client import speak as speaking_call
+from speech_runtime_client.wire import ResponseFormat
 
 SENTENCE = (
     "Die Kamera zeigt den Vortragenden, während im Hintergrund "
@@ -91,6 +92,7 @@ def speak(base_url: str, text: str, voice: str, minting: Minting) -> bytes:
         base_url,
         text,
         voice,
+        response_format=ResponseFormat.WAV,
         workload_token=pair.workload,
         person_token=pair.person,
         deadline_seconds=SPEAK_DEADLINE_SECONDS,
@@ -99,7 +101,7 @@ def speak(base_url: str, text: str, voice: str, minting: Minting) -> bytes:
     if not isinstance(outcome, speaking_call.Spoken):
         message = f"speak ended as {type(outcome).__name__}"
         raise SystemExit(message)
-    return outcome.wav
+    return outcome.audio
 
 
 def _rms(pcm: bytes) -> float:

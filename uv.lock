@@ -621,6 +621,7 @@ name = "overnightworks-speech-runtime-service"
 version = "0.3.0"
 source = { editable = "." }
 dependencies = [
+    { name = "av" },
     { name = "fastapi" },
     { name = "faster-whisper" },
     { name = "huggingface-hub" },
@@ -653,6 +654,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "av", specifier = "==19.0.2" },
     { name = "fastapi", specifier = "==0.162.0" },
     { name = "faster-whisper", specifier = "==1.2.1" },
     { name = "huggingface-hub", specifier = "==2.4.0" },

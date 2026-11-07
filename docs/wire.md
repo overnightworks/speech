@@ -31,7 +31,7 @@ byte cap, and answers with a typed outcome; its module documents them.
 | WIRE-06 | `input` | Text with at least one letter or digit, at most `SPEECH_MAX_INPUT_CHARACTERS` characters (default 4096; the operator may raise it above OpenAI's 4096). |
 | WIRE-07 | `voice` | The id of an offered voice: `piper`, always offered, or `qwen3-tts-0.6b` when `SPEECH_GPU_VOICES` names it. |
 | WIRE-09 | `voice` | A GPU voice that is not loaded yet loads for this request, which waits for the load. |
-| WIRE-10 | `response_format` | `wav`. OpenAI defaults an absent field to `mp3`, so it is required here. |
+| WIRE-10 | `response_format` | `wav` or `opus`. OpenAI defaults an absent field to `mp3`, so it is required here. |
 
 The service speaks German only. **WIRE-11** There is no `language` field, and any field
 not listed here (`speed`, `instructions`, `stream_format`, `language`, ...) is
@@ -203,12 +203,18 @@ skipped. **WIRE-87** The decode is freed only when it has finished, even if the 
 
 ## Response
 
-**WIRE-88** `200` with `Content-Type: audio/wav`, chunked: 16-bit mono PCM at the voice's
+**WIRE-88** For `wav`, `200` with `Content-Type: audio/wav`, chunked: 16-bit mono PCM at the voice's
 native rate, which is in the WAV header. **WIRE-89** Every WAV carries an AI mark, a RIFF
 `LIST`/`INFO` `ICMT` chunk before `data`. **WIRE-90** The status and headers leave before
 synthesis, so a synthesis failure cannot change the status: the server aborts
 the connection without the chunked terminator. Read the body to its end and
-treat a missing end as a failed request; never use a partial WAV.
+treat a missing end as a failed request; never use partial audio.
+
+**WIRE-133** For `opus`, `200` with `Content-Type: audio/ogg`, chunked: Ogg Opus
+(RFC 7845), mono at 48 kHz whatever the voice's rate, its pages leaving as the voice
+speaks. RFC 7845 names `audio/ogg`; OpenAI lists `audio/opus` among its answer types
+and names no container, so the media type deviates from OpenAI's. **WIRE-134** Every
+Ogg Opus carries the AI mark as `DESCRIPTION=<mark>` in its OpusTags.
 
 ## Refusals
 

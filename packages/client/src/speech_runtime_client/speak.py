@@ -3,16 +3,17 @@
 `speak` takes every input from its call site and returns one `SpeakOutcome`,
 a closed union a caller matches with `assert_never`:
 
-- `Spoken`: the WAV bytes exactly as received, read to the end of the chunked
-  body (WIRE-90).
+- `Spoken`: the audio bytes exactly as received, in the ordered format, read to
+  the end of the chunked body (WIRE-90).
 - `Refused`: a refusal of the wire, with its status, code and param.
 - `Busy`: the 429 and the wait the service asks for; the app decides to retry.
 - `Cut`: the connection was up and the answer ended, closed or was reset
   before it was whole.
 - `PastDeadline`: the total deadline passed, at connect, send or any read.
-- `OverCap`: the WAV would pass the byte cap; reading stops there.
-- `Malformed`: the answer breaks the wire, for example a 200 that is not a
-  chunked `audio/wav` (WIRE-88), a refusal outside the error form, a 429
+- `OverCap`: the audio would pass the byte cap; reading stops there.
+- `Malformed`: the answer breaks the wire, for example a 200 that is not
+  chunked, is not the ordered format's media type or does not begin with its
+  container signature (WIRE-88, WIRE-133), a refusal outside the error form, a 429
   without a whole-second `Retry-After`, or a refusal body over 64 KiB.
 - `Unreachable`: the name did not resolve or no address accepted the connection.
 
@@ -54,6 +55,7 @@ from speech_runtime_client.wire import (
     Refusal,
     RefusalCode,
     RequestField,
+    ResponseFormat,
     RetryAfterError,
     busy_wait,
     refusal,
@@ -64,14 +66,13 @@ from speech_runtime_client.wire import (
 _READ_BYTES: Final = 64 * 1024
 _TRAILER_LINE_BYTES: Final = 64 * 1024
 _REFUSAL_BODY_LIMIT: Final = 64 * 1024
-_WAV_MEDIA_TYPE: Final = "audio/wav"
 
 
 @dataclass(frozen=True, slots=True)
 class Spoken:
-    """The WAV, exactly as the service sent it."""
+    """The audio, exactly as the service sent it."""
 
-    wav: bytes = field(repr=False)
+    audio: bytes = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +116,7 @@ class PastDeadline:
 
 @dataclass(frozen=True, slots=True)
 class OverCap:
-    """The WAV would pass the byte cap."""
+    """The audio would pass the byte cap."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,11 +206,20 @@ def _read_within(response: HTTPResponse, limit: int) -> bytes | None:
     return bytes(body)
 
 
-def _spoken(response: HTTPResponse, cap_bytes: int) -> SpeakOutcome:
-    if response.headers.get_content_type() != _WAV_MEDIA_TYPE or not response.chunked:
+def _spoken(
+    response: HTTPResponse, cap_bytes: int, response_format: ResponseFormat
+) -> SpeakOutcome:
+    if (
+        response.headers.get_content_type() != response_format.media_type
+        or not response.chunked
+    ):
         return Malformed()
-    wav = _read_within(response, cap_bytes)
-    return OverCap() if wav is None else Spoken(wav)
+    audio = _read_within(response, cap_bytes)
+    if audio is None:
+        return OverCap()
+    if not response_format.begins_like_container(audio):
+        return Malformed()
+    return Spoken(audio)
 
 
 def _refusal(response: HTTPResponse) -> SpeakOutcome:
@@ -229,12 +239,16 @@ def _refusal(response: HTTPResponse) -> SpeakOutcome:
 
 
 def _answer(
-    connection: HTTPConnection, body: bytes, headers: dict[str, str], cap_bytes: int
+    connection: HTTPConnection,
+    body: bytes,
+    headers: dict[str, str],
+    cap_bytes: int,
+    response_format: ResponseFormat,
 ) -> SpeakOutcome:
     connection.request("POST", SPEECH_PATH, body, headers)
     response = connection.getresponse()
     if response.status == HTTPStatus.OK:
-        return _spoken(response, cap_bytes)
+        return _spoken(response, cap_bytes, response_format)
     return _refusal(response)
 
 
@@ -244,6 +258,7 @@ def speak(  # noqa: PLR0913
     text: str,
     voice: str,
     *,
+    response_format: ResponseFormat,
     workload_token: str,
     person_token: str,
     deadline_seconds: float,
@@ -251,7 +266,7 @@ def speak(  # noqa: PLR0913
 ) -> SpeakOutcome:
     """Speak `text` with `voice` at the service on `base_url`, within the bounds.
 
-    `deadline_seconds` bounds the whole call, `cap_bytes` the WAV. See the module
+    `deadline_seconds` bounds the whole call, `cap_bytes` the audio. See the module
     for the outcomes and for what raises.
     """
     address = urlsplit(base_url)
@@ -261,7 +276,7 @@ def speak(  # noqa: PLR0913
     if deadline_seconds <= 0 or cap_bytes <= 0:
         message = "deadline_seconds and cap_bytes must be above 0"
         raise ValueError(message)
-    body = speech_request_body(text, voice)
+    body = speech_request_body(text, voice, response_format)
     headers = speech_request_headers(
         workload_token=workload_token, person_token=person_token
     )
@@ -277,7 +292,7 @@ def speak(  # noqa: PLR0913
     connection.response_class = _StrictResponse
     connection.sock = connected
     try:
-        return _answer(connection, body, headers, cap_bytes)
+        return _answer(connection, body, headers, cap_bytes, response_format)
     except TimeoutError:
         return PastDeadline()
     except OSError, IncompleteRead:

@@ -84,7 +84,10 @@ class TmpUsage:
 
 
 def baked_caller(config: CallerConfig, app: str) -> BakedCaller:
-    """`app`, the resident voice it speaks and the key set's address, from the table."""
+    """`app`, the resident voice and the key set's address.
+
+    Only the key set's address comes from the table; the resident voice is the constant.
+    """
     key_set = urlsplit(config.identity.jwks_url)
     assert key_set.hostname is not None  # noqa: S101 - the owner validated an https URL
     return BakedCaller(

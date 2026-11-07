@@ -24,6 +24,7 @@ from speech_runtime_client.wire import (
     RETRY_AFTER_HEADER,
     SPEECH_PATH,
     RefusalCode,
+    ResponseFormat,
     refusal,
     speech_request_body,
     speech_request_headers,
@@ -48,6 +49,7 @@ def _speak(
     base_url: str,
     *,
     voice: str = VOICE,
+    response_format: ResponseFormat = ResponseFormat.WAV,
     deadline_seconds: float = GENEROUS_DEADLINE_SECONDS,
     cap_bytes: int = CAP_BYTES,
 ) -> SpeakOutcome:
@@ -55,6 +57,7 @@ def _speak(
         base_url,
         "Hallo",
         voice,
+        response_format=response_format,
         workload_token=WORKLOAD_TOKEN,
         person_token=PERSON_TOKEN,
         deadline_seconds=deadline_seconds,
@@ -111,6 +114,9 @@ def _head(status: str, *headers: str) -> bytes:
 
 
 _WAV_HEAD = _head("200 OK", "Content-Type: audio/wav", "Transfer-Encoding: chunked")
+_OGG_HEAD = _head("200 OK", "Content-Type: audio/ogg", "Transfer-Encoding: chunked")
+_WAV_BODY = b"RIFF\0\0\0\0WAVE"
+_OGG_BODY = b"OggS\0\0\0\0"
 
 
 def _refusal_response(
@@ -226,13 +232,13 @@ def test_a_deadline_that_has_passed_before_the_connect_is_past_the_deadline() ->
     [
         pytest.param(_resets, id="reset-before-the-status-line"),
         pytest.param(_closes, id="close-before-the-status-line"),
-        pytest.param(_sends(_WAV_HEAD + _chunk(b"RIFF")), id="close-without-the-end"),
+        pytest.param(_sends(_WAV_HEAD + _chunk(_WAV_BODY)), id="close-without-the-end"),
         pytest.param(
-            _sends(_WAV_HEAD + _chunk(b"RIFF") + b"0"),
+            _sends(_WAV_HEAD + _chunk(_WAV_BODY) + b"0"),
             id="close-inside-the-last-chunk-line",
         ),
         pytest.param(
-            _sends(_WAV_HEAD + _chunk(b"RIFF") + b"0\r\n"),
+            _sends(_WAV_HEAD + _chunk(_WAV_BODY) + b"0\r\n"),
             id="close-before-the-final-blank-line",
         ),
         pytest.param(
@@ -319,7 +325,7 @@ _BUSY_WITHOUT_WAIT = _refusal_response("429 Too Many Requests", RefusalCode.BUSY
         ),
         pytest.param(
             _WAV_HEAD
-            + _chunk(b"RIFF")
+            + _chunk(_WAV_BODY)
             + b"0\r\n"
             + b"X-Trailer: "
             + b"a" * 70_000
@@ -337,26 +343,96 @@ def test_an_answer_that_breaks_the_wire_is_malformed(raw: bytes) -> None:
 
 
 def test_a_chunked_wav_with_a_trailer_is_spoken() -> None:
-    raw = _WAV_HEAD + _chunk(b"RIFF") + b"0\r\nX-Trailer: 1\r\n\r\n"
+    raw = _WAV_HEAD + _chunk(_WAV_BODY) + b"0\r\nX-Trailer: 1\r\n\r\n"
     with _raw_listener(_sends(raw)) as (base_url, _):
         outcome = _speak(base_url)
 
-    assert outcome == Spoken(b"RIFF")
+    assert outcome == Spoken(_WAV_BODY)
+
+
+@pytest.mark.parametrize(
+    ("ordered", "raw"),
+    [
+        pytest.param(
+            ResponseFormat.OPUS,
+            _WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b""),
+            id="wav-media-type-for-an-opus-order",
+        ),
+        pytest.param(
+            ResponseFormat.WAV,
+            _OGG_HEAD + _chunk(_OGG_BODY) + _chunk(b""),
+            id="ogg-media-type-for-a-wav-order",
+        ),
+        pytest.param(
+            ResponseFormat.WAV,
+            _WAV_HEAD + _chunk(b"not audio at all") + _chunk(b""),
+            id="wav-media-type-over-a-body-of-text",
+        ),
+        pytest.param(
+            ResponseFormat.WAV,
+            _WAV_HEAD + _chunk(b"RIFF\0\0\0\0AVI ") + _chunk(b""),
+            id="riff-that-is-not-wave",
+        ),
+        pytest.param(
+            ResponseFormat.OPUS,
+            _OGG_HEAD + _chunk(_WAV_BODY) + _chunk(b""),
+            id="ogg-media-type-over-a-wav-body",
+        ),
+        pytest.param(
+            ResponseFormat.OPUS,
+            _OGG_HEAD + _chunk(b""),
+            id="ogg-media-type-over-an-empty-body",
+        ),
+    ],
+)
+def test_a_200_that_is_not_the_ordered_format_is_malformed(
+    ordered: ResponseFormat, raw: bytes
+) -> None:
+    """WIRE-88, WIRE-133: the media type and the container signature must match."""
+    with _raw_listener(_sends(raw)) as (base_url, _):
+        outcome = _speak(base_url, response_format=ordered)
+
+    assert outcome == Malformed()
+
+
+def test_a_chunked_ogg_with_the_ogg_signature_is_spoken_when_opus_is_ordered() -> None:
+    """WIRE-133: an audio/ogg body that begins with OggS is the answer."""
+    with _raw_listener(_sends(_OGG_HEAD + _chunk(_OGG_BODY) + _chunk(b""))) as (
+        base_url,
+        _,
+    ):
+        outcome = _speak(base_url, response_format=ResponseFormat.OPUS)
+
+    assert outcome == Spoken(_OGG_BODY)
+
+
+@pytest.mark.parametrize("ordered", list(ResponseFormat))
+def test_the_request_orders_the_format_it_was_given(ordered: ResponseFormat) -> None:
+    with _raw_listener(_sends(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b""))) as (
+        base_url,
+        requests,
+    ):
+        _speak(base_url, response_format=ordered)
+
+    (request,) = requests
+    assert request.partition(b"\r\n\r\n")[2] == speech_request_body(
+        "Hallo", VOICE, ordered
+    )
 
 
 def test_the_request_is_the_wires_body_and_headers() -> None:
-    with _raw_listener(_sends(_WAV_HEAD + _chunk(b"RIFF") + _chunk(b""))) as (
+    with _raw_listener(_sends(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b""))) as (
         base_url,
         requests,
     ):
         outcome = _speak(base_url)
 
-    assert outcome == Spoken(b"RIFF")
+    assert outcome == Spoken(_WAV_BODY)
     (request,) = requests
     head, _, body = request.partition(b"\r\n\r\n")
     lines = head.decode().split("\r\n")
     assert lines[0] == f"POST {SPEECH_PATH} HTTP/1.1"
-    assert body == speech_request_body("Hallo", VOICE)
+    assert body == speech_request_body("Hallo", VOICE, ResponseFormat.WAV)
     sent = {line.partition(": ")[0]: line.partition(": ")[2] for line in lines[1:]}
     expected = speech_request_headers(
         workload_token=WORKLOAD_TOKEN, person_token=PERSON_TOKEN

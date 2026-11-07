@@ -10,12 +10,14 @@ from speech_runtime_client.wire import (
     HEALTH_PATH,
     Health,
     HearingHealth,
+    ResponseFormat,
     SpeakingHealth,
 )
 from speech_runtime_service.card import card_memory_mb
 from speech_runtime_service.clock import LoopClock
 from speech_runtime_service.failures import PayloadFreeFailure, SpeakingFailedError
 from speech_runtime_service.hearing import Hearing, hearing_from_settings
+from speech_runtime_service.ogg_opus import ogg_opus_chunks
 from speech_runtime_service.pcm import wav_header
 from speech_runtime_service.speaking import speaking_for_voice
 from speech_runtime_service.voice_slot import VoiceSlot
@@ -174,25 +176,33 @@ class Runtime:
             slot.reconcile_failed_active()
 
 
-def wav_chunks(
+def audio_chunks(
     speaking: SpeakingEngine,
     text: str,
     language: str,
-    sample_rate: int | None = None,
+    response_format: ResponseFormat,
 ) -> Iterator[bytes]:
-    """One WAV from `speaking`: its header leaves with the first PCM chunk."""
-    first = True
+    """`text` spoken by `speaking` in `response_format`, as the voice produces it."""
     with PayloadFreeFailure(logger, "speaking failed", reraise_as=SpeakingFailedError):
         synthesis = speaking.pcm_chunks(text, language)
         try:
-            for pcm in synthesis:
-                if first:
-                    yield wav_header(sample_rate or speaking.sample_rate) + pcm
-                    first = False
-                else:
-                    yield pcm
+            if response_format is ResponseFormat.OPUS:
+                yield from ogg_opus_chunks(synthesis, speaking.sample_rate)
+            else:
+                yield from _wav_chunks(synthesis, speaking.sample_rate)
         finally:
             synthesis.close()
+
+
+def _wav_chunks(pcm_chunks: Iterator[bytes], sample_rate: int) -> Iterator[bytes]:
+    """One WAV: its header leaves with the first PCM chunk."""
+    first = True
+    for pcm in pcm_chunks:
+        if first:
+            yield wav_header(sample_rate) + pcm
+            first = False
+        else:
+            yield pcm
 
 
 def mount_health_route(app: FastAPI, runtime: Runtime) -> None:

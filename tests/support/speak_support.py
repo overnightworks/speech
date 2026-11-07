@@ -9,7 +9,12 @@ from typing import TYPE_CHECKING
 
 from starlette.requests import Request
 
-from speech_runtime_client.wire import SPEECH_PATH, RefusalCode, speech_request_body
+from speech_runtime_client.wire import (
+    SPEECH_PATH,
+    RefusalCode,
+    ResponseFormat,
+    speech_request_body,
+)
 from speech_runtime_service.config import Settings
 from speech_runtime_service.control import create_control_app
 from speech_runtime_service.service import Runtime, RuntimeDependencies
@@ -128,8 +133,12 @@ def speak_scope(
     }
 
 
-def speak_body(voice: str = VoiceId.PIPER.value, text: str = "Hallo") -> bytes:
-    return speech_request_body(text, voice)
+def speak_body(
+    voice: str = VoiceId.PIPER.value,
+    text: str = "Hallo",
+    response_format: ResponseFormat = ResponseFormat.WAV,
+) -> bytes:
+    return speech_request_body(text, voice, response_format)
 
 
 def wav_body(messages: list[dict[str, object]]) -> bytes:

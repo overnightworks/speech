@@ -23,6 +23,7 @@ from speech_runtime_client.speak import (
 from speech_runtime_client.wire import (
     SPEECH_PATH,
     RefusalCode,
+    ResponseFormat,
     refusal,
     speech_request_body,
 )
@@ -51,10 +52,11 @@ MARGIN_SECONDS = 3.0
 CAP_BYTES = 1024 * 1024
 
 
-def _speak(
+def _speak(  # noqa: PLR0913 - one keyword per call-site option
     base_url: str,
     *,
     voice: str = PIPER,
+    response_format: ResponseFormat = ResponseFormat.WAV,
     deadline_seconds: float = GATE_TIMEOUT_SECONDS,
     cap_bytes: int = CAP_BYTES,
     pair: TokenPair | None = None,
@@ -64,6 +66,7 @@ def _speak(
         base_url,
         "Hallo",
         voice,
+        response_format=response_format,
         workload_token=pair.workload,
         person_token=pair.person,
         deadline_seconds=deadline_seconds,
@@ -89,7 +92,7 @@ async def _serving(
 
 
 def _over_the_service(
-    voice: FakeSpeaking | GatedSpeaking, **options: float
+    voice: FakeSpeaking | GatedSpeaking, **options: float | ResponseFormat
 ) -> SpeakOutcome:
     async def scenario() -> SpeakOutcome:
         async with _serving(voice) as server:
@@ -108,7 +111,8 @@ def test_the_call_returns_the_wav_the_service_sent() -> None:
                 base_url=server.base_url, headers=valid_headers()
             ) as client:
                 return outcome, await client.post(
-                    SPEECH_PATH, content=speech_request_body("Hallo", PIPER)
+                    SPEECH_PATH,
+                    content=speech_request_body("Hallo", PIPER, ResponseFormat.WAV),
                 )
 
     outcome, sent = asyncio.run(scenario())
@@ -116,11 +120,19 @@ def test_the_call_returns_the_wav_the_service_sent() -> None:
     assert outcome == Spoken(sent.content)
 
 
+def test_the_call_returns_the_ogg_opus_the_service_sent() -> None:
+    """WIRE-133: an opus order comes back as the whole chunked Ogg body."""
+    outcome = _over_the_service(FakeSpeaking(), response_format=ResponseFormat.OPUS)
+
+    assert isinstance(outcome, Spoken)
+    assert ResponseFormat.OPUS.begins_like_container(outcome.audio)
+
+
 def test_a_wav_of_exactly_the_cap_is_spoken() -> None:
     whole = _over_the_service(FakeSpeaking())
     assert isinstance(whole, Spoken)
 
-    outcome = _over_the_service(FakeSpeaking(), cap_bytes=len(whole.wav))
+    outcome = _over_the_service(FakeSpeaking(), cap_bytes=len(whole.audio))
 
     assert outcome == whole
 

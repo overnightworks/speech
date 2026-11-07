@@ -1,4 +1,4 @@
-"""WAV response lifetime cleanup at the ASGI boundary."""
+"""Audio response lifetime cleanup at the ASGI boundary."""
 
 from __future__ import annotations
 
@@ -20,15 +20,17 @@ class Closeable(Protocol):
         """Release the owned resource once."""
 
 
-class ClosingWavResponse(StreamingResponse):
-    """Close a WAV generator and its lease when ASGI delivery ends."""
+class ClosingAudioResponse(StreamingResponse):
+    """Close an audio generator and its lease when ASGI delivery ends."""
 
-    def __init__(self, chunks: Generator[bytes], lease: Closeable) -> None:
+    def __init__(
+        self, chunks: Generator[bytes], lease: Closeable, media_type: str
+    ) -> None:
         """Attach every already-owned response-lifetime resource."""
         self._chunks = chunks
         self._lease = lease
         try:
-            super().__init__(iterate_in_threadpool(chunks), media_type="audio/wav")
+            super().__init__(iterate_in_threadpool(chunks), media_type=media_type)
         except Exception:
             self._close_owned()
             raise

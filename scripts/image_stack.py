@@ -30,6 +30,7 @@ from speech_runtime_client.wire import (
     SPEECH_PATH,
     TRANSCRIPTIONS_PATH,
     HearingLanguage,
+    ResponseFormat,
     TranscriptionRequest,
     speech_request_body,
     speech_request_headers,
@@ -262,7 +263,7 @@ class Session:
             self.caller,
             self.service_url + SPEECH_PATH,
             headers,
-            speech_request_body(SENTENCE, voice.value),
+            speech_request_body(SENTENCE, voice.value, ResponseFormat.WAV),
         )
 
     def admitted_headers(self) -> dict[str, str]:
