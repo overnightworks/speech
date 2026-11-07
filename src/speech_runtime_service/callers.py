@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Final
 
-from webauth.oidc_login import AdmissionConfig, NoAdmins
+from webauth.admission import AdmissionConfig, NoAdmins
 from webauth.service_callers import (
     CallerRefusalClass,
     PersonCaller,
