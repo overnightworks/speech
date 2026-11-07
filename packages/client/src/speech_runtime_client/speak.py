@@ -187,7 +187,8 @@ class _StrictResponse(HTTPResponse):
                 message = "trailer line"
                 raise LineTooLong(message)
             if not line:
-                raise IncompleteRead(b"")  # noqa: EM101 - the argument is the bytes read, not a message
+                # The argument is the bytes read, not a message.
+                raise IncompleteRead(b"")  # noqa: EM101
             if line in {b"\r\n", b"\n"}:
                 return
 
@@ -237,7 +238,8 @@ def _answer(
     return _refusal(response)
 
 
-def speak(  # noqa: PLR0913 - every input comes from the call site, none has a default
+# Every input comes from the call site, none has a default.
+def speak(  # noqa: PLR0913
     base_url: str,
     text: str,
     voice: str,
