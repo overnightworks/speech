@@ -66,15 +66,19 @@ _OGG_FRAME_SECONDS = 0.02
 _OGG_RATE = 48_000
 _OGG_HEADER_PAGES = 2
 _LONG_CHUNK_SECONDS = 0.6
+_OTHER_VOICE_RATE = 24_000
 
 
 class _LongVoice(GatedSpeaking):
     """A gated voice whose first chunk is long enough to fill Opus pages."""
 
-    def __init__(self, *, hold_last_chunk: bool = True) -> None:
+    def __init__(
+        self, *, hold_last_chunk: bool = True, sample_rate: int = SPEAK_SAMPLE_RATE
+    ) -> None:
         super().__init__(hold_last_chunk=hold_last_chunk)
+        self.sample_rate = sample_rate
         self.release_first_step.set()
-        self.audio = sine_pcm(2 * _LONG_CHUNK_SECONDS, rate=SPEAK_SAMPLE_RATE)
+        self.audio = sine_pcm(2 * _LONG_CHUNK_SECONDS, rate=sample_rate)
 
 
 class _LongFailingVoice(FakeSpeaking):
@@ -194,6 +198,16 @@ def _assert_whole_wav(status_code: int, body: bytes, voice: GatedSpeaking) -> No
     assert pcm == voice.audio
 
 
+def _assert_whole_answer(
+    response_format: ResponseFormat, body: bytes, audio: bytes
+) -> None:
+    """The body is a finished answer: the voice's audio in WAV, an end page in Opus."""
+    if response_format is ResponseFormat.WAV:
+        assert pcm_from_wav(body) == (SPEAK_SAMPLE_RATE, audio)
+    else:
+        assert _ogg_pages(body)[-1].flags & _OGG_END_OF_STREAM
+
+
 def test_tcp_streams_speak_while_the_voice_is_still_synthesizing() -> None:
     """WIRE-01, WIRE-88: tcp streams speak while the voice is still synthesizing."""
 
@@ -271,14 +285,17 @@ def _opus_answer(voice: _LongVoice) -> httpx2.Response:
     return asyncio.run(scenario())
 
 
-def test_tcp_opus_is_mono_48_khz_and_lasts_as_long_as_the_voice_spoke() -> None:
+@pytest.mark.parametrize("voice_rate", [SPEAK_SAMPLE_RATE, _OTHER_VOICE_RATE])
+def test_tcp_opus_is_mono_48_khz_and_lasts_as_long_as_the_voice_spoke(
+    voice_rate: int,
+) -> None:
     """WIRE-133: the Ogg Opus decodes to mono at 48 kHz, the voice's whole length."""
-    voice = _LongVoice(hold_last_chunk=False)
+    voice = _LongVoice(hold_last_chunk=False, sample_rate=voice_rate)
 
     answer = _opus_answer(voice)
 
     channels, rate, seconds = _decoded_opus(answer.content)
-    spoken = len(voice.audio) / BYTES_PER_SAMPLE / SPEAK_SAMPLE_RATE
+    spoken = len(voice.audio) / BYTES_PER_SAMPLE / voice_rate
     assert (channels, rate) == (1, _OGG_RATE)
     assert seconds == pytest.approx(spoken, abs=_OGG_FRAME_SECONDS)
 
@@ -297,7 +314,7 @@ def test_tcp_speak_disconnect_frees_the_voice_for_the_next_caller(
 ) -> None:
     """WIRE-132: a speak caller that has gone leaves its voice free."""
 
-    async def scenario() -> httpx2.Response:
+    async def scenario() -> tuple[GatedSpeaking, httpx2.Response]:
         voice = GatedSpeaking(hold_last_chunk=True)
         voice.release_first_step.set()
         async with (
@@ -314,12 +331,14 @@ def test_tcp_speak_disconnect_frees_the_voice_for_the_next_caller(
                 server.speak_disconnect_received.wait(), timeout=GATE_TIMEOUT_SECONDS
             )
             voice.release_last_chunk.set()
-            return await client.post(SPEECH_PATH, content=_BODIES[response_format])
+            return voice, await client.post(
+                SPEECH_PATH, content=_BODIES[response_format]
+            )
 
-    later = asyncio.run(scenario())
+    voice, later = asyncio.run(scenario())
 
     assert later.status_code == HTTP_200_OK
-    assert response_format.begins_like_container(later.content)
+    _assert_whole_answer(response_format, later.content, voice.audio)
 
 
 def test_a_speak_holds_the_one_synthesis_gate() -> None:
@@ -376,7 +395,8 @@ def test_tcp_speak_failure_aborts_the_body_and_the_next_request_is_whole(
 
     assert aborted
     assert later.status_code == HTTP_200_OK
-    assert response_format.begins_like_container(later.content)
+    voice_audio = b"".join(FakeSpeaking().pcm_chunks("", ""))
+    _assert_whole_answer(response_format, later.content, voice_audio)
 
 
 def test_tcp_opus_failure_after_audio_pages_sends_no_end_page() -> None:
@@ -407,6 +427,7 @@ def test_tcp_opus_failure_after_audio_pages_sends_no_end_page() -> None:
     aborted, received, later = asyncio.run(scenario())
 
     assert aborted
+    assert _audio_page_arrived(received)
     assert not any(page.flags & _OGG_END_OF_STREAM for page in _ogg_pages(received))
     assert later.status_code == HTTP_200_OK
 
