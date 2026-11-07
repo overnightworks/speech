@@ -351,7 +351,7 @@ def cell_hearing_ready(session: Session, plain: Compose, seconds: float) -> None
 def cell_recording(session: Session, wav: bytes) -> None:
     """Cell 14: every baked app gets text from one recording."""
     for app in sorted(session.config.apps):
-        caller = replace(session, baked=baked_caller(session.config, app))
+        caller = session.as_app(app)
         reply = caller.hear(caller.admitted_headers(), wav, HEARING_LANGUAGE)
         text = require_transcript(reply, SENTENCE)
         session.heard.append(text)

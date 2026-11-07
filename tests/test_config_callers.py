@@ -140,7 +140,7 @@ def test_the_configuration_file_must_be_absolute() -> None:
     ],
     ids=["missing", "empty", "unknown voice", "not a list", "speak flag", "hear flag"],
 )
-def test_an_app_table_without_a_valid_voice_list_fails_naming_the_key(
+def test_a_bad_app_table_fails_naming_the_key(
     tmp_path: Path, table: str, field: str
 ) -> None:
     """WIRE-112, WIRE-114, WIRE-115, WIRE-116: a bad voice list fails naming the key."""

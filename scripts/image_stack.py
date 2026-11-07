@@ -17,6 +17,7 @@ import hearing_figures as figures
 from hearing_client import live_url, update_event
 from image_judgement import (
     TmpUsage,
+    baked_caller,
     minting_for,
     require_marked_wav,
     seconds_to_healthy,
@@ -233,6 +234,10 @@ class Session:
     tokens: list[str]
     heard: list[str]
     logs: list[str]
+
+    def as_app(self, app: str) -> Session:
+        """The session speaking as another baked app."""
+        return replace(self, baked=baked_caller(self.config, app))
 
     @property
     def caller(self) -> str:

@@ -1,6 +1,6 @@
 """The image proof's GPU voice cells, on a runner without a card.
 
-The baked table lets the app that may hear name a GPU voice. By default the
+The baked table lets every app name a GPU voice. By default the
 image does not offer it; `tests/fixtures/image/compose.gpu-voice.yaml` offers it
 as hal's override will, and its worker then finds no CUDA device.
 """
@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Final
 
 from image_judgement import (
     GpuVoiceReport,
-    baked_caller,
     listed_gpu_voice,
     require_gpu_voice_down,
     require_log_clean,
@@ -72,7 +71,7 @@ def cell_gpu_voice_not_offered(session: Session) -> None:
     """Cell 22: by default each app's listed GPU voice is refused, no worker starts."""
     refused = []
     for app in sorted(session.config.apps):
-        caller = replace(session, baked=baked_caller(session.config, app))
+        caller = session.as_app(app)
         voice = listed_gpu_voice(session.config, app)
         require_refused_unavailable(caller, voice)
         refused.append(f"{app} naming {voice}")

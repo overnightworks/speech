@@ -106,10 +106,9 @@ length, the decoding itself.
 refused. **WIRE-37** The answer is `200` with `{"text": "..."}`; **WIRE-38** the same recording gives
 the same text, because the service decodes greedily, at temperature 0.
 
-**WIRE-40** Hearing
-is `unavailable` while no model is configured (`SPEECH_HEARING_MODEL`), while
-it loads, when its load found no CUDA device or no room on the card, and when a
-decode fails.
+**WIRE-40** Hearing is `unavailable` while no model is configured
+(`SPEECH_HEARING_MODEL`), while it loads, when its load found no CUDA device or
+no room on the card, and when a decode fails.
 
 The limits, each answered without decoding more than it must:
 
