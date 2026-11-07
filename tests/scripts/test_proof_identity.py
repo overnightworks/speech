@@ -143,7 +143,6 @@ def test_the_service_configuration_holds_no_key_material_and_names_the_voice(
         "proof": {
             "workload_client": minting.client_id,
             "voices": [proof_voice],
-            "hear": True,
         }
     }
 

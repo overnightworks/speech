@@ -47,8 +47,9 @@ from tests.support.hear_support import (
 )
 from tests.support.identity_support import (
     APP,
+    OTHER_MINTING,
     altered,
-    valid_callers,
+    callers_of_two_apps,
     valid_headers,
     valid_pair,
 )
@@ -84,6 +85,19 @@ def _valid() -> bytes:
 def test_a_recording_is_answered_with_its_text() -> None:
     """WIRE-02, WIRE-37: a recording is answered with its text."""
     response = post_recording(_client(), _valid())
+
+    assert response.status_code == HTTP_200_OK
+    assert response.json() == {"text": HEARD_TEXT}
+
+
+def test_a_registered_app_with_no_hearing_key_hears_a_recording() -> None:
+    """WIRE-29, WIRE-114: every registered app hears; its table holds no hearing key."""
+    callers = callers_of_two_apps([VoiceId.PIPER], [VoiceId.PIPER])
+    app = create_control_app(Settings(), hear_runtime(FakeHearing()), callers)
+
+    response = post_recording(
+        TestClient(app), _valid(), valid_headers(minting=OTHER_MINTING)
+    )
 
     assert response.status_code == HTTP_200_OK
     assert response.json() == {"text": HEARD_TEXT}
@@ -173,27 +187,6 @@ def test_a_recording_longer_than_the_length_cap_is_too_large_and_never_heard() -
 
     assert_refusal(response, HTTP_413_CONTENT_TOO_LARGE, RefusalCode.TOO_LARGE, "file")
     assert engine.heard == []
-
-
-@pytest.mark.parametrize(
-    ("engine", "settings"),
-    [
-        pytest.param(FakeHearing(), {}, id="plain"),
-        pytest.param(None, {}, id="and-hearing-unavailable"),
-        pytest.param(FakeHearing(), {"max_recording_bytes": 1}, id="and-too-large"),
-    ],
-)
-def test_an_app_without_the_hear_permission_is_refused_as_not_enabled_first(
-    engine: FakeHearing | None, settings: dict[str, int]
-) -> None:
-    """WIRE-30, WIRE-39, WIRE-99: an app without hear is refused as not enabled."""
-    runtime = hear_runtime(engine)
-    callers = valid_callers()
-    client = TestClient(create_control_app(Settings(**settings), runtime, callers))
-
-    response = post_recording(client, _valid())
-
-    assert_refusal(response, HTTP_403_FORBIDDEN, RefusalCode.NOT_ENABLED, None)
 
 
 def _hold_the_decode(runtime: Runtime) -> None:

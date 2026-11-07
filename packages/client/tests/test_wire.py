@@ -74,14 +74,6 @@ def test_busy_answer_without_whole_seconds_fails_loud(headers: dict[str, str]) -
         busy_wait(BUSY, headers)
 
 
-def test_app_without_the_hear_permission_is_refused_as_not_enabled() -> None:
-    body = refusal(RefusalCode.NOT_ENABLED)
-
-    assert body.status == HTTPStatus.FORBIDDEN
-    assert body.error.code == "not_enabled"
-    assert body.error.type == "invalid_request_error"
-
-
 @pytest.mark.parametrize("field", ["file", "model", "language", "response_format"])
 def test_refusal_names_a_hearing_request_field(field: str) -> None:
     assert refusal(RefusalCode.INVALID_REQUEST, field).error.param == field

@@ -29,23 +29,13 @@ def config() -> CallerConfig:
     return load_caller_config(BAKED_CONFIG)
 
 
-@pytest.fixture(params=[False, True], ids=["deaf app", "hearing app"])
-def app(request: pytest.FixtureRequest, config: CallerConfig) -> str:
-    return judged.app_that(config, hears=request.param)
-
-
-def test_the_baked_table_names_an_app_that_hears_and_one_that_does_not(
-    config: CallerConfig,
-) -> None:
-    hearing = judged.app_that(config, hears=True)
-    deaf = judged.app_that(config, hears=False)
-
-    assert config.apps[hearing].hear
-    assert not config.apps[deaf].hear
+@pytest.fixture(params=sorted(load_caller_config(BAKED_CONFIG).apps))
+def app(request: pytest.FixtureRequest) -> str:
+    return str(request.param)
 
 
 def table_of_one_app(voices: list[str]) -> CallerConfig:
-    """A caller table whose one app, `one`, may name `voices` and may not hear."""
+    """A caller table whose one app, `one`, may name `voices`."""
     return CallerConfig.model_validate(
         {
             "identity": {
@@ -61,19 +51,11 @@ def table_of_one_app(voices: list[str]) -> CallerConfig:
     )
 
 
-def test_a_table_with_no_app_of_the_wanted_kind_fails_the_proof() -> None:
-    table = table_of_one_app([RESIDENT_VOICE])
-
-    with pytest.raises(SystemExit, match="hear=True"):
-        judged.app_that(table, hears=True)
-
-
 def test_the_baked_caller_speaks_the_resident_voice_its_table_lists(
     config: CallerConfig, app: str
 ) -> None:
     baked = judged.baked_caller(config, app)
 
-    assert baked.hear is config.apps[app].hear
     assert baked.voice is RESIDENT_VOICE
     assert baked.voice in config.apps[baked.app].voices
 

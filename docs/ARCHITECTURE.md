@@ -26,7 +26,7 @@ flowchart LR
 
 - `src/speech_runtime_service`: the one process, its TCP listener and the
   routes. `voice_slot.py` holds one voice's engine lifecycle and its admission
-  gate; `callers.py` decides who may speak and who may hear; `wire_route.py`
+  gate; `callers.py` decides who may call; `wire_route.py`
   serves the wire; `hearing.py` holds the hearing engine behind a port, its
   gate and its one submission worker; `live_session.py` is a live session's
   state machine; `hearing_session.py` schedules its turns and partials; `pcm.py`
@@ -131,8 +131,7 @@ The root is read-only, the user is not root and no capability is kept.
 - Keycloak is the root. A registered app with valid tokens is trusted within
   its config; one app can only slow another, bounded by the busy wait and the
   input limit. Nothing is kept.
-- Every capability passes the caller check, and hearing also the app's `hear`
-  permission in the configuration (off unless listed). Only `GET /health` and the wire's
+- Every capability passes the caller check. Only `GET /health` and the wire's
   refusals that carry no capability (404 `not_found`, 400 `unsupported_version`)
   answer before it; nothing else is mounted.
 - `/health` is reachable only inside edge's app network: the code default binds
@@ -147,8 +146,7 @@ The root is read-only, the user is not root and no capability is kept.
   same client, name another subject, belong to the app's group or a group below
   it and belong exactly to the configured service group. A call an app makes as itself is refused.
 - Which issuer, group and apps count is configuration
-  (`SPEECH_CONFIG_FILE`); each app may name only the voices its table lists
-  and hears only if its table says so.
+  (`SPEECH_CONFIG_FILE`); each app may name only the voices its table lists.
 - No token, subject or key-set address reaches a log, an error or a repr, and
   no spoken or heard text reaches a log.
 - A refusal never says which token or claim failed beyond its code.

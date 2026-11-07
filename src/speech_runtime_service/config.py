@@ -144,10 +144,9 @@ def _known_voice(name: object) -> VoiceId:
 
 
 class AppConfig(_FileModel):
-    """An app the service admits: its workload client, its voices and its hearing."""
+    """An app the service admits: its workload client and its voices."""
 
     workload_client: str
-    hear: bool = False
     # TOML yields strings and lists, which strict mode refuses for an enum and a set.
     voices: Annotated[
         frozenset[Annotated[VoiceId, BeforeValidator(_known_voice)]],

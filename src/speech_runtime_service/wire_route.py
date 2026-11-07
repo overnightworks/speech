@@ -267,8 +267,6 @@ class _TranscriptionRoute:
         admitted = await self._callers.admit(request.headers)
         if isinstance(admitted, RefusalCode):
             return _refused(admitted)
-        if not self._callers.may_hear(admitted.app):
-            return _refused(RefusalCode.NOT_ENABLED)
         if self._runtime.hearing.capture() is None:
             return _refused(RefusalCode.UNAVAILABLE)
         return None
@@ -383,8 +381,6 @@ class _RealtimeRoute:
         admitted = await self._callers.admit(websocket.headers)
         if isinstance(admitted, RefusalCode):
             return _refused(admitted)
-        if not self._callers.may_hear(admitted.app):
-            return _refused(RefusalCode.NOT_ENABLED)
         if websocket.query_params.get(REALTIME_INTENT_PARAM) != REALTIME_INTENT:
             return _refused(RefusalCode.INVALID_REQUEST, REALTIME_INTENT_PARAM)
         hearing = self._runtime.hearing

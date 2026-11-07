@@ -16,4 +16,3 @@ voices = ["piper", "qwen3-tts-0.6b"]
 [apps.presentator]
 workload_client = "presentator"
 voices = ["piper", "qwen3-tts-0.6b"]
-hear = true

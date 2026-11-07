@@ -98,8 +98,8 @@ class GpuVoiceStage:
     hearing: FakeHearing
 
     def app(self) -> FastAPI:
-        """The private app over the runtime; its one app lists every voice and hears."""
-        return create_control_app(self.settings, self.runtime, valid_callers(hear=True))
+        """The private app over the runtime; its one app lists every voice."""
+        return create_control_app(self.settings, self.runtime, valid_callers())
 
     def starts(self) -> list[int]:
         """The pids of every worker started so far."""
