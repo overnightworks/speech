@@ -66,7 +66,6 @@ _OGG_FRAME_SECONDS = 0.02
 _OGG_RATE = 48_000
 _OGG_HEADER_PAGES = 2
 _LONG_CHUNK_SECONDS = 0.6
-_OTHER_VOICE_RATE = 24_000
 
 
 class _LongVoice(GatedSpeaking):
@@ -285,7 +284,7 @@ def _opus_answer(voice: _LongVoice) -> httpx2.Response:
     return asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("voice_rate", [SPEAK_SAMPLE_RATE, _OTHER_VOICE_RATE])
+@pytest.mark.parametrize("voice_rate", [SPEAK_SAMPLE_RATE, 24_000])
 def test_tcp_opus_is_mono_48_khz_and_lasts_as_long_as_the_voice_spoke(
     voice_rate: int,
 ) -> None:
