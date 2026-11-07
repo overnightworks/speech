@@ -1,7 +1,0 @@
-claim_id = "c723aa18c496476f81b20093e7a13d4b"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "7cb504d2ccf7cabdfe1770c9fd4f4caaaec9e835"
-branch = "claude/issue-198-start-test-race"
-scope = ["tests/support/tcp_server_support.py", "tests/test_main_serve_lifecycle.py"]
-opened_commit = "c25975a3e65680fa2529b5bd76dd6d927debdd7b"
