@@ -62,14 +62,13 @@ def _speak(
     )
 
 
-def _free_loopback_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
-
-
 def test_a_port_nothing_listens_on_is_unreachable() -> None:
-    assert _speak(f"http://127.0.0.1:{_free_loopback_port()}") == Unreachable()
+    # Bound and not listening: the connect is refused, no other test can take the port.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as bound:
+        bound.bind(("127.0.0.1", 0))
+        outcome = _speak(f"http://127.0.0.1:{bound.getsockname()[1]}")
+
+    assert outcome == Unreachable()
 
 
 @pytest.mark.parametrize(
@@ -228,6 +227,18 @@ def test_a_deadline_that_has_passed_before_the_connect_is_past_the_deadline() ->
         pytest.param(_resets, id="reset-before-the-status-line"),
         pytest.param(_closes, id="close-before-the-status-line"),
         pytest.param(_sends(_WAV_HEAD + _chunk(b"RIFF")), id="close-without-the-end"),
+        pytest.param(
+            _sends(_WAV_HEAD + _chunk(b"RIFF") + b"0"),
+            id="close-inside-the-last-chunk-line",
+        ),
+        pytest.param(
+            _sends(_WAV_HEAD + _chunk(b"RIFF") + b"0\r\n"),
+            id="close-before-the-final-blank-line",
+        ),
+        pytest.param(
+            _sends(_head("422 Unprocessable Entity", "Content-Length: 500") + b"{"),
+            id="refusal-shorter-than-its-length",
+        ),
     ],
 )
 def test_an_answer_that_ends_before_it_is_whole_is_cut(
@@ -240,6 +251,12 @@ def test_an_answer_that_ends_before_it_is_whole_is_cut(
     assert outcome == Cut()
 
 
+_ECHOED = (
+    refusal(RefusalCode.INVALID_REQUEST)
+    .model_dump_json()
+    .replace("The request is not valid.", PERSON_TOKEN)
+    .encode()
+)
 _BUSY_WITHOUT_WAIT = _refusal_response("429 Too Many Requests", RefusalCode.BUSY)
 
 
@@ -271,6 +288,11 @@ _BUSY_WITHOUT_WAIT = _refusal_response("429 Too Many Requests", RefusalCode.BUSY
         pytest.param(
             _refusal_response("401 Unauthorized", RefusalCode.NOT_FOUND),
             id="refusal-whose-code-has-another-status",
+        ),
+        pytest.param(
+            _head("422 Unprocessable Entity", f"Content-Length: {len(_ECHOED)}")
+            + _ECHOED,
+            id="refusal-with-a-message-that-is-not-the-canonical-one",
         ),
         pytest.param(_BUSY_WITHOUT_WAIT, id="429-without-retry-after"),
         pytest.param(

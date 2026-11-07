@@ -36,7 +36,13 @@ import socket
 import time
 from dataclasses import dataclass, field
 from http import HTTPStatus
-from http.client import HTTPConnection, HTTPException, HTTPResponse, IncompleteRead
+from http.client import (
+    HTTPConnection,
+    HTTPException,
+    HTTPResponse,
+    IncompleteRead,
+    LineTooLong,
+)
 from typing import Final
 from urllib.parse import urlsplit
 
@@ -50,11 +56,13 @@ from speech_runtime_client.wire import (
     RequestField,
     RetryAfterError,
     busy_wait,
+    refusal,
     speech_request_body,
     speech_request_headers,
 )
 
 _READ_BYTES: Final = 64 * 1024
+_TRAILER_LINE_BYTES: Final = 64 * 1024
 _REFUSAL_BODY_LIMIT: Final = 64 * 1024
 _WAV_MEDIA_TYPE: Final = "audio/wav"
 
@@ -168,6 +176,22 @@ def _connect(host: str, port: int, deadline: float) -> socket.socket:
     raise failure
 
 
+class _StrictResponse(HTTPResponse):
+    """A response that treats a chunked body without its terminator as cut."""
+
+    def _read_and_discard_trailer(self) -> None:
+        # The base class accepts an end of stream where the final CRLF belongs.
+        while True:
+            line = self.fp.readline(_TRAILER_LINE_BYTES + 1)
+            if len(line) > _TRAILER_LINE_BYTES:
+                message = "trailer line"
+                raise LineTooLong(message)
+            if not line:
+                raise IncompleteRead(b"")  # noqa: EM101 - the argument is the bytes read, not a message
+            if line in {b"\r\n", b"\n"}:
+                return
+
+
 def _read_within(response: HTTPResponse, limit: int) -> bytes | None:
     """The whole body, or `None` once it would pass `limit` bytes."""
     body = bytearray()
@@ -192,13 +216,15 @@ def _refusal(response: HTTPResponse) -> SpeakOutcome:
     if body is None:
         return Malformed()
     try:
-        refusal = Refusal.model_validate_json(body)
+        parsed = Refusal.model_validate_json(body)
         wait = busy_wait(response.status, dict(response.getheaders()))
     except ValidationError, RetryAfterError:
         return Malformed()
-    if refusal.status != response.status:
+    if parsed.status != response.status:
         return Malformed()
-    return Refused(refusal) if wait is None else Busy(wait)
+    if parsed != refusal(parsed.error.code, parsed.error.param):
+        return Malformed()
+    return Refused(parsed) if wait is None else Busy(wait)
 
 
 def _answer(
@@ -246,6 +272,7 @@ def speak(  # noqa: PLR0913 - every input comes from the call site, none has a d
     except OSError:
         return Unreachable()
     connection = HTTPConnection(address.hostname, port)
+    connection.response_class = _StrictResponse
     connection.sock = connected
     try:
         return _answer(connection, body, headers, cap_bytes)
