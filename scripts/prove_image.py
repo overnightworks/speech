@@ -31,7 +31,6 @@ from image_gpu_voice import cell_gpu_voice_not_offered, cell_gpu_voice_offered
 from image_judgement import (
     ImageReport,
     TmpUsage,
-    app_that,
     baked_caller,
     external_networks,
     heard_words,
@@ -71,7 +70,6 @@ from image_stack import (
     docker,
     form_of_size,
     healthcheck_passes,
-    hearer_of,
     seconds_until_healthy,
     service_config,
     speak_marked,
@@ -351,33 +349,26 @@ def cell_hearing_ready(session: Session, plain: Compose, seconds: float) -> None
 
 
 def cell_recording(session: Session, wav: bytes) -> None:
-    """Cell 14: the app that may hear gets text from one recording."""
-    hearer = hearer_of(session)
-    reply = hearer.hear(hearer.admitted_headers(), wav, HEARING_LANGUAGE)
-    text = require_transcript(reply, SENTENCE)
-    session.heard.append(text)
-    print(
-        f"cell 14: held; {hearer.baked.app} status=200"
-        f" spoken_words_heard={len(heard_words(text, SENTENCE))}"
-    )
-
-
-def cell_not_enabled(session: Session, wav: bytes) -> None:
-    """Cell 15: the same recording from an app without `hear` is refused."""
-    reply = session.hear(session.admitted_headers(), wav, HEARING_LANGUAGE)
-    require_refusal(reply, RefusalCode.NOT_ENABLED)
-    print(f"cell 15: held; {session.baked.app} refused as {RefusalCode.NOT_ENABLED}")
+    """Cell 14: every baked app gets text from one recording."""
+    for app in sorted(session.config.apps):
+        caller = replace(session, baked=baked_caller(session.config, app))
+        reply = caller.hear(caller.admitted_headers(), wav, HEARING_LANGUAGE)
+        text = require_transcript(reply, SENTENCE)
+        session.heard.append(text)
+        print(
+            f"cell 14: held; {app} status=200"
+            f" spoken_words_heard={len(heard_words(text, SENTENCE))}"
+        )
 
 
 def cell_hearing_refusals(session: Session, wav: bytes) -> None:
     """Cell 16: no token, a foreign group and a foreign language are refused."""
-    hearer = hearer_of(session)
-    admitted = hearer.admitted_headers()
+    admitted = session.admitted_headers()
     outside = replace(
-        minting_for(session.config, hearer.baked, session.signing),
+        minting_for(session.config, session.baked, session.signing),
         service_group=f"{session.config.identity.service_group}-outside",
     )
-    pair = hearer.pair(outside)
+    pair = session.pair(outside)
     cases = [
         ("no token", {}, HEARING_LANGUAGE, RefusalCode.UNAUTHORIZED),
         (
@@ -396,15 +387,14 @@ def cell_hearing_refusals(session: Session, wav: bytes) -> None:
         ),
     ]
     for what, headers, language, code in cases:
-        reply = hearer.hear(headers, wav, language)
+        reply = session.hear(headers, wav, language)
         require_refusal(reply, code)
         print(f"cell 16: held; {what} refused as {code}")
 
 
 def cell_live_turn(session: Session, wav: bytes) -> None:
     """Cell 17: a live turn over the WebSocket ends in a final."""
-    hearer = hearer_of(session)
-    outcome = hearer.hear_live(hearer.admitted_headers(), wav)
+    outcome = session.hear_live(session.admitted_headers(), wav)
     require_final(outcome, SENTENCE)
     session.heard.extend(live_texts(outcome))
     print(f"cell 17: held; final arrived after {len(outcome.partials)} partials")
@@ -412,29 +402,28 @@ def cell_live_turn(session: Session, wav: bytes) -> None:
 
 def cell_recording_limit(session: Session, wav: bytes) -> None:
     """Cell 18: recordings at the size limit never become a 500 or a spool left over."""
-    hearer = hearer_of(session)
     limit = Settings.model_fields["max_recording_bytes"].default
     at_limit_form = form_of_size(limit, HEARING_LANGUAGE)
-    headers = hearer.admitted_headers()
-    before = hearer.tmp_usage()
-    at_limit = hearer.post_recording(headers, at_limit_form)
+    headers = session.admitted_headers()
+    before = session.tmp_usage()
+    at_limit = session.post_recording(headers, at_limit_form)
     require_limit_answer(at_limit)
-    over = hearer.post_recording(headers, form_of_size(limit + 1, HEARING_LANGUAGE))
+    over = session.post_recording(headers, form_of_size(limit + 1, HEARING_LANGUAGE))
     require_refusal(over, RefusalCode.TOO_LARGE)
     leave_together = threading.Barrier(BURST_SIZE)
 
     def post_when_all_are_ready(_: int) -> Reply:
         leave_together.wait()
-        return hearer.post_recording(headers, at_limit_form)
+        return session.post_recording(headers, at_limit_form)
 
     with ThreadPoolExecutor(BURST_SIZE) as pool:
         burst = list(pool.map(post_when_all_are_ready, range(BURST_SIZE)))
     for reply in burst:
         require_limit_answer(reply, busy_allowed=True)
-    after = hearer.tmp_usage()
+    after = session.tmp_usage()
     require_tmp_clean(before, after, limit)
     session.heard.append(
-        require_transcript(hearer.hear(headers, wav, HEARING_LANGUAGE), SENTENCE)
+        require_transcript(session.hear(headers, wav, HEARING_LANGUAGE), SENTENCE)
     )
     answers = dict(sorted(Counter(reply.status for reply in burst).items()))
     print(
@@ -448,19 +437,18 @@ def cell_recording_limit(session: Session, wav: bytes) -> None:
 def cell_hearing_restart(session: Session, wav: bytes, plain: Compose) -> None:
     """Cell 19: a restart with no way to a hub ends with both ready and hearing."""
     compose = session.compose
-    peak_before = hearer_of(session).memory_peak_mib()
+    peak_before = session.memory_peak_mib()
     session.collect_log()
     compose.run("restart", "--timeout", str(STOP_TIMEOUT_SECONDS), SERVICE)
     compose.up(SERVICE)
-    hearer = hearer_of(session)
     service = service_config(plain)
     require_hearing_ready(
-        hearer.health(),
+        session.health(),
         service["environment"][HEARING_MODEL_SETTING],
         healthcheck_passes=healthcheck_passes(compose, service["healthcheck"]),
     )
-    health = hearer.health()
-    reply = hearer.hear(hearer.admitted_headers(), wav, HEARING_LANGUAGE)
+    health = session.health()
+    reply = session.hear(session.admitted_headers(), wav, HEARING_LANGUAGE)
     session.heard.append(require_transcript(reply, SENTENCE))
     if any(reached(session, [PUBLIC_ADDRESSES[1]]).values()) or can_write_root(compose):
         message = "after the restart the service can reach the hub or write its root"
@@ -470,7 +458,7 @@ def cell_hearing_restart(session: Session, wav: bytes, plain: Compose) -> None:
         f" speaking_ready={health['speaking']['ready']}"
         f" hearing_ready={health['hearing']['ready']} heard, hub_reachable=no,"
         f" root_writable=no, memory_peak_mib before_restart={peak_before}"
-        f" after_restart={hearer.memory_peak_mib()}"
+        f" after_restart={session.memory_peak_mib()}"
     )
 
 
@@ -496,7 +484,7 @@ def cell_hearing_negatives(session: Session, wav: bytes) -> None:
     )
     wrong_code = refusal(RefusalCode.FORBIDDEN).model_dump_json().encode()
     require_fails(
-        lambda: require_refusal(Reply(403, wrong_code), RefusalCode.NOT_ENABLED),
+        lambda: require_refusal(Reply(403, wrong_code), RefusalCode.UNAUTHORIZED),
         "a refusal with another code",
         naming="expected",
     )
@@ -524,10 +512,8 @@ def cell_hearing_negatives(session: Session, wav: bytes) -> None:
         naming="spool",
     )
     require_fails(
-        lambda: require_final(
-            session.hear_live(session.admitted_headers(), wav), SENTENCE
-        ),
-        "a live turn of an app that may not hear",
+        lambda: require_final(session.hear_live({}, wav), SENTENCE),
+        "a live turn without tokens",
         naming=REFUSED_UPGRADE,
     )
     require_hearing_model_negatives(session)
@@ -536,15 +522,14 @@ def cell_hearing_negatives(session: Session, wav: bytes) -> None:
 
 def require_hearing_model_negatives(session: Session) -> None:
     """A compose file without the model and an image without it each fail."""
-    hearer = hearer_of(session)
     plain = replace(session.compose, files=session.compose.files[:1])
     model = service_config(plain)["environment"][HEARING_MODEL_SETTING]
     without = start_with(session, NO_MODEL_OVERRIDE)
-    wait_until_speaking_alone(hearer)
+    wait_until_speaking_alone(session)
     passes = healthcheck_passes(without, service_config(without)["healthcheck"])
     require_fails(
         lambda: require_hearing_ready(
-            hearer.health(), model, healthcheck_passes=passes
+            session.health(), model, healthcheck_passes=passes
         ),
         "a compose file without the model",
         naming="hearing is not ready",
@@ -635,7 +620,6 @@ def hearing_cells(
     """Cells 13 to 19: hearing in the image, after a start `started_after` long."""
     cell_hearing_ready(session, plain, started_after)
     cell_recording(session, wav)
-    cell_not_enabled(session, wav)
     cell_hearing_refusals(session, wav)
     cell_live_turn(session, wav)
     cell_recording_limit(session, wav)
@@ -645,8 +629,7 @@ def hearing_cells(
 def _prove() -> None:
     wait_for_load()
     config = load_caller_config(BAKED_CONFIG)
-    baked = baked_caller(config, app_that(config, hears=False))
-    hearer = baked_caller(config, app_that(config, hears=True))
+    baked = baked_caller(config, min(config.apps))
     directory = Path(tempfile.mkdtemp(prefix="speech-image-"))
     environment = {
         "PROOF_DIRECTORY": str(directory),
@@ -669,7 +652,7 @@ def _prove() -> None:
                     baked.key_set_host,
                     fetch_key_set(identity.jwks_url, identity.ca_path),
                 )
-                session = Session(compose, config, baked, hearer, signing, [], [], [])
+                session = Session(compose, config, baked, signing, [], [], [])
                 cell_build(compose)
                 cell_contents(plain)
                 cell_absent_networks(plain, names)

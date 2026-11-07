@@ -89,7 +89,7 @@ starts:
 
 `POST /v1/audio/transcriptions` answers the words of one recording. **WIRE-29** It carries
 the same two headers as a speak request and **WIRE-30** is checked in this order, each step
-before the next: the tokens, the app's `hear` permission, whether hearing is
+before the next: the tokens, whether hearing is
 available, the body's size, the decode's admission, the form, the recording's
 length, the decoding itself.
 
@@ -106,8 +106,7 @@ length, the decoding itself.
 refused. **WIRE-37** The answer is `200` with `{"text": "..."}`; **WIRE-38** the same recording gives
 the same text, because the service decodes greedily, at temperature 0.
 
-**WIRE-39** An app hears only if its table in `SPEECH_CONFIG_FILE` says `hear = true`;
-otherwise the answer is `not_enabled`, after the tokens are accepted. **WIRE-40** Hearing
+**WIRE-40** Hearing
 is `unavailable` while no model is configured (`SPEECH_HEARING_MODEL`), while
 it loads, when its load found no CUDA device or no room on the card, and when a
 decode fails.
@@ -141,7 +140,7 @@ nothing else. **WIRE-50** Both tokens travel in the upgrade request's headers, a
 other routes; a client sends them from a server, never from a browser.
 
 **Upgrade.** **WIRE-51** A refusal before the session is an HTTP answer in the refusal form
-below, in this order: the tokens, the app's `hear` permission (`not_enabled`), the
+below, in this order: the tokens, the
 `intent` (`invalid_request`, `param` `intent`), whether hearing is available
 (`unavailable`), the session bound. **WIRE-52** `SPEECH_MAX_HEARING_SESSIONS` (default `1`)
 sessions run at once; one more is `busy` with `Retry-After`. **WIRE-53** A wrong version is
@@ -232,7 +231,6 @@ names is not part of the contract.
 | WIRE-96 | `not_found` | 404 | any other path, method or upgrade under version 1 | |
 | WIRE-97 | `unauthorized` | 401 | a token is missing, malformed, expired, for another issuer or audience, badly signed, or lacks a subject or a valid group claim | `WWW-Authenticate`: `Bearer` |
 | WIRE-98 | `forbidden` | 403 | both tokens are valid but do not permit the request: not a workload token, an unregistered app, tokens of different clients or of one subject, a person outside the app group or the service group, or a voice the app's configuration does not list (`param` `voice`) | |
-| WIRE-99 | `not_enabled` | 403 | the app's table does not say `hear = true` (the hearing routes only) | |
 | WIRE-100 | `invalid_request` | 422 | the body is not a JSON object, a field is missing, unknown or mistyped, a value is not accepted, or `input` is empty, without a letter or digit, or over the limit; for a recording: the form or `file` is missing, a field is unknown or not accepted, or the audio cannot be decoded (`param` `file`) | |
 | WIRE-101 | `too_large` | 413 | the body is over `SPEECH_MAX_BODY_BYTES` (a recording: `SPEECH_MAX_RECORDING_BYTES`), or the recording is longer than `SPEECH_MAX_RECORDING_SECONDS` (`param` `file`) | |
 | WIRE-102 | `busy` | 429 | the one synthesis (a recording: the one decode) is taken and its waiting places are taken (answered at once), or it is not free within its wait: `SPEECH_MAX_WAITING_REQUESTS` and `SPEECH_BUSY_WAIT_SECONDS`, for a recording `SPEECH_HEARING_MAX_WAITING_REQUESTS` and `SPEECH_HEARING_BUSY_WAIT_SECONDS` | `Retry-After`: the wait in whole seconds, at least 1 |
@@ -267,8 +265,7 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
   holds `workload_client`, the client id of that app's workload token; a client
   belongs to one app, and the app group `/apps/<name>` follows from the name; and
   `voices`, required, at least one catalogue id: the voices that app may name;
-  and `hear`, `false` when absent: whether that app may have recordings
-  heard. **WIRE-115** An unknown id is refused at start. **WIRE-116** Unknown keys are refused.
+  every registered app may hear. **WIRE-115** An unknown id is refused at start. **WIRE-116** Unknown keys are refused.
 - **WIRE-117** `SPEECH_HEARING_MODEL` (`large-v3` or `small`, none when absent): the hearing
   model the process loads at start. With none, hearing is `unavailable`.
 - **WIRE-118** `SPEECH_HEARING_BUSY_WAIT_SECONDS` (default `30.0`, at least 0) and

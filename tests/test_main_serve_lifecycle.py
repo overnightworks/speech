@@ -229,8 +229,9 @@ def _loadable_runtime() -> Runtime:
         ('workload_client = "quiz-client"\nvoices = ["alloy"]', "voices"),
         ('workload_client = "quiz-client"\nvoices = "piper"', "voices"),
         ('workload_client = "quiz-client"\nvoices = ["piper"]\nspeak = true', "speak"),
+        ('workload_client = "quiz-client"\nvoices = ["piper"]\nhear = true', "hear"),
     ],
-    ids=["missing", "empty", "unknown voice", "not a list", "speak flag"],
+    ids=["missing", "empty", "unknown voice", "not a list", "speak flag", "hear flag"],
 )
 def test_the_service_does_not_start_when_an_apps_voices_are_wrong(
     tmp_path: Path, apps: str, named: str

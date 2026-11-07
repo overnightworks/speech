@@ -222,14 +222,13 @@ class LiveOutcome:
 class Session:
     """What the cells share: the stack, the baked callers and what the log must lack.
 
-    `baked` is the caller the cells speak as and `hearer` the one that may hear;
-    `tokens` and `heard` are what the log must not hold.
+    `baked` is the caller the cells speak as; `tokens` and `heard` are what the log
+    must not hold.
     """
 
     compose: Compose
     config: CallerConfig
     baked: BakedCaller
-    hearer: BakedCaller
     signing: Minting
     tokens: list[str]
     heard: list[str]
@@ -333,11 +332,6 @@ def speak_marked(session: Session) -> bytes:
         raise SystemExit(message)
     require_marked_wav(reply.body)
     return reply.body
-
-
-def hearer_of(session: Session) -> Session:
-    """The session as the app that may hear."""
-    return replace(session, baked=session.hearer)
 
 
 def start_with(session: Session, override: Path) -> Compose:

@@ -105,8 +105,8 @@ def hear_runtime(engine: FakeHearing | None) -> Runtime:
 
 
 def hear_app(runtime: Runtime, **settings: float) -> FastAPI:
-    """The private app over `runtime`, with an app that may hear."""
-    return create_control_app(Settings(**settings), runtime, valid_callers(hear=True))
+    """The private app over `runtime`."""
+    return create_control_app(Settings(**settings), runtime, valid_callers())
 
 
 def recording(seconds: float = 0.5) -> bytes:

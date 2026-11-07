@@ -53,7 +53,6 @@ class BakedCaller:
     """What `deploy/speech.toml` says about one caller the proof speaks as."""
 
     app: str
-    hear: bool
     voice: VoiceId
     key_set_host: str
     key_set_port: int
@@ -76,15 +75,6 @@ class ImageReport:
     nvidia_directories: list[str]
 
 
-def app_that(config: CallerConfig, *, hears: bool) -> str:
-    """The first app, by name, whose baked entry does (or does not) allow hearing."""
-    for app in sorted(config.apps):
-        if config.apps[app].hear is hears:
-            return app
-    message = f"the baked table holds no app with hear={hears}"
-    raise SystemExit(message)
-
-
 @dataclass(frozen=True)
 class TmpUsage:
     """The filesystem's own count of the service's /tmp: bytes in use, and its size."""
@@ -102,7 +92,6 @@ def baked_caller(config: CallerConfig, app: str) -> BakedCaller:
     assert key_set.hostname is not None  # noqa: S101 - the owner validated an https URL
     return BakedCaller(
         app=app,
-        hear=config.apps[app].hear,
         voice=RESIDENT_VOICE,
         key_set_host=key_set.hostname,
         key_set_port=key_set.port or 443,

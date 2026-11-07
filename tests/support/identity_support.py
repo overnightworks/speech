@@ -162,12 +162,11 @@ OTHER_MINTING = replace(
 
 
 def caller_config(
-    voices: Iterable[VoiceId] = ALL_VOICES, *, hear: bool = False, **identity: object
+    voices: Iterable[VoiceId] = ALL_VOICES, **identity: object
 ) -> CallerConfig:
     """The service configuration that trusts the scenario issuer.
 
-    The one app lists `voices`, by default every catalogue voice, and hears when
-    `hear` says so.
+    The one app lists `voices`, by default every catalogue voice.
     """
     facts = {
         "issuer": MINTING.issuer,
@@ -183,7 +182,6 @@ def caller_config(
             APP: AppConfig(
                 workload_client=MINTING.client_id,
                 voices=frozenset(voices),
-                hear=hear,
             )
         },
     )
@@ -234,15 +232,10 @@ def callers_trusting(configuration_path: Path, minting: Minting) -> SpeechCaller
     )
 
 
-def valid_callers(
-    voices: Iterable[VoiceId] = ALL_VOICES, *, hear: bool = False
-) -> SpeechCallers:
-    """Callers on real clocks that accept `valid_headers()`.
-
-    The app lists `voices` and hears when `hear` says so.
-    """
+def valid_callers(voices: Iterable[VoiceId] = ALL_VOICES) -> SpeechCallers:
+    """Callers on real clocks that accept `valid_headers()`; the app lists `voices`."""
     return SpeechCallers.from_config(
-        caller_config(voices, hear=hear),
+        caller_config(voices),
         fetch_key_set=FakeKeySet(DEFAULT_KEY),
         wall_clock=time.time,
         monotonic_clock=time.monotonic,

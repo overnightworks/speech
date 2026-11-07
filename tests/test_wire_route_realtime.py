@@ -27,6 +27,7 @@ from speech_runtime_client.wire import (
 )
 from speech_runtime_service.config import Settings
 from speech_runtime_service.control import create_control_app
+from speech_runtime_service.voices import VoiceId
 from tests.support.hear_support import (
     HEARD_TEXT,
     WAIT_SECONDS,
@@ -40,8 +41,9 @@ from tests.support.hear_support import (
 )
 from tests.support.identity_support import (
     APP,
+    OTHER_MINTING,
     altered,
-    valid_callers,
+    callers_of_two_apps,
     valid_headers,
     valid_pair,
 )
@@ -91,6 +93,19 @@ def test_a_session_hears_a_committed_turn_and_ends_when_the_client_leaves() -> N
     assert events[-1]["transcript"] == HEARD_TEXT
 
 
+def test_a_registered_app_with_no_hearing_key_opens_a_live_session() -> None:
+    """WIRE-48, WIRE-114: every registered app opens a session without a hearing key."""
+    callers = callers_of_two_apps([VoiceId.PIPER], [VoiceId.PIPER])
+    client = TestClient(
+        create_control_app(Settings(), hear_runtime(FakeHearing()), callers)
+    )
+
+    with client.websocket_connect(
+        URL, headers=valid_headers(minting=OTHER_MINTING)
+    ) as socket:
+        assert socket.receive_json()["type"] == "session.created"
+
+
 def test_a_setup_in_another_language_ends_the_session_with_an_error() -> None:
     """WIRE-57, WIRE-58, WIRE-77: a setup in another language ends the session."""
     with _client().websocket_connect(URL, headers=valid_headers()) as socket:
@@ -103,40 +118,6 @@ def test_a_setup_in_another_language_ends_the_session_with_an_error() -> None:
     assert error["type"] == "error"
     assert error["error"]["code"] == RefusalCode.INVALID_REQUEST
     assert error["error"]["param"] == "session.audio.input.transcription.language"
-
-
-@pytest.mark.parametrize(
-    ("hears", "engine", "settings", "hold_a_place"),
-    [
-        pytest.param(False, FakeHearing(), {}, False, id="not-permitted"),
-        pytest.param(False, None, {}, False, id="and-hearing-unavailable"),
-        pytest.param(
-            False,
-            FakeHearing(),
-            {"max_hearing_sessions": 1},
-            True,
-            id="and-sessions-full",
-        ),
-    ],
-)
-def test_an_app_without_the_hear_permission_is_told_so_before_everything_else(
-    *,
-    hears: bool,
-    engine: FakeHearing | None,
-    settings: dict[str, int],
-    hold_a_place: bool,
-) -> None:
-    """WIRE-51, WIRE-99: an app without hear is denied as not enabled."""
-    runtime = hear_runtime(engine)
-    if hold_a_place:
-        assert runtime.hearing.open_session(settings["max_hearing_sessions"])
-    client = TestClient(
-        create_control_app(Settings(**settings), runtime, valid_callers(hear=hears))
-    )
-
-    denial = _denied(client)
-
-    _assert_denied(denial, HTTP_403_FORBIDDEN, RefusalCode.NOT_ENABLED, None)
 
 
 def test_a_caller_without_tokens_is_told_so_before_anything_else() -> None:

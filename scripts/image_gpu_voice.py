@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Final
 
 from image_judgement import (
     GpuVoiceReport,
+    baked_caller,
     listed_gpu_voice,
     require_gpu_voice_down,
     require_log_clean,
@@ -32,7 +33,6 @@ from image_stack import (
     SERVICE,
     container_of,
     docker,
-    hearer_of,
     run_in,
     speak_marked,
     start_with,
@@ -71,10 +71,11 @@ def health_of(session: Session) -> Health:
 def cell_gpu_voice_not_offered(session: Session) -> None:
     """Cell 22: by default each app's listed GPU voice is refused, no worker starts."""
     refused = []
-    for caller in (session, hearer_of(session)):
-        voice = listed_gpu_voice(session.config, caller.baked.app)
+    for app in sorted(session.config.apps):
+        caller = replace(session, baked=baked_caller(session.config, app))
+        voice = listed_gpu_voice(session.config, app)
         require_refused_unavailable(caller, voice)
-        refused.append(f"{caller.baked.app} naming {voice}")
+        refused.append(f"{app} naming {voice}")
     require_offer(health_of(session), [RESIDENT_VOICE])
     running = gpu_voice_report(session).workers
     session.collect_log()
@@ -113,7 +114,7 @@ def cell_gpu_voice_offered(session: Session, wav: bytes) -> None:
     """Cell 23: offered on a runner without a card, the GPU voice fails alone."""
     stack = start_with(session, GPU_VOICE_OVERRIDE)
     stack.up(SERVICE)
-    offered = replace(hearer_of(session), compose=stack)
+    offered = replace(session, compose=stack)
     voice = listed_gpu_voice(session.config, offered.baked.app)
     health = health_of(offered)
     require_offer(health, [RESIDENT_VOICE, voice])
