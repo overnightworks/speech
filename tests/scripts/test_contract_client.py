@@ -41,11 +41,8 @@ def test_no_credential_holder_shows_a_key_or_token_when_represented(
     minting: Minting,
 ) -> None:
     pair = CLIENT.mint_pair(minting)
-    request = CLIENT._Post(  # noqa: SLF001 - the credential-carrying request body
-        b"{}", {"Authorization": f"Bearer {pair.workload}", "X-Person": pair.person}
-    )
 
-    shown = [repr(minting), repr(pair), repr(request)]
+    shown = [repr(minting), repr(pair)]
 
     for text in shown:
         assert "-----BEGIN" not in text
@@ -188,13 +185,16 @@ def _recording_speech_service() -> Iterator[
     seen: list[http.server.BaseHTTPRequestHandler] = []
 
     class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
         def do_POST(self) -> None:
             seen.append(self)
             self.rfile.read(int(self.headers["Content-Length"]))
             self.send_response(200)
-            self.send_header("Content-Length", "4")
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()
-            self.wfile.write(b"RIFF")
+            self.wfile.write(b"4\r\nRIFF\r\n0\r\n\r\n")
 
         def log_message(self, *_: object) -> None:
             pass

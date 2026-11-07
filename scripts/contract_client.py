@@ -14,21 +14,18 @@ import http.client
 import json
 import sys
 from array import array
-from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from proof_identity import Minting, load_minting, mint_pair
-from speech_runtime_client.wire import (
-    SPEECH_PATH,
-    speech_request_body,
-    speech_request_headers,
-)
+from speech_runtime_client import speak as speaking_call
 
 SENTENCE = (
     "Die Kamera zeigt den Vortragenden, während im Hintergrund "
     "die nächste Folie automatisch vorbereitet wird."
 )
+SPEAK_DEADLINE_SECONDS = 60
+WAV_CAP_BYTES = 64 * 1024 * 1024
 BYTES_PER_SAMPLE = 2
 SILENCE_RMS = 0.01
 
@@ -44,23 +41,10 @@ def _connection(base_url: str, timeout: float) -> http.client.HTTPConnection:
     return http.client.HTTPConnection(address.hostname, address.port, timeout=timeout)
 
 
-@dataclass(frozen=True)
-class _Post:
-    body: bytes
-    headers: dict[str, str] = field(repr=False)
-
-
-def _request(
-    base_url: str, method: str, target: str, post: _Post | None, timeout: float
-) -> bytes:
+def _request(base_url: str, method: str, target: str, timeout: float) -> bytes:
     connection = _connection(base_url, timeout)
     try:
-        connection.request(
-            method,
-            target,
-            post.body if post else None,
-            post.headers if post else {},
-        )
+        connection.request(method, target)
         response = connection.getresponse()
         data = response.read()
     except http.client.IncompleteRead:
@@ -76,7 +60,7 @@ def _request(
 
 def get_json(base_url: str, target: str) -> dict[str, object]:
     """GET a path over the speech service and decode the JSON body."""
-    return json.loads(_request(base_url, "GET", target, None, 30).decode("utf-8"))
+    return json.loads(_request(base_url, "GET", target, 30).decode("utf-8"))
 
 
 def _pcm_from_wav(data: bytes) -> tuple[int, bytes]:
@@ -103,11 +87,19 @@ def speak(base_url: str, text: str, voice: str, minting: Minting) -> bytes:
     expired one.
     """
     pair = mint_pair(minting)
-    headers = speech_request_headers(
-        workload_token=pair.workload, person_token=pair.person
+    outcome = speaking_call.speak(
+        base_url,
+        text,
+        voice,
+        workload_token=pair.workload,
+        person_token=pair.person,
+        deadline_seconds=SPEAK_DEADLINE_SECONDS,
+        cap_bytes=WAV_CAP_BYTES,
     )
-    post = _Post(speech_request_body(text, voice), headers)
-    return _request(base_url, "POST", SPEECH_PATH, post, 60)
+    if not isinstance(outcome, speaking_call.Spoken):
+        message = f"speak ended as {type(outcome).__name__}"
+        raise SystemExit(message)
+    return outcome.wav
 
 
 def _rms(pcm: bytes) -> float:
