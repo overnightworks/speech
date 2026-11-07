@@ -84,7 +84,8 @@ overnightworks-speech-runtime-provider-contract @ git+https://github.com/overnig
 overnightworks-speech-runtime-service @ git+https://github.com/overnightworks/speech-runtime@vX.Y.Z
 ```
 
-The client owns the wire's types. The service is an application: its pin
+The client owns the wire's types and the bounded speaking call
+(`speech_runtime_client.speak`). The service is an application: its pin
 installs the CPU path, and GPU hearing needs the pin with `[gpu]`.
 `scripts/check_release.py` holds the distributions at one version.
 

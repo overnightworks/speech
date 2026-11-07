@@ -18,6 +18,8 @@ under [Hearing live](#hearing-live).
 `speech_runtime_client.wire` (the `overnightworks-speech-runtime-client`
 distribution) owns the paths, the request types, the transcription answer, the
 Realtime events and the refusal list; build the body and read the refusals through it.
+`speech_runtime_client.speak` makes the speaking call itself, within a total deadline and a
+byte cap, and answers with a typed outcome; its module documents them.
 
 ## Request
 
