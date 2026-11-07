@@ -1,7 +1,0 @@
-claim_id = "da9fe53b513e4751a826153beae92e7d"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "7639a8687006b296a728f403a201310e39654c65"
-branch = "claude/issue-192-take-webauth-0-32-0"
-scope = ["pyproject.toml", "uv.lock"]
-opened_commit = "e7860979e0f5c1611f8d144cb2debf183ff324b1"
