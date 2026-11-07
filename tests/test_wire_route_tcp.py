@@ -56,7 +56,7 @@ from tests.support.tcp_server_support import TcpServer, serving_over_tcp
 
 if TYPE_CHECKING:
     import threading
-    from collections.abc import AsyncIterator, Iterator, Mapping
+    from collections.abc import AsyncIterator, Mapping
 
 _SPEAK_BODY = speak_body()
 _OPUS_BODY = speak_body(response_format=ResponseFormat.OPUS)
@@ -78,21 +78,6 @@ class _LongVoice(GatedSpeaking):
         self.sample_rate = sample_rate
         self.release_first_step.set()
         self.audio = sine_pcm(2 * _LONG_CHUNK_SECONDS, rate=sample_rate)
-
-
-class _LongFailingVoice(FakeSpeaking):
-    """A voice that fails once after one long chunk, then speaks."""
-
-    failed = False
-
-    def pcm_chunks(self, text: str, language: str) -> Iterator[bytes]:
-        yield sine_pcm(_LONG_CHUNK_SECONDS, rate=self.sample_rate)
-        if self.failed:
-            yield from super().pcm_chunks(text, language)
-            return
-        self.failed = True
-        message = "engine failed"
-        raise RuntimeError(message)
 
 
 class _OggPage(NamedTuple):
@@ -404,7 +389,13 @@ def test_tcp_opus_failure_after_audio_pages_sends_no_end_page() -> None:
     async def scenario() -> tuple[bool, bytes, httpx2.Response]:
         received = bytearray()
         async with (
-            serving_over_tcp(_gated_runtime(_LongFailingVoice())) as server,
+            serving_over_tcp(
+                _gated_runtime(
+                    FailingSpeaking(
+                        chunks_before_failing=1, chunk_seconds=_LONG_CHUNK_SECONDS
+                    )
+                )
+            ) as server,
             _client(server) as client,
         ):
             try:
