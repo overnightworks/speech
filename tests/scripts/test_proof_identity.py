@@ -123,7 +123,7 @@ def test_the_identity_directory_and_every_file_in_it_are_private(
     assert all(stat.S_IMODE(path.stat().st_mode) == OWNER_ONLY for path in files)
 
 
-def test_the_service_configuration_holds_no_key_material_and_the_proof_app(
+def test_the_service_configuration_holds_the_proof_app_and_no_key_material(
     identity: ProofIdentity, minting: Minting
 ) -> None:
     text = identity.configuration_path.read_text()

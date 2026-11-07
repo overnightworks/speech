@@ -194,7 +194,7 @@ def _recording_speech_service() -> Iterator[
             self.send_header("Content-Type", "audio/wav")
             self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()
-            self.wfile.write(b"4\r\nRIFF\r\n0\r\n\r\n")
+            self.wfile.write(b"c\r\nRIFF\0\0\0\0WAVE\r\n0\r\n\r\n")
 
         def log_message(self, *_: object) -> None:
             pass

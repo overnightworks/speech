@@ -73,6 +73,7 @@ from prove_speech import (
 from speech_runtime_client.wire import (
     SPEECH_PATH,
     HearingLanguage,
+    ResponseFormat,
     speech_request_body,
     speech_request_headers,
 )
@@ -170,7 +171,7 @@ def _speaks(base_url: str, minting: Minting, voice: str) -> bool:
         with httpx2.Client(base_url=base_url, timeout=SPEAK_WAIT_SECONDS) as client:
             response = client.post(
                 SPEECH_PATH,
-                content=speech_request_body(PROBE_TEXT, voice),
+                content=speech_request_body(PROBE_TEXT, voice, ResponseFormat.WAV),
                 headers=speech_request_headers(
                     workload_token=pair.workload, person_token=pair.person
                 ),

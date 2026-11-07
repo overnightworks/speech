@@ -42,6 +42,7 @@ from proof_identity import (
 )
 from speech_runtime_client.wire import (
     SPEECH_PATH,
+    ResponseFormat,
     speech_request_body,
     speech_request_headers,
 )
@@ -293,7 +294,7 @@ def speak_measured(
         connection.request(
             "POST",
             SPEECH_PATH,
-            speech_request_body(text, voice),
+            speech_request_body(text, voice, ResponseFormat.WAV),
             speech_request_headers(
                 workload_token=pair.workload, person_token=pair.person
             ),

@@ -39,7 +39,6 @@ REALTIME_INTENT_PARAM: Final = "intent"
 REALTIME_INTENT: Final = "transcription"
 API_VERSION: Final = 1
 MODEL: Final = "speech-runtime"
-RESPONSE_FORMAT: Final = "wav"
 RETRY_AFTER_HEADER: Final = "Retry-After"
 CONTENT_TYPE_HEADER: Final = "Content-Type"
 WORKLOAD_TOKEN_HEADER: Final = "Speech-Workload-Token"  # noqa: S105 - a header name and no secret
@@ -52,6 +51,33 @@ RequestField = Literal[
 _INPUT_WITHOUT_CONTENT: Final = "input must hold a letter or a digit"
 
 
+class ResponseFormat(StrEnum):
+    """The audio formats the service speaks.
+
+    Each owns the media type and the container signature of its answer.
+    """
+
+    WAV = "wav"
+    OPUS = "opus"
+
+    @property
+    def media_type(self) -> str:
+        """The `Content-Type` of a 200 in this format."""
+        return _MEDIA_TYPES[self]
+
+    def begins_like_container(self, body: bytes) -> bool:
+        """Whether `body` begins with this format's container signature."""
+        if self is ResponseFormat.WAV:
+            return body[:4] == b"RIFF" and body[8:12] == b"WAVE"
+        return body[:4] == b"OggS"
+
+
+_MEDIA_TYPES: Final = {
+    ResponseFormat.WAV: "audio/wav",
+    ResponseFormat.OPUS: "audio/ogg",
+}
+
+
 class SpeechRequest(BaseModel):
     """The body of `POST /v1/audio/speech`: a strict subset of OpenAI's."""
 
@@ -62,7 +88,7 @@ class SpeechRequest(BaseModel):
     model: Literal["speech-runtime"]
     input: str
     voice: str
-    response_format: Literal["wav"]
+    response_format: ResponseFormat
 
     @field_validator("input")
     @classmethod
@@ -143,10 +169,12 @@ class Health(BaseModel):
     card_memory_mb: StrictInt
 
 
-def speech_request_body(text: str, voice: str) -> bytes:
-    """The JSON a caller posts to speak `text` with the voice `voice`."""
+def speech_request_body(
+    text: str, voice: str, response_format: ResponseFormat
+) -> bytes:
+    """The JSON a caller posts to speak `text` with `voice` in `response_format`."""
     request = SpeechRequest(
-        model=MODEL, input=text, voice=voice, response_format=RESPONSE_FORMAT
+        model=MODEL, input=text, voice=voice, response_format=response_format
     )
     return request.model_dump_json().encode()
 

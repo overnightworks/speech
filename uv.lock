@@ -602,7 +602,7 @@ wheels = [
 
 [[package]]
 name = "overnightworks-speech-runtime-client"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/client" }
 dependencies = [
     { name = "pydantic" },
@@ -613,14 +613,15 @@ requires-dist = [{ name = "pydantic", specifier = ">=2.13,<3" }]
 
 [[package]]
 name = "overnightworks-speech-runtime-provider-contract"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "providers/provider-contract" }
 
 [[package]]
 name = "overnightworks-speech-runtime-service"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
+    { name = "av" },
     { name = "fastapi" },
     { name = "faster-whisper" },
     { name = "huggingface-hub" },
@@ -653,6 +654,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "av", specifier = "==19.0.2" },
     { name = "fastapi", specifier = "==0.162.0" },
     { name = "faster-whisper", specifier = "==1.2.1" },
     { name = "huggingface-hub", specifier = "==2.4.0" },

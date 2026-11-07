@@ -2,12 +2,15 @@
 
 import asyncio
 import base64
+import io
 import json
 import os
+import struct
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 from urllib.parse import urlsplit
 
+import av
 import httpx2
 import pytest
 from starlette.status import (
@@ -24,14 +27,21 @@ from speech_runtime_client.wire import (
     REALTIME_PATH,
     SPEECH_PATH,
     RefusalCode,
+    ResponseFormat,
 )
-from speech_runtime_service.pcm import WAV_HEADER_BYTES, pcm_from_wav
+from speech_runtime_service.pcm import (
+    AI_MARK,
+    BYTES_PER_SAMPLE,
+    WAV_HEADER_BYTES,
+    pcm_from_wav,
+)
 from speech_runtime_service.service import Runtime
 from tests.support.fakes_support import (
     GATE_TIMEOUT_SECONDS,
     SPEAK_SAMPLE_RATE,
     FakeSpeaking,
     GatedSpeaking,
+    sine_pcm,
 )
 from tests.support.identity_support import valid_headers
 from tests.support.speak_support import (
@@ -49,6 +59,80 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Mapping
 
 _SPEAK_BODY = speak_body()
+_OPUS_BODY = speak_body(response_format=ResponseFormat.OPUS)
+_BODIES = {ResponseFormat.WAV: _SPEAK_BODY, ResponseFormat.OPUS: _OPUS_BODY}
+_OGG_END_OF_STREAM = 0x04
+_OGG_FRAME_SECONDS = 0.02
+_OGG_RATE = 48_000
+_OGG_HEADER_PAGES = 2
+_LONG_CHUNK_SECONDS = 0.6
+
+
+class _LongVoice(GatedSpeaking):
+    """A gated voice whose first chunk is long enough to fill Opus pages."""
+
+    def __init__(
+        self, *, hold_last_chunk: bool = True, sample_rate: int = SPEAK_SAMPLE_RATE
+    ) -> None:
+        super().__init__(hold_last_chunk=hold_last_chunk)
+        self.sample_rate = sample_rate
+        self.release_first_step.set()
+        self.audio = sine_pcm(2 * _LONG_CHUNK_SECONDS, rate=sample_rate)
+
+
+class _OggPage(NamedTuple):
+    flags: int
+    granule: int
+    payload: bytes
+
+
+def _ogg_pages(data: bytes) -> list[_OggPage]:
+    """The whole pages in `data`, read from the bytes."""
+    pages = []
+    position = 0
+    while position + 27 <= len(data):
+        assert data[position : position + 4] == b"OggS"
+        flags, granule = struct.unpack_from("<xBq", data, position + 4)
+        segments = data[position + 26]
+        header_end = position + 27 + segments
+        if header_end > len(data):
+            break
+        size = sum(data[position + 27 : header_end])
+        if header_end + size > len(data):
+            break
+        pages.append(_OggPage(flags, granule, data[header_end : header_end + size]))
+        position = header_end + size
+    return pages
+
+
+def _opus_pre_skip(pages: list[_OggPage]) -> int:
+    head = pages[0].payload
+    assert head[:8] == b"OpusHead"
+    return struct.unpack_from("<H", head, 10)[0]
+
+
+def _opus_comments(tags: bytes) -> list[str]:
+    assert tags[:8] == b"OpusTags"
+    (vendor_size,) = struct.unpack_from("<I", tags, 8)
+    position = 12 + vendor_size
+    (count,) = struct.unpack_from("<I", tags, position)
+    position += 4
+    comments = []
+    for _ in range(count):
+        (size,) = struct.unpack_from("<I", tags, position)
+        comments.append(tags[position + 4 : position + 4 + size].decode())
+        position += 4 + size
+    return comments
+
+
+def _decoded_opus(body: bytes) -> tuple[int, int, float]:
+    """Channels, rate and seconds of the audio in an Ogg Opus `body`."""
+    with av.open(io.BytesIO(body)) as container:
+        stream = container.streams.audio[0]
+        samples = sum(
+            frame.samples for frame in container.decode(stream) if frame.samples
+        )
+        return stream.codec_context.channels, stream.rate, samples / stream.rate
 
 
 @asynccontextmanager
@@ -98,6 +182,16 @@ def _assert_whole_wav(status_code: int, body: bytes, voice: GatedSpeaking) -> No
     assert pcm == voice.audio
 
 
+def _assert_whole_answer(
+    response_format: ResponseFormat, body: bytes, audio: bytes
+) -> None:
+    """The body is a finished answer: the voice's audio in WAV, an end page in Opus."""
+    if response_format is ResponseFormat.WAV:
+        assert pcm_from_wav(body) == (SPEAK_SAMPLE_RATE, audio)
+    else:
+        assert _ogg_pages(body)[-1].flags & _OGG_END_OF_STREAM
+
+
 def test_tcp_streams_speak_while_the_voice_is_still_synthesizing() -> None:
     """WIRE-01, WIRE-88: tcp streams speak while the voice is still synthesizing."""
 
@@ -126,7 +220,82 @@ def test_tcp_streams_speak_while_the_voice_is_still_synthesizing() -> None:
     _assert_whole_wav(status_code, whole, voice)
 
 
-def test_tcp_speak_disconnect_frees_the_voice_for_the_next_caller() -> None:
+def _audio_page_arrived(received: bytes) -> bool:
+    pages = _ogg_pages(received)
+    return len(pages) > _OGG_HEADER_PAGES and any(
+        page.granule > _opus_pre_skip(pages) for page in pages[_OGG_HEADER_PAGES:]
+    )
+
+
+def test_tcp_streams_opus_pages_while_the_voice_is_still_synthesizing() -> None:
+    """WIRE-01, WIRE-133: audio pages leave before the voice's last chunk does."""
+
+    async def scenario() -> tuple[httpx2.Response, bool, bytes]:
+        voice = _LongVoice()
+        async with (
+            serving_over_tcp(_gated_runtime(voice)) as server,
+            _client(server) as client,
+            _gates_released(voice),
+            client.stream("POST", SPEECH_PATH, content=_OPUS_BODY) as response,
+        ):
+            chunks = response.aiter_bytes()
+            received = b""
+            while not _audio_page_arrived(received):
+                received += await asyncio.wait_for(
+                    anext(chunks), timeout=GATE_TIMEOUT_SECONDS
+                )
+            arrived_early = not voice.release_last_chunk.is_set()
+            voice.release_last_chunk.set()
+            rest = b"".join([chunk async for chunk in chunks])
+        return response, arrived_early, received + rest
+
+    response, arrived_early, whole = asyncio.run(scenario())
+
+    assert response.status_code == HTTP_200_OK
+    assert response.headers["content-type"] == ResponseFormat.OPUS.media_type
+    assert "content-length" not in response.headers
+    assert arrived_early
+    assert _ogg_pages(whole)[-1].flags & _OGG_END_OF_STREAM
+
+
+def _opus_answer(voice: _LongVoice) -> httpx2.Response:
+    async def scenario() -> httpx2.Response:
+        async with (
+            serving_over_tcp(_gated_runtime(voice)) as server,
+            _client(server) as client,
+        ):
+            return await client.post(SPEECH_PATH, content=_OPUS_BODY)
+
+    return asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("voice_rate", [SPEAK_SAMPLE_RATE, 24_000])
+def test_tcp_opus_is_mono_48_khz_and_lasts_as_long_as_the_voice_spoke(
+    voice_rate: int,
+) -> None:
+    """WIRE-133: the Ogg Opus decodes to mono at 48 kHz, the voice's whole length."""
+    voice = _LongVoice(hold_last_chunk=False, sample_rate=voice_rate)
+
+    answer = _opus_answer(voice)
+
+    channels, rate, seconds = _decoded_opus(answer.content)
+    spoken = len(voice.audio) / BYTES_PER_SAMPLE / voice_rate
+    assert (channels, rate) == (1, _OGG_RATE)
+    assert seconds == pytest.approx(spoken, abs=_OGG_FRAME_SECONDS)
+
+
+def test_tcp_opus_carries_the_ai_mark_in_its_raw_opus_tags() -> None:
+    """WIRE-134: the OpusTags packet holds DESCRIPTION= with the AI mark."""
+    answer = _opus_answer(_LongVoice(hold_last_chunk=False))
+
+    tags = _ogg_pages(answer.content)[1].payload
+    assert f"DESCRIPTION={AI_MARK}" in _opus_comments(tags)
+
+
+@pytest.mark.parametrize("response_format", list(ResponseFormat))
+def test_tcp_speak_disconnect_frees_the_voice_for_the_next_caller(
+    response_format: ResponseFormat,
+) -> None:
     """WIRE-132: a speak caller that has gone leaves its voice free."""
 
     async def scenario() -> tuple[GatedSpeaking, httpx2.Response]:
@@ -138,7 +307,7 @@ def test_tcp_speak_disconnect_frees_the_voice_for_the_next_caller() -> None:
             _gates_released(voice),
         ):
             async with client.stream(
-                "POST", SPEECH_PATH, content=_SPEAK_BODY
+                "POST", SPEECH_PATH, content=_BODIES[response_format]
             ) as leaving:
                 await _first_chunk(leaving.aiter_bytes())
                 await _wait_for(voice.entered_last_step)
@@ -146,11 +315,14 @@ def test_tcp_speak_disconnect_frees_the_voice_for_the_next_caller() -> None:
                 server.speak_disconnect_received.wait(), timeout=GATE_TIMEOUT_SECONDS
             )
             voice.release_last_chunk.set()
-            return voice, await client.post(SPEECH_PATH, content=_SPEAK_BODY)
+            return voice, await client.post(
+                SPEECH_PATH, content=_BODIES[response_format]
+            )
 
     voice, later = asyncio.run(scenario())
 
-    _assert_whole_wav(later.status_code, later.content, voice)
+    assert later.status_code == HTTP_200_OK
+    _assert_whole_answer(response_format, later.content, voice.audio)
 
 
 def test_a_speak_holds_the_one_synthesis_gate() -> None:
@@ -181,11 +353,13 @@ def test_a_speak_holds_the_one_synthesis_gate() -> None:
     assert free
 
 
+@pytest.mark.parametrize("response_format", list(ResponseFormat))
 @pytest.mark.parametrize("chunks_before_failing", [0, 1])
 def test_tcp_speak_failure_aborts_the_body_and_the_next_request_is_whole(
-    chunks_before_failing: int,
+    chunks_before_failing: int, response_format: ResponseFormat
 ) -> None:
     """WIRE-90: tcp speak failure aborts the body and the next request is whole."""
+    body = _BODIES[response_format]
 
     async def scenario() -> tuple[bool, httpx2.Response]:
         voice = FailingSpeaking(chunks_before_failing=chunks_before_failing)
@@ -194,18 +368,58 @@ def test_tcp_speak_failure_aborts_the_body_and_the_next_request_is_whole(
             _client(server) as client,
         ):
             try:
-                await client.post(SPEECH_PATH, content=_SPEAK_BODY)
+                await client.post(SPEECH_PATH, content=body)
             except httpx2.RemoteProtocolError:
                 aborted = True
             else:
                 aborted = False
-            return aborted, await client.post(SPEECH_PATH, content=_SPEAK_BODY)
+            return aborted, await client.post(SPEECH_PATH, content=body)
 
     aborted, later = asyncio.run(scenario())
 
     assert aborted
     assert later.status_code == HTTP_200_OK
-    assert pcm_from_wav(later.content)[1]
+    voice_audio = b"".join(FakeSpeaking().pcm_chunks("", ""))
+    _assert_whole_answer(response_format, later.content, voice_audio)
+
+
+def test_tcp_opus_failure_after_audio_pages_sends_no_end_page() -> None:
+    """WIRE-90: a failed Opus stream is cut off without the end page."""
+
+    async def scenario() -> tuple[bool, bytes, httpx2.Response]:
+        received = bytearray()
+        async with (
+            serving_over_tcp(
+                _gated_runtime(
+                    FailingSpeaking(
+                        chunks_before_failing=1, chunk_seconds=_LONG_CHUNK_SECONDS
+                    )
+                )
+            ) as server,
+            _client(server) as client,
+        ):
+            try:
+                async with client.stream(
+                    "POST", SPEECH_PATH, content=_OPUS_BODY
+                ) as response:
+                    async for chunk in response.aiter_bytes():
+                        received += chunk
+            except httpx2.RemoteProtocolError:
+                aborted = True
+            else:
+                aborted = False
+            return (
+                aborted,
+                bytes(received),
+                await client.post(SPEECH_PATH, content=_OPUS_BODY),
+            )
+
+    aborted, received, later = asyncio.run(scenario())
+
+    assert aborted
+    assert _audio_page_arrived(received)
+    assert not any(page.flags & _OGG_END_OF_STREAM for page in _ogg_pages(received))
+    assert later.status_code == HTTP_200_OK
 
 
 @pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])

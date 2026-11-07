@@ -200,6 +200,9 @@ _REFUSED_BODIES = [
     pytest.param(_changed(response_format="pcm"), "response_format", id="format-pcm"),
     pytest.param(_changed(response_format="mp3"), "response_format", id="format-mp3"),
     pytest.param(_changed(response_format=1), "response_format", id="format-number"),
+    pytest.param(
+        _changed(response_format="OPUS"), "response_format", id="format-opus-uppercase"
+    ),
     pytest.param(_changed(language="de"), None, id="language-is-unknown"),
     pytest.param(_changed(speed=1.0), None, id="speed-is-unknown"),
 ]

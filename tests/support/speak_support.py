@@ -9,12 +9,17 @@ from typing import TYPE_CHECKING
 
 from starlette.requests import Request
 
-from speech_runtime_client.wire import SPEECH_PATH, RefusalCode, speech_request_body
+from speech_runtime_client.wire import (
+    SPEECH_PATH,
+    RefusalCode,
+    ResponseFormat,
+    speech_request_body,
+)
 from speech_runtime_service.config import Settings
 from speech_runtime_service.control import create_control_app
 from speech_runtime_service.service import Runtime, RuntimeDependencies
 from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
-from tests.support.fakes_support import FakeSpeaking
+from tests.support.fakes_support import FakeSpeaking, sine_pcm
 from tests.support.identity_support import valid_callers, valid_headers
 
 if TYPE_CHECKING:
@@ -128,8 +133,12 @@ def speak_scope(
     }
 
 
-def speak_body(voice: str = VoiceId.PIPER.value, text: str = "Hallo") -> bytes:
-    return speech_request_body(text, voice)
+def speak_body(
+    voice: str = VoiceId.PIPER.value,
+    text: str = "Hallo",
+    response_format: ResponseFormat = ResponseFormat.WAV,
+) -> bytes:
+    return speech_request_body(text, voice, response_format)
 
 
 def wav_body(messages: list[dict[str, object]]) -> bytes:
@@ -354,10 +363,16 @@ def status_of(messages: list[dict[str, object]]) -> int:
 class FailingSpeaking(FakeSpeaking):
     """A voice that fails once, after the given number of chunks, then speaks."""
 
-    def __init__(self, *, chunks_before_failing: int) -> None:
-        """Fail the first synthesis after `chunks_before_failing` chunks."""
+    def __init__(
+        self, *, chunks_before_failing: int, chunk_seconds: float | None = None
+    ) -> None:
+        """Fail the first synthesis after `chunks_before_failing` chunks.
+
+        With `chunk_seconds`, each chunk before the failure is a tone that long.
+        """
         super().__init__()
         self._chunks_before_failing = chunks_before_failing
+        self._chunk_seconds = chunk_seconds
         self.failed = False
 
     def pcm_chunks(self, text: str, language: str) -> Iterator[bytes]:
@@ -366,8 +381,12 @@ class FailingSpeaking(FakeSpeaking):
             yield from super().pcm_chunks(text, language)
             return
         self.failed = True
-        yield from itertools.islice(
-            super().pcm_chunks(text, language), self._chunks_before_failing
-        )
+        if self._chunk_seconds is None:
+            yield from itertools.islice(
+                super().pcm_chunks(text, language), self._chunks_before_failing
+            )
+        else:
+            for _ in range(self._chunks_before_failing):
+                yield sine_pcm(self._chunk_seconds, rate=self.sample_rate)
         message = "engine failed"
         raise RuntimeError(message)
