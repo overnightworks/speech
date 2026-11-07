@@ -661,7 +661,7 @@ requires-dist = [
     { name = "nvidia-cudnn-cu12", marker = "extra == 'gpu'", specifier = "==9.27.0.42" },
     { name = "overnightworks-speech-runtime-client", editable = "packages/client" },
     { name = "overnightworks-speech-runtime-provider-contract", editable = "providers/provider-contract" },
-    { name = "overnightworks-webauth", git = "https://github.com/overnightworks/webauth?rev=v0.30.0" },
+    { name = "overnightworks-webauth", git = "https://github.com/overnightworks/webauth?rev=v0.31.0" },
     { name = "piper-tts", specifier = "==1.8.0" },
     { name = "pydantic-settings", specifier = "==2.16.2" },
     { name = "python-multipart", specifier = "==0.0.32" },
@@ -682,8 +682,8 @@ dev = [
 
 [[package]]
 name = "overnightworks-webauth"
-version = "0.30.0"
-source = { git = "https://github.com/overnightworks/webauth?rev=v0.30.0#69bdf2af24b3256ba818d1d2d1028d1aac6dad78" }
+version = "0.31.0"
+source = { git = "https://github.com/overnightworks/webauth?rev=v0.31.0#b889f4cc855b4bbbfc93c5735a5b01a52fc58aac" }
 dependencies = [
     { name = "anyio" },
     { name = "cryptography" },
