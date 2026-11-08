@@ -124,13 +124,8 @@ def test_any_other_status_is_unexpected(status: int, raw_listener: RawListener) 
     assert outcome == UnexpectedStatus(status)
 
 
-def test_a_port_nothing_listens_on_is_unreachable() -> None:
-    # Bound and not listening: the connect is refused, no other test can take the port.
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as bound:
-        bound.bind(("127.0.0.1", 0))
-        outcome = _fetch(f"http://127.0.0.1:{bound.getsockname()[1]}")
-
-    assert outcome == Unreachable()
+def test_a_port_nothing_listens_on_is_unreachable(refused_url: str) -> None:
+    assert _fetch(refused_url) == Unreachable()
 
 
 def test_a_body_that_ends_before_its_length_is_cut(raw_listener: RawListener) -> None:

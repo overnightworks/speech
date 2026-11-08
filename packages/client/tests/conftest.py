@@ -71,3 +71,11 @@ def raw_listener() -> Callable[
     AbstractContextManager[tuple[str, list[bytes]]],
 ]:
     return _raw_listener
+
+
+@pytest.fixture
+def refused_url() -> Iterator[str]:
+    """A base URL whose port is bound and not listening, so a connect is refused."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as bound:
+        bound.bind(("127.0.0.1", 0))
+        yield f"http://127.0.0.1:{bound.getsockname()[1]}"
