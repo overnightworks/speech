@@ -1,0 +1,8 @@
+claim_id = "4ca8744166cd4e69977933ccb2a0b4b4"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "8b73c69bb165da7a59aeb6bf4d0122c69bd43dab"
+branch = "claude/issue-150-client-token-headers-server-events"
+scope = ["packages/client/src/speech_runtime_client/wire.py", "packages/client/tests/test_wire.py", "scripts/hearing_client.py", "scripts/hearing_figures.py", "tests/scripts/test_hearing_figures.py"]
+opened_commit = "48d1c722ade4f797d96a759b26d9d2a69b25205d"
+whole_reason = "One owner moves into the client: the two helpers and the two proof scripts that drop their copies change together, or a copy stays beside its owner."
