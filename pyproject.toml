@@ -73,7 +73,7 @@ include = ["src/*", "packages/*/src/*", "providers/*/src/*"]
 target-version = "py314"
 src = [".", "scripts", "src", "packages/client/src", "tests", "packages/client/tests"]
 # The gate's layout rules forbid package markers in these directories.
-namespace-packages = ["scripts", "tests/scripts", "tests/support", "tests/fixtures/image"]
+namespace-packages = ["scripts", "tests/scripts", "tests/support", "packages/client/tests/support", "tests/fixtures/image"]
 
 [tool.ruff.lint]
 select = ["ALL"]
