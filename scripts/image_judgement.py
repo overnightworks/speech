@@ -25,7 +25,6 @@ from speech_runtime_client.wire import (
     busy_wait,
 )
 from speech_runtime_service.pcm import AI_MARK
-from speech_runtime_service.provider_process import ENDED_BEFORE_READY
 from speech_runtime_service.voices import GPU_VOICES, RESIDENT_VOICE, VoiceId
 
 if TYPE_CHECKING:
@@ -39,8 +38,6 @@ FORBIDDEN_PATH_PARTS: Final = frozenset({".git", "tests", "providers"})
 KEY_FILE_SUFFIXES: Final = (".pem", ".key")
 KEY_FILE_PREFIXES: Final = (".env", "id_")
 FORBIDDEN_DISTRIBUTION_PREFIX: Final = "nvidia-"
-# torch's own words when a model is moved onto `cuda` without a card.
-NO_CUDA_DEVICE: Final = "Found no NVIDIA driver on your system"
 MARK_CHUNK: Final = b"LIST"
 # Shorter words match by accident in any German or English text.
 MIN_HEARD_WORD_LENGTH: Final = 5
@@ -451,18 +448,6 @@ def require_ready_within(seconds: float, start_period: str) -> None:
         raise SystemExit(message)
 
 
-@dataclass(frozen=True)
-class GpuVoiceReport:
-    """What `gpu_voice.py` found in the service container.
-
-    `workers` are the pids of running GPU voice workers, `temporary` the names
-    of the entries in its temporary directory.
-    """
-
-    workers: list[int]
-    temporary: list[str]
-
-
 def require_offer(health: Health, voices: Iterable[VoiceId]) -> None:
     """Fail unless `/health` offers exactly `voices`."""
     offered = set(health.speaking.voices)
@@ -481,32 +466,3 @@ def require_gpu_voice_down(health: Health, voice: VoiceId) -> None:
             f"hearing.ready={health.hearing.ready} {voice}.ready={voice_ready}"
         )
         raise SystemExit(message)
-
-
-def require_workers_found_no_cuda_device(log: str, count: int) -> None:
-    """Fail unless `count` workers ended before ready, each on finding no CUDA device.
-
-    Each record the service logs for such a worker carries the worker's own
-    stderr tail, so the cause is the real worker's, not a probe's.
-    """
-    records = log.split(ENDED_BEFORE_READY)[1:]
-    if len(records) != count:
-        message = f"{len(records)} workers ended before ready, not {count}"
-        raise SystemExit(message)
-    for record in records:
-        if NO_CUDA_DEVICE not in record:
-            message = f"a worker ended before ready on another cause{record}"
-            raise SystemExit(message)
-
-
-def require_no_worker_residue(before: GpuVoiceReport, after: GpuVoiceReport) -> None:
-    """Fail unless the temporary directory holds nothing it did not hold `before`."""
-    left = sorted(set(after.temporary) - set(before.temporary))
-    if left:
-        message = f"reaped workers left in the temporary directory: {left}"
-        raise SystemExit(message)
-
-
-def workers_ended_before_ready(log: str) -> int:
-    """How many provider workers a service log says ended before they were ready."""
-    return log.count(ENDED_BEFORE_READY)

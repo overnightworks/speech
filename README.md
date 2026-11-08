@@ -42,8 +42,8 @@ a card, run it as `SPEECH_DEVICE=cpu uv run python scripts/prove_speech.py`.
   inside `providers/qwen`, then `SPEECH_GPU_VOICES=qwen3-tts-0.6b`. It always
   runs on `cuda`, so the card must be free.
 - **A container.** `Dockerfile` and `compose.yaml` build and run the service on
-  the CPU with Piper, the `small` hearing model and Qwen's environment, all
-  fetched at build; see [Delivery](docs/ARCHITECTURE.md#delivery).
+  the CPU with Piper and the `small` hearing model, fetched at build. The image
+  carries no GPU voice; see [Delivery](docs/ARCHITECTURE.md#delivery).
 
 ## Models
 
