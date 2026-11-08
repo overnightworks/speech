@@ -34,7 +34,7 @@ flowchart LR
   incremental decode of an uploaded recording; `clock.py` the monotonic clock
   every gate deadline is read and waited on.
 - `Dockerfile`, `compose.yaml`, `deploy/speech.toml`: the container the dated
-  tag brings, with the Piper voice, Qwen's environment and weights, and the
+  tag brings, with the Piper voice, the `small` hearing model and the
   caller table baked in; the release builds, attests and pushes it to GHCR, see
   [Delivery](#delivery). `scripts/prove_image.py` proves it.
 - `packages/client`: the wire types an app and the service share, the bounded speaking call and the bounded health fetch an app makes.
@@ -111,13 +111,15 @@ flowchart LR
 The release builds, attests and pushes the image to GHCR. hal builds its own
 from the dated tag, so the tag fixes the code, locked dependencies, voices,
 hearing model and caller table. Nothing is fetched at start or restart: Piper's
-voice, Qwen's environment and weights and the `small` hearing model are in the
-image, each fetched by a shipped command at its pinned revision, and the service
-has no route to a registry or a hub. The healthcheck requires Piper and hearing
+voice and the `small` hearing model are in the image, each fetched by a shipped
+command at its pinned revision, and the service has no route to a registry or a
+hub. The image carries no GPU voice, because no deployment has a card to run it. The healthcheck requires Piper and hearing
 to be ready, so a deployment that cannot hear is not recorded. Qwen is offered
 only when the start setting names it, and then launches on `cuda`, the provider
-contract's one device for it, whatever device hearing uses; without a card its
-requests are refused and Piper and hearing keep serving.
+contract's one device for it, whatever device hearing uses. Offered on the
+image, which lacks its environment and weights, it is not installed: its
+requests are refused `unavailable`, `/health` reports it not ready, and Piper
+and hearing keep serving.
 
 The service sits on three external, internal networks and no default one: one
 shared with the gateway that carries the key set, and one per app, shared with
@@ -187,9 +189,11 @@ The root is read-only, the user is not root and no capability is kept.
   switch `compose.yaml` runs the service, naming no GPU voice and reserving no
   card: it speaks with Piper and hears on the CPU. The card reservation and its
   proof wait for the platform's GPU design.
-- A GPU voice is proven with a fake worker and an image proof on a runner
-  without a card; Qwen has not run in the image on the target card, so its
-  latency through the service is unmeasured.
+- A GPU voice is proven with a fake worker. The image does not carry Qwen until
+  the platform's GPU slice, so nothing proves that Qwen still installs into an
+  image against lock changes (wheel-only install, the sox build, the numba cache
+  in a read-only container), and its latency through the service on the target
+  card is unmeasured.
 - Qwen's first audio can take longer than `SPEECH_BUSY_WAIT_SECONDS`, so a
   second request for it may answer `busy` while one long sentence runs.
 - The service imports `piper-tts`, which is `GPL-3.0-or-later`, in a repository
