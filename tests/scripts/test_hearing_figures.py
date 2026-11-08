@@ -9,9 +9,7 @@ import numpy as np
 import pytest
 
 import hearing_figures as figures
-from speech_runtime_client.wire import (
-    RefusalCode,
-)
+from speech_runtime_client.wire import RefusalCode
 
 RATE = 24000
 LOUD = 8000

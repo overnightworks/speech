@@ -1,4 +1,4 @@
-"""The wire: a `busy` answer's wait, the hearing request, its refusals, health."""
+"""The wire: a `busy` wait, token headers, hearing request, refusals, events, health."""
 
 import json
 import traceback
@@ -427,23 +427,33 @@ def test_a_server_event_is_parsed_into_its_own_class(event: ServerEvent) -> None
     assert parsed == event
 
 
-_STARTED = {
-    "type": "input_audio_buffer.speech_started",
-    "event_id": "e",
-    "item_id": "i",
-    "audio_start_ms": 1,
-}
+def _started(**changes: object) -> str:
+    """A `SpeechStarted` event as text, with `changes` applied to its fields."""
+    event = SpeechStarted(item_id="i", audio_start_ms=1).model_dump()
+    event.update(changes)
+    return json.dumps(event)
+
+
+def _started_without(field: str) -> str:
+    event = json.loads(_started())
+    del event[field]
+    return json.dumps(event)
+
+
+_DEEP = "[" * 100000 + "]" * 100000
 
 
 @pytest.mark.parametrize(
     "text",
     [
-        json.dumps({**_STARTED, "type": "no.such.event"}),
-        json.dumps({k: v for k, v in _STARTED.items() if k != "type"}),
+        _started(type="no.such.event"),
+        _started_without("type"),
         "not json",
         "[]",
-        json.dumps({k: v for k, v in _STARTED.items() if k != "event_id"}),
-        json.dumps({k: v for k, v in _STARTED.items() if k != "audio_start_ms"}),
+        _DEEP,
+        _started_without("event_id"),
+        _started_without("audio_start_ms"),
+        _started()[:-1] + ',"extra":' + _DEEP + "}",
         json.dumps(
             {
                 "type": "session.created",
@@ -457,8 +467,10 @@ _STARTED = {
         "no type",
         "not json",
         "json array",
+        "deeply nested array",
         "no event id",
         "fails validation",
+        "deeply nested field",
         "unknown key inside session",
     ],
 )

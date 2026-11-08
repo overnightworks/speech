@@ -606,7 +606,7 @@ def parse_server_event(text: str) -> ServerEvent:
             if isinstance(message, dict) and "event_id" in message
             else None
         )
-    except ValueError:
+    except ValueError, RecursionError:
         parsed = None
     if parsed is None:
         raise ServerEventError
