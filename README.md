@@ -84,8 +84,9 @@ overnightworks-speech-runtime-provider-contract @ git+https://github.com/overnig
 overnightworks-speech-runtime-service @ git+https://github.com/overnightworks/speech-runtime@vX.Y.Z
 ```
 
-The client owns the wire's types and the bounded speaking call
-(`speech_runtime_client.speak`). The service is an application: its pin
+The client carries the wire's types, the bounded speaking call
+(`speech_runtime_client.speak`) and the bounded health fetch
+(`speech_runtime_client.health`). The service is an application: its pin
 installs the CPU path, and GPU hearing needs the pin with `[gpu]`.
 `scripts/check_release.py` holds the distributions at one version.
 
@@ -103,7 +104,7 @@ gh workflow run release-distributions.yml -f version=X.Y.Z
 then sets the dated tag `vYYYY.MM.DD.N`. `release-distributions.yml` releases the
 three distributions at one `X.Y.Z`. Both run quality's release gate; its refusals
 and the path itself are in
-[quality's `docs/release.md`](https://github.com/overnightworks/quality/blob/7715afe5c911a00ae3076057691e0b5d4e4a65f7/docs/release.md).
+[quality's `docs/release.md`](https://github.com/overnightworks/quality/blob/2d2b68bf3916b34f6f2c72a540c1e3d8a947b750/docs/release.md).
 
 ## Proofs
 
