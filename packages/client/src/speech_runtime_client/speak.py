@@ -58,6 +58,19 @@ from speech_runtime_client.wire import (
 if TYPE_CHECKING:
     from http.client import HTTPConnection, HTTPResponse
 
+__all__ = [
+    "Busy",
+    "Cut",
+    "Malformed",
+    "OverCap",
+    "PastDeadline",
+    "Refused",
+    "SpeakOutcome",
+    "Spoken",
+    "Unreachable",
+    "speak",
+]
+
 _REFUSAL_BODY_LIMIT: Final = 64 * 1024
 
 

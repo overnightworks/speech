@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import socket
-import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -27,21 +25,16 @@ from speech_runtime_client.wire import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from contextlib import AbstractContextManager
+    import socket
+    import threading
 
+    from conftest import RawListener
     from speech_runtime_client.health import HealthOutcome
-
-type RawListener = Callable[
-    [Callable[[socket.socket, threading.Event], None]],
-    AbstractContextManager[tuple[str, list[bytes]]],
-]
 
 DEADLINE_SECONDS = 0.5
 MARGIN_SECONDS = 3.0
 GENEROUS_DEADLINE_SECONDS = 30.0
 CAP_BYTES = 64 * 1024
-DRIP_SECONDS = 0.02
 
 _HEALTH = {
     "speaking": {
@@ -69,21 +62,13 @@ def _response(status: str, body: bytes) -> bytes:
     return head.encode() + body
 
 
-def _sends(raw: bytes) -> Callable[[socket.socket, threading.Event], None]:
-    def answer(connection: socket.socket, stopped: threading.Event) -> None:
-        del stopped
-        connection.sendall(raw)
-
-    return answer
-
-
 def _stalls(connection: socket.socket, stopped: threading.Event) -> None:
     del connection
     stopped.wait()
 
 
-def _ok(document: object) -> Callable[[socket.socket, threading.Event], None]:
-    return _sends(_response("200 OK", json.dumps(document).encode()))
+def _ok(document: object) -> bytes:
+    return _response("200 OK", json.dumps(document).encode())
 
 
 def test_a_200_with_a_valid_health_is_the_health(raw_listener: RawListener) -> None:
@@ -110,7 +95,7 @@ def test_unknown_keys_of_a_200_are_ignored(raw_listener: RawListener) -> None:
 def test_a_200_that_is_not_a_health_is_malformed(
     body: bytes, raw_listener: RawListener
 ) -> None:
-    with raw_listener(_sends(_response("200 OK", body))) as (base_url, _):
+    with raw_listener(_response("200 OK", body)) as (base_url, _):
         outcome = _fetch(base_url)
 
     assert outcome == Malformed()
@@ -118,7 +103,7 @@ def test_a_200_that_is_not_a_health_is_malformed(
 
 @pytest.mark.parametrize("status", [503, 404])
 def test_any_other_status_is_unexpected(status: int, raw_listener: RawListener) -> None:
-    with raw_listener(_sends(_response(f"{status} Anything", b"{}"))) as (base_url, _):
+    with raw_listener(_response(f"{status} Anything", b"{}")) as (base_url, _):
         outcome = _fetch(base_url)
 
     assert outcome == UnexpectedStatus(status)
@@ -131,7 +116,7 @@ def test_a_port_nothing_listens_on_is_unreachable(refused_url: str) -> None:
 def test_a_body_that_ends_before_its_length_is_cut(raw_listener: RawListener) -> None:
     raw = b"HTTP/1.1 200 OK\r\nContent-Length: 500\r\n\r\n{"
 
-    with raw_listener(_sends(raw)) as (base_url, _):
+    with raw_listener(raw) as (base_url, _):
         outcome = _fetch(base_url)
 
     assert outcome == Cut()

@@ -15,6 +15,11 @@ if TYPE_CHECKING:
 
 _CRLF = b"\r\n"
 
+type Answer = Callable[[socket.socket, threading.Event], None]
+type RawListener = Callable[
+    [Answer | bytes], AbstractContextManager[tuple[str, list[bytes]]]
+]
+
 
 def _read_request(connection: socket.socket) -> bytes:
     received = b""
@@ -35,10 +40,18 @@ def _read_request(connection: socket.socket) -> bytes:
 
 
 @contextmanager
-def _raw_listener(
-    answer: Callable[[socket.socket, threading.Event], None],
-) -> Iterator[tuple[str, list[bytes]]]:
-    """Answer one connection with `answer`; yield the base URL and the requests."""
+def _raw_listener(answer: Answer | bytes) -> Iterator[tuple[str, list[bytes]]]:
+    """Answer one connection with `answer`, or send the bytes as given.
+
+    Yield the base URL and the requests.
+    """
+    if isinstance(answer, bytes):
+        raw = answer
+
+        def answer(connection: socket.socket, stopped: threading.Event) -> None:
+            del stopped
+            connection.sendall(raw)
+
     requests: list[bytes] = []
     stopped = threading.Event()
     listener = socket.socket()
@@ -66,10 +79,7 @@ def _raw_listener(
 
 
 @pytest.fixture
-def raw_listener() -> Callable[
-    [Callable[[socket.socket, threading.Event], None]],
-    AbstractContextManager[tuple[str, list[bytes]]],
-]:
+def raw_listener() -> RawListener:
     return _raw_listener
 
 
