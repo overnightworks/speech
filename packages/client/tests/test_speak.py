@@ -31,10 +31,9 @@ from speech_runtime_client.wire import (
 
 if TYPE_CHECKING:
     import threading
-    from collections.abc import Callable
 
-    from conftest import RawListener
     from speech_runtime_client.speak import SpeakOutcome
+    from support.listener_support import Answer, RawListener
 
 VOICE = "piper"
 WORKLOAD_TOKEN = "workload-token"  # noqa: S105 - a stand-in the raw listener never checks
@@ -120,9 +119,7 @@ def _refusal_response(
     return _head(status, f"Content-Length: {len(body)}", *headers) + body
 
 
-def _sends_then_drips(
-    raw: bytes, drip: bytes
-) -> Callable[[socket.socket, threading.Event], None]:
+def _sends_then_drips(raw: bytes, drip: bytes) -> Answer:
     def answer(connection: socket.socket, stopped: threading.Event) -> None:
         connection.sendall(raw)
         while not stopped.wait(DRIP_SECONDS):
@@ -208,7 +205,7 @@ def test_a_deadline_that_has_passed_before_the_connect_is_past_the_deadline(
     ],
 )
 def test_an_answer_that_ends_before_it_is_whole_is_cut(
-    answer: Callable[[socket.socket, threading.Event], None], raw_listener: RawListener
+    answer: Answer, raw_listener: RawListener
 ) -> None:
     """WIRE-90: a missing end is a failed request."""
     with raw_listener(answer) as (base_url, _):

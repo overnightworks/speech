@@ -10,15 +10,11 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
-    from contextlib import AbstractContextManager
+    from collections.abc import Iterator
+
+    from support.listener_support import Answer, RawListener
 
 _CRLF = b"\r\n"
-
-type Answer = Callable[[socket.socket, threading.Event], None]
-type RawListener = Callable[
-    [Answer | bytes], AbstractContextManager[tuple[str, list[bytes]]]
-]
 
 
 def _read_request(connection: socket.socket) -> bytes:

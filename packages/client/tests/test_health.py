@@ -28,8 +28,8 @@ if TYPE_CHECKING:
     import socket
     import threading
 
-    from conftest import RawListener
     from speech_runtime_client.health import HealthOutcome
+    from support.listener_support import RawListener
 
 DEADLINE_SECONDS = 0.5
 MARGIN_SECONDS = 3.0
