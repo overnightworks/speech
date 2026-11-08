@@ -13,7 +13,6 @@ from proof_identity import mint_pair
 from speech_runtime_client.wire import Health, RefusalCode, Transcription, refusal
 from speech_runtime_service.config import CallerConfig, load_caller_config
 from speech_runtime_service.pcm import wav_header
-from speech_runtime_service.provider_process import ENDED_BEFORE_READY
 from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
 
 if TYPE_CHECKING:
@@ -319,59 +318,6 @@ def test_a_gpu_voice_down_needs_it_not_ready_beside_ready_speaking_and_hearing(
 
     with pytest.raises(SystemExit, match="down beside a ready service"):
         judged.require_gpu_voice_down(health, VoiceId.QWEN)
-
-
-def worker_record(cause: str) -> str:
-    return (
-        f"ERROR {ENDED_BEFORE_READY}, exit status 1, stderr tail:\n"
-        f"Traceback (most recent call last):\nRuntimeError: {cause}\nINFO speak"
-    )
-
-
-@pytest.mark.parametrize(
-    ("causes", "fault"),
-    [
-        ([], "0 workers ended before ready, not 1"),
-        ([judged.NO_CUDA_DEVICE] * 2, "2 workers ended before ready, not 1"),
-        (
-            ["cannot cache function '__o_fold'"],
-            "(?s)another cause, exit status 1.*__o_fold",
-        ),
-    ],
-    ids=["no worker", "one worker too many", "failed before the device"],
-)
-def test_a_worker_must_end_before_ready_on_finding_no_cuda_device(
-    causes: list[str], fault: str
-) -> None:
-    log = "\n".join(["INFO start", *map(worker_record, causes)])
-
-    with pytest.raises(SystemExit, match=fault):
-        judged.require_workers_found_no_cuda_device(log, 1)
-
-
-def test_workers_that_each_found_no_cuda_device_pass() -> None:
-    log = "\n".join(["INFO start", *[worker_record(judged.NO_CUDA_DEVICE)] * 2])
-
-    judged.require_workers_found_no_cuda_device(log, 2)
-
-
-def test_an_entry_a_reaped_worker_left_in_tmp_fails_the_proof() -> None:
-    before = judged.GpuVoiceReport([], ["service.log"])
-    judged.require_no_worker_residue(before, before)
-    left = judged.GpuVoiceReport([], ["service.log", "worker.log"])
-
-    with pytest.raises(SystemExit, match=r"\['worker.log'\]"):
-        judged.require_no_worker_residue(before, left)
-
-
-@pytest.mark.parametrize("workers", [0, 1, 2])
-def test_each_worker_that_ended_before_ready_is_counted_from_the_log(
-    workers: int,
-) -> None:
-    record = f"ERROR {ENDED_BEFORE_READY}, exit status 1, stderr tail:\nboom"
-    log = "\n".join(["INFO start", *[record, "INFO speak"] * workers])
-
-    assert judged.workers_ended_before_ready(log) == workers
 
 
 def test_only_the_external_networks_of_a_rendered_compose_file_are_named() -> None:

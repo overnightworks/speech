@@ -1,8 +1,8 @@
-"""The image proof's GPU voice cells, on a runner without a card.
+"""The image proof's GPU voice cells: the image does not carry the GPU voice.
 
-Every registered app may name a GPU voice. By default the
-image does not offer it; `tests/fixtures/image/compose.gpu-voice.yaml` offers it
-as hal's override will, and its worker then finds no CUDA device.
+Every registered app may name a GPU voice. By default the image does not offer
+it; `tests/fixtures/image/compose.gpu-voice.yaml` offers it as hal's override
+will, and the service then finds the voice not installed.
 """
 
 # ruff: noqa: T201 - the proof prints its cell lines as the command line output
@@ -10,21 +10,16 @@ as hal's override will, and its worker then finds no CUDA device.
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import replace
 from typing import TYPE_CHECKING, Final
 
 from image_judgement import (
-    GpuVoiceReport,
     first_gpu_voice,
     require_gpu_voice_down,
     require_log_clean,
-    require_no_worker_residue,
     require_offer,
     require_refusal,
     require_transcript,
-    require_workers_found_no_cuda_device,
-    workers_ended_before_ready,
 )
 from image_stack import (
     FIXTURES,
@@ -32,7 +27,6 @@ from image_stack import (
     SERVICE,
     container_of,
     docker,
-    run_in,
     speak_marked,
     start_with,
 )
@@ -46,14 +40,6 @@ if TYPE_CHECKING:
 
 GPU_VOICE_OVERRIDE: Final = FIXTURES / "compose.gpu-voice.yaml"
 VOICE_PARAM: Final[RequestField] = "voice"
-# A worker is reaped, and its record logged, just after its refusal answers.
-WORKER_LOG_WAIT_SECONDS: Final = 60
-
-
-def gpu_voice_report(session: Session) -> GpuVoiceReport:
-    """What the service container shows of the GPU voice."""
-    output = run_in(session.compose, SERVICE, "gpu_voice.py", None)
-    return GpuVoiceReport(**json.loads(output))
 
 
 def require_refused_unavailable(session: Session, voice: VoiceId) -> None:
@@ -68,7 +54,7 @@ def health_of(session: Session) -> Health:
 
 
 def cell_gpu_voice_not_offered(session: Session) -> None:
-    """Cell 22: by default each app's GPU voice is refused, no worker starts."""
+    """Cell 22: by default each app's GPU voice is refused and not offered."""
     refused = []
     for app in sorted(session.config.apps):
         caller = session.as_app(app)
@@ -76,30 +62,11 @@ def cell_gpu_voice_not_offered(session: Session) -> None:
         require_refused_unavailable(caller, voice)
         refused.append(f"{app} naming {voice}")
     require_offer(health_of(session), [RESIDENT_VOICE])
-    running = gpu_voice_report(session).workers
-    session.collect_log()
-    started = workers_ended_before_ready(session.logs[-1])
-    if running or started:
-        message = f"no GPU voice is offered, yet {running=} {started=} workers"
-        raise SystemExit(message)
     print(
         f"cell 22: held; {' and '.join(refused)} refused as"
         f" {RefusalCode.UNAVAILABLE} param={VOICE_PARAM}, /health offers"
-        f" {RESIDENT_VOICE} alone, workers running=0 started=0"
+        f" {RESIDENT_VOICE} alone"
     )
-
-
-def wait_for_workers(stack: Compose, count: int) -> str:
-    """The service log once it says `count` workers ended before ready."""
-    deadline = time.monotonic() + WORKER_LOG_WAIT_SECONDS
-    while True:
-        log = stack.run("logs", "--no-color", SERVICE).stdout
-        if workers_ended_before_ready(log) >= count:
-            return log
-        if time.monotonic() > deadline:
-            message = f"the log does not show {count} worker(s) ending before ready"
-            raise SystemExit(message)
-        time.sleep(1)
 
 
 def container_start(stack: Compose) -> tuple[str, str, int]:
@@ -110,7 +77,7 @@ def container_start(stack: Compose) -> tuple[str, str, int]:
 
 
 def cell_gpu_voice_offered(session: Session, wav: bytes) -> None:
-    """Cell 23: offered on a runner without a card, the GPU voice fails alone."""
+    """Cell 23: offered but not carried, the service stays healthy without it."""
     stack = start_with(session, GPU_VOICE_OVERRIDE)
     stack.up(SERVICE)
     offered = replace(session, compose=stack)
@@ -120,15 +87,10 @@ def cell_gpu_voice_offered(session: Session, wav: bytes) -> None:
     require_gpu_voice_down(health, voice)
     print(f"cell 23: held; healthy, {voice} offered and not ready")
     started = container_start(stack)
-    before = gpu_voice_report(offered)
     require_refused_unavailable(offered, voice)
-    require_workers_found_no_cuda_device(wait_for_workers(stack, 1), 1)
-    require_no_worker_residue(before, gpu_voice_report(offered))
     print(
-        f"cell 23: held; {offered.baked.app} naming {voice} started a worker that"
-        f" imported its model library on its private cache in the read-only image,"
-        f" found no CUDA device and left nothing in /tmp once reaped, refused as"
-        f" {RefusalCode.UNAVAILABLE} param={VOICE_PARAM}"
+        f"cell 23: held; {offered.baked.app} naming {voice} refused as"
+        f" {RefusalCode.UNAVAILABLE} param={VOICE_PARAM}, the voice is not installed"
     )
     require_gpu_voice_down(health_of(offered), voice)
     speak_marked(offered)
@@ -141,16 +103,9 @@ def cell_gpu_voice_offered(session: Session, wav: bytes) -> None:
         f"cell 23: held; then {voice} not ready, speaking and hearing ready,"
         f" {RESIDENT_VOICE} speaks and {offered.baked.app}'s recording is heard"
     )
-    require_refused_unavailable(offered, voice)
-    require_workers_found_no_cuda_device(wait_for_workers(stack, 2), 2)
-    require_no_worker_residue(before, gpu_voice_report(offered))
     if container_start(stack) != started:
         message = f"the service container restarted: {started}"
         raise SystemExit(message)
     session.collect_log()
     require_log_clean(session.logs[-1], [SENTENCE], session.heard, session.tokens)
-    print(
-        "cell 23: held; a second request started a second worker and was refused"
-        " again on finding no CUDA device, nothing is left in /tmp, the"
-        " container did not restart, the log holds no spoken text"
-    )
+    print("cell 23: held; the container did not restart, the log holds no spoken text")
