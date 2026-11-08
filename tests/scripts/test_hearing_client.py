@@ -25,7 +25,9 @@ from tests.support.identity_support import MINTING
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import AsyncIterator, Sequence
+
+    from hearing_figures import LiveTurn
 
 CLIENT = script_module("hearing_client")
 
@@ -103,21 +105,14 @@ def test_an_accepted_upgrade_gives_no_refusal() -> None:
     )
 
 
-class Messages:
-    """A stand-in for the WebSocket of a session that delivers `messages`."""
-
-    def __init__(self, messages: Sequence[str]) -> None:
-        """Remember the messages."""
-        self.messages = messages
-
-    async def __aiter__(self):  # noqa: ANN204
-        """Deliver each message."""
-        for message in self.messages:
-            yield message
+async def delivering(messages: Sequence[str]) -> AsyncIterator[str]:
+    """Stand in for the WebSocket of a session that delivers `messages`."""
+    for message in messages:
+        yield message
 
 
-def receive_turn(messages: Sequence[str]) -> object:
-    return asyncio.run(CLIENT._receive_turn(Messages(messages), 1.0, 0.0))  # noqa: SLF001
+def receive_turn(messages: Sequence[str]) -> LiveTurn:
+    return asyncio.run(CLIENT.receive_turn(delivering(messages), 1.0, 0.0))
 
 
 def test_a_malformed_event_fails_the_turn_instead_of_being_skipped() -> None:

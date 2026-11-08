@@ -153,9 +153,10 @@ async def _send_paced(
         await socket.send(append.model_dump_json(exclude_none=True))
 
 
-async def _receive_turn(
+async def receive_turn(
     socket: ClientConnection, question_seconds: float, started: float
 ) -> LiveTurn:
+    """Read server events until the turn completes and return its figures."""
     delta_seconds: list[float] = []
     deltas: list[str] = []
     async for message in socket:
@@ -195,7 +196,7 @@ async def hear_live(
         sender = asyncio.create_task(_send_paced(socket, frames, started))
         try:
             return await asyncio.wait_for(
-                _receive_turn(socket, question_seconds, started),
+                receive_turn(socket, question_seconds, started),
                 question_seconds + LIVE_WAIT_SECONDS,
             )
         finally:
