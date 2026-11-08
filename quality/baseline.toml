@@ -1,7 +1,11 @@
-# Measured by `quality baseline write`. Entries only ever go down.
+# Measured by `quality check --fix`. Entries only ever go down.
 
 [function_lines."tests/test_main.py"]
 "test_shutdown_closes_a_pending_real_adapter_before_awaiting_tasks" = 84
 
 [function_lines."tests/test_provider_process.py"]
 "test_direct_closed_entrypoint_streams_after_transient_loader_exits" = 78
+
+[clones."scripts/contract_client.py"]
+_pcm_from_wav = [["scripts/prove_speech.py", "_pcm_from_wav"]]
+_rms = [["scripts/prove_speech.py", "_rms"]]
