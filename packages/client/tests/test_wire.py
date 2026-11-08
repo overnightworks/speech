@@ -1,28 +1,40 @@
-"""The wire: a `busy` answer's wait, the hearing request, its refusals, health."""
+"""The wire: a `busy` wait, token headers, hearing request, refusals, events, health."""
 
 import json
+import traceback
 from http import HTTPStatus
 
 import pytest
 from pydantic import ValidationError
 
 from speech_runtime_client.wire import (
+    AUTHORIZATION_HEADER,
+    CONTENT_TYPE_HEADER,
     MODEL,
     REFUSAL_STATUS,
     RETRY_AFTER_HEADER,
+    WORKLOAD_TOKEN_HEADER,
     AudioAppend,
     AudioCommit,
     AudioCommitted,
     BusyWait,
     ClientEventError,
+    DurationUsage,
     Health,
     HearingHealth,
     HearingLanguage,
+    ItemCreated,
     RefusalCode,
     RetryAfterError,
+    ServerEvent,
+    ServerEventError,
     SessionCreated,
     SessionUpdate,
+    SessionUpdated,
     SpeakingHealth,
+    SpeechStarted,
+    SpeechStopped,
+    TranscriptCompleted,
     TranscriptDelta,
     TranscriptFailed,
     TranscriptionRequest,
@@ -32,7 +44,10 @@ from speech_runtime_client.wire import (
     error_event,
     item_failure,
     parse_client_event,
+    parse_server_event,
     refusal,
+    speech_request_headers,
+    token_headers,
 )
 
 BUSY = REFUSAL_STATUS[RefusalCode.BUSY]
@@ -364,3 +379,125 @@ def test_a_health_answer_is_frozen() -> None:
 
     with pytest.raises(ValidationError):
         health.card_memory_mb = 8
+
+
+def test_the_token_headers_are_the_two_tokens_under_the_wire_names() -> None:
+    tokens = {"workload_token": "app", "person_token": "person"}
+
+    assert token_headers(**tokens) == {
+        WORKLOAD_TOKEN_HEADER: "app",
+        AUTHORIZATION_HEADER: "Bearer person",
+    }
+
+
+def test_the_speech_request_headers_are_the_token_headers_and_the_json_type() -> None:
+    tokens = {"workload_token": "app", "person_token": "person"}
+
+    assert speech_request_headers(**tokens) == {
+        **token_headers(**tokens),
+        CONTENT_TYPE_HEADER: "application/json",
+    }
+
+
+def _each_server_event() -> list[ServerEvent]:
+    session = TranscriptionSession(type="transcription")
+    return [
+        SessionCreated(session=session),
+        SessionUpdated(session=session),
+        SpeechStarted(item_id="item", audio_start_ms=10),
+        TranscriptDelta(item_id="item", delta="Wie"),
+        SpeechStopped(item_id="item", audio_end_ms=900),
+        AudioCommitted(item_id="item", previous_item_id=None),
+        ItemCreated(previous_item_id=None, item={"id": "item"}),
+        TranscriptCompleted(
+            item_id="item", transcript="Wie spät", usage=DurationUsage(seconds=1.5)
+        ),
+        TranscriptFailed(
+            item_id="item", error=item_failure(RefusalCode.BUSY, param="audio")
+        ),
+        error_event(RefusalCode.BUSY, param="audio"),
+    ]
+
+
+@pytest.mark.parametrize("event", _each_server_event(), ids=lambda e: e.type)
+def test_a_server_event_is_parsed_into_its_own_class(event: ServerEvent) -> None:
+    parsed = parse_server_event(event.model_dump_json())
+
+    assert type(parsed) is type(event)
+    assert parsed == event
+
+
+def _started(**changes: object) -> str:
+    """A `SpeechStarted` event as text, with `changes` applied to its fields."""
+    event = SpeechStarted(item_id="i", audio_start_ms=1).model_dump()
+    event.update(changes)
+    return json.dumps(event)
+
+
+def _started_without(field: str) -> str:
+    event = json.loads(_started())
+    del event[field]
+    return json.dumps(event)
+
+
+_DEEP = "[" * 100000 + "]" * 100000
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        _started(type="no.such.event"),
+        _started_without("type"),
+        "not json",
+        "[]",
+        _DEEP,
+        _started_without("event_id"),
+        _started_without("audio_start_ms"),
+        _started()[:-1] + ',"extra":' + _DEEP + "}",
+        json.dumps(
+            {
+                "type": "session.created",
+                "event_id": "e",
+                "session": {"type": "transcription", "unknown": 1},
+            }
+        ),
+    ],
+    ids=[
+        "unknown type",
+        "no type",
+        "not json",
+        "json array",
+        "deeply nested array",
+        "no event id",
+        "fails validation",
+        "deeply nested field",
+        "unknown key inside session",
+    ],
+)
+def test_a_malformed_server_event_is_refused(text: str) -> None:
+    with pytest.raises(ServerEventError):
+        parse_server_event(text)
+
+
+def test_a_server_event_ignores_a_key_it_does_not_know() -> None:
+    delta = TranscriptDelta(item_id="item", delta="Wie")
+    text = json.dumps({**delta.model_dump(), "unknown": "x"})
+
+    assert parse_server_event(text) == delta
+
+
+def test_a_refused_server_event_leaks_none_of_its_content() -> None:
+    words = "distinctive transcript"
+    event = TranscriptCompleted(
+        item_id="item", transcript=words, usage=DurationUsage(seconds=1.0)
+    ).model_dump()
+    del event["usage"]
+
+    with pytest.raises(ServerEventError) as raised:
+        parse_server_event(json.dumps(event))
+
+    error = raised.value
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert words not in str(error)
+    assert words not in "".join(traceback.format_exception(error))

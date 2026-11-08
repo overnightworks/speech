@@ -19,11 +19,10 @@ from starlette.websockets import WebSocketDisconnect
 
 from speech_runtime_client.wire import (
     AUTHENTICATE_HEADER,
-    AUTHORIZATION_HEADER,
     REALTIME_PATH,
     RETRY_AFTER_HEADER,
-    WORKLOAD_TOKEN_HEADER,
     RefusalCode,
+    token_headers,
 )
 from speech_runtime_service.config import Settings
 from speech_runtime_service.control import create_control_app
@@ -134,10 +133,10 @@ def test_a_caller_without_tokens_is_told_so_before_anything_else() -> None:
 def test_a_person_outside_the_service_group_is_forbidden() -> None:
     """WIRE-51, WIRE-98: a person outside the service group is forbidden."""
     pair = valid_pair()
-    headers = {
-        WORKLOAD_TOKEN_HEADER: pair.workload,
-        AUTHORIZATION_HEADER: "Bearer " + altered(pair.person, groups=[f"/apps/{APP}"]),
-    }
+    headers = token_headers(
+        workload_token=pair.workload,
+        person_token=altered(pair.person, groups=[f"/apps/{APP}"]),
+    )
 
     denial = _denied(_client(), headers=headers)
 
