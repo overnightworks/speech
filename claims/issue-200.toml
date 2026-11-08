@@ -1,8 +1,0 @@
-claim_id = "528381da2e0a4f25b79a0f9efad6f810"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "041dbbdcd68e29264f2f287bfd0262696b952852"
-branch = "claude/issue-200-image-without-the-gpu-voice"
-scope = [".dockerignore", "Dockerfile", "README.md", "docs/ARCHITECTURE.md", "scripts/image_gpu_voice.py", "scripts/image_judgement.py", "scripts/prove_image.py", "tests/fixtures/image", "tests/scripts"]
-opened_commit = "62fca809835b580601fc87a0147cc806ce2cda28"
-whole_reason = "One image shape changes: the build, the proof that runs it and the documents that name what it carries change together, or the proof checks an image that no longer exists."
