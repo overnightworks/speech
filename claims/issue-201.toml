@@ -1,8 +1,0 @@
-claim_id = "e9e69d44b26f41d19d991f310613a467"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "61abbe3a9cb9e96f0076e6ed9581cbbb15b984eb"
-branch = "claude/issue-201-quality-v0-10-0"
-scope = [".github/workflows/ci.yml", ".github/workflows/code-scanning.yml", ".github/workflows/release-distributions.yml", ".github/workflows/release.yml", "quality/baseline.toml", "quality/config.toml"]
-opened_commit = "6c63cc8c02f98298214db4f0b50d1cd9f64731a7"
-whole_reason = "One pin moves: every workflow that calls quality and the gate files the new pin judges change together, or the gate runs at two releases."
