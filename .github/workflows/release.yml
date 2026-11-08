@@ -1,8 +1,7 @@
 name: Release
 
 # The app's release: one dated version, the image built, attested and pushed,
-# then the git tag. Every quality call below is pinned at quality's main, because
-# no quality tag ships the release path yet.
+# then the git tag. Every quality call below is pinned at a quality release.
 on:
   workflow_dispatch:
     inputs:
@@ -20,8 +19,7 @@ permissions: {}
 jobs:
   gate:
     name: Gate
-    # quality's main at 7715afe; no quality tag ships the release path yet
-    uses: overnightworks/quality/.github/workflows/release-gate.yml@7715afe5c911a00ae3076057691e0b5d4e4a65f7
+    uses: overnightworks/quality/.github/workflows/release-gate.yml@2d2b68bf3916b34f6f2c72a540c1e3d8a947b750 # v0.10.0
     permissions:
       actions: read
       checks: read
@@ -34,8 +32,7 @@ jobs:
   image:
     name: Image
     needs: gate
-    # quality's main at 7715afe; no quality tag ships the release path yet
-    uses: overnightworks/quality/.github/workflows/image.yml@7715afe5c911a00ae3076057691e0b5d4e4a65f7
+    uses: overnightworks/quality/.github/workflows/image.yml@2d2b68bf3916b34f6f2c72a540c1e3d8a947b750 # v0.10.0
     permissions:
       attestations: write
       contents: read
@@ -50,8 +47,7 @@ jobs:
     needs:
       - gate
       - image
-    # quality's main at 7715afe; no quality tag ships the release path yet
-    uses: overnightworks/quality/.github/workflows/release-tag.yml@7715afe5c911a00ae3076057691e0b5d4e4a65f7
+    uses: overnightworks/quality/.github/workflows/release-tag.yml@2d2b68bf3916b34f6f2c72a540c1e3d8a947b750 # v0.10.0
     permissions:
       contents: write
     with:
