@@ -60,9 +60,9 @@ from prove_speech import (
     LOOPBACK_HOST,
     READY_TIMEOUT_SECONDS,
     free_local_port,
-    get_json,
     nvidia_memory,
     prove_under_lock,
+    read_health,
     require_running,
     run_under_lock,
     speak_measured,
@@ -72,6 +72,7 @@ from prove_speech import (
 )
 from speech_runtime_client.wire import (
     SPEECH_PATH,
+    Health,
     HearingLanguage,
     ResponseFormat,
     speech_request_body,
@@ -99,6 +100,8 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager
 
     from piper import PiperVoice
+
+    from speech_runtime_client.health import HealthOutcome
 
 
 THIS_SCRIPT = Path(__file__).resolve()
@@ -181,12 +184,8 @@ def _speaks(base_url: str, minting: Minting, voice: str) -> bool:
     return response.status_code == HTTPStatus.OK
 
 
-def _loaded(health: dict[str, object], speaks: Callable[[], bool]) -> bool:
-    hearing = health["hearing"]
-    speaking = health["speaking"]
-    if isinstance(hearing, dict) and hearing["ready"] is True:
-        return True
-    return isinstance(speaking, dict) and speaking["ready"] is True and speaks()
+def _loaded(health: Health, speaks: Callable[[], bool]) -> bool:
+    return health.hearing.ready or (health.speaking.ready and speaks())
 
 
 @dataclass(frozen=True)
@@ -194,14 +193,14 @@ class LoadWait:
     """What a wait for the service's load asks and how it tells the time."""
 
     speaks: Callable[[], bool]
-    health_of: Callable[[str, str], dict[str, object]] = get_json
+    health_of: Callable[[str], HealthOutcome] = read_health
     sleep: Callable[[float], None] = time.sleep
     monotonic: Callable[[], float] = time.monotonic
 
 
 def wait_loaded(
     base_url: str, exit_status: Callable[[], int | None], wait: LoadWait
-) -> dict[str, object]:
+) -> Health:
     """Wait until the service finished loading and return its health then.
 
     Hearing ready is the end of a good load. A load that found no room on the
@@ -209,15 +208,16 @@ def wait_loaded(
     shows by answering once loading is over. A server that exited ends the wait.
     """
     deadline = wait.monotonic() + READY_TIMEOUT_SECONDS
-    last: dict[str, object] | None = None
+    last: Health | None = None
     while wait.monotonic() < deadline:
         require_running(exit_status, last)
-        try:
-            last = wait.health_of(base_url, "/health")
-            if _loaded(last, wait.speaks):
-                return wait.health_of(base_url, "/health")
-        except httpx2.HTTPError, json.JSONDecodeError:
-            pass
+        answer = wait.health_of(base_url)
+        if isinstance(answer, Health):
+            last = answer
+            if _loaded(answer, wait.speaks):
+                fresh = wait.health_of(base_url)
+                if isinstance(fresh, Health):
+                    return fresh
         wait.sleep(POLL_SECONDS)
     detail = "" if last is None else f": {last}"
     message = (
@@ -549,12 +549,11 @@ def prove_taken_card(
                 service.minting,
             )
     freed = ports.freed(baseline)
-    speaking, hearing = health["speaking"], health["hearing"]
     file_code = refusal_code(file_answer.status_code, file_answer.content)
     failures = figures.taken_card_failures(
         figures.TakenCardObservation(
-            speaking_ready=isinstance(speaking, dict) and speaking["ready"] is True,
-            hearing_ready=isinstance(hearing, dict) and hearing["ready"] is True,
+            speaking_ready=health.speaking.ready,
+            hearing_ready=health.hearing.ready,
             file_status=file_answer.status_code,
             file_code=file_code,
             live_status=None if live is None else live.status,
@@ -566,7 +565,7 @@ def prove_taken_card(
         "hearing_model": hearing_model,
         "held_mib": held_mib,
         "used_while_held_mib": used_while_held,
-        "health": health,
+        "health": health.model_dump(),
         "refusals": {
             "file": {"status": file_answer.status_code, "code": file_code},
             "live": {

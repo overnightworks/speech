@@ -16,6 +16,7 @@ from speech_runtime_client.wire import (
     AUTHORIZATION_HEADER,
     CONTENT_TYPE_HEADER,
     WORKLOAD_TOKEN_HEADER,
+    Health,
 )
 from speech_runtime_service.config import Settings
 from speech_runtime_service.pcm import pcm_from_wav
@@ -52,13 +53,12 @@ def test_no_credential_holder_shows_a_key_or_token_when_represented(
 def test_both_proof_scripts_reach_a_running_speech_over_tcp(
     minting: Minting, identity: ProofIdentity
 ) -> None:
-    async def scenario() -> tuple[object, object, bytes, bytes]:
+    async def scenario() -> tuple[object, bytes, bytes]:
         runtime = Runtime(FakeSpeaking(), memory_probe=lambda: 0)
         callers = callers_trusting(identity.configuration_path, minting)
         async with serving_over_tcp(runtime, callers) as server:
             return (
-                await asyncio.to_thread(CLIENT.get_json, server.base_url, "/health"),
-                await asyncio.to_thread(PROVE.get_json, server.base_url, "/health"),
+                await asyncio.to_thread(PROVE.read_health, server.base_url),
                 await asyncio.to_thread(
                     CLIENT.speak, server.base_url, "Hallo", PIPER, minting
                 ),
@@ -71,9 +71,9 @@ def test_both_proof_scripts_reach_a_running_speech_over_tcp(
                 ),
             )
 
-    contract_health, prove_health, contract_wav, measured = asyncio.run(scenario())
+    health, contract_wav, measured = asyncio.run(scenario())
 
-    assert contract_health == prove_health
+    assert isinstance(health, Health)
     assert pcm_from_wav(contract_wav)[0] == SPEAK_SAMPLE_RATE
     assert pcm_from_wav(measured[0])[0] == SPEAK_SAMPLE_RATE
 
