@@ -106,9 +106,7 @@ def test_a_base_url_that_is_not_plain_http_without_a_path_raises(
         _speak(base_url)
 
 
-# A raw listener answers what the real service never sends.
-
-_CRLF = b"\r\n"
+# What the raw listener answers.
 
 
 def _chunk(data: bytes) -> bytes:
