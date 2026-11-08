@@ -25,13 +25,10 @@ import sys
 import tempfile
 import threading
 import time
-from array import array
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
-
-import httpx2
 
 from proof_identity import (
     Minting,
@@ -40,20 +37,24 @@ from proof_identity import (
     mint_pair,
     proof_identity,
 )
+from speech_runtime_client.health import fetch_health
 from speech_runtime_client.wire import (
     SPEECH_PATH,
+    Health,
     ResponseFormat,
     speech_request_body,
     speech_request_headers,
 )
 from speech_runtime_service.config import load_settings
-from speech_runtime_service.pcm import BYTES_PER_SAMPLE
+from speech_runtime_service.pcm import BYTES_PER_SAMPLE, pcm_from_wav, rms
 from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId, model_for_voice
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
     from types import FrameType
     from typing import IO
+
+    from speech_runtime_client.health import HealthOutcome
 
 SENTENCE = (
     "Die Kamera zeigt den Vortragenden, während im Hintergrund "
@@ -89,6 +90,8 @@ SILENCE_RMS = 0.01
 MIN_SPEECH_SECONDS = 0.4
 LOAD_CEILING = 18.0
 READY_TIMEOUT_SECONDS = 300.0
+HEALTH_DEADLINE_SECONDS = 5.0
+HEALTH_CAP_BYTES = 64 * 1024
 PIPER_FIRST_BYTE_LIMIT_S = 0.5
 PIPER_CACHE = Path.home() / ".cache" / "piper"
 LOOPBACK_HOST = "127.0.0.1"
@@ -191,15 +194,16 @@ def exit_on_terminate() -> None:
     signal.signal(signal.SIGTERM, _exit_on_signal)
 
 
-def get_json(base_url: str, target: str) -> dict[str, object]:
-    """GET a path over the speech service and decode the JSON body."""
-    with httpx2.Client(base_url=base_url) as client:
-        return client.get(target, timeout=5).json()
+def read_health(base_url: str) -> HealthOutcome:
+    """Fetch the service's health within the proof's own deadline and cap."""
+    return fetch_health(
+        base_url,
+        deadline_seconds=HEALTH_DEADLINE_SECONDS,
+        cap_bytes=HEALTH_CAP_BYTES,
+    )
 
 
-def require_running(
-    exit_status: Callable[[], int | None], last: dict[str, object] | None
-) -> None:
+def require_running(exit_status: Callable[[], int | None], last: Health | None) -> None:
     """End a wait at once when the server exited: a failed load exits it.
 
     Health has no failure state, and `unavailable` also shows during a normal
@@ -215,61 +219,29 @@ def require_running(
 def wait_for_speaking_ready(
     base_url: str,
     exit_status: Callable[[], int | None],
-    fetch: Callable[[str, str], dict[str, object]] = get_json,
+    fetch: Callable[[str], HealthOutcome] = read_health,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
-) -> dict[str, object]:
+) -> Health:
     """Poll health until speaking is ready; end the stage on exit or timeout."""
     deadline = clock() + READY_TIMEOUT_SECONDS
-    last: dict[str, object] | None = None
+    last: Health | None = None
     while clock() < deadline:
         require_running(exit_status, last)
-        try:
-            last = fetch(base_url, "/health")
-        except httpx2.HTTPError, json.JSONDecodeError:
-            sleep(0.5)
-            continue
-        speaking = last["speaking"]
-        if not isinstance(speaking, dict):
-            sleep(0.5)
-            continue
-        print(
-            "health",
-            f"speaking_ready={speaking['ready']}",
-            f"card_memory_mb={last['card_memory_mb']}",
-        )
-        if speaking["ready"] is True:
-            return last
+        answer = fetch(base_url)
+        if isinstance(answer, Health):
+            last = answer
+            print(
+                "health",
+                f"speaking_ready={answer.speaking.ready}",
+                f"card_memory_mb={answer.card_memory_mb}",
+            )
+            if answer.speaking.ready:
+                return answer
         sleep(0.5)
     detail = "" if last is None else f": {last}"
     message = f"speaking not ready within {READY_TIMEOUT_SECONDS}s{detail}"
     raise SystemExit(message)
-
-
-def _pcm_from_wav(data: bytes) -> tuple[int, bytes]:
-    if data[:4] != b"RIFF" or data[8:12] != b"WAVE":
-        message = "speak did not return a WAV"
-        raise SystemExit(message)
-    rate = int.from_bytes(data[24:28], "little")
-    position = 12
-    while position + 8 <= len(data):
-        chunk_id = data[position : position + 4]
-        size = int.from_bytes(data[position + 4 : position + 8], "little")
-        payload = position + 8
-        if chunk_id == b"data":
-            return rate, data[payload:]
-        position = payload + size
-    message = "WAV has no data chunk"
-    raise SystemExit(message)
-
-
-def _rms(pcm: bytes) -> float:
-    if len(pcm) < BYTES_PER_SAMPLE:
-        return 0.0
-    samples = array("h")
-    samples.frombytes(pcm[: len(pcm) - (len(pcm) % BYTES_PER_SAMPLE)])
-    total = sum(sample * sample for sample in samples)
-    return (total / len(samples)) ** 0.5 / 32768.0
 
 
 def speak_measured(
@@ -366,7 +338,7 @@ class RunningSpeech:
     """A started speech service: process, first health, texts it must not log."""
 
     process: subprocess.Popen[str]
-    health: dict[str, object]
+    health: Health
     ready_seconds: float
     spoken_texts: list[str] = field(default_factory=list)
 
@@ -413,7 +385,7 @@ def speech_server(
     work_directory: Path,
     start: Callable[..., subprocess.Popen[str]] = start_with_parent_death,
     wait_ready: Callable[
-        [str, Callable[[], int | None]], dict[str, object]
+        [str, Callable[[], int | None]], Health
     ] = wait_for_speaking_ready,
 ) -> Iterator[RunningSpeech]:
     """Start speech, wait until it is ready, and stop it on the way out.
@@ -437,7 +409,7 @@ def speech_server(
 def _run_and_stop(
     server: subprocess.Popen[str],
     base_url: str,
-    wait_ready: Callable[[str, Callable[[], int | None]], dict[str, object]],
+    wait_ready: Callable[[str, Callable[[], int | None]], Health],
     log_file: IO[str],
 ) -> Iterator[RunningSpeech]:
     proof_failed = True
@@ -493,14 +465,10 @@ def _require_log_without_text(log: str, texts: Iterable[str]) -> None:
         raise SystemExit(message)
 
 
-def _require_speaking(health: dict[str, object], voice: VoiceId) -> None:
-    speaking = health["speaking"]
-    if not isinstance(speaking, dict):
-        message = f"health speaking is not an object: {speaking!r}"
-        raise SystemExit(message)
-    offered = speaking["voices"].get(voice.value)
-    if offered is None or offered["model"] != model_for_voice(voice):
-        message = f"speaking.voices does not offer {voice.value!r}: {speaking!r}"
+def _require_speaking(health: Health, voice: VoiceId) -> None:
+    offered = health.speaking.voices.get(voice.value)
+    if offered is None or offered.model != model_for_voice(voice):
+        message = f"speaking.voices does not offer {voice.value!r}: {health.speaking!r}"
         raise SystemExit(message)
 
 
@@ -513,7 +481,7 @@ def _prove_one_speak(
     label: str,
 ) -> tuple[bytes, float, float]:
     wav, ttfa, total = speak(text, voice)
-    rate, pcm = _pcm_from_wav(wav)
+    rate, pcm = pcm_from_wav(wav)
     duration = (len(pcm) / BYTES_PER_SAMPLE) / rate
     rtf = duration / total if total else 0.0
     print(
@@ -523,11 +491,11 @@ def _prove_one_speak(
         f"limit_s={limit:.1f}",
         f"duration_s={duration:.3f}",
         f"rtf={rtf:.2f}",
-        f"rms={_rms(pcm):.4f}",
+        f"rms={rms(pcm):.4f}",
         f"rate={rate}",
         f"bytes={len(wav)}",
     )
-    if _rms(pcm) < SILENCE_RMS:
+    if rms(pcm) < SILENCE_RMS:
         message = f"{label} produced silence"
         raise SystemExit(message)
     if duration < 1.0:
@@ -615,17 +583,17 @@ def _prove_concurrent_speak(base_url: str, voice: VoiceId, minting: Minting) -> 
         message = f"concurrent speak missing a response: {sorted(results)}"
         raise SystemExit(message)
     for key, (wav, ttfa, total) in results.items():
-        rate, pcm = _pcm_from_wav(wav)
+        rate, pcm = pcm_from_wav(wav)
         duration = (len(pcm) / BYTES_PER_SAMPLE) / rate
         print(
             f"speak_concurrent_{key}",
             f"first_byte_s={ttfa:.3f}",
             f"total_s={total:.3f}",
             f"duration_s={duration:.3f}",
-            f"rms={_rms(pcm):.4f}",
+            f"rms={rms(pcm):.4f}",
             f"rate={rate}",
         )
-        if _rms(pcm) < SILENCE_RMS:
+        if rms(pcm) < SILENCE_RMS:
             message = f"concurrent {key} produced silence"
             raise SystemExit(message)
         if duration < MIN_SPEECH_SECONDS:
@@ -743,7 +711,10 @@ def _prove() -> None:
             minting = load_minting(identity.minting_path)
             env = speech_environment(port, voice, identity)
             with speech_server(base_url, env, work_directory) as running:
-                print("health_ready", json.dumps(running.health, sort_keys=True))
+                print(
+                    "health_ready",
+                    json.dumps(running.health.model_dump(), sort_keys=True),
+                )
                 print("load_to_ready_s", f"{running.ready_seconds:.1f}")
                 print(
                     "gpu_compute_pids",

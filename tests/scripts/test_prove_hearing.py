@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING
 import httpx2
 import pytest
 
-from speech_runtime_client.wire import RefusalCode, refusal
+from speech_runtime_client.outcomes import Unreachable
+from speech_runtime_client.wire import Health, RefusalCode, refusal
 from speech_runtime_service.hearing_models import HearingModel
 from tests.support.clock_support import FakeClock
 from tests.support.nvidia_support import FakeNvidiaSmi
@@ -350,12 +351,24 @@ def test_a_stage_that_does_not_apply_on_cpu_is_not_missing(
 
 
 HELD_MIB = 512
-HEALTH_READY = {"speaking": {"ready": True}, "hearing": {"ready": True}}
-HEALTH_NO_HEARING = {"speaking": {"ready": True}, "hearing": {"ready": False}}
-HEALTH_LOADING = {"speaking": {"ready": False}, "hearing": {"ready": False}}
 
 
-def wait_loaded_with(health: dict[str, object], *, speaks: bool) -> dict[str, object]:
+def health_of(*, speaking: bool, hearing: bool) -> Health:
+    return Health.model_validate(
+        {
+            "speaking": {"ready": speaking, "voices": {}},
+            "hearing": {"model": "small", "ready": hearing},
+            "card_memory_mb": 0,
+        }
+    )
+
+
+HEALTH_READY = health_of(speaking=True, hearing=True)
+HEALTH_NO_HEARING = health_of(speaking=True, hearing=False)
+HEALTH_LOADING = health_of(speaking=False, hearing=False)
+
+
+def wait_loaded_with(health: Health, *, speaks: bool) -> Health:
     clock = FakeClock()
     return HEARING.wait_loaded(
         "http://127.0.0.1:1",
@@ -370,7 +383,7 @@ def wait_loaded_with(health: dict[str, object], *, speaks: bool) -> dict[str, ob
     ids=["hearing ready", "speaking served after a load without hearing"],
 )
 def test_the_service_has_loaded_when_hearing_is_ready_or_speaking_is_served(
-    health: dict[str, object], *, speaks: bool
+    health: Health, *, speaks: bool
 ) -> None:
     assert wait_loaded_with(health, speaks=speaks) == health
 
@@ -381,7 +394,7 @@ def test_the_service_has_loaded_when_hearing_is_ready_or_speaking_is_served(
     ids=["still loading", "speaking ready but not served"],
 )
 def test_a_service_that_never_finishes_loading_fails_the_wait(
-    health: dict[str, object], *, speaks: bool
+    health: Health, *, speaks: bool
 ) -> None:
     with pytest.raises(SystemExit, match="did not finish loading"):
         wait_loaded_with(health, speaks=speaks)
@@ -391,7 +404,7 @@ def test_a_wait_with_slow_health_answers_still_ends_at_its_time_limit() -> None:
     clock = FakeClock()
     slow_seconds = 35.0
 
-    def slow_health(*_: object) -> dict[str, object]:
+    def slow_health(*_: object) -> Health:
         clock.jump(slow_seconds)
         return HEALTH_LOADING
 
@@ -405,9 +418,8 @@ def test_a_wait_with_slow_health_answers_still_ends_at_its_time_limit() -> None:
 def test_a_wait_that_never_heard_the_service_names_no_health() -> None:
     clock = FakeClock()
 
-    def unreachable(*_: object) -> dict[str, object]:
-        message = "refused"
-        raise httpx2.ConnectError(message)
+    def unreachable(*_: object) -> Unreachable:
+        return Unreachable()
 
     wait = HEARING.LoadWait(lambda: True, unreachable, clock.jump, clock.now)
     with pytest.raises(SystemExit) as failure:
@@ -441,7 +453,7 @@ def smi(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeNvidiaSmi:
 def taken_card(
     smi: FakeNvidiaSmi,
     *,
-    health: dict[str, object],
+    health: Health,
     file_response: httpx2.Response,
     freed: bool,
     accepts_upgrade: bool = False,

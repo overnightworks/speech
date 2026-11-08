@@ -12,14 +12,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
-import httpx2
 import pytest
 
+from speech_runtime_client.outcomes import Unreachable
+from speech_runtime_client.wire import Health
 from tests.support.clock_support import FakeClock
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+
+    from speech_runtime_client.health import HealthOutcome
 
 PROVE = script_module("prove_speech")
 PIPE_BYTES = 65536
@@ -157,6 +160,16 @@ def test_a_failed_proof_under_the_lock_keeps_its_own_exit_status() -> None:
     assert PROVE.run_under_lock([], run_returning(status, takes_lock=True)) == status
 
 
+def speaking_health(*, ready: bool) -> Health:
+    return Health.model_validate(
+        {
+            "speaking": {"ready": ready, "voices": {}},
+            "hearing": {"model": "none", "ready": False},
+            "card_memory_mb": 7,
+        }
+    )
+
+
 def test_the_default_wait_ends_at_once_when_the_server_exited(tmp_path: Path) -> None:
     def never_waits(_: float) -> None:
         pytest.fail("the wait went on after the server exited")
@@ -170,7 +183,7 @@ def test_the_default_wait_ends_at_once_when_the_server_exited(tmp_path: Path) ->
         start=lambda *_, **__: server,
         wait_ready=functools.partial(
             PROVE.wait_for_speaking_ready,
-            fetch=lambda *_: {"speaking": {"ready": False}},
+            fetch=lambda *_: speaking_health(ready=False),
             sleep=never_waits,
         ),
     )
@@ -187,7 +200,7 @@ def test_term_stops_the_speech_server_through_its_teardown(tmp_path: Path) -> No
         {},
         tmp_path,
         start=lambda *_, **__: server,
-        wait_ready=lambda *_: {},
+        wait_ready=lambda *_: speaking_health(ready=True),
     )
 
     def term_while_running() -> None:
@@ -311,23 +324,20 @@ def test_the_default_start_never_blocks_a_service_that_logs_past_the_pipe(
 @pytest.mark.parametrize(
     ("health", "detail_in_message"),
     [
-        ({"speaking": {"ready": False}, "card_memory_mb": 7}, True),
+        (speaking_health(ready=False), True),
         (None, False),
     ],
     ids=["the last health is named", "no health ever answered"],
 )
 def test_a_wait_that_runs_out_names_the_last_health_it_saw(
-    health: dict[str, object] | None,
+    health: Health | None,
     *,
     detail_in_message: bool,
 ) -> None:
     clock = FakeClock()
 
-    def answer(*_: object) -> dict[str, object]:
-        if health is None:
-            refusal = "refused"
-            raise httpx2.ConnectError(refusal)
-        return health
+    def answer(*_: object) -> HealthOutcome:
+        return Unreachable() if health is None else health
 
     with pytest.raises(SystemExit, match="not ready within") as failure:
         PROVE.wait_for_speaking_ready(

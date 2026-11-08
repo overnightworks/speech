@@ -10,21 +10,22 @@ types of `speech_runtime_client`.
 from __future__ import annotations
 
 import argparse
-import http.client
 import json
 import sys
 from array import array
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from proof_identity import Minting, load_minting, mint_pair
 from speech_runtime_client import speak as speaking_call
-from speech_runtime_client.wire import ResponseFormat
+from speech_runtime_client.health import fetch_health
+from speech_runtime_client.wire import Health, ResponseFormat
 
 SENTENCE = (
     "Die Kamera zeigt den Vortragenden, während im Hintergrund "
     "die nächste Folie automatisch vorbereitet wird."
 )
+HEALTH_DEADLINE_SECONDS = 30
+HEALTH_CAP_BYTES = 64 * 1024
 SPEAK_DEADLINE_SECONDS = 60
 WAV_CAP_BYTES = 64 * 1024 * 1024
 BYTES_PER_SAMPLE = 2
@@ -35,33 +36,6 @@ def _must_not_have_imported_speech() -> None:
     if "speech_runtime_service" in sys.modules:
         message = "contract client imported speech_runtime_service"
         raise SystemExit(message)
-
-
-def _connection(base_url: str, timeout: float) -> http.client.HTTPConnection:
-    address = urlsplit(base_url)
-    return http.client.HTTPConnection(address.hostname, address.port, timeout=timeout)
-
-
-def _request(base_url: str, method: str, target: str, timeout: float) -> bytes:
-    connection = _connection(base_url, timeout)
-    try:
-        connection.request(method, target)
-        response = connection.getresponse()
-        data = response.read()
-    except http.client.IncompleteRead:
-        message = f"{method} {target} ended before its body was complete"
-        raise SystemExit(message) from None
-    finally:
-        connection.close()
-    if response.status != http.client.OK:
-        message = f"{method} {target} answered {response.status}"
-        raise SystemExit(message)
-    return data
-
-
-def get_json(base_url: str, target: str) -> dict[str, object]:
-    """GET a path over the speech service and decode the JSON body."""
-    return json.loads(_request(base_url, "GET", target, 30).decode("utf-8"))
 
 
 def _pcm_from_wav(data: bytes) -> tuple[int, bytes]:
@@ -114,13 +88,16 @@ def _rms(pcm: bytes) -> float:
 
 
 def _run(base_url: str, voice: str, minting: Minting) -> None:
-    health = get_json(base_url, "/health")
-    print("contract_health", json.dumps(health, sort_keys=True))
-    speaking = health["speaking"]
-    if not isinstance(speaking, dict):
-        message = "health speaking is not an object"
+    health = fetch_health(
+        base_url,
+        deadline_seconds=HEALTH_DEADLINE_SECONDS,
+        cap_bytes=HEALTH_CAP_BYTES,
+    )
+    if not isinstance(health, Health):
+        message = f"health ended as {type(health).__name__}"
         raise SystemExit(message)
-    if not speaking["ready"]:
+    print("contract_health", json.dumps(health.model_dump(), sort_keys=True))
+    if not health.speaking.ready:
         message = "the speaking model is not ready"
         raise SystemExit(message)
 

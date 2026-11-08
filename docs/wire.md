@@ -20,6 +20,9 @@ distribution) owns the paths, the request types, the transcription answer, the
 Realtime events and the refusal list; build the body and read the refusals through it.
 `speech_runtime_client.speak` makes the speaking call itself, within a total deadline and a
 byte cap, and answers with a typed outcome; its module documents them.
+`speech_runtime_client.health` fetches `GET /health` (WIRE-122) within a deadline and a
+cap and answers with a typed outcome; the outcomes both calls share live in
+`speech_runtime_client.outcomes`.
 
 ## Request
 
