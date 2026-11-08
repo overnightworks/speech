@@ -14,18 +14,11 @@ import wave
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Annotated, Final
+from typing import TYPE_CHECKING, Final
 
 import numpy as np
-from pydantic import Field, TypeAdapter, ValidationError
 
-from speech_runtime_client.wire import (
-    ErrorEvent,
-    RefusalCode,
-    TranscriptCompleted,
-    TranscriptDelta,
-    TranscriptFailed,
-)
+from speech_runtime_client.wire import RefusalCode
 from speech_runtime_service.hearing_session import (
     MAX_TURN_SECONDS,
     SILENCE_SECONDS,
@@ -42,20 +35,6 @@ FRAME_SECONDS: Final = 0.1
 FRAME_BYTES: Final = int(LIVE_INPUT_RATE * FRAME_SECONDS) * BYTES_PER_SAMPLE
 TRAILING_SILENCE_SECONDS: Final = 2.0
 INT16_SCALE: Final = 32768.0
-
-type LiveEvent = TranscriptDelta | TranscriptCompleted | TranscriptFailed | ErrorEvent
-
-_LIVE_EVENT: Final = TypeAdapter(
-    Annotated[LiveEvent, Field(discriminator="type")],
-)
-
-
-def parse_live_event(text: str) -> LiveEvent | None:
-    """The event the proof acts on, or `None` for every other server event."""
-    try:
-        return _LIVE_EVENT.validate_json(text)
-    except ValidationError:
-        return None
 
 
 @dataclass(frozen=True)
