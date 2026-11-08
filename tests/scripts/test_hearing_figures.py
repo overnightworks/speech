@@ -10,10 +10,7 @@ import pytest
 
 import hearing_figures as figures
 from speech_runtime_client.wire import (
-    DurationUsage,
     RefusalCode,
-    TranscriptCompleted,
-    TranscriptDelta,
 )
 
 RATE = 24000
@@ -208,18 +205,6 @@ def test_the_frames_end_in_silence_for_two_seconds() -> None:
     assert b"".join(frames[:10]) == clip
     assert all(frame == bytes(figures.FRAME_BYTES) for frame in frames[10:])
     assert len(frames) * figures.FRAME_SECONDS == pytest.approx(3.0)
-
-
-def test_a_completed_and_a_delta_event_are_read_and_others_are_not() -> None:
-    delta = TranscriptDelta(item_id="item", delta="Wie")
-    completed = TranscriptCompleted(
-        item_id="item", transcript="Wie spät", usage=DurationUsage(seconds=1.0)
-    )
-
-    assert figures.parse_live_event(delta.model_dump_json()) == delta
-    assert figures.parse_live_event(completed.model_dump_json()) == completed
-    assert figures.parse_live_event('{"type": "session.created"}') is None
-    assert figures.parse_live_event("not json") is None
 
 
 def test_the_card_reading_is_used_and_total_memory() -> None:

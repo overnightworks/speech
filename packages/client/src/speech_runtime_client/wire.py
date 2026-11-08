@@ -179,12 +179,19 @@ def speech_request_body(
     return request.model_dump_json().encode()
 
 
-def speech_request_headers(*, workload_token: str, person_token: str) -> dict[str, str]:
-    """The headers a caller posts with the body: the app's token and the person's."""
+def token_headers(*, workload_token: str, person_token: str) -> dict[str, str]:
+    """The app's token and the person's, for a request whose transport sets the type."""
     return {
-        CONTENT_TYPE_HEADER: "application/json",
         WORKLOAD_TOKEN_HEADER: workload_token,
         AUTHORIZATION_HEADER: f"Bearer {person_token}",
+    }
+
+
+def speech_request_headers(*, workload_token: str, person_token: str) -> dict[str, str]:
+    """The headers a caller posts with the body: the content type and both tokens."""
+    return {
+        CONTENT_TYPE_HEADER: "application/json",
+        **token_headers(workload_token=workload_token, person_token=person_token),
     }
 
 
@@ -564,6 +571,46 @@ class ErrorEvent(_ServerEvent):
 
     type: Literal["error"] = "error"
     error: RealtimeError
+
+
+ServerEvent = (
+    SessionCreated
+    | SessionUpdated
+    | SpeechStarted
+    | TranscriptDelta
+    | SpeechStopped
+    | AudioCommitted
+    | ItemCreated
+    | TranscriptCompleted
+    | TranscriptFailed
+    | ErrorEvent
+)
+_SERVER_EVENT: Final = TypeAdapter(Annotated[ServerEvent, Field(discriminator="type")])
+
+
+class ServerEventError(ValueError):
+    """A server message that is not one of the events the wire names."""
+
+    def __init__(self) -> None:
+        """Carry no field and no content: a transcript is user content."""
+        super().__init__("the server event is not valid")
+
+
+def parse_server_event(text: str) -> ServerEvent:
+    """The server event in `text`; raises `ServerEventError` for anything else."""
+    try:
+        message = json.loads(text)
+        # The models would invent an id that the sender never gave.
+        parsed = (
+            _SERVER_EVENT.validate_json(text)
+            if isinstance(message, dict) and "event_id" in message
+            else None
+        )
+    except ValueError:
+        parsed = None
+    if parsed is None:
+        raise ServerEventError
+    return parsed
 
 
 def item_failure(code: RefusalCode, param: str | None = None) -> ItemFailure:

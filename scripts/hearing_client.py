@@ -19,13 +19,11 @@ import hearing_figures as figures
 from hearing_figures import LiveTurn
 from proof_identity import Minting, mint_pair
 from speech_runtime_client.wire import (
-    AUTHORIZATION_HEADER,
     MODEL,
     REALTIME_INTENT,
     REALTIME_INTENT_PARAM,
     REALTIME_PATH,
     TRANSCRIPTIONS_PATH,
-    WORKLOAD_TOKEN_HEADER,
     AudioAppend,
     ErrorEvent,
     HearingLanguage,
@@ -40,6 +38,8 @@ from speech_runtime_client.wire import (
     TranscriptionRequest,
     TranscriptionSession,
     TranscriptionSetting,
+    parse_server_event,
+    token_headers,
 )
 
 if TYPE_CHECKING:
@@ -65,13 +65,10 @@ class Service:
     running: RunningSpeech
 
 
-def token_headers(minting: Minting) -> dict[str, str]:
+def minted_headers(minting: Minting) -> dict[str, str]:
     """The two token headers, minted fresh, without a content type."""
     pair = mint_pair(minting)
-    return {
-        WORKLOAD_TOKEN_HEADER: pair.workload,
-        AUTHORIZATION_HEADER: f"Bearer {pair.person}",
-    }
+    return token_headers(workload_token=pair.workload, person_token=pair.person)
 
 
 def refusal_code(status: int, body: bytes) -> str | None:
@@ -100,7 +97,7 @@ def post_recording(
     with httpx2.Client(base_url=service.base_url, timeout=FILE_WAIT_SECONDS) as client:
         return client.post(
             TRANSCRIPTIONS_PATH,
-            headers=token_headers(service.minting),
+            headers=minted_headers(service.minting),
             data=form.model_dump(mode="json"),
             files={"file": ("recording.wav", figures.wav_of(pcm), "audio/wav")},
         )
@@ -162,7 +159,7 @@ async def _receive_turn(
     delta_seconds: list[float] = []
     deltas: list[str] = []
     async for message in socket:
-        event = figures.parse_live_event(message)
+        event = parse_server_event(message)
         elapsed = time.monotonic() - started
         if isinstance(event, TranscriptDelta):
             delta_seconds.append(elapsed)
@@ -190,7 +187,7 @@ async def hear_live(
     frames = figures.frames_with_closing_silence(pcm)
     async with connect(
         live_url(service.base_url),
-        additional_headers=token_headers(service.minting),
+        additional_headers=minted_headers(service.minting),
         open_timeout=LIVE_WAIT_SECONDS,
     ) as socket:
         await socket.send(update_event(language))
@@ -217,7 +214,7 @@ async def upgrade_refusal(
     try:
         async with open_connection(
             live_url(service.base_url),
-            additional_headers=token_headers(service.minting),
+            additional_headers=minted_headers(service.minting),
         ):
             return None
     except InvalidStatus as refused:
