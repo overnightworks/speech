@@ -1,0 +1,7 @@
+claim_id = "add03fa9d9cc4ad58fdadd35951549e1"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "397b15e37ee6c9c4c36f3618950af3e7afc03414"
+branch = "dependabot/uv/nvidia-cublas-cu12-12.9.3.13"
+scope = ["pyproject.toml", "uv.lock"]
+opened_commit = "bf3642be79f91915b6dd4dfe337293877bf9f477"
