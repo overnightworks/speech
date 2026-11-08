@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.14"
 
 [manifest]
@@ -601,7 +601,7 @@ wheels = [
 
 [[package]]
 name = "overnightworks-speech-runtime-client"
-version = "0.4.0"
+version = "0.5.0"
 source = { editable = "packages/client" }
 dependencies = [
     { name = "pydantic" },
@@ -612,12 +612,12 @@ requires-dist = [{ name = "pydantic", specifier = ">=2.13,<3" }]
 
 [[package]]
 name = "overnightworks-speech-runtime-provider-contract"
-version = "0.4.0"
+version = "0.5.0"
 source = { editable = "providers/provider-contract" }
 
 [[package]]
 name = "overnightworks-speech-runtime-service"
-version = "0.4.0"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "av" },
