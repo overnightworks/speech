@@ -119,9 +119,10 @@ def test_a_malformed_event_fails_the_turn_instead_of_being_skipped() -> None:
     completed = TranscriptCompleted(
         item_id="i", transcript="Hallo", usage=DurationUsage(seconds=1.0)
     )
+    messages = ["not json", completed.model_dump_json()]
 
     with pytest.raises(ServerEventError):
-        receive_turn(["not json", completed.model_dump_json()])
+        receive_turn(messages)
 
 
 def test_a_valid_event_of_no_interest_is_ignored_until_the_turn_completes() -> None:
