@@ -3,8 +3,7 @@
 # FROM lines, so uv is a stage of its own.
 FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
 FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS python-base
-ENV PATH=/opt/venv/bin:$PATH \
-    SPEECH_PROVIDER_ROOT=/opt/providers
+ENV PATH=/opt/venv/bin:$PATH
 WORKDIR /app
 
 # uv and git exist only in this stage, because uv needs git to fetch the
@@ -35,40 +34,18 @@ COPY providers/provider-contract/src providers/provider-contract/src
 COPY src src
 RUN uv sync --locked --no-dev --no-editable
 
-# Qwen's environment lies where SPEECH_PROVIDER_ROOT finds its worker. The
-# first step is wheel-only like the service's; it leaves out the lock's one
-# third-party source distribution, sox (pure Python), and the two local
-# projects, so the second step builds exactly those three.
-FROM python-base AS qwen
-COPY --from=uv /uv /usr/local/bin/uv
-ENV UV_PYTHON_DOWNLOADS=never \
-    UV_PROJECT_ENVIRONMENT=${SPEECH_PROVIDER_ROOT}/qwen/.venv \
-    UV_COMPILE_BYTECODE=1 \
-    UV_NO_CACHE=1
-WORKDIR /build/providers/qwen
-COPY providers/qwen/pyproject.toml providers/qwen/uv.lock ./
-COPY providers/provider-contract/pyproject.toml ../provider-contract/pyproject.toml
-RUN uv sync --locked --no-dev --no-editable --no-install-project --no-build \
-    --no-install-package sox \
-    --no-install-package overnightworks-speech-runtime-provider-contract
-COPY providers/provider-contract/src ../provider-contract/src
-COPY providers/qwen/src src
-RUN uv sync --locked --no-dev --no-editable
-
 # The voices and the hearing model are fetched here, each at its pinned
-# revision (Piper's voice also checked against its hashes); hearing's model and
-# Qwen share the one Hub cache. The Hub's own cache and logs stay in this stage.
+# revision (Piper's voice also checked against its hashes). The Hub's own cache
+# and logs stay in this stage.
 FROM dependencies AS weights
 ENV HF_HOME=/tmp/huggingface \
     SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing
 RUN speech-runtime-fetch-voice de_DE-thorsten-medium \
  && speech-runtime-fetch-hearing-model small
-RUN speech-runtime-fetch-voice qwen3-tts-0.6b
 
 FROM python-base
 COPY --from=dependencies /opt/venv /opt/venv
-COPY --from=qwen ${SPEECH_PROVIDER_ROOT} ${SPEECH_PROVIDER_ROOT}
 COPY --from=weights /opt/voices /opt/voices
 COPY --from=weights /opt/hearing /opt/hearing
 COPY deploy/speech.toml deploy/speech.toml
