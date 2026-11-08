@@ -7,18 +7,12 @@ a closed union a caller matches with `assert_never`:
   the end of the chunked body (WIRE-90).
 - `Refused`: a refusal of the wire, with its status, code and param.
 - `Busy`: the 429 and the wait the service asks for; the app decides to retry.
-- `Cut`: the connection was up and the answer ended, closed or was reset
-  before it was whole.
-- `PastDeadline`: the total deadline passed, at connect, send or any read.
-- `OverCap`: the audio would pass the byte cap; reading stops there.
 - `Malformed`: the answer breaks the wire, for example a 200 that is not
   chunked, is not the ordered format's media type or does not begin with its
   container signature (WIRE-88, WIRE-133), a refusal outside the error form, a 429
   without a whole-second `Retry-After`, or a refusal body over 64 KiB.
-- `Unreachable`: the name did not resolve or no address accepted the connection.
-
-A timeout is `PastDeadline` before anything else; then a closed or reset
-connection is `Cut`; only then a parse failure is `Malformed`.
+- `Cut`, `PastDeadline`, `OverCap` and `Unreachable`, shared with the health
+  fetch (`speech_runtime_client.outcomes`); here `OverCap` is the audio.
 
 A defect of the caller raises and is no outcome: an input the request refuses
 (`pydantic.ValidationError`), a deadline or cap of 0 or below, and a base URL
@@ -33,22 +27,20 @@ system resolver, not by the deadline.
 
 from __future__ import annotations
 
-import socket
-import time
 from dataclasses import dataclass, field
 from http import HTTPStatus
-from http.client import (
-    HTTPConnection,
-    HTTPException,
-    HTTPResponse,
-    IncompleteRead,
-    LineTooLong,
-)
-from typing import Final
-from urllib.parse import urlsplit
+from typing import TYPE_CHECKING, Final
 
 from pydantic import ValidationError
 
+from speech_runtime_client._transport import checked_origin, exchange, read_within
+from speech_runtime_client.outcomes import (
+    Cut,
+    Malformed,
+    OverCap,
+    PastDeadline,
+    Unreachable,
+)
 from speech_runtime_client.wire import (
     SPEECH_PATH,
     BusyWait,
@@ -63,8 +55,9 @@ from speech_runtime_client.wire import (
     speech_request_headers,
 )
 
-_READ_BYTES: Final = 64 * 1024
-_TRAILER_LINE_BYTES: Final = 64 * 1024
+if TYPE_CHECKING:
+    from http.client import HTTPConnection, HTTPResponse
+
 _REFUSAL_BODY_LIMIT: Final = 64 * 1024
 
 
@@ -104,106 +97,9 @@ class Busy:
     wait: BusyWait
 
 
-@dataclass(frozen=True, slots=True)
-class Cut:
-    """The answer ended, closed or was reset before it was whole."""
-
-
-@dataclass(frozen=True, slots=True)
-class PastDeadline:
-    """The total deadline passed."""
-
-
-@dataclass(frozen=True, slots=True)
-class OverCap:
-    """The audio would pass the byte cap."""
-
-
-@dataclass(frozen=True, slots=True)
-class Malformed:
-    """The answer breaks the wire."""
-
-
-@dataclass(frozen=True, slots=True)
-class Unreachable:
-    """The connection never came up."""
-
-
 type SpeakOutcome = (
     Spoken | Refused | Busy | Cut | PastDeadline | OverCap | Malformed | Unreachable
 )
-
-
-class _DeadlineSocket(socket.socket):
-    """A socket whose connect, sends and reads are each bounded by one deadline."""
-
-    def __init__(self, family: int, kind: int, protocol: int, deadline: float) -> None:
-        super().__init__(family, kind, protocol)
-        self._deadline = deadline
-
-    def arm(self) -> None:
-        left = self._deadline - time.monotonic()
-        if left <= 0:
-            # settimeout(0) would make the socket non-blocking, a negative value raises.
-            raise TimeoutError
-        self.settimeout(left)
-
-    def sendall(self, data: bytes, flags: int = 0) -> None:
-        self.arm()
-        super().sendall(data, flags)
-
-    def recv_into(self, buffer: bytearray, nbytes: int = 0, flags: int = 0) -> int:
-        self.arm()
-        return super().recv_into(buffer, nbytes, flags)
-
-
-def _connect(host: str, port: int, deadline: float) -> socket.socket:
-    failure = OSError("the name resolved to no address")
-    for family, kind, protocol, _, address in socket.getaddrinfo(
-        host, port, type=socket.SOCK_STREAM
-    ):
-        candidate = _DeadlineSocket(family, kind, protocol, deadline)
-        try:
-            candidate.arm()
-            candidate.connect(address)
-        except TimeoutError:
-            candidate.close()
-            raise
-        except OSError as error:
-            candidate.close()
-            failure = error
-        else:
-            return candidate
-    raise failure
-
-
-class _StrictResponse(HTTPResponse):
-    """A response that treats a chunked body without its terminator as cut."""
-
-    def _read_and_discard_trailer(self) -> None:
-        # The base class accepts an end of stream where the final CRLF belongs.
-        while True:
-            line = self.fp.readline(_TRAILER_LINE_BYTES + 1)
-            if len(line) > _TRAILER_LINE_BYTES:
-                message = "trailer line"
-                raise LineTooLong(message)
-            if not line:
-                # The argument is the bytes read, not a message.
-                raise IncompleteRead(b"")  # noqa: EM101
-            if line in {b"\r\n", b"\n"}:
-                return
-
-
-def _read_within(response: HTTPResponse, limit: int) -> bytes | None:
-    """The whole body, or `None` once it would pass `limit` bytes."""
-    body = bytearray()
-    while piece := response.read1(_READ_BYTES):
-        body += piece
-        if len(body) > limit:
-            return None
-    if response.length:
-        raise IncompleteRead(bytes(body), response.length)
-    return bytes(body)
 
 
 def _spoken(
@@ -214,7 +110,7 @@ def _spoken(
         or not response.chunked
     ):
         return Malformed()
-    audio = _read_within(response, cap_bytes)
+    audio = read_within(response, cap_bytes)
     if audio is None:
         return OverCap()
     if not response_format.begins_like_container(audio):
@@ -223,7 +119,7 @@ def _spoken(
 
 
 def _refusal(response: HTTPResponse) -> SpeakOutcome:
-    body = _read_within(response, _REFUSAL_BODY_LIMIT)
+    body = read_within(response, _REFUSAL_BODY_LIMIT)
     if body is None:
         return Malformed()
     try:
@@ -269,35 +165,15 @@ def speak(  # noqa: PLR0913
     `deadline_seconds` bounds the whole call, `cap_bytes` the audio. See the module
     for the outcomes and for what raises.
     """
-    address = urlsplit(base_url)
-    if address.scheme != "http" or not address.hostname or address.path:
-        message = "base_url must be http://host[:port] with no path"
-        raise ValueError(message)
-    if deadline_seconds <= 0 or cap_bytes <= 0:
-        message = "deadline_seconds and cap_bytes must be above 0"
-        raise ValueError(message)
+    origin = checked_origin(base_url, deadline_seconds, cap_bytes)
     body = speech_request_body(text, voice, response_format)
     headers = speech_request_headers(
         workload_token=workload_token, person_token=person_token
     )
-    port = address.port or 80
-    deadline = time.monotonic() + deadline_seconds
-    try:
-        connected = _connect(address.hostname, port, deadline)
-    except TimeoutError:
-        return PastDeadline()
-    except OSError:
-        return Unreachable()
-    connection = HTTPConnection(address.hostname, port)
-    connection.response_class = _StrictResponse
-    connection.sock = connected
-    try:
-        return _answer(connection, body, headers, cap_bytes, response_format)
-    except TimeoutError:
-        return PastDeadline()
-    except OSError, IncompleteRead:
-        return Cut()
-    except HTTPException:
-        return Malformed()
-    finally:
-        connection.close()
+    return exchange(
+        origin,
+        deadline_seconds,
+        lambda connection: _answer(
+            connection, body, headers, cap_bytes, response_format
+        ),
+    )

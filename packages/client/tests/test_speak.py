@@ -6,7 +6,6 @@ import socket
 import struct
 import threading
 import time
-from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import pytest
@@ -31,7 +30,8 @@ from speech_runtime_client.wire import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable
+    from contextlib import AbstractContextManager
 
     from speech_runtime_client.speak import SpeakOutcome
 
@@ -43,6 +43,12 @@ MARGIN_SECONDS = 3.0
 GENEROUS_DEADLINE_SECONDS = 30.0
 CAP_BYTES = 1024 * 1024
 DRIP_SECONDS = 0.02
+
+
+type RawListener = Callable[
+    [Callable[[socket.socket, threading.Event], None]],
+    AbstractContextManager[tuple[str, list[bytes]]],
+]
 
 
 def _speak(
@@ -126,52 +132,6 @@ def _refusal_response(
     return _head(status, f"Content-Length: {len(body)}", *headers) + body
 
 
-def _read_request(connection: socket.socket) -> bytes:
-    received = b""
-    while b"\r\n\r\n" not in received:
-        received += connection.recv(4096)
-    head, _, body = received.partition(b"\r\n\r\n")
-    length = next(
-        int(line.split(b":")[1])
-        for line in head.split(_CRLF)
-        if line.lower().startswith(b"content-length")
-    )
-    while len(body) < length:
-        body += connection.recv(4096)
-    return head + b"\r\n\r\n" + body
-
-
-@contextmanager
-def _raw_listener(
-    answer: Callable[[socket.socket, threading.Event], None],
-) -> Iterator[tuple[str, list[bytes]]]:
-    """Answer one connection with `answer`; yield the base URL and the requests."""
-    requests: list[bytes] = []
-    stopped = threading.Event()
-    listener = socket.socket()
-    listener.bind(("127.0.0.1", 0))
-    listener.listen()
-
-    def serve() -> None:
-        try:
-            connection, _ = listener.accept()
-            with connection:
-                requests.append(_read_request(connection))
-                answer(connection, stopped)
-        except OSError:
-            return
-
-    thread = threading.Thread(target=serve)
-    thread.start()
-    try:
-        yield f"http://127.0.0.1:{listener.getsockname()[1]}", requests
-    finally:
-        stopped.set()
-        listener.shutdown(socket.SHUT_RDWR)
-        listener.close()
-        thread.join()
-
-
 def _sends(raw: bytes) -> Callable[[socket.socket, threading.Event], None]:
     def answer(connection: socket.socket, stopped: threading.Event) -> None:
         del stopped
@@ -209,10 +169,10 @@ def _closes(connection: socket.socket, stopped: threading.Event) -> None:
     ],
 )
 def test_a_server_that_drips_cannot_hold_the_call_past_the_deadline(
-    raw: bytes, drip: bytes
+    raw: bytes, drip: bytes, raw_listener: RawListener
 ) -> None:
     """The deadline bounds the whole call, not each read."""
-    with _raw_listener(_sends_then_drips(raw, drip)) as (base_url, _):
+    with raw_listener(_sends_then_drips(raw, drip)) as (base_url, _):
         began = time.monotonic()
         outcome = _speak(base_url, deadline_seconds=DEADLINE_SECONDS)
 
@@ -220,8 +180,10 @@ def test_a_server_that_drips_cannot_hold_the_call_past_the_deadline(
     assert time.monotonic() - began < DEADLINE_SECONDS + MARGIN_SECONDS
 
 
-def test_a_deadline_that_has_passed_before_the_connect_is_past_the_deadline() -> None:
-    with _raw_listener(_closes) as (base_url, _):
+def test_a_deadline_that_has_passed_before_the_connect_is_past_the_deadline(
+    raw_listener: RawListener,
+) -> None:
+    with raw_listener(_closes) as (base_url, _):
         outcome = _speak(base_url, deadline_seconds=1e-9)
 
     assert outcome == PastDeadline()
@@ -248,10 +210,10 @@ def test_a_deadline_that_has_passed_before_the_connect_is_past_the_deadline() ->
     ],
 )
 def test_an_answer_that_ends_before_it_is_whole_is_cut(
-    answer: Callable[[socket.socket, threading.Event], None],
+    answer: Callable[[socket.socket, threading.Event], None], raw_listener: RawListener
 ) -> None:
     """WIRE-90: a missing end is a failed request."""
-    with _raw_listener(answer) as (base_url, _):
+    with raw_listener(answer) as (base_url, _):
         outcome = _speak(base_url)
 
     assert outcome == Cut()
@@ -334,17 +296,19 @@ _BUSY_WITHOUT_WAIT = _refusal_response("429 Too Many Requests", RefusalCode.BUSY
         ),
     ],
 )
-def test_an_answer_that_breaks_the_wire_is_malformed(raw: bytes) -> None:
+def test_an_answer_that_breaks_the_wire_is_malformed(
+    raw: bytes, raw_listener: RawListener
+) -> None:
     """WIRE-88: only a chunked audio/wav 200 and the wire's refusals are answers."""
-    with _raw_listener(_sends(raw)) as (base_url, _):
+    with raw_listener(_sends(raw)) as (base_url, _):
         outcome = _speak(base_url)
 
     assert outcome == Malformed()
 
 
-def test_a_chunked_wav_with_a_trailer_is_spoken() -> None:
+def test_a_chunked_wav_with_a_trailer_is_spoken(raw_listener: RawListener) -> None:
     raw = _WAV_HEAD + _chunk(_WAV_BODY) + b"0\r\nX-Trailer: 1\r\n\r\n"
-    with _raw_listener(_sends(raw)) as (base_url, _):
+    with raw_listener(_sends(raw)) as (base_url, _):
         outcome = _speak(base_url)
 
     assert outcome == Spoken(_WAV_BODY)
@@ -386,18 +350,20 @@ def test_a_chunked_wav_with_a_trailer_is_spoken() -> None:
     ],
 )
 def test_a_200_that_is_not_the_ordered_format_is_malformed(
-    ordered: ResponseFormat, raw: bytes
+    ordered: ResponseFormat, raw: bytes, raw_listener: RawListener
 ) -> None:
     """WIRE-88, WIRE-133: the media type and the container signature must match."""
-    with _raw_listener(_sends(raw)) as (base_url, _):
+    with raw_listener(_sends(raw)) as (base_url, _):
         outcome = _speak(base_url, response_format=ordered)
 
     assert outcome == Malformed()
 
 
-def test_a_chunked_ogg_with_the_ogg_signature_is_spoken_when_opus_is_ordered() -> None:
+def test_a_chunked_ogg_with_the_ogg_signature_is_spoken_when_opus_is_ordered(
+    raw_listener: RawListener,
+) -> None:
     """WIRE-133: an audio/ogg body that begins with OggS is the answer."""
-    with _raw_listener(_sends(_OGG_HEAD + _chunk(_OGG_BODY) + _chunk(b""))) as (
+    with raw_listener(_sends(_OGG_HEAD + _chunk(_OGG_BODY) + _chunk(b""))) as (
         base_url,
         _,
     ):
@@ -407,8 +373,10 @@ def test_a_chunked_ogg_with_the_ogg_signature_is_spoken_when_opus_is_ordered() -
 
 
 @pytest.mark.parametrize("ordered", list(ResponseFormat))
-def test_the_request_orders_the_format_it_was_given(ordered: ResponseFormat) -> None:
-    with _raw_listener(_sends(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b""))) as (
+def test_the_request_orders_the_format_it_was_given(
+    ordered: ResponseFormat, raw_listener: RawListener
+) -> None:
+    with raw_listener(_sends(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b""))) as (
         base_url,
         requests,
     ):
@@ -420,8 +388,8 @@ def test_the_request_orders_the_format_it_was_given(ordered: ResponseFormat) -> 
     )
 
 
-def test_the_request_is_the_wires_body_and_headers() -> None:
-    with _raw_listener(_sends(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b""))) as (
+def test_the_request_is_the_wires_body_and_headers(raw_listener: RawListener) -> None:
+    with raw_listener(_sends(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b""))) as (
         base_url,
         requests,
     ):
@@ -440,12 +408,12 @@ def test_the_request_is_the_wires_body_and_headers() -> None:
     assert all(sent[name] == value for name, value in expected.items())
 
 
-def test_a_429_with_a_whole_second_wait_is_busy() -> None:
+def test_a_429_with_a_whole_second_wait_is_busy(raw_listener: RawListener) -> None:
     raw = _refusal_response(
         "429 Too Many Requests", RefusalCode.BUSY, f"{RETRY_AFTER_HEADER}: 7"
     )
 
-    with _raw_listener(_sends(raw)) as (base_url, _):
+    with raw_listener(_sends(raw)) as (base_url, _):
         outcome = _speak(base_url)
 
     assert isinstance(outcome, Busy)
