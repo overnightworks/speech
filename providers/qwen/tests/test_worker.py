@@ -518,6 +518,9 @@ def test_a_long_deep_chain_keeps_the_links_nearest_its_root_within_the_bound() -
     assert lines[0].startswith("builtins.KeyError -> builtins.ValueError -> ")
     assert lines[0].endswith(" -> builtins.TypeError (+2 outer)")
     assert "LookupError" not in lines[0]
+    first_line_label_bytes, other_line_bytes = 128, 256
+    assert len(lines[0].split(" -> ")[2]) == first_line_label_bytes
+    assert all(len(line) <= other_line_bytes for line in lines[1:])
     assert lines[1] == "builtins.KeyError"
     assert lines[12].endswith(", in _raise_at_depth")
     assert lines[13] == "    raise error from cause"

@@ -1,4 +1,7 @@
-"""The narrow binary protocol and worker loop shared by local providers."""
+"""The narrow binary protocol and worker loop shared by local providers.
+
+It also owns the payload-free failure renderer the service's `log_failure` uses.
+"""
 
 import contextlib
 import errno
@@ -16,7 +19,7 @@ from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO, TypeIs
+from typing import TYPE_CHECKING, BinaryIO, TypeGuard
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -562,9 +565,8 @@ def _frames(link: BaseException) -> tuple[tuple[str, ...], ...]:
 
 
 def _frame_lines(summary: traceback.FrameSummary) -> tuple[str, ...]:
-    filename, name = _exact_str(summary.filename), _exact_str(summary.name)
     line = summary.lineno if type(summary.lineno) is int else "?"
-    location = _escaped(f'  File "{filename}", line {line}, in {name}')
+    location = _escaped(f'  File "{summary.filename}", line {line}, in {summary.name}')
     source = _exact_str(_guarded(lambda: summary.line, None), "")
     return (location, _escaped(f"    {source}")) if source else (location,)
 
@@ -573,7 +575,7 @@ def _exact_str(value: object, fallback: str = "?") -> str:
     return value if type(value) is str else fallback
 
 
-def _is_bounded_int(value: object) -> TypeIs[int]:
+def _is_bounded_int(value: object) -> TypeGuard[int]:
     return type(value) is int and 0 <= value < 1 << 32
 
 

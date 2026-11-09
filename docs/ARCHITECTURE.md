@@ -157,8 +157,9 @@ The root is read-only, the user is not root and no capability is kept.
   no spoken or heard text reaches a log. Each live turn logs its timings, and
   nothing it heard.
 - A provider's failed synthesis reaches the service log only as its types,
-  errno names, int error codes and code frames, escaped and at most 4 KB in its
-  FAILED frame, and the provider's stderr after READY stays /dev/null.
+  errno names or numbers, int error codes and exit statuses, and code frames,
+  escaped and at most 4 KB in its FAILED frame, and the provider's stderr
+  after READY stays /dev/null.
 - A refusal never says which token or claim failed beyond its code.
 - The browser hop of the client's relay is the app's: its frames are untrusted
   and bounded (a text frame or a frame over the app's limit ends it with a named
