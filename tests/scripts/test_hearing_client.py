@@ -1,4 +1,4 @@
-"""The hearing proof's client reads the answer that refuses a live upgrade."""
+"""The hearing proof's client: the live upgrade, the turn and the refusal codes."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
+from websockets.asyncio.server import serve
 from websockets.datastructures import Headers
-from websockets.exceptions import InvalidStatus
-from websockets.http11 import Response
+from websockets.http11 import Request, Response
 
+from speech_runtime_client.hearing import Refused
 from speech_runtime_client.wire import (
     DurationUsage,
     RefusalCode,
-    ServerEventError,
     SessionUpdated,
     TranscriptCompleted,
     TranscriptionSession,
@@ -27,54 +27,16 @@ from tests.support.script_support import script_module
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
 
+    from websockets.asyncio.server import ServerConnection
+
     from hearing_figures import LiveTurn
+    from speech_runtime_client.wire import ServerEvent
 
 CLIENT = script_module("hearing_client")
 
 
-class Upgrade:
-    """A stand-in for the WebSocket connection of a service."""
-
-    def __init__(self, outcome: Exception | None) -> None:
-        """Remember the outcome."""
-        self.outcome = outcome
-
-    async def __aenter__(self) -> None:
-        """Refuse the upgrade with the outcome, if there is one."""
-        if self.outcome is not None:
-            raise self.outcome
-
-    async def __aexit__(self, *_: object) -> None:
-        """Close nothing."""
-
-
-SERVICE = SimpleNamespace(base_url="http://127.0.0.1:1", minting=MINTING)
-
-
-def refused_with(status: HTTPStatus, body: bytes = b"") -> InvalidStatus:
-    return InvalidStatus(Response(status, status.phrase, Headers(), body))
-
-
 def unavailable_body() -> bytes:
     return refusal(RefusalCode.UNAVAILABLE).model_dump_json().encode()
-
-
-def test_a_refused_upgrade_gives_the_status_and_the_code_that_refused_it() -> None:
-    refused = Upgrade(refused_with(HTTPStatus.SERVICE_UNAVAILABLE, unavailable_body()))
-
-    answer = asyncio.run(CLIENT.upgrade_refusal(SERVICE, lambda *_, **__: refused))
-
-    assert answer == CLIENT.UpgradeRefusal(
-        HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE
-    )
-
-
-def test_a_refused_upgrade_without_the_contract_body_gives_no_code() -> None:
-    refused = Upgrade(refused_with(HTTPStatus.SERVICE_UNAVAILABLE))
-
-    answer = asyncio.run(CLIENT.upgrade_refusal(SERVICE, lambda *_, **__: refused))
-
-    assert answer == CLIENT.UpgradeRefusal(HTTPStatus.SERVICE_UNAVAILABLE, None)
 
 
 @pytest.mark.parametrize(
@@ -97,32 +59,61 @@ def test_only_a_503_with_the_contract_body_gives_a_refusal_code(
     assert CLIENT.refusal_code(status, body) == code
 
 
-def test_an_accepted_upgrade_gives_no_refusal() -> None:
-    accepted = Upgrade(None)
+def test_a_refused_upgrade_gives_the_status_and_the_code_that_refused_it() -> None:
+    body = unavailable_body()
 
-    assert (
-        asyncio.run(CLIENT.upgrade_refusal(SERVICE, lambda *_, **__: accepted)) is None
-    )
+    def refuse(_: ServerConnection, __: Request) -> Response:
+        return Response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Service Unavailable",
+            Headers({"Content-Length": str(len(body))}),
+            body,
+        )
+
+    async def scenario() -> object:
+        async with serve(
+            never_handles, "127.0.0.1", 0, process_request=refuse
+        ) as server:
+            port = server.sockets[0].getsockname()[1]
+            service = SimpleNamespace(
+                base_url=f"http://127.0.0.1:{port}", minting=MINTING
+            )
+            return await asyncio.wait_for(CLIENT.hear_upgrade(service), 10)
+
+    outcome = asyncio.run(scenario())
+
+    assert outcome == Refused(HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE)
 
 
-async def delivering(messages: Sequence[str]) -> AsyncIterator[str]:
-    """Stand in for the WebSocket of a session that delivers `messages`."""
-    for message in messages:
-        yield message
+async def never_handles(_: ServerConnection) -> None:
+    """The handler of a service that refuses every upgrade before it runs."""
 
 
-def receive_turn(messages: Sequence[str]) -> LiveTurn:
-    return asyncio.run(CLIENT.receive_turn(delivering(messages), 1.0, 0.0))
+def test_an_accepted_upgrade_gives_no_outcome() -> None:
+    async def accepting(connection: ServerConnection) -> None:
+        updated = SessionUpdated(session=TranscriptionSession(type="transcription"))
+        await connection.send(updated.model_dump_json())
+        await connection.wait_closed()
+
+    async def scenario() -> object:
+        async with serve(accepting, "127.0.0.1", 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            service = SimpleNamespace(
+                base_url=f"http://127.0.0.1:{port}", minting=MINTING
+            )
+            return await asyncio.wait_for(CLIENT.hear_upgrade(service), 10)
+
+    assert asyncio.run(scenario()) is None
 
 
-def test_a_malformed_event_fails_the_turn_instead_of_being_skipped() -> None:
-    completed = TranscriptCompleted(
-        item_id="i", transcript="Hallo", usage=DurationUsage(seconds=1.0)
-    )
-    messages = ["not json", completed.model_dump_json()]
+async def delivering(events: Sequence[ServerEvent]) -> AsyncIterator[ServerEvent]:
+    """Stand in for the events of a session that delivers `events`."""
+    for event in events:
+        yield event
 
-    with pytest.raises(ServerEventError):
-        receive_turn(messages)
+
+def receive_turn(events: Sequence[ServerEvent]) -> LiveTurn | None:
+    return asyncio.run(CLIENT.receive_turn(delivering(events), 1.0, 0.0))
 
 
 def test_a_valid_event_of_no_interest_is_ignored_until_the_turn_completes() -> None:
@@ -131,6 +122,11 @@ def test_a_valid_event_of_no_interest_is_ignored_until_the_turn_completes() -> N
         item_id="i", transcript="Hallo", usage=DurationUsage(seconds=1.0)
     )
 
-    turn = receive_turn([updated.model_dump_json(), completed.model_dump_json()])
+    turn = receive_turn([updated, completed])
 
+    assert turn is not None
     assert turn.transcript == "Hallo"
+
+
+def test_a_session_that_ends_without_a_turn_gives_no_turn() -> None:
+    assert receive_turn([]) is None
