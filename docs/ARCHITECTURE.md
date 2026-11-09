@@ -37,7 +37,7 @@ flowchart LR
   tag brings, with the Piper voice, the `small` hearing model and the
   caller table baked in; the release builds, attests and pushes it to GHCR, see
   [Delivery](#delivery). `scripts/prove_image.py` proves it.
-- `packages/client`: the wire types an app and the service share, the bounded speaking call, the bounded health fetch and the live hearing session (`HearingSession`: frames held up to a caller-set byte limit, typed server events, one closed outcome union) an app makes, and `speech_client.relay`, which an app mounts behind its own login check to forward a browser's binary audio frames to that session and hand the typed events to the app, never to the browser.
+- `packages/client`: the wire types an app and the service share, the bounded speaking call, the bounded health fetch and the live hearing session (`HearingSession`: frames held up to a caller-set byte limit, typed server events, one closed outcome union) an app makes.
 - `providers/*`: the voices that run in their own processes and environments. Each is its own uv project with its own lock; `providers/provider-contract` is the shared source the others install from. The client in `packages/client` is a uv workspace member of the root.
 
 ### Speaking
@@ -78,6 +78,10 @@ flowchart LR
   `SPEECH_DEVICE`; the command `speech-fetch-hearing-model` is the only
   thing that downloads a hearing model. The compute type follows the device. Decoding is
   deterministic (greedy, temperature 0).
+- **The relay.** `speech_client.relay` (in `packages/client`) is what an app
+  mounts behind its own login check: it forwards a browser's binary audio
+  frames to a hearing session and hands the typed events to the app, never to
+  the browser. The tokens stay on the app's server.
 - **Load isolation.** A load that fails for want of the resource (no CUDA
   device, a card too full) frees what it allocated and leaves the process up:
   `/health` names hearing not ready, the route answers 503 `unavailable`, and

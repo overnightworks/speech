@@ -7,7 +7,6 @@ import contextlib
 import logging
 import subprocess
 import sys
-import time
 from typing import TYPE_CHECKING, Self
 
 import pytest
@@ -46,7 +45,6 @@ if TYPE_CHECKING:
     from speech_client.wire import ServerEvent
 
 FRAME_LIMIT = 8
-CLOSE_TIMEOUT_SECONDS = 10
 SECRET_WORDS = "heard-secret-words"  # noqa: S105 - a scenario value
 DISCONNECT = {"type": "websocket.disconnect", "code": 1001}
 
@@ -318,6 +316,15 @@ async def _stalled_service() -> AsyncIterator[tuple[str, asyncio.Event]]:
             released.set()
 
 
+def _client_tasks_left() -> set[asyncio.Task[object]]:
+    return {
+        task
+        for task in asyncio.all_tasks()
+        if "speech_client" in task.get_coro().cr_code.co_filename
+        or "websockets/asyncio/client" in task.get_coro().cr_code.co_filename
+    }
+
+
 def test_a_hop_cut_while_the_service_stalls_leaves_nothing_to_wait_for() -> None:
     async def scenario() -> None:
         async with _stalled_service() as (service_url, opened):
@@ -341,10 +348,10 @@ def test_a_hop_cut_while_the_service_stalls_leaves_nothing_to_wait_for() -> None
             )
             await opened.wait()
             app_ended.set()
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(hop, 0.1)
+            await asyncio.wait({hop}, timeout=0.1)
+            hop.cancel()
+            await asyncio.wait({hop}, timeout=1)
+            assert hop.done()
+            assert _client_tasks_left() == set()
 
-    started = time.monotonic()
     asyncio.run(scenario())
-
-    assert time.monotonic() - started < CLOSE_TIMEOUT_SECONDS / 2

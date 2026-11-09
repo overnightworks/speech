@@ -16,9 +16,11 @@ own detector decides what speech is.
 `relay` returns one `RelayOutcome`, a closed union a caller matches with
 `assert_never`: the session's own `HearingOutcome`, or a hop end (`BrowserLeft`,
 `AppEnded`, `RuleBroken`). Unless the browser left, the relay closes the browser
-socket with the `HopClose` of that end. `app_ended` takes effect at once; the
-session's polite close of a stalled service is cut after the socket's own close
-timeout of 10 s at the most. A failure of `on_event` is raised, and no task the
+socket with the `HopClose` of that end. `app_ended` ends the browser hop at once.
+`relay` itself returns when the session has closed: within the socket's close
+timeout, or at the session's deadline when the service no longer reads. An app
+that cannot wait wraps `relay` in a timeout; the cancel aborts the service
+socket and leaves no task behind. A failure of `on_event` is raised, and no task the
 relay started outlives it. The relay logs nothing.
 """
 
