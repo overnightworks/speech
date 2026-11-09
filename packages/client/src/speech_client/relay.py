@@ -19,11 +19,12 @@ own detector decides what speech is.
 socket with the `HopClose` of that end. `app_ended` ends the browser hop at once.
 `relay` itself returns when the session has closed: within the socket's close
 timeout, or at the session's deadline when the service no longer reads. An app
-that cannot wait wraps `relay` in a timeout. A cancel, the timeout's included,
-aborts the service socket at once without a close handshake and leaves no task
-behind, whenever it lands. `relay` enters and leaves `session` itself: pass it
-unentered. A failure of `on_event` is raised, and no task the relay started
-outlives it. The relay logs nothing.
+that cannot wait wraps `relay` in a timeout. A cancel that lands while
+`relay` leaves the session aborts the service socket; one that lands earlier runs
+the same polite close, within the socket's close timeout or at the session's
+deadline. Either way no task is left behind. `relay` enters and leaves `session`
+itself: pass it unentered. A failure of `on_event` is raised, and no task the relay
+started outlives it. The relay logs nothing.
 """
 
 from __future__ import annotations

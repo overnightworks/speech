@@ -7,7 +7,6 @@ import contextlib
 import logging
 import subprocess
 import sys
-import time
 from typing import TYPE_CHECKING, Self
 
 import pytest
@@ -46,8 +45,6 @@ if TYPE_CHECKING:
     from speech_client.wire import ServerEvent
 
 FRAME_LIMIT = 8
-# Well below the socket close timeout (10 s) and the session deadline (30 s).
-CLOSE_BOUND_SECONDS = 2
 SECRET_WORDS = "heard-secret-words"  # noqa: S105 - a scenario value
 DISCONNECT = {"type": "websocket.disconnect", "code": 1001}
 
@@ -351,42 +348,3 @@ def test_a_hop_cut_while_the_service_stalls_leaves_nothing_to_wait_for() -> None
         assert asyncio.all_tasks() == {asyncio.current_task()}
 
     asyncio.run(scenario())
-
-
-def test_a_caller_timeout_before_the_hop_ends_aborts_a_stalled_service() -> None:
-    async def scenario() -> float:
-        async with _stalled_service() as (service_url, opened):
-            hop = asyncio.create_task(_stalled_hop(service_url, asyncio.Event()))
-            await opened.wait()
-            started = time.monotonic()
-            with pytest.raises(TimeoutError):
-                async with asyncio.timeout(0.2):
-                    await hop
-            elapsed = time.monotonic() - started
-        assert asyncio.all_tasks() == {asyncio.current_task()}
-        return elapsed
-
-    assert asyncio.run(scenario()) < CLOSE_BOUND_SECONDS
-
-
-@pytest.mark.parametrize("yields_before_cancel", range(31))
-def test_a_cancel_at_any_moment_after_the_apps_end_signal_returns_at_once(
-    yields_before_cancel: int,
-) -> None:
-    async def scenario() -> float:
-        async with _stalled_service() as (service_url, opened):
-            app_ended = asyncio.Event()
-            hop = asyncio.create_task(_stalled_hop(service_url, app_ended))
-            await opened.wait()
-            app_ended.set()
-            for _ in range(yields_before_cancel):
-                await asyncio.sleep(0)
-            started = time.monotonic()
-            hop.cancel()
-            await asyncio.wait({hop}, timeout=CLOSE_BOUND_SECONDS)
-            elapsed = time.monotonic() - started
-            assert hop.done()
-        assert asyncio.all_tasks() == {asyncio.current_task()}
-        return elapsed
-
-    assert asyncio.run(scenario()) < CLOSE_BOUND_SECONDS / 2

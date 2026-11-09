@@ -26,9 +26,6 @@ socket's logger above debug; no outcome and no repr carries a token or heard tex
 
 A caller reads `events()` while it sends: the session waits for the caller to
 take an event before it reads the next one.
-
-Leaving the context under cancellation aborts the connection at once, without a
-close handshake.
 """
 
 from __future__ import annotations
@@ -201,7 +198,6 @@ class HearingSession:
         self._held_bytes = 0
         self._held_changed = asyncio.Event()
         self._over_limit = False
-        self._abandoned = False
         self._received: asyncio.Queue[ServerEvent | None] = asyncio.Queue(maxsize=1)
         self._runner: asyncio.Task[None] | None = None
         self.outcome: HearingOutcome | None = None
@@ -220,14 +216,12 @@ class HearingSession:
     ) -> None:
         """Close the connection and wait until the session is gone."""
         assert self._runner is not None  # noqa: S101 - entered
-        task = asyncio.current_task()
-        # A caller under cancellation has run out of time: no polite close.
-        self._abandoned = task is not None and task.cancelling() > 0
         self._runner.cancel()
         try:
             await self._runner
         except asyncio.CancelledError:
             # Only the runner's own cancellation is ours to absorb.
+            task = asyncio.current_task()
             if task is not None and task.cancelling():
                 raise
 
@@ -268,13 +262,6 @@ class HearingSession:
             with contextlib.suppress(asyncio.QueueFull):
                 self._received.put_nowait(None)
 
-    def _may_close_politely(self) -> bool:
-        """Whether no caller has run out of time, whether before or during the exit."""
-        runner = asyncio.current_task()
-        # `__aexit__` cancels the runner once; a second cancel is the caller's own
-        # and may merge into the first before the runner sees either.
-        return not self._abandoned and (runner is None or runner.cancelling() <= 1)
-
     async def _session(self) -> HearingOutcome:
         try:
             async with (
@@ -289,21 +276,18 @@ class HearingSession:
                 await socket.send(self._update)
                 writer = asyncio.create_task(self._write(socket))
                 try:
-                    try:
-                        await self._read(socket)
-                    finally:
-                        writer.cancel()
-                        # `asyncio.wait` does not absorb a cancel of this task.
-                        await asyncio.wait({writer})
-                        if not writer.cancelled():
-                            with contextlib.suppress(ConnectionClosed):
-                                writer.result()
-                        if not deadline.expired() and self._may_close_politely():
-                            await socket.close()
+                    await self._read(socket)
                 finally:
-                    # A stalled peer holds a polite close past the deadline or a
-                    # cancel; aborting after a completed close is a no-op.
-                    socket.transport.abort()
+                    writer.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, ConnectionClosed):
+                        await writer
+                    try:
+                        if not deadline.expired():
+                            await socket.close()
+                    finally:
+                        # A stalled peer holds a polite close past the deadline or a
+                        # cancel; aborting after a completed close is a no-op.
+                        socket.transport.abort()
         except InvalidStatus as refused:
             return _refusal_outcome(refused)
         except InvalidMessage as unparsed:
