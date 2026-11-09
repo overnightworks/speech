@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
-from speech_runtime_service.hearing import HEARING_SAMPLE_RATE
-from speech_runtime_service.pcm import BYTES_PER_SAMPLE, is_silence
+from speech_service.hearing import HEARING_SAMPLE_RATE
+from speech_service.pcm import BYTES_PER_SAMPLE, is_silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable

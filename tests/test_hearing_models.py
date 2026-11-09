@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from speech_runtime_service.hearing_models import (
+from speech_service.hearing_models import (
     HearingModel,
     HearingModelMissingError,
     fetch_model,

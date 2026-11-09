@@ -13,11 +13,11 @@ from pydantic import (
     model_validator,
 )
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
-from speech_runtime_provider_contract import QwenSpeaker
+from speech_provider_contract import QwenSpeaker
 from webauth.https_client import is_https_url
 
-from speech_runtime_service.hearing_models import HearingModel
-from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
+from speech_service.hearing_models import HearingModel
+from speech_service.voices import RESIDENT_VOICE, VoiceId
 
 _PROVIDER_ROOT_ERROR = "provider root must be absolute"
 _GPU_VOICES_ERROR = (

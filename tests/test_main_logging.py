@@ -6,12 +6,12 @@ import sys
 
 _CHILD = """
 import logging
-from speech_runtime_service.__main__ import configure_logging
+from speech_service.__main__ import configure_logging
 
 configure_logging()
 logging.getLogger("piper.voice").debug("text=%s", "SPOKEN-SENTENCE")
 logging.getLogger("piper.phoneme_ids").warning("missing %s", "SPOKEN-PHONEMES")
-logging.getLogger("speech_runtime_service.service").info("SERVICE-LINE")
+logging.getLogger("speech_service.service").info("SERVICE-LINE")
 """
 
 

@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 
 from huggingface_hub import snapshot_download
 
-from speech_runtime_service.config import load_settings
-from speech_runtime_service.hearing_models import HearingModel, fetch_model
+from speech_service.config import load_settings
+from speech_service.hearing_models import HearingModel, fetch_model
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -25,7 +25,7 @@ def main(
     `argv` defaults to the command line.
     """
     parser = argparse.ArgumentParser(
-        prog="speech-runtime-fetch-hearing-model",
+        prog="speech-fetch-hearing-model",
         allow_abbrev=False,
         description="Fetch a hearing model at its pinned revision so the "
         "service can load it from local files.",

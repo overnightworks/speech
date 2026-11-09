@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Final
 import av
 from av.error import FFmpegError
 
-from speech_runtime_service.hearing import HEARING_SAMPLE_RATE
-from speech_runtime_service.pcm import BYTES_PER_SAMPLE
+from speech_service.hearing import HEARING_SAMPLE_RATE
+from speech_service.pcm import BYTES_PER_SAMPLE
 
 if TYPE_CHECKING:
     from av.container import InputContainer

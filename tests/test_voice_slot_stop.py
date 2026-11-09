@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 import httpx2
 import pytest
 
-from speech_runtime_client.wire import SPEECH_PATH, RefusalCode
-from speech_runtime_service.voices import VoiceId
+from speech_client.wire import SPEECH_PATH, RefusalCode
+from speech_service.voices import VoiceId
 from tests.support.fakes_support import GatedSpeaking
 from tests.support.gpu_voice_support import (
     LOOPBACK,

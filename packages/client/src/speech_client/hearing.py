@@ -21,7 +21,7 @@ socket's logger above debug; no outcome and no repr carries a token or heard tex
     upgrade was answered off the wire, a redirect included: none is followed, so
     no token travels to another origin.
   - `Cut`, `PastDeadline` and `Unreachable`, as for `speak`
-    (`speech_runtime_client.outcomes`); `deadline_seconds` bounds the whole
+    (`speech_client.outcomes`); `deadline_seconds` bounds the whole
     session, opening included.
 
 A caller reads `events()` while it sends: the session waits for the caller to
@@ -48,8 +48,8 @@ from websockets.exceptions import (
     InvalidStatus,
 )
 
-from speech_runtime_client._transport import base_origin
-from speech_runtime_client.outcomes import (
+from speech_client._transport import base_origin
+from speech_client.outcomes import (
     Busy,
     Cut,
     Malformed,
@@ -57,7 +57,7 @@ from speech_runtime_client.outcomes import (
     PastDeadline,
     Unreachable,
 )
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     REALTIME_INTENT,
     REALTIME_INTENT_PARAM,
     REALTIME_PATH,
@@ -83,7 +83,7 @@ if TYPE_CHECKING:
 
     from websockets.asyncio.client import ClientConnection
 
-    from speech_runtime_client.wire import ServerEvent
+    from speech_client.wire import ServerEvent
 
 
 @dataclass(frozen=True, slots=True)

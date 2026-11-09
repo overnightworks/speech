@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import httpx2 as httpx
 import jwt
 
-from speech_runtime_service.callers import SpeechCallers
+from speech_service.callers import SpeechCallers
 from tests.support.identity_support import MINTING, caller_config
 
 if TYPE_CHECKING:

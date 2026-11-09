@@ -15,7 +15,7 @@ from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     API_VERSION,
     AUTHENTICATE_HEADER,
     REALTIME_INTENT,
@@ -33,16 +33,16 @@ from speech_runtime_client.wire import (
     TranscriptionRequest,
     refusal,
 )
-from speech_runtime_service.audio_response import ClosingAudioResponse
-from speech_runtime_service.failures import log_failure
-from speech_runtime_service.live_session import LiveSession, poll_forever
-from speech_runtime_service.recording import (
+from speech_service.audio_response import ClosingAudioResponse
+from speech_service.failures import log_failure
+from speech_service.live_session import LiveSession, poll_forever
+from speech_service.recording import (
     RecordingTooLongError,
     UndecodableRecordingError,
     decode_recording,
 )
-from speech_runtime_service.service import audio_chunks
-from speech_runtime_service.voices import VoiceId
+from speech_service.service import audio_chunks
+from speech_service.voices import VoiceId
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -53,11 +53,11 @@ if TYPE_CHECKING:
     from starlette.types import Message, Receive, Scope, Send
     from starlette.websockets import WebSocket
 
-    from speech_runtime_service.admission_gate import Lease
-    from speech_runtime_service.callers import SpeechCallers
-    from speech_runtime_service.config import Settings
-    from speech_runtime_service.hearing import HearingEngine
-    from speech_runtime_service.service import Runtime, SpeakingEngine
+    from speech_service.admission_gate import Lease
+    from speech_service.callers import SpeechCallers
+    from speech_service.config import Settings
+    from speech_service.hearing import HearingEngine
+    from speech_service.service import Runtime, SpeakingEngine
 
 logger = logging.getLogger(__name__)
 

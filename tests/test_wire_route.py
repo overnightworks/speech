@@ -17,15 +17,15 @@ from starlette.status import (
     HTTP_422_UNPROCESSABLE_CONTENT,
 )
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     SPEECH_PATH,
     TRANSCRIPTIONS_PATH,
     RefusalCode,
 )
-from speech_runtime_service.config import Settings
-from speech_runtime_service.failures import SpeakingFailedError
-from speech_runtime_service.pcm import AI_MARK, is_silence, pcm_from_wav
-from speech_runtime_service.voices import VoiceId
+from speech_service.config import Settings
+from speech_service.failures import SpeakingFailedError
+from speech_service.pcm import AI_MARK, is_silence, pcm_from_wav
+from speech_service.voices import VoiceId
 from tests.support.fakes_support import (
     SPEAK_SAMPLE_RATE,
     FakeSpeaking,
@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 
     from fastapi import FastAPI
 
-    from speech_runtime_service.service import Runtime
+    from speech_service.service import Runtime
 
 SHORT_WAIT_SECONDS = 0.2
 SLACK_SECONDS = 0.5
@@ -187,6 +187,7 @@ _REFUSED_BODIES = [
     pytest.param(b"{}", "model", id="empty-object"),
     pytest.param(_without("model"), "model", id="model-missing"),
     pytest.param(_changed(model="tts-1"), "model", id="model-other"),
+    pytest.param(_changed(model="speech-runtime"), "model", id="model-speech-runtime"),
     pytest.param(_changed(model=1), "model", id="model-number"),
     pytest.param(_without("voice"), "voice", id="voice-missing"),
     pytest.param(_changed(voice=""), "voice", id="voice-empty"),

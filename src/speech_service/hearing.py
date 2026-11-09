@@ -8,18 +8,18 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
-from speech_runtime_service.admission_gate import AdmissionGate, Lease
-from speech_runtime_service.cuda_libs import cuda_library_dirs, prepare_cuda_libraries
-from speech_runtime_service.hearing_models import model_directory
+from speech_service.admission_gate import AdmissionGate, Lease
+from speech_service.cuda_libs import cuda_library_dirs, prepare_cuda_libraries
+from speech_service.hearing_models import model_directory
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from speech_runtime_client.wire import HearingLanguage
-    from speech_runtime_service.clock import Clock
-    from speech_runtime_service.config import Settings
-    from speech_runtime_service.hearing_models import HearingModel
+    from speech_client.wire import HearingLanguage
+    from speech_service.clock import Clock
+    from speech_service.config import Settings
+    from speech_service.hearing_models import HearingModel
 
 logger = logging.getLogger(__name__)
 

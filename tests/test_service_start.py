@@ -6,8 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.status import HTTP_503_SERVICE_UNAVAILABLE
 
-from speech_runtime_service.service import Runtime, RuntimeDependencies, SpeakingEngine
-from speech_runtime_service.voices import VoiceId
+from speech_service.service import Runtime, RuntimeDependencies, SpeakingEngine
+from speech_service.voices import VoiceId
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.speak_support import app_over, post_speech, speak_body
 

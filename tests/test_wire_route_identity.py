@@ -21,15 +21,15 @@ from starlette.status import (
 )
 from webauth.jwt_verification import KEY_SET_REFRESH_COOLDOWN_SECONDS
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     AUTHENTICATE_HEADER,
     AUTHORIZATION_HEADER,
     WORKLOAD_TOKEN_HEADER,
     RefusalCode,
     speech_request_headers,
 )
-from speech_runtime_service.config import Settings
-from speech_runtime_service.control import create_control_app
+from speech_service.config import Settings
+from speech_service.control import create_control_app
 from tests.support.fakes_support import GatedSpeaking
 from tests.support.identity_support import (
     ABSENT,
@@ -61,7 +61,7 @@ if TYPE_CHECKING:
 
     from httpx2 import Response
 
-    from speech_runtime_service.admission_gate import Lease
+    from speech_service.admission_gate import Lease
     from tests.support.identity_support import SigningKey
 
 UNAUTHORIZED = (HTTP_401_UNAUTHORIZED, RefusalCode.UNAUTHORIZED)

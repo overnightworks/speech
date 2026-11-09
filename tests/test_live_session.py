@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from speech_runtime_client.wire import HearingLanguage
-from speech_runtime_service.admission_gate import Lease
-from speech_runtime_service.live_session import POLL_WAIT_SECONDS, poll_forever
+from speech_client.wire import HearingLanguage
+from speech_service.admission_gate import Lease
+from speech_service.live_session import POLL_WAIT_SECONDS, poll_forever
 from tests.support.clock_support import FakeClock
 from tests.support.hear_support import HEARD_TEXT, FakeHearing, loaded
 from tests.support.live_support import (
@@ -27,8 +27,8 @@ from tests.support.live_support import (
 )
 
 if TYPE_CHECKING:
-    from speech_runtime_service.hearing import HearingEngine
-    from speech_runtime_service.live_session import LiveSession
+    from speech_service.hearing import HearingEngine
+    from speech_service.live_session import LiveSession
 
 POLLS = 3
 THREE_TURNS_SECONDS = 4 * 30 + 1

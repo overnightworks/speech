@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING
 
 import uvicorn
 
-from speech_runtime_service.config import Settings
-from speech_runtime_service.control import create_control_app
+from speech_service.config import Settings
+from speech_service.control import create_control_app
 from tests.support.fakes_support import GATE_TIMEOUT_SECONDS
 from tests.support.identity_support import valid_callers
 
@@ -21,8 +21,8 @@ if TYPE_CHECKING:
 
     from starlette.types import Message, Receive, Scope, Send
 
-    from speech_runtime_service.callers import SpeechCallers
-    from speech_runtime_service.service import Runtime
+    from speech_service.callers import SpeechCallers
+    from speech_service.service import Runtime
 
 _LOOPBACK = "127.0.0.1"
 

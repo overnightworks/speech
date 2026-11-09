@@ -4,8 +4,8 @@ requires-python = ">=3.14"
 
 [manifest]
 members = [
-    "overnightworks-speech-runtime-client",
-    "overnightworks-speech-runtime-service",
+    "overnightworks-speech-client",
+    "overnightworks-speech-service",
 ]
 
 [[package]]
@@ -600,7 +600,7 @@ wheels = [
 ]
 
 [[package]]
-name = "overnightworks-speech-runtime-client"
+name = "overnightworks-speech-client"
 version = "0.5.0"
 source = { editable = "packages/client" }
 dependencies = [
@@ -615,12 +615,12 @@ requires-dist = [
 ]
 
 [[package]]
-name = "overnightworks-speech-runtime-provider-contract"
+name = "overnightworks-speech-provider-contract"
 version = "0.5.0"
 source = { editable = "providers/provider-contract" }
 
 [[package]]
-name = "overnightworks-speech-runtime-service"
+name = "overnightworks-speech-service"
 version = "0.5.0"
 source = { editable = "." }
 dependencies = [
@@ -629,8 +629,8 @@ dependencies = [
     { name = "faster-whisper" },
     { name = "huggingface-hub" },
     { name = "numpy" },
-    { name = "overnightworks-speech-runtime-client" },
-    { name = "overnightworks-speech-runtime-provider-contract" },
+    { name = "overnightworks-speech-client" },
+    { name = "overnightworks-speech-provider-contract" },
     { name = "overnightworks-webauth" },
     { name = "piper-tts" },
     { name = "pydantic-settings" },
@@ -664,8 +664,8 @@ requires-dist = [
     { name = "numpy", specifier = "==2.5.4" },
     { name = "nvidia-cublas-cu12", marker = "extra == 'gpu'", specifier = "==12.9.3.13" },
     { name = "nvidia-cudnn-cu12", marker = "extra == 'gpu'", specifier = "==9.27.0.42" },
-    { name = "overnightworks-speech-runtime-client", editable = "packages/client" },
-    { name = "overnightworks-speech-runtime-provider-contract", editable = "providers/provider-contract" },
+    { name = "overnightworks-speech-client", editable = "packages/client" },
+    { name = "overnightworks-speech-provider-contract", editable = "providers/provider-contract" },
     { name = "overnightworks-webauth", git = "https://github.com/overnightworks/webauth?rev=v0.34.0" },
     { name = "piper-tts", specifier = "==1.8.0" },
     { name = "pydantic-settings", specifier = "==2.16.2" },

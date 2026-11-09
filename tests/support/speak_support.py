@@ -9,16 +9,16 @@ from typing import TYPE_CHECKING
 
 from starlette.requests import Request
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     SPEECH_PATH,
     RefusalCode,
     ResponseFormat,
     speech_request_body,
 )
-from speech_runtime_service.config import Settings
-from speech_runtime_service.control import create_control_app
-from speech_runtime_service.service import Runtime, RuntimeDependencies
-from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
+from speech_service.config import Settings
+from speech_service.control import create_control_app
+from speech_service.service import Runtime, RuntimeDependencies
+from speech_service.voices import RESIDENT_VOICE, VoiceId
 from tests.support.fakes_support import FakeSpeaking, sine_pcm
 from tests.support.identity_support import valid_callers, valid_headers
 
@@ -30,9 +30,9 @@ if TYPE_CHECKING:
     from httpx2 import Response as ClientResponse
     from starlette.responses import Response, StreamingResponse
 
-    from speech_runtime_service.admission_gate import AdmissionGate, Lease
-    from speech_runtime_service.callers import SpeechCallers
-    from speech_runtime_service.service import SpeakingEngine
+    from speech_service.admission_gate import AdmissionGate, Lease
+    from speech_service.callers import SpeechCallers
+    from speech_service.service import SpeakingEngine
 
 
 def info_comment_before_data(wav: bytes) -> str | None:

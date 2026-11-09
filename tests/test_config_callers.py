@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from speech_runtime_service.config import Settings, load_caller_config
+from speech_service.config import Settings, load_caller_config
 from tests.support.identity_support import (
     APP,
     ISSUER,

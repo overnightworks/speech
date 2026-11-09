@@ -19,7 +19,7 @@ from starlette.status import (
     HTTP_503_SERVICE_UNAVAILABLE,
 )
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     AUTHENTICATE_HEADER,
     MODEL,
     RETRY_AFTER_HEADER,
@@ -28,9 +28,9 @@ from speech_runtime_client.wire import (
     RefusalCode,
     token_headers,
 )
-from speech_runtime_service.config import Settings
-from speech_runtime_service.control import create_control_app
-from speech_runtime_service.voices import VoiceId
+from speech_service.config import Settings
+from speech_service.control import create_control_app
+from speech_service.voices import VoiceId
 from tests.support.hear_support import (
     HEARD_TEXT,
     MULTIPART,
@@ -64,8 +64,8 @@ from tests.support.speak_support import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from speech_runtime_service.admission_gate import Lease
-    from speech_runtime_service.service import Runtime
+    from speech_service.admission_gate import Lease
+    from speech_service.service import Runtime
 
 SHORT_WAIT_SECONDS = 0.2
 SLACK_SECONDS = 0.5
@@ -127,9 +127,17 @@ def test_a_recording_is_heard_in_the_language_asked_for() -> None:
         ({"model": MODEL, "response_format": "text"}, "response_format"),
         ({"model": MODEL, "temperature": "0"}, None),
         ({"model": "whisper-1"}, "model"),
+        ({"model": "speech-runtime"}, "model"),
         ({}, "model"),
     ],
-    ids=["other-language", "other-format", "unknown-field", "other-model", "no-model"],
+    ids=[
+        "other-language",
+        "other-format",
+        "unknown-field",
+        "other-model",
+        "model-speech-runtime",
+        "no-model",
+    ],
 )
 def test_a_form_that_is_not_the_one_shape_is_refused_without_a_decode(
     fields: dict[str, str], param: str | None

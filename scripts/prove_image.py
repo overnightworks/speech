@@ -91,14 +91,14 @@ from prove_speech import (
     run_under_lock,
     wait_for_load,
 )
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     RefusalCode,
     refusal,
     speech_request_headers,
 )
-from speech_runtime_service.config import Settings, load_caller_config
-from speech_runtime_service.piper_voices import PINS, PinnedVoice
-from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL
+from speech_service.config import Settings, load_caller_config
+from speech_service.piper_voices import PINS, PinnedVoice
+from speech_service.voices import DEFAULT_SPEAKING_MODEL
 
 THIS_SCRIPT: Final = Path(__file__).resolve()
 COMPOSE_FILE: Final = REPOSITORY / "compose.yaml"

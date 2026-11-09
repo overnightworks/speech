@@ -4,15 +4,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
-from speech_runtime_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
+from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 from starlette.status import HTTP_200_OK, HTTP_404_NOT_FOUND
 from starlette.websockets import WebSocketDisconnect
 
-from speech_runtime_client.wire import Health
-from speech_runtime_service.config import Settings
-from speech_runtime_service.control import create_control_app
-from speech_runtime_service.pcm import pcm_from_wav
-from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL, VoiceId
+from speech_client.wire import Health
+from speech_service.config import Settings
+from speech_service.control import create_control_app
+from speech_service.pcm import pcm_from_wav
+from speech_service.voices import DEFAULT_SPEAKING_MODEL, VoiceId
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.gpu_voice_support import (
     PIPER_PCM,

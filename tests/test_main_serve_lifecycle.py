@@ -8,14 +8,15 @@ import signal
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
-from speech_runtime_service import __main__
-from speech_runtime_service.config import Settings
-from speech_runtime_service.service import Runtime, RuntimeDependencies
+from speech_service import __main__
+from speech_service.config import Settings
+from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.identity_support import (
     caller_configuration_text,
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
     import uvicorn
 
 _LOADABLE_RUNTIME = """
-from speech_runtime_service.service import Runtime, RuntimeDependencies
+from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import FakeSpeaking
 
 Runtime.from_settings = lambda _settings: Runtime(
@@ -50,8 +51,8 @@ _SIGTERM_SERVER = (
     """
 import asyncio
 import os
-from speech_runtime_service import __main__
-from speech_runtime_service.config import Settings
+from speech_service import __main__
+from speech_service.config import Settings
 """
     + _LOADABLE_RUNTIME
     + """
@@ -112,7 +113,7 @@ def test_python_dash_m_starts_the_service_listening_on_the_configured_port(
         ),
     }
     with subprocess.Popen(
-        [sys.executable, "-m", "speech_runtime_service"],
+        [sys.executable, "-m", "speech_service"],
         cwd=tmp_path,
         env=environment,
     ) as server:
@@ -124,9 +125,16 @@ def test_python_dash_m_starts_the_service_listening_on_the_configured_port(
     assert list(tmp_path.glob("*.sock")) == []
 
 
+_SERVICE_SCRIPT = next(
+    name
+    for name, target in tomllib.loads(
+        (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["scripts"].items()
+    if target.startswith("speech_service.__main__:")
+)
 _ENTRY_POINTS = [
-    [sys.executable, "-m", "speech_runtime_service"],
-    [str(Path(sys.executable).parent / "speech-runtime-service")],
+    [sys.executable, "-m", "speech_service"],
+    [str(Path(sys.executable).parent / _SERVICE_SCRIPT)],
 ]
 
 
@@ -258,7 +266,7 @@ def test_a_bad_app_table_stops_the_start(tmp_path: Path, apps: str, named: str) 
     }
 
     finished = subprocess.run(
-        [sys.executable, "-m", "speech_runtime_service"],
+        [sys.executable, "-m", "speech_service"],
         env=environment,
         capture_output=True,
         text=True,

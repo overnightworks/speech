@@ -4,16 +4,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from speech_runtime_client.wire import HearingLanguage
-from speech_runtime_service import hearing
-from speech_runtime_service.clock import LoopClock
-from speech_runtime_service.hearing import (
+from speech_client.wire import HearingLanguage
+from speech_service import hearing
+from speech_service.clock import LoopClock
+from speech_service.hearing import (
     Hearing,
     HearingLibraries,
     ResourceUnavailableError,
     WhisperHearing,
 )
-from speech_runtime_service.hearing_models import HearingModel
+from speech_service.hearing_models import HearingModel
 
 if TYPE_CHECKING:
     from pathlib import Path

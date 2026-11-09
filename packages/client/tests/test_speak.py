@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from speech_runtime_client import speak as speak_module
-from speech_runtime_client.speak import (
+from speech_client import speak as speak_module
+from speech_client.speak import (
     Busy,
     Cut,
     Malformed,
@@ -19,7 +19,7 @@ from speech_runtime_client.speak import (
     Unreachable,
     speak,
 )
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     RETRY_AFTER_HEADER,
     SPEECH_PATH,
     RefusalCode,
@@ -32,7 +32,7 @@ from speech_runtime_client.wire import (
 if TYPE_CHECKING:
     import threading
 
-    from speech_runtime_client.speak import SpeakOutcome
+    from speech_client.speak import SpeakOutcome
     from support.listener_support import Answer, RawListener
 
 VOICE = "piper"

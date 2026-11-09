@@ -7,13 +7,13 @@ import struct
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
-from speech_runtime_client.hearing import (
+from speech_client.hearing import (
     Closed,
     HearingSession,
     Refused,
 )
-from speech_runtime_client.outcomes import OverCap, PastDeadline, Unreachable
-from speech_runtime_client.wire import (
+from speech_client.outcomes import OverCap, PastDeadline, Unreachable
+from speech_client.wire import (
     HearingLanguage,
     RefusalCode,
     SessionCreated,
@@ -27,8 +27,8 @@ from tests.support.tcp_server_support import free_loopback_port, serving_over_tc
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from speech_runtime_client.hearing import HearingOutcome
-    from speech_runtime_client.wire import ServerEvent
+    from speech_client.hearing import HearingOutcome
+    from speech_client.wire import ServerEvent
 
 NOT_A_TOKEN = "no"  # noqa: S105 - a scenario value
 DEADLINE_SECONDS = 10.0

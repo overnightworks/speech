@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
-from speech_runtime_provider_contract import MAX_PCM_BYTES, QWEN_DEVICE
+from speech_provider_contract import MAX_PCM_BYTES, QWEN_DEVICE
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def model() -> ModuleType:
-    from speech_runtime_qwen import model as module
+    from speech_qwen import model as module
 
     return module
 

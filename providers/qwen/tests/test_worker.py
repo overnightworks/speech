@@ -15,8 +15,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
-import speech_runtime_provider_contract as worker
-from speech_runtime_provider_contract import (
+import speech_provider_contract as worker
+from speech_provider_contract import (
     Frame,
     FrameKind,
     ProviderFailure,
@@ -25,7 +25,7 @@ from speech_runtime_provider_contract import (
     write_frame,
 )
 
-from speech_runtime_qwen import __main__ as bootstrap
+from speech_qwen import __main__ as bootstrap
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -455,7 +455,7 @@ def _run_bootstrap(write_fd: int) -> None:
     os.dup2(write_fd, 1)
     os.close(write_fd)
     sys.argv = [
-        "speech-runtime-qwen-worker",
+        "worker",
         "--expected-parent-pid",
         str(os.getppid()),
         "--device",
@@ -477,7 +477,7 @@ def _run_bootstrap(write_fd: int) -> None:
     real_import = builtins.__import__
 
     def importing(name: str, *args: object, **kwargs: object) -> object:
-        if name == "speech_runtime_qwen.model":
+        if name == "speech_qwen.model":
             assert installed
             vars(builtins)["print"]("import print noise", flush=True)
             os.write(1, b"import native noise\n")

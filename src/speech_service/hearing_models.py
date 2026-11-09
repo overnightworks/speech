@@ -71,7 +71,7 @@ def model_directory(model: HearingModel, cache: Path) -> Path:
     if not all(isinstance(path, str) for path in found):
         message = (
             f"SPEECH_HEARING_MODEL={model.value} is not in {cache}; "
-            f"fetch it with: speech-runtime-fetch-hearing-model {model.value}"
+            f"fetch it with: speech-fetch-hearing-model {model.value}"
         )
         raise HearingModelMissingError(message)
     return Path(found[0]).parent

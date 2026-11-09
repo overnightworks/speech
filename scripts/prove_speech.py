@@ -37,24 +37,24 @@ from proof_identity import (
     mint_pair,
     proof_identity,
 )
-from speech_runtime_client.health import fetch_health
-from speech_runtime_client.wire import (
+from speech_client.health import fetch_health
+from speech_client.wire import (
     SPEECH_PATH,
     Health,
     ResponseFormat,
     speech_request_body,
     speech_request_headers,
 )
-from speech_runtime_service.config import load_settings
-from speech_runtime_service.pcm import BYTES_PER_SAMPLE, pcm_from_wav, rms
-from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId, model_for_voice
+from speech_service.config import load_settings
+from speech_service.pcm import BYTES_PER_SAMPLE, pcm_from_wav, rms
+from speech_service.voices import RESIDENT_VOICE, VoiceId, model_for_voice
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
     from types import FrameType
     from typing import IO
 
-    from speech_runtime_client.health import HealthOutcome
+    from speech_client.health import HealthOutcome
 
 SENTENCE = (
     "Die Kamera zeigt den Vortragenden, während im Hintergrund "
@@ -396,7 +396,7 @@ def speech_server(
     """
     with tempfile.TemporaryFile("w+", encoding="utf-8") as log_file:
         server = start(
-            [sys.executable, "-m", "speech_runtime_service"],
+            [sys.executable, "-m", "speech_service"],
             cwd=work_directory,
             env=env,
             stdout=log_file,

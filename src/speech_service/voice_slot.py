@@ -7,17 +7,17 @@ import threading
 from concurrent.futures import Future
 from typing import TYPE_CHECKING
 
-from speech_runtime_client.wire import VoiceHealth
-from speech_runtime_service.admission_gate import AdmissionGate
-from speech_runtime_service.failures import log_failure
-from speech_runtime_service.voices import model_for_voice, sample_rate_before_load
+from speech_client.wire import VoiceHealth
+from speech_service.admission_gate import AdmissionGate
+from speech_service.failures import log_failure
+from speech_service.voices import model_for_voice, sample_rate_before_load
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from speech_runtime_service.clock import LoopClock
-    from speech_runtime_service.service import RuntimeDependencies, SpeakingEngine
-    from speech_runtime_service.voices import VoiceId
+    from speech_service.clock import LoopClock
+    from speech_service.service import RuntimeDependencies, SpeakingEngine
+    from speech_service.voices import VoiceId
 
 logger = logging.getLogger(__name__)
 

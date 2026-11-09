@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from speech_runtime_service.clock import Clock
+    from speech_service.clock import Clock
 
 
 class Lease:

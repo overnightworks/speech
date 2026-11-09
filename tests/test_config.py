@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from speech_runtime_service.config import (
+from speech_service.config import (
     QwenSpeaker,
     Settings,
 )
-from speech_runtime_service.hearing_models import HearingModel
-from speech_runtime_service.pcm import wav_header
-from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
+from speech_service.hearing_models import HearingModel
+from speech_service.pcm import wav_header
+from speech_service.voices import RESIDENT_VOICE, VoiceId
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE
 
 if TYPE_CHECKING:

@@ -7,10 +7,10 @@ import struct
 import threading
 from typing import TYPE_CHECKING
 
-from speech_runtime_service.config import Settings
-from speech_runtime_service.control import create_control_app
-from speech_runtime_service.pcm import BYTES_PER_SAMPLE
-from speech_runtime_service.service import Runtime
+from speech_service.config import Settings
+from speech_service.control import create_control_app
+from speech_service.pcm import BYTES_PER_SAMPLE
+from speech_service.service import Runtime
 from tests.support.identity_support import valid_callers
 
 if TYPE_CHECKING:
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
     from fastapi import FastAPI
 
-    from speech_runtime_service.service import SpeakingEngine
+    from speech_service.service import SpeakingEngine
 
 SPEAK_SAMPLE_RATE = 22_050
 GATE_TIMEOUT_SECONDS = 5.0

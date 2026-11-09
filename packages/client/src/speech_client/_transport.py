@@ -22,7 +22,7 @@ from http.client import (
 from typing import TYPE_CHECKING, Final
 from urllib.parse import urlsplit
 
-from speech_runtime_client.outcomes import Cut, Malformed, PastDeadline, Unreachable
+from speech_client.outcomes import Cut, Malformed, PastDeadline, Unreachable
 
 if TYPE_CHECKING:
     from collections.abc import Callable

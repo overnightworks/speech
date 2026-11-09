@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from speech_runtime_service.provider_process import provider_environment
+from speech_service.provider_process import provider_environment
 
 if TYPE_CHECKING:
     from pathlib import Path

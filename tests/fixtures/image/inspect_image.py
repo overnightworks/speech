@@ -11,7 +11,7 @@ import sys
 import sysconfig
 from pathlib import Path
 
-from speech_runtime_service.hearing_models import (
+from speech_service.hearing_models import (
     HearingModel,
     HearingModelMissingError,
     model_directory,
@@ -39,7 +39,7 @@ def hearing_model_directory() -> str | None:
 files = sorted(path for path in APPLICATION.rglob("*") if path.is_file())
 package_files = sorted(
     path
-    for package in SITE_PACKAGES.glob("speech_runtime_*")
+    for package in SITE_PACKAGES.glob("speech_*")
     if package.is_dir() and not package.name.endswith(".dist-info")
     for path in package.rglob("*")
     if path.is_file()

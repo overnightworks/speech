@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING
 import uvicorn
 from webauth.https_client import fetch_key_set_over_https
 
-from speech_runtime_service.callers import SpeechCallers
-from speech_runtime_service.config import Settings, load_caller_config, load_settings
-from speech_runtime_service.control import create_control_app
-from speech_runtime_service.service import Runtime
+from speech_service.callers import SpeechCallers
+from speech_service.config import Settings, load_caller_config, load_settings
+from speech_service.control import create_control_app
+from speech_service.service import Runtime
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -48,7 +48,7 @@ def main() -> None:
 
 def _argument_parser() -> argparse.ArgumentParser:
     return argparse.ArgumentParser(
-        prog="speech-runtime-service",
+        prog="speech-service",
         allow_abbrev=False,
         description=_USAGE_DESCRIPTION,
         epilog=_USAGE_EPILOG,

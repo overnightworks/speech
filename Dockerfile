@@ -27,8 +27,8 @@ COPY providers/provider-contract/pyproject.toml providers/provider-contract/pypr
 # build in the next step, with the exact build tools their pyprojects pin.
 RUN uv sync --locked --no-dev --no-editable --no-install-project --no-build \
     --no-install-package overnightworks-webauth \
-    --no-install-package overnightworks-speech-runtime-client \
-    --no-install-package overnightworks-speech-runtime-provider-contract
+    --no-install-package overnightworks-speech-client \
+    --no-install-package overnightworks-speech-provider-contract
 COPY packages/client/src packages/client/src
 COPY providers/provider-contract/src providers/provider-contract/src
 COPY src src
@@ -41,8 +41,8 @@ FROM dependencies AS weights
 ENV HF_HOME=/tmp/huggingface \
     SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing
-RUN speech-runtime-fetch-voice de_DE-thorsten-medium \
- && speech-runtime-fetch-hearing-model small
+RUN speech-fetch-voice de_DE-thorsten-medium \
+ && speech-fetch-hearing-model small
 
 FROM python-base
 COPY --from=dependencies /opt/venv /opt/venv
@@ -52,4 +52,4 @@ COPY deploy/speech.toml deploy/speech.toml
 RUN useradd --no-create-home --uid 1001 speech
 USER 1001
 
-CMD ["speech-runtime-service"]
+CMD ["speech-service"]

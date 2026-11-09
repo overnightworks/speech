@@ -10,10 +10,10 @@ import pytest
 import image_judgement as judged
 from image_stack import REPOSITORY, LiveOutcome, Reply
 from proof_identity import mint_pair
-from speech_runtime_client.wire import Health, RefusalCode, Transcription, refusal
-from speech_runtime_service.config import CallerConfig, load_caller_config
-from speech_runtime_service.pcm import wav_header
-from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId
+from speech_client.wire import Health, RefusalCode, Transcription, refusal
+from speech_service.config import CallerConfig, load_caller_config
+from speech_service.pcm import wav_header
+from speech_service.voices import RESIDENT_VOICE, VoiceId
 
 if TYPE_CHECKING:
     from proof_identity import Minting
@@ -193,11 +193,11 @@ def clean_report() -> judged.ImageReport:
         ({"executables": {"git": "/usr/bin/git"}}, "carries git"),
         ({"nvidia_directories": ["nvidia"]}, "holds nvidia"),
         (
-            {"package_stray_files": ["speech_runtime_service/local.txt"]},
+            {"package_stray_files": ["speech_service/local.txt"]},
             "among the packages",
         ),
         (
-            {"package_files_with_private_keys": ["speech_runtime_x/a.key"]},
+            {"package_files_with_private_keys": ["speech_x/a.key"]},
             "private key",
         ),
         ({"voice_hashes": {"voice.onnx": "other"}}, "pinned bytes"),

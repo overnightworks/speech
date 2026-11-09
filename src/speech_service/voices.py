@@ -7,14 +7,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 from huggingface_hub import snapshot_download, try_to_load_from_cache
-from speech_runtime_provider_contract import (
+from speech_provider_contract import (
     QWEN_ARTIFACTS,
     QWEN_MODEL_ID,
     QWEN_REVISION,
     QWEN_SAMPLE_RATE,
 )
 
-from speech_runtime_service.provider_process import (
+from speech_service.provider_process import (
     ProviderId,
     is_executable_file,
     provider_entrypoint,
@@ -23,7 +23,7 @@ from speech_runtime_service.provider_process import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from speech_runtime_service.config import Settings
+    from speech_service.config import Settings
 
 DEFAULT_SPEAKING_MODEL = "de_DE-thorsten-medium"
 

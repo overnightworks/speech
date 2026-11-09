@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_422_UNPROCESSABLE_CONTENT
 
-from speech_runtime_client.wire import RefusalCode
+from speech_client.wire import RefusalCode
 from tests.support.identity_support import valid_callers
 from tests.support.speak_support import (
     assert_refusal,

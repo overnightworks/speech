@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
+import tomllib
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,10 +14,10 @@ from typing import TYPE_CHECKING
 import httpx2
 import pytest
 
-from speech_runtime_client.hearing import Refused
-from speech_runtime_client.outcomes import Unreachable
-from speech_runtime_client.wire import Health, RefusalCode, refusal
-from speech_runtime_service.hearing_models import HearingModel
+from speech_client.hearing import Refused
+from speech_client.outcomes import Unreachable
+from speech_client.wire import Health, RefusalCode, refusal
+from speech_service.hearing_models import HearingModel
 from tests.support.clock_support import FakeClock
 from tests.support.nvidia_support import FakeNvidiaSmi
 from tests.support.script_support import script_module
@@ -24,7 +26,7 @@ if TYPE_CHECKING:
     import argparse
     from collections.abc import Callable, Iterator
 
-    from speech_runtime_service.voices import VoiceId
+    from speech_service.voices import VoiceId
 
 HEARING = script_module("prove_hearing")
 VOICES = Path.home() / "voices"
@@ -92,8 +94,15 @@ def test_a_model_missing_from_the_cache_names_the_command_that_fetches_it(
 ) -> None:
     monkeypatch.setenv("SPEECH_HUGGINGFACE_CACHE", str(tmp_path))
 
-    with pytest.raises(SystemExit, match="speech-runtime-fetch-hearing-model small"):
+    with pytest.raises(SystemExit, match=r"fetch it with: (\S+) small") as refused:
         HEARING.require_cached_models([HearingModel.SMALL])
+
+    hinted = re.search(r"fetch it with: (\S+) small", str(refused.value))
+    scripts = tomllib.loads(
+        (Path(__file__).parents[2] / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["scripts"]
+    assert hinted is not None
+    assert scripts[hinted[1]] == "speech_service.fetch_hearing_model:main"
 
 
 def test_the_resident_memory_with_a_voice_includes_what_its_synthesis_took(

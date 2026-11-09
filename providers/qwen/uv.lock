@@ -1201,17 +1201,17 @@ wheels = [
 ]
 
 [[package]]
-name = "overnightworks-speech-runtime-provider-contract"
+name = "overnightworks-speech-provider-contract"
 version = "0.5.0"
 source = { editable = "../provider-contract" }
 
 [[package]]
-name = "overnightworks-speech-runtime-qwen-provider"
+name = "overnightworks-speech-qwen"
 version = "0.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
-    { name = "overnightworks-speech-runtime-provider-contract" },
+    { name = "overnightworks-speech-provider-contract" },
     { name = "qwen-tts" },
 ]
 
@@ -1225,7 +1225,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = "==2.5.4" },
-    { name = "overnightworks-speech-runtime-provider-contract", editable = "../provider-contract" },
+    { name = "overnightworks-speech-provider-contract", editable = "../provider-contract" },
     { name = "qwen-tts", specifier = "==0.1.1" },
 ]
 

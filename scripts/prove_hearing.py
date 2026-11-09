@@ -70,8 +70,8 @@ from prove_speech import (
     speech_server,
     wait_for_load,
 )
-from speech_runtime_client.hearing import Refused
-from speech_runtime_client.wire import (
+from speech_client.hearing import Refused
+from speech_client.wire import (
     SPEECH_PATH,
     Health,
     HearingLanguage,
@@ -79,15 +79,15 @@ from speech_runtime_client.wire import (
     speech_request_body,
     speech_request_headers,
 )
-from speech_runtime_service.config import load_settings
-from speech_runtime_service.hearing_models import (
+from speech_service.config import load_settings
+from speech_service.hearing_models import (
     HearingModel,
     HearingModelMissingError,
     model_directory,
 )
-from speech_runtime_service.pcm import pcm_from_wav
-from speech_runtime_service.piper_voices import PinnedVoice, fetch_voice_files
-from speech_runtime_service.voices import GPU_VOICES, RESIDENT_VOICE, VoiceId
+from speech_service.pcm import pcm_from_wav
+from speech_service.piper_voices import PinnedVoice, fetch_voice_files
+from speech_service.voices import GPU_VOICES, RESIDENT_VOICE, VoiceId
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -102,8 +102,8 @@ if TYPE_CHECKING:
 
     from piper import PiperVoice
 
-    from speech_runtime_client.health import HealthOutcome
-    from speech_runtime_client.hearing import HearingOutcome
+    from speech_client.health import HealthOutcome
+    from speech_client.hearing import HearingOutcome
 
 
 THIS_SCRIPT = Path(__file__).resolve()

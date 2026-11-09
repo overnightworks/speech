@@ -20,7 +20,7 @@ from webauth.service_callers import (
     ServiceIdentity,
 )
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     AUTHORIZATION_HEADER,
     WORKLOAD_TOKEN_HEADER,
     RefusalCode,
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from webauth.jwt_verification import KeySetFetch, MonotonicClock
     from webauth.ports import WallClock
 
-    from speech_runtime_service.config import CallerConfig
+    from speech_service.config import CallerConfig
 
 _BEARER_SCHEME: Final = "bearer"
 _REFUSAL_CODE: Final = {

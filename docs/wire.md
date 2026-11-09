@@ -15,14 +15,14 @@ subset of OpenAI's transcription endpoint, described under
 Realtime transcription WebSocket `/v1/realtime?intent=transcription`, described
 under [Hearing live](#hearing-live).
 
-`speech_runtime_client.wire` (the `overnightworks-speech-runtime-client`
+`speech_client.wire` (the `overnightworks-speech-client`
 distribution) owns the paths, the request types, the transcription answer, the
 Realtime events and the refusal list; build the body and read the refusals through it.
-`speech_runtime_client.speak` makes the speaking call itself, within a total deadline and a
+`speech_client.speak` makes the speaking call itself, within a total deadline and a
 byte cap, and answers with a typed outcome; its module documents them.
-`speech_runtime_client.health` fetches `GET /health` (WIRE-122) within a deadline and a
+`speech_client.health` fetches `GET /health` (WIRE-122) within a deadline and a
 cap and answers with a typed outcome; the outcomes the calls share live in
-`speech_runtime_client.outcomes`. `speech_runtime_client.hearing` runs the live hearing
+`speech_client.outcomes`. `speech_client.hearing` runs the live hearing
 session: audio in, typed events out, one closed outcome when it ends, within a total deadline.
 
 ## Request
@@ -31,7 +31,7 @@ session: audio in, typed events out, one closed outcome when it ends, within a t
 
 | ID | Field | Accepted value |
 |---|---|---|
-| WIRE-05 | `model` | `speech-runtime`. Any other value is refused, so a request naming another model is never answered by this one. |
+| WIRE-05 | `model` | `speech`. Any other value is refused, so a request naming another model is never answered by this one. |
 | WIRE-06 | `input` | Text with at least one letter or digit, at most `SPEECH_MAX_INPUT_CHARACTERS` characters (default 4096; the operator may raise it above OpenAI's 4096). |
 | WIRE-07 | `voice` | The id of an offered voice: `piper`, always offered, or `qwen3-tts-0.6b` when `SPEECH_GPU_VOICES` names it. |
 | WIRE-09 | `voice` | A GPU voice that is not loaded yet loads for this request, which waits for the load. |
@@ -45,7 +45,7 @@ refused.
 
 **WIRE-12** A speak request carries the app's workload token in `Speech-Workload-Token`
 and the person's token as `Authorization: Bearer <token>`.
-`speech_request_headers` in `speech_runtime_client.wire` builds them with the
+`speech_request_headers` in `speech_client.wire` builds them with the
 content type, and `wire.py` owns the header names. The service answers only
 when both tokens are valid and belong together:
 
@@ -103,7 +103,7 @@ length, the decoding itself.
 | ID | Field | Accepted value |
 |---|---|---|
 | WIRE-32 | `file` | The recording, required, in any container and codec PyAV reads (WAV, MP3, Ogg, FLAC, ...). |
-| WIRE-33 | `model` | `speech-runtime`, required. |
+| WIRE-33 | `model` | `speech`, required. |
 | WIRE-34 | `language` | `de` or `en`; `de` when absent. Any other value is refused. |
 | WIRE-35 | `response_format` | `json`; `json` when absent. |
 
@@ -151,11 +151,11 @@ sessions run at once; one more is `busy` with `Retry-After`. **WIRE-53** A wrong
 `unsupported_version`. **WIRE-54** An idle session holds its place only, never the decode.
 
 **Setup.** **WIRE-55** The service sends `session.created` with its default session: PCM16
-mono at 24 kHz, `de`, the model `speech-runtime`, server turn detection. **WIRE-56** The
+mono at 24 kHz, `de`, the model `speech`, server turn detection. **WIRE-56** The
 client may send one `session.update` with `session.type` `transcription` before
 its first append; the service answers `session.updated` with the applied session.
 **WIRE-57** Accepted: the format absent or exactly `{"type": "audio/pcm", "rate": 24000}`;
-`transcription.model` absent or `speech-runtime`; `transcription.language`
+`transcription.model` absent or `speech`; `transcription.language`
 absent, `de` or `en`; `turn_detection` absent or `{"type": "server_vad"}`. **WIRE-58** Anything
 else ends the session with an `error`, among it a second update, an update after
 audio, `null` turn detection, `languages`, and every field the service does not
@@ -247,7 +247,7 @@ names is not part of the contract.
 | WIRE-103 | `unavailable` | 503 | the tokens cannot be checked because the issuer's key set is unreachable and no cached key serves, or the named voice cannot speak: it is not offered, the start load still runs, its load failed or found its files missing, its worker died while the request waited, or the service is shutting down (`param` `voice`); for a recording: hearing is not loaded or configured, or its decode failed | |
 
 **WIRE-104** Apps read the `busy` wait with `busy_wait(status, headers)` in
-`speech_runtime_client.wire`: it returns the wait in whole seconds, `None` for any
+`speech_client.wire`: it returns the wait in whole seconds, `None` for any
 other status, and fails loud on a `busy` without whole seconds, at least 1, in `Retry-After`.
 
 **WIRE-105** `n` is read as a decimal integer, so `/v01/...` is version 1. **WIRE-106** A path that is no
@@ -299,7 +299,7 @@ catalogue `model` whether it is loaded or not, and its WAV `sample_rate` (Piper'
 0 until it is loaded). **WIRE-126** A voice's `ready` is true exactly when a request for it
 would be spoken now: never during the start load or once shutdown began, and
 never for a GPU voice that is not loaded, failed, or whose worker died.
-**WIRE-127** The service builds the answer through `Health` in `speech_runtime_client.wire`,
+**WIRE-127** The service builds the answer through `Health` in `speech_client.wire`,
 which ignores keys it does not know. **WIRE-128** `hearing.model` is the configured hearing
 model, or `unavailable` when none is configured; **WIRE-129** `hearing.ready` is false while
 it loads and for good when its load found no CUDA device or no room on the card,

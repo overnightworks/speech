@@ -4,19 +4,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from speech_runtime_provider_contract import (
+from speech_provider_contract import (
     QWEN_DEVICE,
     QWEN_MODEL_ID,
     QWEN_SAMPLE_RATE,
 )
 
-from speech_runtime_service.provider_process import (
+from speech_service.provider_process import (
     ProviderId,
     ProviderLaunch,
     ProviderProcess,
     provider_entrypoint,
 )
-from speech_runtime_service.voices import (
+from speech_service.voices import (
     DEFAULT_SPEAKING_MODEL,
     VoiceId,
     piper_voice_paths,
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from speech_runtime_service.config import Settings
+    from speech_service.config import Settings
 
 
 class PiperSpeaking:

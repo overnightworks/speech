@@ -3,7 +3,7 @@ requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "overnightworks-speech-runtime-service"
+name = "overnightworks-speech-service"
 version = "0.5.0"
 description = "Local speech synthesis, one process on the card."
 requires-python = ">=3.14"
@@ -18,8 +18,8 @@ dependencies = [
     "python-multipart==0.0.33",
     "pydantic-settings==2.16.2",
     "uvicorn==0.54.0",
-    "overnightworks-speech-runtime-client",
-    "overnightworks-speech-runtime-provider-contract",
+    "overnightworks-speech-client",
+    "overnightworks-speech-provider-contract",
     "websockets==17.4",
 ]
 
@@ -30,9 +30,9 @@ gpu = [
 ]
 
 [project.scripts]
-speech-runtime-service = "speech_runtime_service.__main__:main"
-speech-runtime-fetch-hearing-model = "speech_runtime_service.fetch_hearing_model:main"
-speech-runtime-fetch-voice = "speech_runtime_service.fetch_voice:main"
+speech-service = "speech_service.__main__:main"
+speech-fetch-hearing-model = "speech_service.fetch_hearing_model:main"
+speech-fetch-voice = "speech_service.fetch_voice:main"
 
 [dependency-groups]
 dev = [
@@ -48,15 +48,15 @@ dev = [
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/speech_runtime_service"]
+packages = ["src/speech_service"]
 
 [tool.uv.workspace]
 members = ["packages/client"]
 exclude = ["providers/*"]
 
 [tool.uv.sources]
-overnightworks-speech-runtime-client = { workspace = true }
-overnightworks-speech-runtime-provider-contract = { path = "providers/provider-contract", editable = true }
+overnightworks-speech-client = { workspace = true }
+overnightworks-speech-provider-contract = { path = "providers/provider-contract", editable = true }
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers --import-mode=importlib -m 'not keycloak'"

@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from speech_runtime_client.wire import BusyWait
+    from speech_client.wire import BusyWait
 
 
 @dataclass(frozen=True, slots=True)

@@ -5,10 +5,10 @@
 # from the environment the proof sets.
 
 services:
-  speech-runtime:
-    image: speech-runtime-proof
+  speech:
+    image: speech-proof
   key-server:
-    image: speech-runtime-proof
+    image: speech-proof
     pull_policy: never
     command: [python, /key_server.py]
     environment:
@@ -21,14 +21,14 @@ services:
         aliases:
           - ${PROOF_KEY_SET_HOST}
   caller-hopin:
-    image: speech-runtime-proof
+    image: speech-proof
     pull_policy: never
     command: [python, -c, "import time; time.sleep(3600)"]
     stop_grace_period: 1s
     networks:
       - hal_speech_hopin
   caller-presentator:
-    image: speech-runtime-proof
+    image: speech-proof
     pull_policy: never
     command: [python, -c, "import time; time.sleep(3600)"]
     stop_grace_period: 1s

@@ -13,15 +13,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
-from speech_runtime_provider_contract import (
+from speech_provider_contract import (
     QWEN_ARTIFACTS,
     QWEN_DEVICE,
     QWEN_SAMPLE_RATE,
 )
 
-from speech_runtime_client.wire import REALTIME_PATH, Health, RefusalCode
-from speech_runtime_service.pcm import pcm_from_wav
-from speech_runtime_service.voices import VoiceId
+from speech_client.wire import REALTIME_PATH, Health, RefusalCode
+from speech_service.pcm import pcm_from_wav
+from speech_service.voices import VoiceId
 from tests.support.gpu_voice_support import (
     PIPER_SAMPLE_RATE,
     LoadWaits,

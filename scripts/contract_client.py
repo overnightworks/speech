@@ -1,8 +1,8 @@
 """Drive health and the speak wire over TCP.
 
-This process must not import the `speech_runtime_service` package. It is the
+This process must not import the `speech_service` package. It is the
 parallel-lane proof: a caller that only knows the HTTP contract, through the
-types of `speech_runtime_client`.
+types of `speech_client`.
 """
 
 # ruff: noqa: T201 - the client prints its measurements as the command line output
@@ -16,9 +16,9 @@ from array import array
 from pathlib import Path
 
 from proof_identity import Minting, load_minting, mint_pair
-from speech_runtime_client import speak as speaking_call
-from speech_runtime_client.health import fetch_health
-from speech_runtime_client.wire import Health, ResponseFormat
+from speech_client import speak as speaking_call
+from speech_client.health import fetch_health
+from speech_client.wire import Health, ResponseFormat
 
 SENTENCE = (
     "Die Kamera zeigt den Vortragenden, während im Hintergrund "
@@ -33,8 +33,8 @@ SILENCE_RMS = 0.01
 
 
 def _must_not_have_imported_speech() -> None:
-    if "speech_runtime_service" in sys.modules:
-        message = "contract client imported speech_runtime_service"
+    if "speech_service" in sys.modules:
+        message = "contract client imported speech_service"
         raise SystemExit(message)
 
 

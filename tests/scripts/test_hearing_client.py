@@ -12,8 +12,8 @@ from websockets.asyncio.server import serve
 from websockets.datastructures import Headers
 from websockets.http11 import Request, Response
 
-from speech_runtime_client.hearing import Refused
-from speech_runtime_client.wire import (
+from speech_client.hearing import Refused
+from speech_client.wire import (
     DurationUsage,
     RefusalCode,
     SessionUpdated,
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection
 
     from hearing_figures import LiveTurn
-    from speech_runtime_client.wire import ServerEvent
+    from speech_client.wire import ServerEvent
 
 CLIENT = script_module("hearing_client")
 

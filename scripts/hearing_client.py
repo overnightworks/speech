@@ -15,8 +15,8 @@ from pydantic import ValidationError
 import hearing_figures as figures
 from hearing_figures import LiveTurn
 from proof_identity import Minting, mint_pair
-from speech_runtime_client.hearing import HearingSession
-from speech_runtime_client.wire import (
+from speech_client.hearing import HearingSession
+from speech_client.wire import (
     MODEL,
     TRANSCRIPTIONS_PATH,
     ErrorEvent,
@@ -36,8 +36,8 @@ if TYPE_CHECKING:
     from prove_speech import (
         RunningSpeech,
     )
-    from speech_runtime_client.hearing import HearingOutcome
-    from speech_runtime_client.wire import ServerEvent
+    from speech_client.hearing import HearingOutcome
+    from speech_client.wire import ServerEvent
 
 
 LIVE_WAIT_SECONDS = 180.0

@@ -12,7 +12,7 @@ a closed union a caller matches with `assert_never`:
   container signature (WIRE-88, WIRE-133), a refusal outside the error form, a 429
   without a whole-second `Retry-After`, or a refusal body over 64 KiB.
 - `Cut`, `PastDeadline`, `OverCap` and `Unreachable`, shared with the health
-  fetch (`speech_runtime_client.outcomes`); here `OverCap` is the audio.
+  fetch (`speech_client.outcomes`); here `OverCap` is the audio.
 
 A defect of the caller raises and is no outcome: an input the request refuses
 (`pydantic.ValidationError`), a deadline or cap of 0 or below, and a base URL
@@ -33,8 +33,8 @@ from typing import TYPE_CHECKING, Final
 
 from pydantic import ValidationError
 
-from speech_runtime_client._transport import checked_origin, exchange, read_within
-from speech_runtime_client.outcomes import (
+from speech_client._transport import checked_origin, exchange, read_within
+from speech_client.outcomes import (
     Busy,
     Cut,
     Malformed,
@@ -42,7 +42,7 @@ from speech_runtime_client.outcomes import (
     PastDeadline,
     Unreachable,
 )
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     SPEECH_PATH,
     Refusal,
     RefusalCode,
