@@ -259,7 +259,7 @@ def test_the_sockets_log_at_debug_carries_no_token_and_no_heard_text(
 
 @contextlib.asynccontextmanager
 async def _stalled_service(
-    says_first: str | None = None,
+    says_first: tuple[str, ...] = (),
 ) -> AsyncIterator[tuple[int, asyncio.Event]]:
     """A service that reads the first frame, then stops reading; yields port, opened."""
     released = asyncio.Event()
@@ -267,8 +267,8 @@ async def _stalled_service(
 
     async def stalls(connection: ServerConnection) -> None:
         await connection.recv()
-        if says_first is not None:
-            await connection.send(says_first)
+        for message in says_first:
+            await connection.send(message)
         opened.set()
         connection.transport.pause_reading()
         await released.wait()
@@ -296,13 +296,13 @@ def test_a_service_that_ignores_the_close_does_not_swallow_the_callers_timeout()
 @pytest.mark.parametrize(
     ("says_first", "end", "outcome"),
     [
-        pytest.param(None, _leaves, Closed(), id="leave"),
-        pytest.param(None, _passes_the_limit, OverCap(), id="over-limit"),
-        pytest.param("not json", _takes_every_event, Malformed(), id="nonsense"),
+        pytest.param((), _leaves, Closed(), id="leave"),
+        pytest.param((), _passes_the_limit, OverCap(), id="over-limit"),
+        pytest.param(("not json",), _takes_every_event, Malformed(), id="nonsense"),
     ],
 )
 def test_the_session_deadline_frees_a_caller_leaving_a_service_ignoring_the_close(
-    says_first: str | None,
+    says_first: tuple[str, ...],
     end: Callable[[HearingSession], Awaitable[None]],
     outcome: HearingOutcome,
 ) -> None:
@@ -513,7 +513,12 @@ def _fails_the_writer(session: HearingSession) -> None:
     session.send(cast("bytes", "x"))
 
 
-def test_a_failing_writer_ends_the_session_at_once_and_is_raised_from_leaving() -> None:
+@pytest.mark.parametrize(
+    "says_first", [(), (_HEARD, _HEARD)], ids=["quiet", "reader-blocked-on-full-queue"]
+)
+def test_a_failing_writer_ends_the_session_at_once_and_is_raised_from_leaving(
+    says_first: tuple[str, ...],
+) -> None:
     async def scenario() -> tuple[bool, HearingOutcome | None]:
         events_ran_out = False
 
@@ -522,11 +527,13 @@ def test_a_failing_writer_ends_the_session_at_once_and_is_raised_from_leaving() 
             async with session:
                 await opened.wait()
                 _fails_the_writer(session)
+                # The session ends while the caller has taken no event yet.
+                await asyncio.sleep(0.1)
                 async with asyncio.timeout(AT_ONCE_SECONDS):
                     await _takes_every_event(session)
                 events_ran_out = True
 
-        async with _stalled_service() as (port, opened):
+        async with _stalled_service(says_first) as (port, opened):
             session = _session(port)
             with pytest.raises(TypeError):
                 await hearing(session, opened)

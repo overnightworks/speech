@@ -294,7 +294,11 @@ class HearingSession:
     async def events(self) -> AsyncIterator[ServerEvent]:
         """The server events, in order, until the session ends."""
         while True:
-            if self.outcome is not None and self._received.empty():
+            if (
+                self._runner is not None
+                and self._runner.done()
+                and self._received.empty()
+            ):
                 return
             event = await self._received.get()
             if event is None:
