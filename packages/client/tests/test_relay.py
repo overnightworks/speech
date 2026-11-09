@@ -266,7 +266,7 @@ def test_a_finished_hop_leaves_no_task_behind() -> None:
     assert not asyncio.run(scenario())
 
 
-def test_the_hop_logs_nothing_and_no_outcome_names_heard_text(
+def test_no_log_and_no_outcome_carries_heard_text(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     events: list[ServerEvent] = [TranscriptDelta(item_id="i", delta=SECRET_WORDS)]

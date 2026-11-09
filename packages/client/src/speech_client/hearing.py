@@ -26,6 +26,9 @@ socket's logger above debug; no outcome and no repr carries a token or heard tex
 
 A caller reads `events()` while it sends: the session waits for the caller to
 take an event before it reads the next one.
+
+Leaving the context under cancellation aborts the connection at once, without a
+close handshake.
 """
 
 from __future__ import annotations
