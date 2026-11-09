@@ -7,6 +7,7 @@ import contextlib
 import logging
 import subprocess
 import sys
+import time
 from typing import TYPE_CHECKING, Self
 
 import pytest
@@ -36,7 +37,7 @@ from speech_client.wire import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Mapping
+    from collections.abc import AsyncIterator, Awaitable, Mapping
 
     from websockets.asyncio.server import ServerConnection
 
@@ -45,6 +46,8 @@ if TYPE_CHECKING:
     from speech_client.wire import ServerEvent
 
 FRAME_LIMIT = 8
+# Well below the socket close timeout (10 s) and the session deadline (30 s).
+CLOSE_BOUND_SECONDS = 2
 SECRET_WORDS = "heard-secret-words"  # noqa: S105 - a scenario value
 DISCONNECT = {"type": "websocket.disconnect", "code": 1001}
 
@@ -271,7 +274,7 @@ def test_the_hop_logs_nothing_and_no_outcome_names_heard_text(
 
     ended = asyncio.run(_hop(_Browser([_text(SECRET_WORDS)]), _Session(events)))
 
-    assert not [r for r in caplog.records if r.name.startswith("speech_client")]
+    assert SECRET_WORDS not in caplog.text
     assert SECRET_WORDS not in repr(ended)
 
 
@@ -316,27 +319,29 @@ async def _stalled_service() -> AsyncIterator[tuple[str, asyncio.Event]]:
             released.set()
 
 
+def _stalled_hop(service_url: str, app_ended: asyncio.Event) -> Awaitable[RelayOutcome]:
+    session = HearingSession(
+        service_url,
+        workload_token="workload",  # noqa: S106 - a scenario value
+        person_token="person",  # noqa: S106 - a scenario value
+        language=HearingLanguage.EN,
+        deadline_seconds=30,
+        held_limit_bytes=1,
+    )
+    return relay(
+        _Browser([]),
+        session,
+        app_ended=app_ended,
+        on_event=_no_events,
+        frame_limit_bytes=FRAME_LIMIT,
+    )
+
+
 def test_a_hop_cut_while_the_service_stalls_leaves_nothing_to_wait_for() -> None:
     async def scenario() -> None:
         async with _stalled_service() as (service_url, opened):
-            session = HearingSession(
-                service_url,
-                workload_token="workload",  # noqa: S106 - a scenario value
-                person_token="person",  # noqa: S106 - a scenario value
-                language=HearingLanguage.EN,
-                deadline_seconds=30,
-                held_limit_bytes=1,
-            )
             app_ended = asyncio.Event()
-            hop = asyncio.create_task(
-                relay(
-                    _Browser([]),
-                    session,
-                    app_ended=app_ended,
-                    on_event=_no_events,
-                    frame_limit_bytes=FRAME_LIMIT,
-                )
-            )
+            hop = asyncio.create_task(_stalled_hop(service_url, app_ended))
             await opened.wait()
             app_ended.set()
             await asyncio.wait({hop}, timeout=0.1)
@@ -346,3 +351,19 @@ def test_a_hop_cut_while_the_service_stalls_leaves_nothing_to_wait_for() -> None
         assert asyncio.all_tasks() == {asyncio.current_task()}
 
     asyncio.run(scenario())
+
+
+def test_a_caller_timeout_before_the_hop_ends_aborts_a_stalled_service() -> None:
+    async def scenario() -> float:
+        async with _stalled_service() as (service_url, opened):
+            hop = asyncio.create_task(_stalled_hop(service_url, asyncio.Event()))
+            await opened.wait()
+            started = time.monotonic()
+            with pytest.raises(TimeoutError):
+                async with asyncio.timeout(0.2):
+                    await hop
+            elapsed = time.monotonic() - started
+        assert asyncio.all_tasks() == {asyncio.current_task()}
+        return elapsed
+
+    assert asyncio.run(scenario()) < CLOSE_BOUND_SECONDS

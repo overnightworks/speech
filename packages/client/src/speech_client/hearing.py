@@ -198,6 +198,7 @@ class HearingSession:
         self._held_bytes = 0
         self._held_changed = asyncio.Event()
         self._over_limit = False
+        self._abandoned = False
         self._received: asyncio.Queue[ServerEvent | None] = asyncio.Queue(maxsize=1)
         self._runner: asyncio.Task[None] | None = None
         self.outcome: HearingOutcome | None = None
@@ -216,12 +217,14 @@ class HearingSession:
     ) -> None:
         """Close the connection and wait until the session is gone."""
         assert self._runner is not None  # noqa: S101 - entered
+        task = asyncio.current_task()
+        # A caller under cancellation has run out of time: no polite close.
+        self._abandoned = task is not None and task.cancelling() > 0
         self._runner.cancel()
         try:
             await self._runner
         except asyncio.CancelledError:
             # Only the runner's own cancellation is ours to absorb.
-            task = asyncio.current_task()
             if task is not None and task.cancelling():
                 raise
 
@@ -282,7 +285,7 @@ class HearingSession:
                     with contextlib.suppress(asyncio.CancelledError, ConnectionClosed):
                         await writer
                     try:
-                        if not deadline.expired():
+                        if not (deadline.expired() or self._abandoned):
                             await socket.close()
                     finally:
                         # A stalled peer holds a polite close past the deadline or a
