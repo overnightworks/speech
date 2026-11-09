@@ -57,6 +57,10 @@ when both tokens are valid and belong together:
   `/apps/<app>` or a group below it, and membership of exactly the configured
   service group (no subgroup of it).
 
+An agent with its own account is the person: its app exchanges the agent's token for one
+of its own client through Keycloak's standard token exchange, and that token is the
+person's token above.
+
 **WIRE-16** The service checks the headers before it reads the body, and **WIRE-17** the wait of
 `busy` starts only after the tokens are accepted, or, for a request that
 waited for its voice to load, when that load ends. **WIRE-19** An unknown voice is

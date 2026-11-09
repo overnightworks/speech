@@ -216,6 +216,25 @@
           }
         }
       ]
+    },
+    {
+      "name": "quiz-client-audience",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "quiz-client-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "quiz-client",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
     }
   ],
   "clients": [
@@ -235,7 +254,10 @@
       ],
       "optionalClientScopes": [
         "speech-service-audience"
-      ]
+      ],
+      "attributes": {
+        "standard.token.exchange.enabled": "true"
+      }
     },
     {
       "clientId": "other-client",
@@ -290,6 +312,25 @@
       "optionalClientScopes": []
     },
     {
+      "clientId": "agent-client",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "agent-client-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "service_account",
+        "groups",
+        "quiz-client-audience"
+      ],
+      "optionalClientScopes": [
+        "speech-service-audience"
+      ]
+    },
+    {
       "clientId": "speech-service",
       "enabled": true,
       "publicClient": false,
@@ -331,6 +372,15 @@
       "serviceAccountClientId": "unscoped-client",
       "realmRoles": [
         "speech-workload"
+      ]
+    },
+    {
+      "username": "service-account-agent-client",
+      "enabled": true,
+      "serviceAccountClientId": "agent-client",
+      "groups": [
+        "/apps/quiz",
+        "/services/speech-service"
       ]
     },
     {
@@ -424,6 +474,43 @@
       "groups": [
         "/apps/quiz",
         "/services/speech-service/reserved"
+      ]
+    },
+    {
+      "username": "mozart",
+      "enabled": true,
+      "email": "mozart@example.test",
+      "emailVerified": true,
+      "firstName": "Mozart",
+      "lastName": "Test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "mozart-test-password",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/apps/quiz",
+        "/services/speech-service"
+      ]
+    },
+    {
+      "username": "salieri",
+      "enabled": true,
+      "email": "salieri@example.test",
+      "emailVerified": true,
+      "firstName": "Salieri",
+      "lastName": "Test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "salieri-test-password",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/apps/quiz"
       ]
     }
   ]
