@@ -48,6 +48,7 @@ from websockets.exceptions import (
     InvalidStatus,
 )
 
+from speech_runtime_client._transport import base_origin
 from speech_runtime_client.outcomes import (
     Busy,
     Cut,
@@ -185,6 +186,7 @@ class HearingSession:
         held_limit_bytes: int,
     ) -> None:
         """Take every input; nothing is opened before `__aenter__`."""
+        base_origin(base_url)
         self._url = realtime_url(base_url)
         self._headers = token_headers(
             workload_token=workload_token, person_token=person_token
@@ -202,9 +204,8 @@ class HearingSession:
 
     async def __aenter__(self) -> Self:
         """Start opening the connection."""
-        self._runner = asyncio.create_task(self._run())
-        # The runner must reach its first await, or a cancel would end it unseen.
-        await asyncio.sleep(0)
+        # Eager, so a cancel cannot end the runner before its first await.
+        self._runner = asyncio.create_task(self._run(), eager_start=True)
         return self
 
     async def __aexit__(
@@ -227,6 +228,8 @@ class HearingSession:
     def send(self, pcm: bytes) -> None:
         """Queue PCM16 audio; past the held limit the session ends with `OverCap`."""
         assert self._runner is not None  # noqa: S101 - entered
+        if self._over_limit:
+            return
         if self._held_bytes + len(pcm) > self._held_limit_bytes:
             self._over_limit = True
             self._runner.cancel()
@@ -262,7 +265,7 @@ class HearingSession:
     async def _session(self) -> HearingOutcome:
         try:
             async with (
-                asyncio.timeout(self._deadline_seconds),
+                asyncio.timeout(self._deadline_seconds) as deadline,
                 _Connect(
                     self._url,
                     additional_headers=self._headers,
@@ -278,6 +281,11 @@ class HearingSession:
                     writer.cancel()
                     with contextlib.suppress(asyncio.CancelledError, ConnectionClosed):
                         await writer
+                    if deadline.expired():
+                        # A polite close would wait for the peer past the deadline.
+                        socket.transport.abort()
+                    else:
+                        await socket.close()
         except InvalidStatus as refused:
             return _refusal_outcome(refused)
         except InvalidMessage as unparsed:

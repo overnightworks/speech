@@ -1,4 +1,4 @@
-"""The hearing session's outcomes that the real service never produces."""
+"""The hearing session against peers that misbehave, which the real service does not."""
 
 from __future__ import annotations
 
@@ -32,6 +32,7 @@ WORKLOAD_TOKEN = "workload-secret"  # noqa: S105 - a scenario value
 PERSON_TOKEN = "person-secret"  # noqa: S105 - a scenario value
 HEARD_TEXT = "heard-secret-words"
 STALL_SECONDS = 1.2
+CLOSE_TIMEOUT_SECONDS = 10
 
 
 async def _says_nonsense(connection: ServerConnection) -> None:
@@ -256,3 +257,30 @@ def test_a_service_that_ignores_the_close_does_not_swallow_the_callers_timeout()
 
     with pytest.raises(TimeoutError):
         asyncio.run(scenario())
+
+
+def test_a_peer_that_stops_reading_does_not_hold_the_session_past_its_deadline() -> (
+    None
+):
+    async def scenario() -> tuple[HearingOutcome | None, float]:
+        released = asyncio.Event()
+        opened = asyncio.Event()
+
+        async def stalls(connection: ServerConnection) -> None:
+            await connection.recv()
+            opened.set()
+            connection.transport.pause_reading()
+            await released.wait()
+
+        async with serve(stalls, LOOPBACK, 0, close_timeout=0.2) as server:
+            started = time.monotonic()
+            try:
+                outcome = await _outcome_at(server.sockets[0].getsockname()[1], 1)
+            finally:
+                released.set()
+            return outcome, time.monotonic() - started
+
+    outcome, elapsed = asyncio.run(scenario())
+
+    assert outcome == PastDeadline()
+    assert elapsed < CLOSE_TIMEOUT_SECONDS / 2

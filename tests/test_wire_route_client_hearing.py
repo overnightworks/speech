@@ -106,18 +106,23 @@ def test_leaving_the_context_ends_the_session_closed() -> None:
     assert asyncio.run(scenario()) == Closed()
 
 
-def test_audio_one_byte_over_the_held_limit_ends_the_session_over_the_cap() -> None:
-    async def scenario() -> tuple[HearingOutcome | None, HearingOutcome | None]:
+def test_audio_exactly_the_held_limit_is_held_and_the_session_goes_on() -> None:
+    async def scenario() -> ServerEvent:
         async with _serving_session(held_limit_bytes=4) as session:
             session.send(b"\0\0\0\0")
-            within = session.outcome
+            return await asyncio.wait_for(anext(session.events()), 10)
+
+    assert isinstance(asyncio.run(scenario()), SessionCreated)
+
+
+def test_audio_one_byte_over_the_held_limit_ends_the_session_over_the_cap() -> None:
+    async def scenario() -> HearingOutcome | None:
+        async with _serving_session(held_limit_bytes=4) as session:
+            session.send(b"\0\0\0\0")
             session.send(b"\0")
-            return within, await asyncio.wait_for(_ended(session), 10)
+            return await asyncio.wait_for(_ended(session), 10)
 
-    within, ended = asyncio.run(scenario())
-
-    assert within is None
-    assert ended == OverCap()
+    assert asyncio.run(scenario()) == OverCap()
 
 
 def test_a_refused_upgrade_gives_the_status_and_the_code() -> None:
