@@ -1,8 +1,8 @@
 """The live hearing session: one `WS /v1/realtime`, bounded in time and memory.
 
 `HearingSession` is an async context manager. It starts opening the connection
-on entry, takes every input from its call site, and never logs; no outcome and
-no repr carries a token or heard text.
+on entry, takes every input from its call site, and never logs, and keeps its
+socket's logger above debug; no outcome and no repr carries a token or heard text.
 
 - `send(pcm)` queues PCM16 audio at 24 kHz. Audio queued before the connection
   is open, or faster than it is written, is held up to `held_limit_bytes`; one
@@ -14,8 +14,12 @@ no repr carries a token or heard text.
   - `Closed`: the connection ended in order, by the service or by leaving the
     context.
   - `Refused`: the upgrade was answered with an HTTP refusal.
+  - `Busy`: the refusal is `busy`, with the wait the service asks for, as for
+    `speak`; a `busy` without a whole-second `Retry-After` is `Malformed`.
   - `OverCap`: the held audio would pass `held_limit_bytes`.
-  - `Malformed`: a server message is not an event the wire names.
+  - `Malformed`: a server message is not an event the wire names, or the
+    upgrade was answered off the wire, a redirect included: none is followed, so
+    no token travels to another origin.
   - `Cut`, `PastDeadline` and `Unreachable`, as for `speak`
     (`speech_runtime_client.outcomes`); `deadline_seconds` bounds the whole
     session, opening included.
@@ -29,13 +33,20 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import logging
 from collections import deque
 from dataclasses import dataclass
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Self
 
 from pydantic import ValidationError
 from websockets.asyncio.client import connect
-from websockets.exceptions import ConnectionClosed, InvalidStatus
+from websockets.exceptions import (
+    ConnectionClosed,
+    InvalidHandshake,
+    InvalidMessage,
+    InvalidStatus,
+)
 
 from speech_runtime_client.outcomes import (
     Cut,
@@ -44,6 +55,7 @@ from speech_runtime_client.outcomes import (
     PastDeadline,
     Unreachable,
 )
+from speech_runtime_client.speak import Busy
 from speech_runtime_client.wire import (
     REALTIME_INTENT,
     REALTIME_INTENT_PARAM,
@@ -52,12 +64,14 @@ from speech_runtime_client.wire import (
     HearingLanguage,
     Refusal,
     RefusalCode,
+    RetryAfterError,
     ServerEventError,
     SessionAudio,
     SessionInput,
     SessionUpdate,
     TranscriptionSession,
     TranscriptionSetting,
+    busy_wait,
     parse_server_event,
     token_headers,
 )
@@ -85,8 +99,20 @@ class Refused:
 
 
 type HearingOutcome = (
-    Closed | Refused | OverCap | Malformed | PastDeadline | Cut | Unreachable
+    Closed | Refused | Busy | OverCap | Malformed | PastDeadline | Cut | Unreachable
 )
+
+# The socket logs request headers and frame texts at debug; this logger never
+# passes them on unless an app raises it on purpose.
+_SOCKET_LOGGER = logging.getLogger(f"{__name__}.socket")
+_SOCKET_LOGGER.setLevel(logging.WARNING)
+
+
+class _Connect(connect):
+    """A connection that follows no redirect."""
+
+    def process_redirect(self, exc: Exception) -> Exception:
+        return exc
 
 
 def realtime_url(base_url: str) -> str:
@@ -118,6 +144,32 @@ def _refusal_code(body: bytes) -> RefusalCode | None:
         return Refusal.model_validate_json(body).error.code
     except ValidationError:
         return None
+
+
+# In order: a timeout is an `OSError` too, and a dropped handshake an
+# `InvalidHandshake`.
+_FAILURE_OUTCOMES: tuple[tuple[type[Exception], HearingOutcome], ...] = (
+    (TimeoutError, PastDeadline()),
+    (InvalidMessage, Cut()),
+    (InvalidHandshake, Malformed()),
+    (ConnectionClosed, Cut()),
+    (ServerEventError, Malformed()),
+    (OSError, Unreachable()),
+)
+_FAILURES = tuple(kind for kind, _ in _FAILURE_OUTCOMES)
+
+
+def _refusal_outcome(refused: InvalidStatus) -> HearingOutcome:
+    answer = refused.response
+    if HTTPStatus.MULTIPLE_CHOICES <= answer.status_code < HTTPStatus.BAD_REQUEST:
+        return Malformed()
+    try:
+        wait = busy_wait(answer.status_code, answer.headers)
+    except RetryAfterError:
+        return Malformed()
+    if wait is not None:
+        return Busy(wait)
+    return Refused(answer.status_code, _refusal_code(answer.body))
 
 
 class HearingSession:
@@ -165,8 +217,13 @@ class HearingSession:
         """Close the connection and wait until the session is gone."""
         assert self._runner is not None  # noqa: S101 - entered
         self._runner.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
+        try:
             await self._runner
+        except asyncio.CancelledError:
+            # Only the runner's own cancellation is ours to absorb.
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                raise
 
     def send(self, pcm: bytes) -> None:
         """Queue PCM16 audio; past the held limit the session ends with `OverCap`."""
@@ -181,7 +238,12 @@ class HearingSession:
 
     async def events(self) -> AsyncIterator[ServerEvent]:
         """The server events, in order, until the session ends."""
-        while (event := await self._received.get()) is not None:
+        while True:
+            if self.outcome is not None and self._received.empty():
+                return
+            event = await self._received.get()
+            if event is None:
+                return
             yield event
 
     async def _run(self) -> None:
@@ -192,13 +254,22 @@ class HearingSession:
                 self.outcome = Closed()
                 raise
             self.outcome = OverCap()
-        await self._received.put(None)
+        finally:
+            # Wakes a caller waiting in `events()`; when an event is still queued,
+            # that caller sees the outcome after taking it.
+            with contextlib.suppress(asyncio.QueueFull):
+                self._received.put_nowait(None)
 
     async def _session(self) -> HearingOutcome:
         try:
             async with (
                 asyncio.timeout(self._deadline_seconds),
-                connect(self._url, additional_headers=self._headers) as socket,
+                _Connect(
+                    self._url,
+                    additional_headers=self._headers,
+                    open_timeout=None,
+                    logger=_SOCKET_LOGGER,
+                ) as socket,
             ):
                 await socket.send(self._update)
                 writer = asyncio.create_task(self._write(socket))
@@ -208,17 +279,14 @@ class HearingSession:
                     writer.cancel()
                     with contextlib.suppress(asyncio.CancelledError, ConnectionClosed):
                         await writer
-        except TimeoutError:
-            return PastDeadline()
         except InvalidStatus as refused:
-            answer = refused.response
-            return Refused(answer.status_code, _refusal_code(answer.body))
-        except ConnectionClosed:
-            return Cut()
-        except ServerEventError:
-            return Malformed()
-        except OSError:
-            return Unreachable()
+            return _refusal_outcome(refused)
+        except _FAILURES as failure:
+            return next(
+                outcome
+                for kind, outcome in _FAILURE_OUTCOMES
+                if isinstance(failure, kind)
+            )
         return Closed()
 
     async def _read(self, socket: ClientConnection) -> None:
