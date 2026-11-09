@@ -1,0 +1,7 @@
+claim_id = "529addca78974267aa9d15a31eab6714"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "d585e831c647f4567c613e9cb5d5d396b73eaf09"
+branch = "claude/issue-211-a-turn-ends-after-0-5-s-of-silence"
+scope = ["docs/wire.md", "src/speech_runtime_service/hearing_session.py", "tests/test_hearing_session.py"]
+opened_commit = "daf4078cb3d89ff84732767d05e5eaf6819385ef"
