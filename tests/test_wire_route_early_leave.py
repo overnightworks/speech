@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import socket
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
@@ -26,13 +27,14 @@ from tests.support.tcp_server_support import serving_asgi
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from starlette.types import ASGIApp, Message, Receive, Scope, Send
+    from starlette.datastructures import Headers
+    from starlette.types import ASGIApp, Receive, Scope, Send
+    from webauth.service_callers import PersonCaller
+
+    from speech_client.wire import RefusalCode
+    from speech_service.callers import SpeechCallers
 
 WAIT_SECONDS = 10
-UVICORN_SEND_BEFORE_ACCEPT = (
-    "Expected ASGI message 'websocket.accept', 'websocket.close' "
-    "or 'websocket.http.response.start' but got 'websocket.send'."
-)
 
 
 class _Failures(logging.Handler):
@@ -60,6 +62,36 @@ def _failures_logged() -> Iterator[_Failures]:
         uvicorn_errors.removeHandler(failures)
 
 
+class _FirstUpgradeWatched:
+    """The app, and an event set once its first upgrade has ended however it ended."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+        self.first_upgrade_ended = asyncio.Event()
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await self._app(scope, receive, send)
+        finally:
+            if scope["type"] == "websocket":
+                self.first_upgrade_ended.set()
+
+
+class _AdmissionHeldOpen:
+    """Real callers whose admission waits, once checked, until `go_on` is set."""
+
+    def __init__(self, callers: SpeechCallers) -> None:
+        self._callers = callers
+        self.checked = asyncio.Event()
+        self.go_on = asyncio.Event()
+
+    async def admit(self, headers: Headers) -> PersonCaller | RefusalCode:
+        admitted = await self._callers.admit(headers)
+        self.checked.set()
+        await self.go_on.wait()
+        return admitted
+
+
 def _upgrade_request(base_url: str) -> bytes:
     """An admitted upgrade request."""
     headers = {
@@ -77,48 +109,31 @@ def _upgrade_request(base_url: str) -> bytes:
     return ("\r\n".join(lines) + "\r\n\r\n").encode()
 
 
-class _ServerThatSawTheClientLeave:
-    """The first upgrade as uvicorn serves one whose transport closed before accept.
-
-    uvicorn drops the accept of a closing transport and then rejects the first
-    send; the leave is not ordered against the accept on a real socket, so this
-    holds the accept until uvicorn has queued the disconnect.
-    """
-
-    def __init__(self, app: ASGIApp) -> None:
-        self._app = app
-        self._leave_seen = False
-        self.first_upgrade_ended = asyncio.Event()
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "websocket" or self._leave_seen:
-            await self._app(scope, receive, send)
-            return
-        self._leave_seen = True
-        queued: list[Message] = []
-
-        async def replaying_receive() -> Message:
-            return queued.pop() if queued else await receive()
-
-        async def closing_send(message: Message) -> None:
-            if message["type"] == "websocket.accept":
-                queued.append(await receive())
-            elif message["type"] == "websocket.send":
-                raise RuntimeError(UVICORN_SEND_BEFORE_ACCEPT)
-
-        try:
-            await self._app(scope, replaying_receive, closing_send)
-        finally:
-            self.first_upgrade_ended.set()
-
-
-async def _leave_right_after_the_upgrade(base_url: str) -> None:
+async def _upgrading_client(base_url: str) -> socket.socket:
+    """A loopback client that has sent an admitted upgrade request."""
     host, port = urlsplit(base_url).netloc.split(":")
-    _, writer = await asyncio.open_connection(host, int(port))
-    writer.write(_upgrade_request(base_url))
-    await writer.drain()
-    writer.close()
-    await writer.wait_closed()
+    loop = asyncio.get_running_loop()
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.settimeout(0)
+    await loop.sock_connect(client, (host, int(port)))
+    await loop.sock_sendall(client, _upgrade_request(base_url))
+    return client
+
+
+async def _leave_as_the_accept_is_sent(
+    base_url: str, admission: _AdmissionHeldOpen
+) -> None:
+    """Close the client so the server's accept meets a closing transport.
+
+    The close is in the server's socket before the next loop pass, and the
+    admission goes on at the head of that pass; uvicorn reads the close behind
+    it and queues the disconnect one pass later, so the route accepts and sends
+    while the transport is closing and its disconnect is not queued yet.
+    """
+    client = await _upgrading_client(base_url)
+    await admission.checked.wait()
+    client.close()
+    asyncio.get_running_loop().call_soon(admission.go_on.set)
 
 
 async def _second_hearing_first_event(base_url: str) -> object:
@@ -134,19 +149,19 @@ async def _second_hearing_first_event(base_url: str) -> object:
         return await asyncio.wait_for(anext(session.events()), WAIT_SECONDS)
 
 
-def test_a_client_that_leaves_right_after_the_upgrade_causes_no_crash_log() -> None:
+def test_a_client_that_leaves_as_the_accept_is_sent_causes_no_crash_log() -> None:
     async def scenario() -> tuple[list[logging.LogRecord], object]:
-        app = create_control_app(
-            Settings(), hear_runtime(FakeHearing()), valid_callers()
-        )
-        server = _ServerThatSawTheClientLeave(app)
-        async with serving_asgi(server) as base_url:
+        admission = _AdmissionHeldOpen(valid_callers())
+        app = create_control_app(Settings(), hear_runtime(FakeHearing()), admission)
+        watched = _FirstUpgradeWatched(app)
+        async with serving_asgi(watched) as base_url:
             with _failures_logged() as failures:
-                await _leave_right_after_the_upgrade(base_url)
-                await asyncio.wait_for(server.first_upgrade_ended.wait(), WAIT_SECONDS)
+                await _leave_as_the_accept_is_sent(base_url, admission)
+                await asyncio.wait_for(watched.first_upgrade_ended.wait(), WAIT_SECONDS)
             return failures.records, await _second_hearing_first_event(base_url)
 
     crashes, first_event = asyncio.run(scenario())
 
     assert [record.getMessage() for record in crashes] == []
     assert isinstance(first_event, SessionCreated)
+

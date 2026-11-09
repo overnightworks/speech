@@ -64,6 +64,7 @@ logger = logging.getLogger(__name__)
 SPEAKING_LANGUAGE: Final = "de"
 _VERSION_PREFIX: Final = "/v{version:int}"
 _BEARER_CHALLENGE: Final = "Bearer"
+_LEAVE_NOTICE_SECONDS: Final = 1.0
 
 
 def _refused(
@@ -405,13 +406,15 @@ class _RealtimeRoute:
 
 
 async def _client_has_left(websocket: WebSocket) -> bool:
-    """Whether the server already queued the client's disconnect.
+    """Whether the client's disconnect follows a send the server rejected.
 
-    uvicorn rejects a send with a `RuntimeError` when the client left before the
-    accept took effect, so only a queued disconnect tells that leave from a bug.
+    uvicorn drops the accept of a closing transport, rejects the next send with a
+    `RuntimeError` and queues the disconnect a loop pass later, so only that
+    disconnect tells the leave from a bug. A leave ends the wait at once; only a
+    rejected send with the client still there waits it out before it raises.
     """
     try:
-        async with asyncio.timeout(0):
+        async with asyncio.timeout(_LEAVE_NOTICE_SECONDS):
             message = await websocket.receive()
     except TimeoutError:
         return False
