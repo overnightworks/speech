@@ -1,6 +1,7 @@
 """WS /v1/realtime?intent=transcription: who may upgrade, what is refused, a session."""
 
 import asyncio
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -116,6 +117,25 @@ def test_a_setup_in_another_language_ends_the_session_with_an_error() -> None:
     assert error["type"] == "error"
     assert error["error"]["code"] == RefusalCode.INVALID_REQUEST
     assert error["error"]["param"] == "session.audio.input.transcription.language"
+
+
+def test_a_setup_naming_the_previous_model_ends_the_session_with_an_error() -> None:
+    """WIRE-56, WIRE-57: a setup naming speech-runtime as model ends the session."""
+    transcription = {"model": "speech-runtime"}
+    session = {
+        "type": "transcription",
+        "audio": {"input": {"transcription": transcription}},
+    }
+    with _client().websocket_connect(URL, headers=valid_headers()) as socket:
+        socket.receive_json()
+        socket.send_text(json.dumps({"type": "session.update", "session": session}))
+        error = socket.receive_json()
+        with pytest.raises(WebSocketDisconnect):
+            socket.receive_json()
+
+    assert error["type"] == "error"
+    assert error["error"]["code"] == RefusalCode.INVALID_REQUEST
+    assert error["error"]["param"] == "session.audio.input.transcription.model"
 
 
 def test_a_caller_without_tokens_is_told_so_before_anything_else() -> None:
