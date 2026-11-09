@@ -333,9 +333,9 @@ class HearingSession:
                     # A stalled peer holds a polite close past the deadline or a
                     # cancel; aborting after a completed close is a no-op.
                     socket.transport.abort()
-        except TimeoutError:
+        except TimeoutError as timed_out:
             # The deadline that cuts the polite close of an end keeps that end.
-            return PastDeadline() if ended is None else ended
+            return _failure_outcome(timed_out) if ended is None else ended
         except InvalidStatus as refused:
             return _refusal_outcome(refused)
         except InvalidMessage as unparsed:
