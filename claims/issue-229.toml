@@ -1,0 +1,8 @@
+claim_id = "41ee84f4dab04bc7ad37ae2debda8cf7"
+agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
+role = "builder"
+base = "1dacccbda11a118305dabeabce2c4122a6f3c8da"
+branch = "claude/issue-229-the-image-proof-hears-through-the-client"
+scope = ["scripts/image_stack.py", "scripts/prove_image.py", "tests/fixtures/image/live.py", "tests/scripts/test_image_judgement.py"]
+opened_commit = "c441f039ffbec900376e1018212fd8e5c2a100e7"
+whole_reason = "One live turn's report crosses from live.py through image_stack's reader into the proof's refused-upgrade cell and its judgement test; the four change only together."
