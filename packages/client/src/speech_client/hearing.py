@@ -272,8 +272,9 @@ class HearingSession:
             self._runner.cancel()
         elif not self._end.done():
             self._end.set_result(Closed())
-        # A cancel landing here cancels the awaited runner and is raised here; one
-        # landing after the runner finished is raised at the caller's next await.
+        # A cancel landing while the runner runs is passed to it and raised here; once
+        # the runner has finished, asyncio raises it here or at the caller's next
+        # await. Nothing absorbs it.
         await self._runner
 
     def send(self, pcm: bytes) -> None:

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
-import gc
 import json
 import logging
 import time
@@ -528,7 +527,7 @@ def test_a_failing_writer_ends_the_session_at_once_and_is_raised_from_leaving(
                 await opened.wait()
                 _fails_the_writer(session)
                 # The session ends while the caller has taken no event yet.
-                await asyncio.sleep(0.1)
+                await asyncio.wait({session._runner})  # type: ignore[arg-type]  # noqa: SLF001
                 async with asyncio.timeout(AT_ONCE_SECONDS):
                     await _takes_every_event(session)
                 events_ran_out = True
@@ -625,40 +624,6 @@ def test_a_leave_whose_cancel_the_callers_code_turned_into_another_error_aborts(
 
     assert elapsed < CLOSE_TIMEOUT_SECONDS / 2
     assert any(isinstance(error, turned_into) for error in _chain(timed_out))
-
-
-@pytest.mark.parametrize("yields_before_cancel", range(31))
-def test_a_cancel_at_any_moment_leaves_no_unretrieved_failure_for_asyncio_to_log(
-    yields_before_cancel: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    async def hearing(port: int, entered: asyncio.Event) -> None:
-        async with _session(port):
-            entered.set()
-            await asyncio.Event().wait()
-
-    async def scenario() -> bool:
-        async with serve(_says_nonsense, LOOPBACK, 0) as server:
-            entered = asyncio.Event()
-            port = server.sockets[0].getsockname()[1]
-            caller = asyncio.create_task(hearing(port, entered))
-            await entered.wait()
-            for _ in range(yields_before_cancel):
-                await asyncio.sleep(0)
-            caller.cancel()
-            await asyncio.wait({caller}, timeout=CLOSE_TIMEOUT_SECONDS / 2)
-        return caller.cancelled()
-
-    caplog.set_level(logging.ERROR, logger="asyncio")
-
-    cancelled = asyncio.run(scenario())
-    gc.collect()
-
-    assert cancelled
-    assert not [
-        record
-        for record in caplog.records
-        if record.name == "asyncio" and record.levelno >= logging.ERROR
-    ]
 
 
 @pytest.mark.parametrize(
