@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 PARTIAL_PERIOD_SECONDS: Final = 0.4
 MIN_AUDIO_SECONDS: Final = 0.4
-SILENCE_SECONDS: Final = 0.7
+SILENCE_SECONDS: Final = 0.5
 SPEECH_RMS: Final = 0.02
 POLL_WAIT_SECONDS: Final = 0.3
 MAX_TURN_SECONDS: Final = 30.0
@@ -70,7 +70,7 @@ class HearingSession:
         return events
 
     def poll(self) -> list[TurnEnd]:
-        """End the turn once speech was heard and the last 0.7 s are silent."""
+        """End the turn once speech was heard and the last 0.5 s are silent."""
         if not self._heard_speech or len(self._pcm) < _SILENT_TAIL_BYTES:
             return []
         if not is_silence(bytes(self._pcm[-_SILENT_TAIL_BYTES:]), SPEECH_RMS):

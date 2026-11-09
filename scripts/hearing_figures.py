@@ -209,6 +209,15 @@ def check_continuous_turn(pcm: bytes) -> float:
     return seconds
 
 
+def speech_only(pcm: bytes) -> bytes:
+    """`pcm` (24 kHz) without the silence before its first and after its last speech."""
+    loud = [index for index, level in enumerate(_frame_rms(pcm)) if level >= SPEECH_RMS]
+    if not loud:
+        message = "the clip holds no speech"
+        raise ClipError(message)
+    return pcm[loud[0] * FRAME_BYTES : (loud[-1] + 1) * FRAME_BYTES]
+
+
 def to_wire_rate(pcm: bytes, rate: int) -> bytes:
     """PCM16 mono at `rate` as PCM16 mono at the wire's 24 kHz, by interpolation."""
     samples = np.frombuffer(pcm, dtype="<i2")
