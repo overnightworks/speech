@@ -42,8 +42,15 @@ class Origin:
 def base_origin(base_url: str) -> Origin:
     """The origin of `base_url`; a defect of the caller raises `ValueError`."""
     address = urlsplit(base_url)
-    if address.scheme != "http" or not address.hostname or address.path:
-        message = "base_url must be http://host[:port] with no path"
+    # An empty query or fragment parses to nothing, so the marks are looked for.
+    if (
+        address.scheme != "http"
+        or not address.hostname
+        or address.path
+        or "?" in base_url
+        or "#" in base_url
+    ):
+        message = "base_url must be http://host[:port] with no path, query or fragment"
         raise ValueError(message)
     return Origin(address.hostname, address.port or 80)
 

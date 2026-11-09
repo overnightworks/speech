@@ -16,7 +16,8 @@ a closed union a caller matches with `assert_never`:
 
 A defect of the caller raises and is no outcome: an input the request refuses
 (`pydantic.ValidationError`), a deadline or cap of 0 or below, and a base URL
-that is not `http`, has no host or carries a path (`ValueError`). The service
+that is not `http`, has no host or carries a path, query or fragment
+(`ValueError`). The service
 is plain HTTP on internal networks.
 
 The call blocks and holds no process-global state, so it runs in a worker

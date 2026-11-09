@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     import subprocess
     from collections.abc import AsyncIterator
 
-    from starlette.types import Message, Receive, Scope, Send
+    from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
     from speech_service.callers import SpeechCallers
     from speech_service.service import Runtime
@@ -73,6 +73,21 @@ class TcpServer:
 
 
 @asynccontextmanager
+async def serving_asgi(app: ASGIApp) -> AsyncIterator[str]:
+    """Serve any ASGI app on a free loopback port; yield its base URL."""
+    server = uvicorn.Server(uvicorn.Config(app, log_level="warning"))
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind((_LOOPBACK, 0))
+        listener.listen()
+        serving = asyncio.create_task(server.serve(sockets=[listener]))
+        try:
+            yield f"http://{_LOOPBACK}:{listener.getsockname()[1]}"
+        finally:
+            server.should_exit = True
+            await asyncio.wait_for(serving, timeout=GATE_TIMEOUT_SECONDS)
+
+
+@asynccontextmanager
 async def serving_over_tcp(
     runtime: Runtime, callers: SpeechCallers | None = None
 ) -> AsyncIterator[TcpServer]:
@@ -92,16 +107,5 @@ async def serving_over_tcp(
 
         await app(scope, watched_receive, send)
 
-    server = uvicorn.Server(uvicorn.Config(observed, log_level="warning"))
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-        listener.bind((_LOOPBACK, 0))
-        listener.listen()
-        serving = asyncio.create_task(server.serve(sockets=[listener]))
-        try:
-            yield TcpServer(
-                f"http://{_LOOPBACK}:{listener.getsockname()[1]}",
-                speak_disconnect_received,
-            )
-        finally:
-            server.should_exit = True
-            await asyncio.wait_for(serving, timeout=GATE_TIMEOUT_SECONDS)
+    async with serving_asgi(observed) as base_url:
+        yield TcpServer(base_url, speak_disconnect_received)

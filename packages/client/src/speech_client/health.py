@@ -15,8 +15,8 @@ A timeout is `PastDeadline` before anything else; then a closed or reset
 connection is `Cut`; only then a parse failure is `Malformed`.
 
 A defect of the caller raises and is no outcome: a deadline or cap of 0 or
-below, and a base URL that is not `http`, has no host or carries a path
-(`ValueError`).
+below, and a base URL that is not `http`, has no host or carries a path, query or
+fragment (`ValueError`).
 
 The call sends no token, blocks and holds no process-global state, so it runs
 in a worker thread (`asyncio.to_thread`); the thread ends by the deadline. It
