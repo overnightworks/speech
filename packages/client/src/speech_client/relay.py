@@ -50,15 +50,18 @@ if TYPE_CHECKING:
 
 
 class HopClose(IntEnum):
-    """The close code of the hop's browser socket, one per way the hop ends."""
+    """The close code of the hop's browser socket, one per way the hop ends.
+
+    A code of the hop's own is 4000 plus the HTTP status nearest its meaning.
+    """
 
     NORMAL = 1000
-    TEXT_FRAME = 4400
-    FRAME_TOO_LARGE = 4401
-    OVER_CAP = 4402
-    BUSY = 4403
-    PAST_DEADLINE = 4404
-    SERVICE_FAILED = 4405
+    TEXT_FRAME = 4400  # Bad Request
+    FRAME_TOO_LARGE = 4413  # Content Too Large
+    OVER_CAP = 4507  # Insufficient Storage
+    BUSY = 4429  # Too Many Requests
+    PAST_DEADLINE = 4504  # Gateway Timeout
+    SERVICE_FAILED = 4502  # Bad Gateway
 
 
 class BrowserSocket(Protocol):
