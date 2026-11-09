@@ -37,7 +37,7 @@ flowchart LR
   tag brings, with the Piper voice, the `small` hearing model and the
   caller table baked in; the release builds, attests and pushes it to GHCR, see
   [Delivery](#delivery). `scripts/prove_image.py` proves it.
-- `packages/client`: the wire types an app and the service share, the bounded speaking call, the bounded health fetch and the live hearing session (`HearingSession`: frames held up to a caller-set byte limit, typed server events, one closed outcome union) an app makes.
+- `packages/client`: the wire types an app and the service share, the bounded speaking call, the bounded health fetch, the live hearing session (`HearingSession`: frames held up to a caller-set byte limit, typed server events, one closed outcome union) and the relay (`relay`) of a browser socket to that session an app makes.
 - `providers/*`: the voices that run in their own processes and environments. Each is its own uv project with its own lock; `providers/provider-contract` is the shared source the others install from. The client in `packages/client` is a uv workspace member of the root.
 
 ### Speaking

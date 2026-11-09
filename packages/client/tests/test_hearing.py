@@ -378,7 +378,7 @@ def test_leaving_the_context_closes_the_connection_with_the_normal_code() -> Non
         "http://host/path",
         "http://127.0.0.1:1#fragment",
         "http://127.0.0.1:1?query=1",
-        "http://127.0.0.1:1/?",
+        "http://127.0.0.1:1?",
         "http://127.0.0.1:1#",
     ],
 )

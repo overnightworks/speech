@@ -5,14 +5,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import socket
 import struct
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import pytest
-import uvicorn
 from fastapi import FastAPI, WebSocket
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed
@@ -35,14 +33,13 @@ from speech_client.wire import (
 from tests.support.hear_support import HEARD_TEXT, FakeHearing, hear_runtime
 from tests.support.identity_support import valid_pair
 from tests.support.live_support import INPUT_RATE, SPEECH_LEVEL
-from tests.support.tcp_server_support import serving_over_tcp
+from tests.support.tcp_server_support import serving_asgi, serving_over_tcp
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from speech_client.wire import ServerEvent
 
-LOOPBACK = "127.0.0.1"
 WAIT_SECONDS = 10
 FRAME_LIMIT_BYTES = 64 * 1024
 END_BOUND_SECONDS = 2
@@ -112,16 +109,8 @@ def _app_host(service_url: str, hop: _Hop) -> FastAPI:
 
 @asynccontextmanager
 async def _serving(app: FastAPI) -> AsyncIterator[str]:
-    server = uvicorn.Server(uvicorn.Config(app, log_level="warning"))
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-        listener.bind((LOOPBACK, 0))
-        listener.listen()
-        serving = asyncio.create_task(server.serve(sockets=[listener]))
-        try:
-            yield f"ws://{LOOPBACK}:{listener.getsockname()[1]}/hear"
-        finally:
-            server.should_exit = True
-            await asyncio.wait_for(serving, WAIT_SECONDS)
+    async with serving_asgi(app) as base_url:
+        yield f"ws{base_url.removeprefix('http')}/hear"
 
 
 @asynccontextmanager
