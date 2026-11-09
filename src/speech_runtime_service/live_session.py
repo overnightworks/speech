@@ -339,19 +339,17 @@ class LiveSession:
 
     def _log_timings(self, final: _Final, audio_seconds: float) -> None:
         logger.info(
-            "live turn completed",
-            extra={
-                "item_id": final.item_id,
-                "ended_by": final.ended_by.value,
-                "audio_seconds": audio_seconds,
-                "wait_ms": _milliseconds(final.decode_started_at - final.ended_at),
-                "decode_ms": _milliseconds(
-                    final.decode_finished_at - final.decode_started_at
-                ),
-                "completed_ms": _milliseconds(self._clock.now() - final.ended_at),
-                "partial_count": final.partials.count,
-                "partial_decode_ms": _milliseconds(final.partials.seconds),
-            },
+            "live turn completed item_id=%s ended_by=%s audio_seconds=%.2f"
+            " wait_ms=%d decode_ms=%d completed_ms=%d"
+            " partial_count=%d partial_decode_ms=%d",
+            final.item_id,
+            final.ended_by.value,
+            audio_seconds,
+            _milliseconds(final.decode_started_at - final.ended_at),
+            _milliseconds(final.decode_finished_at - final.decode_started_at),
+            _milliseconds(self._clock.now() - final.ended_at),
+            final.partials.count,
+            _milliseconds(final.partials.seconds),
         )
 
     async def _run_partial(
