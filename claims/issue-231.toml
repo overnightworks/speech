@@ -3,6 +3,6 @@ agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
 role = "builder"
 base = "34cc2c9597fcceac947e129b88c7df7bd84ab201"
 branch = "claude/issue-231-relay-helper"
-scope = ["docs/ARCHITECTURE.md", "packages/client/pyproject.toml", "packages/client/src/speech_client/_transport.py", "packages/client/src/speech_client/hearing.py", "packages/client/src/speech_client/relay.py", "packages/client/tests/test_hearing.py", "packages/client/tests/test_relay.py", "tests/test_wire_route_client_relay.py"]
+scope = ["docs/ARCHITECTURE.md", "packages/client/pyproject.toml", "packages/client/src/speech_client/_transport.py", "packages/client/src/speech_client/health.py", "packages/client/src/speech_client/hearing.py", "packages/client/src/speech_client/relay.py", "packages/client/src/speech_client/speak.py", "packages/client/tests/test_hearing.py", "packages/client/tests/test_relay.py", "tests/support/tcp_server_support.py", "tests/test_wire_route_client_relay.py"]
 opened_commit = "0564b05658aed4421e1ec6cf0418d0d20bccb104"
 whole_reason = "The relay, its proof, the origin check it depends on and its documents land together, because none has a caller without the relay."
