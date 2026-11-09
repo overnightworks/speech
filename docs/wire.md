@@ -169,7 +169,7 @@ echoes it only in an `error` about that event. **WIRE-63** A commit ends the ope
 once; **WIRE-64** a commit with no audio since the last turn ended is a protocol violation.
 **WIRE-65** With server turn detection a client need not commit.
 
-**Turns.** **WIRE-66** The service ends a turn after speech followed by 0.7 s of silence, or
+**Turns.** **WIRE-66** The service ends a turn after speech followed by 0.5 s of silence, or
 at 30 s of audio; the rest of the audio opens the next turn. **WIRE-67** A session holds at
 most two ended turns, both queued to be heard from their turn's end, and the
 open turn, so at most 90 s of audio.

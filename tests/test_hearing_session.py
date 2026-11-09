@@ -5,6 +5,7 @@ import struct
 import pytest
 
 from speech_runtime_service.hearing_session import (
+    SILENCE_SECONDS,
     HearingSession,
     SpeechStart,
     TurnEnd,
@@ -46,21 +47,25 @@ def test_the_first_speech_of_a_turn_starts_it_once_at_its_audio_position() -> No
     assert second == []
 
 
-def test_a_turn_ends_at_seven_tenths_of_a_second_of_silence_and_not_at_six() -> None:
-    """WIRE-66: a turn ends at seven tenths of a second of silence and not at six."""
+def test_a_turn_ends_once_the_silence_is_complete_and_not_a_tenth_before() -> None:
+    """WIRE-66: a turn ends once the silence is complete and not a tenth before."""
     session, _ = _session()
     session.add(_level(1.0, 5000))
-    session.add(_level(0.6, 0))
+    session.add(_level(SILENCE_SECONDS - 0.1, 0))
 
-    at_six_tenths = session.poll()
+    one_tenth_short = session.poll()
     session.add(_level(0.1, 0))
-    at_seven_tenths = session.poll()
+    complete = session.poll()
 
-    assert at_six_tenths == []
-    assert [type(event) for event in at_seven_tenths] == [TurnEnd]
-    ended = at_seven_tenths[0]
+    assert one_tenth_short == []
+    assert [type(event) for event in complete] == [TurnEnd]
+    ended = complete[0]
     assert isinstance(ended, TurnEnd)
-    assert (ended.start_ms, ended.end_ms, ended.spoken) == (0, 1700, True)
+    assert (ended.start_ms, ended.end_ms, ended.spoken) == (
+        0,
+        round((1.0 + SILENCE_SECONDS) * 1000),
+        True,
+    )
     assert not ended.by_client
 
 
@@ -74,7 +79,7 @@ def test_the_silence_threshold_is_an_rms_of_two_hundredths(
 ) -> None:
     session, _ = _session()
     session.add(_level(0.5, 5000))
-    session.add(_level(0.7, level))
+    session.add(_level(SILENCE_SECONDS, level))
 
     assert bool(session.poll()) is ends
 

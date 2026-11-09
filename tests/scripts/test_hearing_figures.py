@@ -10,6 +10,7 @@ import pytest
 
 import hearing_figures as figures
 from speech_runtime_client.wire import RefusalCode
+from speech_runtime_service.hearing_session import SILENCE_SECONDS
 
 RATE = 24000
 LOUD = 8000
@@ -147,13 +148,14 @@ def test_a_clip_of_continuous_speech_is_one_turn() -> None:
 
 
 def test_a_short_pause_does_not_end_the_turn() -> None:
-    clip = tone(2.0) + tone(0.5, amplitude=0) + tone(2.0)
+    pause = SILENCE_SECONDS - 0.1
+    clip = tone(2.0) + tone(pause, amplitude=0) + tone(2.0)
 
-    assert figures.check_continuous_turn(clip) == pytest.approx(4.5)
+    assert figures.check_continuous_turn(clip) == pytest.approx(4.0 + pause)
 
 
-def test_a_pause_of_the_silence_length_ends_the_turn_early() -> None:
-    clip = tone(2.0) + tone(0.8, amplitude=0) + tone(2.0)
+def test_a_pause_beyond_the_silence_length_ends_the_turn_early() -> None:
+    clip = tone(2.0) + tone(SILENCE_SECONDS + 0.1, amplitude=0) + tone(2.0)
 
     with pytest.raises(figures.ClipError, match="would end the turn early"):
         figures.check_continuous_turn(clip)
@@ -163,6 +165,19 @@ def test_silence_before_and_after_the_speech_is_not_a_pause() -> None:
     clip = tone(1.0, amplitude=0) + tone(3.0) + tone(1.0, amplitude=0)
 
     assert figures.check_continuous_turn(clip) == pytest.approx(5.0)
+
+
+def test_speech_only_cuts_the_silence_at_both_ends() -> None:
+    clip = tone(1.0, amplitude=0) + tone(2.0) + tone(1.0, amplitude=0)
+
+    assert figures.speech_only(clip) == tone(2.0)
+
+
+def test_speech_only_refuses_a_clip_without_speech() -> None:
+    clip = tone(1.0, amplitude=0)
+
+    with pytest.raises(figures.ClipError, match="holds no speech"):
+        figures.speech_only(clip)
 
 
 def test_a_clip_that_reaches_the_turn_cap_is_refused() -> None:

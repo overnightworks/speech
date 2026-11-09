@@ -22,6 +22,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import statistics
 import sys
@@ -281,15 +282,22 @@ PORTS = Ports()
 
 
 def german_clip(service: Service, text: str) -> bytes:
-    """German speech from the service's speak route as 24 kHz PCM16."""
-    wav, _, _ = speak_measured(
-        service.base_url,
-        text,
-        RESIDENT_VOICE.value,
-        service.minting,
-    )
-    rate, pcm = pcm_from_wav(wav)
-    return figures.to_wire_rate(pcm, rate)
+    """German speech from the service's speak route as 24 kHz PCM16.
+
+    Each sentence is its own synthesis with its edge silence cut, so the
+    sentences join without the pause the route puts between them.
+    """
+    sentences = []
+    for sentence in re.split(r"(?<=\.) ", text):
+        wav, _, _ = speak_measured(
+            service.base_url,
+            sentence,
+            RESIDENT_VOICE.value,
+            service.minting,
+        )
+        rate, pcm = pcm_from_wav(wav)
+        sentences.append(figures.speech_only(figures.to_wire_rate(pcm, rate)))
+    return b"".join(sentences)
 
 
 def english_voice_path(directory: Path) -> Path:
