@@ -20,6 +20,7 @@ from speech_client.wire import (
 )
 from speech_service.config import Settings
 from speech_service.control import create_control_app
+from speech_service.live_session import LiveSession
 from tests.support.hear_support import FakeHearing, hear_runtime
 from tests.support.identity_support import valid_callers, valid_headers, valid_pair
 from tests.support.tcp_server_support import serving_asgi
@@ -27,6 +28,7 @@ from tests.support.tcp_server_support import serving_asgi
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    import pytest
     from starlette.datastructures import Headers
     from starlette.types import ASGIApp, Receive, Scope, Send
     from webauth.service_callers import PersonCaller
@@ -165,3 +167,33 @@ def test_a_client_that_leaves_as_the_accept_is_sent_causes_no_crash_log() -> Non
     assert [record.getMessage() for record in crashes] == []
     assert isinstance(first_event, SessionCreated)
 
+
+class _StartError(RuntimeError):
+    """A failure of the service's own code while it starts the session."""
+
+
+def test_a_session_start_failure_with_the_client_still_there_is_logged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def failing_start(_session: LiveSession) -> None:
+        raise _StartError
+
+    monkeypatch.setattr(LiveSession, "start", failing_start)
+
+    async def scenario() -> list[logging.LogRecord]:
+        app = create_control_app(
+            Settings(), hear_runtime(FakeHearing()), valid_callers()
+        )
+        watched = _FirstUpgradeWatched(app)
+        async with serving_asgi(watched) as base_url:
+            with _failures_logged() as failures:
+                client = await _upgrading_client(base_url)
+                await asyncio.wait_for(watched.first_upgrade_ended.wait(), WAIT_SECONDS)
+                client.close()
+            return failures.records
+
+    crashes = asyncio.run(scenario())
+
+    assert [type(record.exc_info[1]) for record in crashes if record.exc_info] == [
+        _StartError
+    ]
