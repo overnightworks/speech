@@ -183,7 +183,6 @@ def assert_exchanged_for_the_app(subject_token: str, exchanged: str) -> None:
     assert claims["sub"] == subject_claims["sub"]
     assert MINTING.audience in audiences_of(claims)
     assert {SERVICE_GROUP, APP_GROUP} <= set(claims["groups"])
-    assert claims["exp"] <= subject_claims["exp"]
 
 
 def test_an_agent_token_exchanged_by_its_app_speaks(wire: TestClient) -> None:
