@@ -45,12 +45,11 @@ from hearing_card import (
 )
 from hearing_client import (
     Service,
-    UpgradeRefusal,
     hear_file,
     hear_live,
+    hear_upgrade,
     post_recording,
     refusal_code,
-    upgrade_refusal,
 )
 from hearing_figures import LiveTurn, WordErrors
 from proof_identity import Minting, load_minting, mint_pair, proof_identity
@@ -70,6 +69,7 @@ from prove_speech import (
     speech_server,
     wait_for_load,
 )
+from speech_runtime_client.hearing import Refused
 from speech_runtime_client.wire import (
     SPEECH_PATH,
     Health,
@@ -102,6 +102,7 @@ if TYPE_CHECKING:
     from piper import PiperVoice
 
     from speech_runtime_client.health import HealthOutcome
+    from speech_runtime_client.hearing import HearingOutcome
 
 
 THIS_SCRIPT = Path(__file__).resolve()
@@ -265,7 +266,7 @@ class Ports:
     hold: Callable[[], AbstractContextManager[int]] = held_card
     serve: Callable[..., AbstractContextManager[Service]] = hearing_service
     post: Callable[..., httpx2.Response] = post_recording
-    upgrade: Callable[[Service], Awaitable[UpgradeRefusal | None]] = upgrade_refusal
+    upgrade: Callable[[Service], Awaitable[HearingOutcome | None]] = hear_upgrade
     speak: Callable[..., tuple[bytes, float, float]] = speak_measured
     live: Callable[..., Awaitable[LiveTurn]] = hear_live
     hear: Callable[..., tuple[float, str]] = hear_file
@@ -550,14 +551,17 @@ def prove_taken_card(
             )
     freed = ports.freed(baseline)
     file_code = refusal_code(file_answer.status_code, file_answer.content)
+    live_status, live_code = (
+        (live.status, live.code) if isinstance(live, Refused) else (None, None)
+    )
     failures = figures.taken_card_failures(
         figures.TakenCardObservation(
             speaking_ready=health.speaking.ready,
             hearing_ready=health.hearing.ready,
             file_status=file_answer.status_code,
             file_code=file_code,
-            live_status=None if live is None else live.status,
-            live_code=None if live is None else live.code,
+            live_status=live_status,
+            live_code=live_code,
             spoke_bytes=len(wav),
         )
     )
@@ -569,8 +573,8 @@ def prove_taken_card(
         "refusals": {
             "file": {"status": file_answer.status_code, "code": file_code},
             "live": {
-                "status": None if live is None else live.status,
-                "code": None if live is None else live.code,
+                "status": live_status,
+                "code": live_code,
             },
         },
         "freed_afterwards": freed,

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import httpx2
 import pytest
 
+from speech_runtime_client.hearing import Refused
 from speech_runtime_client.outcomes import Unreachable
 from speech_runtime_client.wire import Health, RefusalCode, refusal
 from speech_runtime_service.hearing_models import HearingModel
@@ -475,9 +476,7 @@ def taken_card(
     async def upgrade(_: object) -> object:
         if accepts_upgrade:
             return None
-        return HEARING.UpgradeRefusal(
-            HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE
-        )
+        return Refused(HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE)
 
     ports = HEARING.Ports(
         hold=hold,
