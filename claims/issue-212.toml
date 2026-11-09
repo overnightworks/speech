@@ -1,0 +1,7 @@
+claim_id = "a7d6b12431364a74aa32d10cfca03520"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "d585e831c647f4567c613e9cb5d5d396b73eaf09"
+branch = "claude/issue-212-each-live-hearing-turn-logs-its-timings"
+scope = ["docs/ARCHITECTURE.md", "src/speech_runtime_service/live_session.py", "tests/test_live_session.py"]
+opened_commit = "9288dfde912e8b3ec058dad5bb56865909b488fc"
