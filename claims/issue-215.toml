@@ -1,8 +1,0 @@
-claim_id = "fb3b02dab9424fb5b7ec0383d070dd4a"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "12a360970b64728c43616af7858b5ff138e69274"
-branch = "claude/issue-215-the-client-hears-a-live-audio-stream"
-scope = ["README.md", "docs/ARCHITECTURE.md", "docs/wire.md", "packages/client", "scripts/hearing_client.py", "scripts/image_stack.py", "scripts/prove_hearing.py", "tests/scripts/test_hearing_client.py", "tests/scripts/test_prove_hearing.py", "tests/test_wire_route_client_hearing.py", "uv.lock"]
-opened_commit = "fe245f4bbc0c499c4594eadd275a0ef8e71044ba"
-whole_reason = "One capability: the session module, its dependency and lock, its real-route test, the proof script that adopts it and the client's building block move together."
