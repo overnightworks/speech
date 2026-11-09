@@ -316,15 +316,6 @@ async def _stalled_service() -> AsyncIterator[tuple[str, asyncio.Event]]:
             released.set()
 
 
-def _client_tasks_left() -> set[asyncio.Task[object]]:
-    return {
-        task
-        for task in asyncio.all_tasks()
-        if "speech_client" in task.get_coro().cr_code.co_filename
-        or "websockets/asyncio/client" in task.get_coro().cr_code.co_filename
-    }
-
-
 def test_a_hop_cut_while_the_service_stalls_leaves_nothing_to_wait_for() -> None:
     async def scenario() -> None:
         async with _stalled_service() as (service_url, opened):
@@ -352,6 +343,6 @@ def test_a_hop_cut_while_the_service_stalls_leaves_nothing_to_wait_for() -> None
             hop.cancel()
             await asyncio.wait({hop}, timeout=1)
             assert hop.done()
-            assert _client_tasks_left() == set()
+        assert asyncio.all_tasks() == {asyncio.current_task()}
 
     asyncio.run(scenario())
