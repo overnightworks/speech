@@ -23,6 +23,7 @@ from speech_provider_contract import (
     FrameDecoder,
     FrameKind,
     ProtocolError,
+    failure_cause,
     ready_sample_rate,
     write_frame,
 )
@@ -38,6 +39,10 @@ _COMMAND_WAIT_SECONDS = 0.25
 _READ_SIZE = 64 * 1024
 _STDERR_TAIL_BYTES = 4096
 ENDED_BEFORE_READY = "speech provider ended before ready"
+ENDED_AFTER_READY = "speech provider ended after ready"
+"""The record of a provider that was ready and then ended through a failure."""
+SYNTHESIS_FAILED = "speech provider synthesis failed"
+"""The message of a failed synthesis and the record of the cause it carries."""
 """The record that opens the log of a provider that ended before it was ready."""
 _WORKER_DIRECTORY_PREFIX = "speech-provider-"
 """The name prefix of each worker's private directory in the temporary directory.
@@ -67,7 +72,7 @@ class ProviderSynthesisFailedError(RuntimeError):
 
     def __init__(self) -> None:
         """Carry the one message every failed synthesis reports."""
-        super().__init__("speech provider synthesis failed")
+        super().__init__(SYNTHESIS_FAILED)
 
 
 class ProviderCleanupFailedError(RuntimeError):
@@ -200,6 +205,7 @@ class ProviderProcess:
                     yield frame.payload
                     continue
                 if frame.kind is FrameKind.FAILED:
+                    _log_synthesis_failure(request_id, frame.payload)
                     self._mark_failed()
                     raise ProviderSynthesisFailedError
                 completed = True
@@ -239,6 +245,7 @@ class ProviderProcess:
         stderr: IO[bytes] | None = None
         scratch: tempfile.TemporaryDirectory[str] | None = None
         lifecycle_failed = False
+        ended_after_ready = False
         try:
             scratch = tempfile.TemporaryDirectory(prefix=_WORKER_DIRECTORY_PREFIX)
             stderr = tempfile.TemporaryFile()  # noqa: SIM115 - closed on every exit below
@@ -256,6 +263,8 @@ class ProviderProcess:
             )
             if outcome is _OwnerExit.PROVIDER_FAILURE:
                 self._set_failed()
+                # The startup stderr file closes when the provider is ready.
+                ended_after_ready = stderr.closed
         except Exception:
             logger.exception("speech provider owner thread failed")
             lifecycle_failed = True
@@ -263,7 +272,7 @@ class ProviderProcess:
         finally:
             self._ready.set()
             try:
-                self._terminate_and_reap(child)
+                self._terminate_and_reap(child, ended_after_ready=ended_after_ready)
             except Exception:
                 logger.exception("speech provider cleanup failed")
                 lifecycle_failed = True
@@ -448,6 +457,7 @@ class ProviderProcess:
             if frame.kind in {FrameKind.COMPLETE, FrameKind.CANCELLED}:
                 return
             if frame.kind is FrameKind.FAILED:
+                _log_synthesis_failure(request_id, frame.payload)
                 raise ProviderProtocolError
 
     def _mark_failed(self) -> None:
@@ -463,7 +473,9 @@ class ProviderProcess:
         with suppress(queue.Full):
             self._commands.put_nowait(command)
 
-    def _terminate_and_reap(self, child: subprocess.Popen[bytes] | None) -> None:
+    def _terminate_and_reap(
+        self, child: subprocess.Popen[bytes] | None, *, ended_after_ready: bool
+    ) -> None:
         if child is None:
             return
         if child.poll() is None:
@@ -479,6 +491,17 @@ class ProviderProcess:
         for stream in (child.stdin, child.stdout):
             if stream is not None:
                 stream.close()
+        if ended_after_ready:
+            logger.error("%s, exit status %s", ENDED_AFTER_READY, child.returncode)
+
+
+def _log_synthesis_failure(request_id: int, payload: bytes) -> None:
+    logger.error(
+        "%s, request %d, cause: %s",
+        SYNTHESIS_FAILED,
+        request_id,
+        failure_cause(payload) or "none",
+    )
 
 
 def _close_stderr(child: subprocess.Popen[bytes] | None, stderr: IO[bytes]) -> None:

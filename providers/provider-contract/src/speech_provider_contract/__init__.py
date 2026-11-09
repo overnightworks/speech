@@ -1,21 +1,25 @@
 """The narrow binary protocol and worker loop shared by local providers."""
 
 import contextlib
+import errno
 import functools
+import inspect
 import logging
 import os
 import queue
+import re
 import struct
 import sys
 import threading
+import traceback
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO
+from typing import TYPE_CHECKING, BinaryIO, TypeIs
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +65,18 @@ MIN_PCM_BYTES = 2
 MAX_PCM_BYTES = 1_048_576
 MIN_SYNTHESIS_BYTES = 2
 MAX_SYNTHESIS_BYTES = 16_385
+MAX_FAILURE_CAUSE_BYTES = 4096
+_CAUSE_LINKS = 4
+_CAUSE_FRAMES = 6
+_CAUSE_LINE_BYTES = 256
+_CAUSE_LABEL_BYTES = 128
+_CAUSE_BYTES = re.compile(rb"[\n\x20-\x7e]*")
+_UNPRINTABLE = re.compile(r"[^\x20-\x7e]")
+# The C descriptors read an exception's own slots without running its code.
+_EXCEPTION_CAUSE = BaseException.__dict__["__cause__"]
+_EXCEPTION_CONTEXT = BaseException.__dict__["__context__"]
+_EXCEPTION_TRACEBACK = BaseException.__dict__["__traceback__"]
+_OS_ERROR_ERRNO = OSError.__dict__["errno"]
 _HEADER = struct.Struct("!IBQ")
 _LENGTH = struct.Struct("!I")
 _READY = struct.Struct("!HI")
@@ -188,7 +204,7 @@ def _validate(frame: Frame) -> None:
     elif frame.kind is FrameKind.PCM:
         valid = frame.request_id != 0 and _valid_pcm(payload)
     else:
-        valid = payload == bytes([ProviderFailure.PROVIDER_FAILURE])
+        valid = _valid_failure(frame.request_id, payload)
     if not valid:
         raise ProtocolError
 
@@ -207,6 +223,17 @@ def _valid_synthesis(payload: bytes) -> bool:
 
 def _valid_pcm(payload: bytes) -> bool:
     return MIN_PCM_BYTES <= len(payload) <= MAX_PCM_BYTES and len(payload) % 2 == 0
+
+
+def _valid_failure(request_id: int, payload: bytes) -> bool:
+    if payload[:1] != bytes([ProviderFailure.PROVIDER_FAILURE]):
+        return False
+    cause = payload[1:]
+    return not cause or (
+        request_id != 0
+        and len(cause) <= MAX_FAILURE_CAUSE_BYTES
+        and _CAUSE_BYTES.fullmatch(cause) is not None
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,15 +382,13 @@ def _synthesize_request(
         if not cancelled:
             cancelled = _consume_cancellation(commands, request_id, previous_terminal)
         terminal = FrameKind.CANCELLED if cancelled else FrameKind.COMPLETE
-    except Exception:
-        logger.exception("provider failed while streaming request %d", request_id)
-        _fail_request(stream, request_id, iterator)
+    except Exception as error:  # noqa: BLE001 - the cause crosses in the FAILED frame
+        _fail_request(stream, request_id, iterator, error)
         return None
     try:
         _close_iterator(iterator)
-    except Exception:
-        logger.exception("provider failed to close request %d", request_id)
-        _fail_request(stream, request_id, None)
+    except Exception as error:  # noqa: BLE001 - the cause crosses in the FAILED frame
+        _fail_request(stream, request_id, None, error)
         return None
     return terminal
 
@@ -419,18 +444,147 @@ def _close_iterator(iterator: Iterable[bytes] | None) -> None:
 
 
 def _fail_request(
-    stream: BinaryIO, request_id: int, iterator: Iterable[bytes] | None
+    stream: BinaryIO,
+    request_id: int,
+    iterator: Iterable[bytes] | None,
+    error: BaseException,
 ) -> None:
     with contextlib.suppress(Exception):
         _close_iterator(iterator)
-    _failed(stream, request_id)
+    _failed(stream, request_id, error)
 
 
-def _failed(stream: BinaryIO, request_id: int) -> None:
+def _failed(
+    stream: BinaryIO, request_id: int, error: BaseException | None = None
+) -> None:
+    payload = bytes([ProviderFailure.PROVIDER_FAILURE])
+    if error is not None:
+        payload += payload_free_cause(error)
     with contextlib.suppress(OSError, ProtocolError):
-        write_frame(
-            stream,
-            Frame(
-                FrameKind.FAILED, request_id, bytes([ProviderFailure.PROVIDER_FAILURE])
-            ),
-        )
+        write_frame(stream, Frame(FrameKind.FAILED, request_id, payload))
+
+
+@dataclass(frozen=True, slots=True)
+class FailureLink:
+    """One chained exception as it may be logged: its label and its code frames.
+
+    Each frame is its location line, then its source line when one is known.
+    """
+
+    label: str
+    frames: tuple[tuple[str, ...], ...]
+
+
+def failure_links(error: BaseException) -> tuple[FailureLink, ...]:
+    """Render each chained exception, outermost first, without what it carries.
+
+    A message, argument, note, filename or local can hold the text a person
+    spoke or heard, so only the type, the errno, an int error code and the code
+    frames are read, each without running the exception's own code. Every
+    character outside printable ASCII is escaped. This never raises.
+    """
+    links: list[FailureLink] = []
+    seen: set[int] = set()
+    link: BaseException | None = error
+    while link is not None and id(link) not in seen:
+        seen.add(id(link))
+        links.append(FailureLink(_label(link), _frames(link)))
+        link = _next_link(link)
+    return tuple(links)
+
+
+def payload_free_cause(error: BaseException) -> bytes:
+    """Encode a failure's chain for its FAILED frame, nearest the root cause first.
+
+    The first line names the links kept nearest the root cause; each kept
+    link's label and innermost frames follow, root cause first, in whole lines
+    within `MAX_FAILURE_CAUSE_BYTES`. A cause that cannot be built is empty.
+    """
+    return _guarded(lambda: _bounded_cause(failure_links(error)).encode("ascii"), b"")
+
+
+def failure_cause(payload: bytes) -> str:
+    """Return the cause a validated FAILED payload carries; empty when it has none."""
+    return payload[1:].decode("ascii")
+
+
+def _bounded_cause(links: tuple[FailureLink, ...]) -> str:
+    kept = links[-_CAUSE_LINKS:][::-1]
+    dropped = len(links) - len(kept)
+    cause = " -> ".join(link.label[:_CAUSE_LABEL_BYTES] for link in kept)
+    if dropped:
+        cause += f" (+{dropped} outer)"
+    for line in _block_lines(kept):
+        if len(cause) + 1 + len(line) > MAX_FAILURE_CAUSE_BYTES:
+            break
+        cause += "\n" + line
+    return cause
+
+
+def _block_lines(links: tuple[FailureLink, ...]) -> Iterator[str]:
+    for link in links:
+        yield link.label[:_CAUSE_LINE_BYTES]
+        for frame in link.frames[-_CAUSE_FRAMES:]:
+            yield from (line[:_CAUSE_LINE_BYTES] for line in frame)
+
+
+def _next_link(link: BaseException) -> BaseException | None:
+    cause = _guarded(lambda: _EXCEPTION_CAUSE.__get__(link), None)
+    if cause is not None:
+        return cause
+    return _guarded(lambda: _EXCEPTION_CONTEXT.__get__(link), None)
+
+
+def _label(link: BaseException) -> str:
+    kind = type(link)
+    module = _exact_str(_guarded(lambda: kind.__module__, None))
+    name = _exact_str(_guarded(lambda: kind.__qualname__, None))
+    return _escaped(f"{module}.{name}{_errno_label(link)}{_error_code_label(link)}")
+
+
+def _errno_label(link: BaseException) -> str:
+    number = _guarded(lambda: _OS_ERROR_ERRNO.__get__(link), None)
+    if not _is_bounded_int(number):
+        return ""
+    return f"[{errno.errorcode.get(number, f'errno {number}')}]"
+
+
+def _error_code_label(link: BaseException) -> str:
+    code = _guarded(lambda: inspect.getattr_static(link, "error_code", None), None)
+    return f" error_code {code}" if _is_bounded_int(code) else ""
+
+
+def _frames(link: BaseException) -> tuple[tuple[str, ...], ...]:
+    summaries = _guarded(
+        lambda: traceback.extract_tb(_EXCEPTION_TRACEBACK.__get__(link)), []
+    )
+    return tuple(_frame_lines(summary) for summary in summaries)
+
+
+def _frame_lines(summary: traceback.FrameSummary) -> tuple[str, ...]:
+    filename, name = _exact_str(summary.filename), _exact_str(summary.name)
+    line = summary.lineno if type(summary.lineno) is int else "?"
+    location = _escaped(f'  File "{filename}", line {line}, in {name}')
+    source = _exact_str(_guarded(lambda: summary.line, None), "")
+    return (location, _escaped(f"    {source}")) if source else (location,)
+
+
+def _exact_str(value: object, fallback: str = "?") -> str:
+    return value if type(value) is str else fallback
+
+
+def _is_bounded_int(value: object) -> TypeIs[int]:
+    return type(value) is int and 0 <= value < 1 << 32
+
+
+def _escaped(text: str) -> str:
+    return _UNPRINTABLE.sub(
+        lambda match: match.group().encode("unicode_escape").decode("ascii"), text
+    )
+
+
+def _guarded[T](read: Callable[[], T], fallback: T) -> T:
+    try:
+        return read()
+    except Exception:  # noqa: BLE001 - a failure's rendering never fails; a broken read renders its fallback
+        return fallback

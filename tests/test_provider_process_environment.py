@@ -1,8 +1,9 @@
-"""A provider process sees the CUDA libraries of its own virtual environment."""
+"""A provider process sees its own CUDA libraries and no parent secret."""
 
 from __future__ import annotations
 
 import os
+import secrets
 from typing import TYPE_CHECKING
 
 import pytest
@@ -66,3 +67,26 @@ def test_visible_devices_stay_unset_when_the_parent_has_none(
     assert "CUDA_VISIBLE_DEVICES" not in provider_environment(
         tmp_path, tmp_path / "scratch"
     )
+
+
+def test_a_parent_token_does_not_reach_the_provider_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bearer = secrets.token_urlsafe(32)
+    monkeypatch.setenv("SPEECH_PERSON_TOKEN", bearer)
+    _cuda_library_directory(tmp_path, "python3.14", "cublas")
+
+    environment = provider_environment(tmp_path, tmp_path / "scratch")
+
+    assert set(environment) <= {
+        "HF_HUB_OFFLINE",
+        "TRANSFORMERS_OFFLINE",
+        "TOKENIZERS_PARALLELISM",
+        "PYTHONUNBUFFERED",
+        "PATH",
+        "NUMBA_CACHE_DIR",
+        "TMPDIR",
+        "CUDA_VISIBLE_DEVICES",
+        "LD_LIBRARY_PATH",
+    }
+    assert all(bearer not in value for value in environment.values())

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import traceback
 from typing import TYPE_CHECKING
+
+from speech_provider_contract import failure_links
 
 if TYPE_CHECKING:
     import logging
@@ -20,24 +21,15 @@ class SpeakingFailedError(Exception):
 
 
 def log_failure(logger: logging.Logger, message: str, error: BaseException) -> None:
-    """Log the fixed message, each chained exception's type and its stack frames.
+    """Log the fixed message, then each chained exception as the contract renders it.
 
     An exception message, argument or local variable can hold the text a person
     spoke or heard, so none of them is ever logged.
     """
     lines = [message]
-    seen: set[int] = set()
-    link: BaseException | None = error
-    while link is not None and id(link) not in seen:
-        seen.add(id(link))
-        kind = type(link)
-        lines.append(f"{kind.__module__}.{kind.__qualname__}")
-        lines.extend(
-            f'  File "{frame.filename}", line {frame.lineno}, in {frame.name}'
-            + (f"\n    {frame.line}" if frame.line else "")
-            for frame in traceback.extract_tb(link.__traceback__)
-        )
-        link = link.__cause__ or link.__context__
+    for link in failure_links(error):
+        lines.append(link.label)
+        lines.extend(line for frame in link.frames for line in frame)
     logger.error("\n".join(lines))
 
 
