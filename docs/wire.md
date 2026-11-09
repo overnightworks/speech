@@ -30,7 +30,7 @@ cap and answers with a typed outcome; the outcomes both calls share live in
 
 | ID | Field | Accepted value |
 |---|---|---|
-| WIRE-05 | `model` | `speech-runtime`. Any other value is refused, so a request naming another model is never answered by this one. |
+| WIRE-05 | `model` | `speech`. Any other value is refused, so a request naming another model is never answered by this one. |
 | WIRE-06 | `input` | Text with at least one letter or digit, at most `SPEECH_MAX_INPUT_CHARACTERS` characters (default 4096; the operator may raise it above OpenAI's 4096). |
 | WIRE-07 | `voice` | The id of an offered voice: `piper`, always offered, or `qwen3-tts-0.6b` when `SPEECH_GPU_VOICES` names it. |
 | WIRE-09 | `voice` | A GPU voice that is not loaded yet loads for this request, which waits for the load. |
@@ -102,7 +102,7 @@ length, the decoding itself.
 | ID | Field | Accepted value |
 |---|---|---|
 | WIRE-32 | `file` | The recording, required, in any container and codec PyAV reads (WAV, MP3, Ogg, FLAC, ...). |
-| WIRE-33 | `model` | `speech-runtime`, required. |
+| WIRE-33 | `model` | `speech`, required. |
 | WIRE-34 | `language` | `de` or `en`; `de` when absent. Any other value is refused. |
 | WIRE-35 | `response_format` | `json`; `json` when absent. |
 
@@ -150,11 +150,11 @@ sessions run at once; one more is `busy` with `Retry-After`. **WIRE-53** A wrong
 `unsupported_version`. **WIRE-54** An idle session holds its place only, never the decode.
 
 **Setup.** **WIRE-55** The service sends `session.created` with its default session: PCM16
-mono at 24 kHz, `de`, the model `speech-runtime`, server turn detection. **WIRE-56** The
+mono at 24 kHz, `de`, the model `speech`, server turn detection. **WIRE-56** The
 client may send one `session.update` with `session.type` `transcription` before
 its first append; the service answers `session.updated` with the applied session.
 **WIRE-57** Accepted: the format absent or exactly `{"type": "audio/pcm", "rate": 24000}`;
-`transcription.model` absent or `speech-runtime`; `transcription.language`
+`transcription.model` absent or `speech`; `transcription.language`
 absent, `de` or `en`; `turn_detection` absent or `{"type": "server_vad"}`. **WIRE-58** Anything
 else ends the session with an `error`, among it a second update, an update after
 audio, `null` turn detection, `languages`, and every field the service does not

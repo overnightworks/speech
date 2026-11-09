@@ -1,4 +1,4 @@
-# Speech runtime
+# Speech
 
 The home server's speech service: it speaks German text and hears recordings and
 live audio for the apps that call it, Presentator among them. The operator

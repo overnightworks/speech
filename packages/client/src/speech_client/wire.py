@@ -38,7 +38,7 @@ HEALTH_PATH: Final = "/health"
 REALTIME_INTENT_PARAM: Final = "intent"
 REALTIME_INTENT: Final = "transcription"
 API_VERSION: Final = 1
-MODEL: Final = "speech-runtime"
+MODEL: Final = "speech"
 RETRY_AFTER_HEADER: Final = "Retry-After"
 CONTENT_TYPE_HEADER: Final = "Content-Type"
 WORKLOAD_TOKEN_HEADER: Final = "Speech-Workload-Token"  # noqa: S105 - a header name and no secret
@@ -85,7 +85,7 @@ class SpeechRequest(BaseModel):
         extra="forbid", frozen=True, hide_input_in_errors=True, strict=True
     )
 
-    model: Literal["speech-runtime"]
+    model: Literal["speech"]
     input: str
     voice: str
     response_format: ResponseFormat
@@ -118,7 +118,7 @@ class TranscriptionRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
-    model: Literal["speech-runtime"]
+    model: Literal["speech"]
     language: HearingLanguage = HearingLanguage.DE
     response_format: Literal["json"] = "json"
 
@@ -319,7 +319,7 @@ class PcmFormat(_SessionPart):
 class TranscriptionSetting(_SessionPart):
     """The model and the language a session hears."""
 
-    model: Literal["speech-runtime"] = MODEL
+    model: Literal["speech"] = MODEL
     language: HearingLanguage = HearingLanguage.DE
 
 

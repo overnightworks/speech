@@ -127,9 +127,17 @@ def test_a_recording_is_heard_in_the_language_asked_for() -> None:
         ({"model": MODEL, "response_format": "text"}, "response_format"),
         ({"model": MODEL, "temperature": "0"}, None),
         ({"model": "whisper-1"}, "model"),
+        ({"model": "speech-runtime"}, "model"),
         ({}, "model"),
     ],
-    ids=["other-language", "other-format", "unknown-field", "other-model", "no-model"],
+    ids=[
+        "other-language",
+        "other-format",
+        "unknown-field",
+        "other-model",
+        "previous-model-name",
+        "no-model",
+    ],
 )
 def test_a_form_that_is_not_the_one_shape_is_refused_without_a_decode(
     fields: dict[str, str], param: str | None

@@ -187,6 +187,7 @@ _REFUSED_BODIES = [
     pytest.param(b"{}", "model", id="empty-object"),
     pytest.param(_without("model"), "model", id="model-missing"),
     pytest.param(_changed(model="tts-1"), "model", id="model-other"),
+    pytest.param(_changed(model="speech-runtime"), "model", id="model-previous-name"),
     pytest.param(_changed(model=1), "model", id="model-number"),
     pytest.param(_without("voice"), "voice", id="voice-missing"),
     pytest.param(_changed(voice=""), "voice", id="voice-empty"),
