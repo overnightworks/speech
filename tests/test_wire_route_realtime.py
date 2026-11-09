@@ -1,7 +1,6 @@
 """WS /v1/realtime?intent=transcription: who may upgrade, what is refused, a session."""
 
 import asyncio
-import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -105,37 +104,29 @@ def test_a_registered_app_with_no_hearing_key_opens_a_live_session() -> None:
         assert socket.receive_json()["type"] == "session.created"
 
 
-def test_a_setup_in_another_language_ends_the_session_with_an_error() -> None:
-    """WIRE-57, WIRE-58, WIRE-77: a setup in another language ends the session."""
+@pytest.mark.parametrize(
+    ("setup", "param"),
+    [
+        pytest.param(update("fr"), "language", id="language-fr"),
+        pytest.param(
+            update(model="speech-runtime"), "model", id="model-speech-runtime"
+        ),
+    ],
+)
+def test_a_setup_outside_the_one_transcription_shape_ends_the_session_with_an_error(
+    setup: str, param: str
+) -> None:
+    """WIRE-56, WIRE-57, WIRE-58, WIRE-77: a setup outside the shape is refused."""
     with _client().websocket_connect(URL, headers=valid_headers()) as socket:
         socket.receive_json()
-        socket.send_text(update("fr"))
+        socket.send_text(setup)
         error = socket.receive_json()
+        assert error["type"] == "error"
         with pytest.raises(WebSocketDisconnect):
             socket.receive_json()
 
-    assert error["type"] == "error"
     assert error["error"]["code"] == RefusalCode.INVALID_REQUEST
-    assert error["error"]["param"] == "session.audio.input.transcription.language"
-
-
-def test_a_setup_naming_the_previous_model_ends_the_session_with_an_error() -> None:
-    """WIRE-56, WIRE-57: a setup naming speech-runtime as model ends the session."""
-    transcription = {"model": "speech-runtime"}
-    session = {
-        "type": "transcription",
-        "audio": {"input": {"transcription": transcription}},
-    }
-    with _client().websocket_connect(URL, headers=valid_headers()) as socket:
-        socket.receive_json()
-        socket.send_text(json.dumps({"type": "session.update", "session": session}))
-        error = socket.receive_json()
-        with pytest.raises(WebSocketDisconnect):
-            socket.receive_json()
-
-    assert error["type"] == "error"
-    assert error["error"]["code"] == RefusalCode.INVALID_REQUEST
-    assert error["error"]["param"] == "session.audio.input.transcription.model"
+    assert error["error"]["param"] == f"session.audio.input.transcription.{param}"
 
 
 def test_a_caller_without_tokens_is_told_so_before_anything_else() -> None:

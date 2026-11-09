@@ -106,9 +106,12 @@ def commit(event_id: str | None = None) -> str:
     return json.dumps(event)
 
 
-def update(language: str = "de") -> str:
-    """A `session.update` message for `language`."""
-    audio_input = {"transcription": {"language": language}}
+def update(language: str = "de", model: str | None = None) -> str:
+    """A `session.update` message for `language`, naming `model` when given."""
+    transcription = {"language": language}
+    if model is not None:
+        transcription["model"] = model
+    audio_input = {"transcription": transcription}
     session = {"type": "transcription", "audio": {"input": audio_input}}
     return json.dumps({"type": "session.update", "session": session})
 
