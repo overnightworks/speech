@@ -20,7 +20,6 @@ from proof_identity import Minting, mint_pair
 from speech_runtime_client.hearing import (
     HearingSession,
     realtime_url,
-    session_update,
 )
 from speech_runtime_client.wire import (
     MODEL,
@@ -107,10 +106,6 @@ def hear_file(
         message = f"the file route answered {response.status_code}"
         raise SystemExit(message)
     return seconds, Transcription.model_validate_json(response.content).text
-
-
-live_url = realtime_url
-update_event = session_update
 
 
 async def receive_turn(
