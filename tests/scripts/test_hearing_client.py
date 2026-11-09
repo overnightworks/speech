@@ -71,7 +71,9 @@ def test_a_refused_upgrade_gives_the_status_and_the_code_that_refused_it() -> No
         )
 
     async def scenario() -> object:
-        async with serve(unreachable, "127.0.0.1", 0, process_request=refuse) as server:
+        async with serve(
+            never_handles, "127.0.0.1", 0, process_request=refuse
+        ) as server:
             port = server.sockets[0].getsockname()[1]
             service = SimpleNamespace(
                 base_url=f"http://127.0.0.1:{port}", minting=MINTING
@@ -83,7 +85,7 @@ def test_a_refused_upgrade_gives_the_status_and_the_code_that_refused_it() -> No
     assert outcome == Refused(HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE)
 
 
-async def unreachable(_: ServerConnection) -> None:
+async def never_handles(_: ServerConnection) -> None:
     """The handler of a service that refuses every upgrade before it runs."""
 
 

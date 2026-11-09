@@ -147,7 +147,7 @@ def _refusal_code(body: bytes) -> RefusalCode | None:
 
 
 # In order: a timeout is an `OSError` too. A dropped handshake is the one
-# `InvalidMessage` that is `Cut`; the run below handles it first.
+# `InvalidMessage` that is `Cut`; `_session` handles it first.
 _FAILURE_OUTCOMES: tuple[tuple[type[Exception], HearingOutcome], ...] = (
     (TimeoutError, PastDeadline()),
     (InvalidHandshake, Malformed()),

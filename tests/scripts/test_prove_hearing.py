@@ -457,7 +457,9 @@ def taken_card(
     health: Health,
     file_response: httpx2.Response,
     freed: bool,
-    accepts_upgrade: bool = False,
+    live_outcome: object = Refused(
+        HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE
+    ),
 ) -> dict[str, object]:
     smi.use(100)
 
@@ -474,9 +476,7 @@ def taken_card(
         )
 
     async def upgrade(_: object) -> object:
-        if accepts_upgrade:
-            return None
-        return Refused(HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE)
+        return live_outcome
 
     ports = HEARING.Ports(
         hold=hold,
@@ -537,7 +537,7 @@ def test_a_taken_card_that_accepts_the_live_upgrade_is_a_failure(
         health=HEALTH_NO_HEARING,
         file_response=unavailable(),
         freed=True,
-        accepts_upgrade=True,
+        live_outcome=None,
     )
 
     assert result["failures"] == ["the live upgrade did not answer 503 unavailable"]
@@ -677,3 +677,18 @@ def test_the_record_is_on_disk_after_each_language_and_each_stage(
     assert first_language["models"] == {}
     assert list(second_language["models"]["small"]["languages"]) == ["de"]
     assert first_peak["models"]["small"]["status"] == "measured"
+
+
+def test_a_taken_card_names_a_live_outcome_that_is_not_a_refusal(
+    smi: FakeNvidiaSmi,
+) -> None:
+    result = taken_card(
+        smi,
+        health=HEALTH_NO_HEARING,
+        file_response=unavailable(),
+        freed=True,
+        live_outcome=Unreachable(),
+    )
+
+    live = result["refusals"]["live"]  # type: ignore[index]
+    assert live["outcome"] == repr(Unreachable())
