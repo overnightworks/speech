@@ -58,16 +58,14 @@ async def _hears(connection: ServerConnection) -> None:
     await connection.close()
 
 
-def _session(
-    port: int, deadline_seconds: float = 5, held_limit_bytes: int = 1
-) -> HearingSession:
+def _session(port: int, deadline_seconds: float = 5) -> HearingSession:
     return HearingSession(
         f"http://{LOOPBACK}:{port}",
         workload_token=WORKLOAD_TOKEN,
         person_token=PERSON_TOKEN,
         language=HearingLanguage.DE,
         deadline_seconds=deadline_seconds,
-        held_limit_bytes=held_limit_bytes,
+        held_limit_bytes=1,
     )
 
 
@@ -284,14 +282,11 @@ def test_a_caller_leaving_a_service_that_ignores_the_close_is_not_held_by_it() -
 def test_a_caller_cancelled_while_leaving_a_stalled_service_is_not_held_by_it() -> None:
     async def scenario() -> float:
         async with _stalled_service() as (port, opened):
-            started = 0.0
+            started = time.monotonic()
             with contextlib.suppress(TimeoutError):
-                async with _session(port, 1):
-                    await opened.wait()
-                    started = time.monotonic()
-                    async with asyncio.timeout(0.3):
-                        await asyncio.sleep(0)
-                        await asyncio.Event().wait()
+                async with asyncio.timeout(0.3):
+                    async with _session(port, 30):
+                        await opened.wait()
             return time.monotonic() - started
 
     assert asyncio.run(scenario()) < CLOSE_TIMEOUT_SECONDS / 2
