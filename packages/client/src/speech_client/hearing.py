@@ -190,18 +190,15 @@ async def _settled(*tasks: asyncio.Task[object]) -> None:
     """
     for task in tasks:
         task.cancel()
-    landed: asyncio.CancelledError | None = None
-    while not all(task.done() for task in tasks):
-        try:
-            await asyncio.wait(tasks)
-        except asyncio.CancelledError as cancel:
-            landed = cancel
+    try:
+        await asyncio.wait(tasks)
+    except asyncio.CancelledError:
+        await _settled(*tasks)
+        raise
     failures = [task.exception() for task in tasks if not task.cancelled()]
     for failure in failures:
         if failure is not None and not isinstance(failure, _FAILURES):
             raise failure
-    if landed is not None:
-        raise landed
 
 
 async def _abandoned(opening: asyncio.Task[ClientConnection]) -> None:
@@ -313,7 +310,7 @@ class HearingSession:
             raise
         finally:
             # Wakes a caller waiting in `events()`; when an event is still queued,
-            # that caller sees the outcome after taking it.
+            # that caller sees the session ended after taking it.
             with contextlib.suppress(asyncio.QueueFull):
                 self._received.put_nowait(None)
 
