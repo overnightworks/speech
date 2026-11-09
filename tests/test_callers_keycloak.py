@@ -24,6 +24,7 @@ from speech_runtime_client.wire import (
 )
 from tests.support.identity_support import MINTING
 from tests.support.keycloak_support import (
+    AGENT_CLIENT,
     APP_CLIENT,
     AUDIENCE_SCOPE,
     OTHER_CLIENT,
@@ -32,6 +33,7 @@ from tests.support.keycloak_support import (
     WORKLOAD_ROLE,
     audiences_of,
     claims_of,
+    exchanged_token,
     keycloak_callers,
     person_token,
     token_response,
@@ -169,5 +171,60 @@ def test_a_person_missing_the_app_or_the_service_group_is_forbidden(
 ) -> None:
     """WIRE-15, WIRE-98: a person missing the app or the service group is forbidden."""
     response = speak(wire, workload_token(APP_CLIENT), person_token(user))
+
+    assert_refusal(response, HTTP_403_FORBIDDEN, RefusalCode.FORBIDDEN, None)
+
+
+def assert_exchanged_for_the_app(subject_token: str, exchanged: str) -> None:
+    subject_claims = claims_of(subject_token)
+    claims = claims_of(exchanged)
+
+    assert claims["azp"] == APP_CLIENT
+    assert claims["sub"] == subject_claims["sub"]
+    assert MINTING.audience in audiences_of(claims)
+    assert {SERVICE_GROUP, APP_GROUP} <= set(claims["groups"])
+
+
+def test_an_agent_token_exchanged_by_its_app_speaks(wire: TestClient) -> None:
+    """WIRE-15: an agent's token exchanged by its app speaks."""
+    agent = person_token("mozart", client=AGENT_CLIENT, with_audience=False)
+    exchanged = exchanged_token(agent)
+
+    assert_exchanged_for_the_app(agent, exchanged)
+    response = speak(wire, workload_token(APP_CLIENT), exchanged)
+
+    assert response.status_code == HTTP_200_OK
+    assert info_comment_before_data(response.content) is not None
+
+
+def test_an_agent_service_account_token_exchanged_by_its_app_speaks(
+    wire: TestClient,
+) -> None:
+    """WIRE-15: a service account's token exchanged by its app speaks."""
+    agent = workload_token(AGENT_CLIENT, with_audience=False)
+    exchanged = exchanged_token(agent)
+
+    assert_exchanged_for_the_app(agent, exchanged)
+    response = speak(wire, workload_token(APP_CLIENT), exchanged)
+
+    assert response.status_code == HTTP_200_OK
+
+
+def test_an_exchanged_agent_outside_the_service_group_is_forbidden(
+    wire: TestClient,
+) -> None:
+    """WIRE-15, WIRE-98: an exchanged agent outside the service group is forbidden."""
+    agent = person_token("salieri", client=AGENT_CLIENT, with_audience=False)
+
+    response = speak(wire, workload_token(APP_CLIENT), exchanged_token(agent))
+
+    assert_refusal(response, HTTP_403_FORBIDDEN, RefusalCode.FORBIDDEN, None)
+
+
+def test_an_unexchanged_agent_token_is_forbidden(wire: TestClient) -> None:
+    """WIRE-15, WIRE-98: an agent token whose `azp` is its own client is forbidden."""
+    agent = person_token("mozart", client=AGENT_CLIENT)
+
+    response = speak(wire, workload_token(APP_CLIENT), agent)
 
     assert_refusal(response, HTTP_403_FORBIDDEN, RefusalCode.FORBIDDEN, None)

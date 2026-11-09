@@ -30,6 +30,7 @@ APP_CLIENT = MINTING.client_id
 OTHER_CLIENT = "other-client"
 ROLELESS_CLIENT = "roleless-client"
 UNSCOPED_CLIENT = "unscoped-client"
+AGENT_CLIENT = "agent-client"
 
 
 def realm_url() -> str:
@@ -106,6 +107,25 @@ def person_token(
             "password": f"{user}-test-password",
         }
         | _scope(with_audience=with_audience)
+    )
+
+
+def exchanged_token(subject_token: str, client: str = APP_CLIENT) -> str:
+    """`subject_token` exchanged at `client` through standard token exchange.
+
+    The audience scope is asked for because the exchanged token takes its
+    audience from the requesting client's scopes.
+    """
+    return _issued(
+        {
+            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+            "client_id": client,
+            "client_secret": f"{client}-secret",
+            "subject_token": subject_token,
+            "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+            "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
+        }
+        | _scope(with_audience=True)
     )
 
 
