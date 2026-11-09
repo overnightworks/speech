@@ -174,8 +174,10 @@ def test_speech_only_cuts_the_silence_at_both_ends() -> None:
 
 
 def test_speech_only_refuses_a_clip_without_speech() -> None:
+    clip = tone(1.0, amplitude=0)
+
     with pytest.raises(figures.ClipError, match="holds no speech"):
-        figures.speech_only(tone(1.0, amplitude=0))
+        figures.speech_only(clip)
 
 
 def test_a_clip_that_reaches_the_turn_cap_is_refused() -> None:
