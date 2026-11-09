@@ -1,0 +1,7 @@
+claim_id = "0505d66264904d04a589d3fbd25477e5"
+agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
+role = "builder"
+base = "8d936c3104a0f4c28288bff0195c869b407d385b"
+branch = "claude/issue-241-an-early-leave-logs-no-crash"
+scope = ["src/speech_service/live_session.py", "src/speech_service/wire_route.py", "tests/test_wire_route_early_leave.py"]
+opened_commit = "466ec207a6b5f697561edcc575870ebed303fc80"
