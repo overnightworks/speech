@@ -91,6 +91,7 @@ from prove_speech import (
     run_under_lock,
     wait_for_load,
 )
+from speech_client.hearing import Refused
 from speech_client.wire import (
     RefusalCode,
     refusal,
@@ -115,7 +116,7 @@ FORBIDDEN_EXECUTABLES: Final = ("git", "uv", "gcc", "cc")
 # What caller.py reports for a connection nothing listens on.
 REFUSED_CONNECTION: Final = "ConnectionRefusedError"
 # What live.py reports for an upgrade the service refused.
-REFUSED_UPGRADE: Final = "InvalidStatus"
+REFUSED_UPGRADE: Final = Refused.__name__
 FOREIGN_LANGUAGE: Final = "fr"
 # The setting a missing model is reported under, in the environment and the log.
 HEARING_MODEL_SETTING: Final = (
@@ -391,7 +392,7 @@ def cell_hearing_refusals(session: Session, wav: bytes) -> None:
 
 def cell_live_turn(session: Session, wav: bytes) -> None:
     """Cell 17: a live turn over the WebSocket ends in a final."""
-    outcome = session.hear_live(session.admitted_headers(), wav)
+    outcome = session.hear_live(session.pair(), wav)
     require_final(outcome, SENTENCE)
     session.heard.extend(live_texts(outcome))
     print(f"cell 17: held; final arrived after {len(outcome.partials)} partials")
@@ -509,7 +510,7 @@ def cell_hearing_negatives(session: Session, wav: bytes) -> None:
         naming="spool",
     )
     require_fails(
-        lambda: require_final(session.hear_live({}, wav), SENTENCE),
+        lambda: require_final(session.hear_live(None, wav), SENTENCE),
         "a live turn without tokens",
         naming=REFUSED_UPGRADE,
     )
