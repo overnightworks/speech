@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import subprocess
 import sys
-from typing import TYPE_CHECKING
+import time
+from typing import TYPE_CHECKING, Self
 
 import pytest
+from websockets.asyncio.server import serve
 
-from speech_client.hearing import Closed, Refused
+from speech_client.hearing import Closed, HearingSession, Refused
 from speech_client.outcomes import (
     Busy,
     Cut,
@@ -26,17 +29,25 @@ from speech_client.relay import (
     RuleBroken,
     relay,
 )
-from speech_client.wire import BusyWait, RefusalCode, TranscriptDelta
+from speech_client.wire import (
+    BusyWait,
+    HearingLanguage,
+    RefusalCode,
+    TranscriptDelta,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Mapping
+
+    from websockets.asyncio.server import ServerConnection
 
     from speech_client.hearing import HearingOutcome
     from speech_client.relay import RelayOutcome
     from speech_client.wire import ServerEvent
 
 FRAME_LIMIT = 8
-SECRET_WORDS = "heard-secret-words"
+CLOSE_TIMEOUT_SECONDS = 10
+SECRET_WORDS = "heard-secret-words"  # noqa: S105 - a scenario value
 DISCONNECT = {"type": "websocket.disconnect", "code": 1001}
 
 
@@ -69,7 +80,9 @@ class _Session:
     """A hearing session that gives its events, then its outcome, or never ends."""
 
     def __init__(
-        self, events: list[ServerEvent] | None = None, ends: HearingOutcome | None = None
+        self,
+        events: list[ServerEvent] | None = None,
+        ends: HearingOutcome | None = None,
     ) -> None:
         self._events = events or []
         self._ends = ends
@@ -77,7 +90,7 @@ class _Session:
         self.sent: list[bytes] = []
         self.left = False
 
-    async def __aenter__(self) -> _Session:
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, *_: object) -> None:
@@ -221,9 +234,7 @@ def test_the_session_events_go_to_the_app_in_order() -> None:
     async def take(event: ServerEvent) -> None:
         seen.append(event)
 
-    asyncio.run(
-        _hop(_Browser([]), _Session(events, ends=Closed()), on_event=take)
-    )
+    asyncio.run(_hop(_Browser([]), _Session(events, ends=Closed()), on_event=take))
 
     assert seen == events
 
@@ -260,9 +271,7 @@ def test_the_hop_logs_nothing_and_no_outcome_names_heard_text(
     events: list[ServerEvent] = [TranscriptDelta(item_id="i", delta=SECRET_WORDS)]
     caplog.set_level(logging.DEBUG)
 
-    ended = asyncio.run(
-        _hop(_Browser([_text(SECRET_WORDS)]), _Session(events))
-    )
+    ended = asyncio.run(_hop(_Browser([_text(SECRET_WORDS)]), _Session(events)))
 
     assert not [r for r in caplog.records if r.name.startswith("speech_client")]
     assert SECRET_WORDS not in repr(ended)
@@ -286,3 +295,56 @@ def test_the_relay_needs_no_starlette_to_be_imported() -> None:
     )
 
     assert done.returncode == 0
+
+
+@contextlib.asynccontextmanager
+async def _stalled_service() -> AsyncIterator[tuple[str, asyncio.Event]]:
+    """A service that reads the first frame, then stops reading and never pings."""
+    opened = asyncio.Event()
+    released = asyncio.Event()
+
+    async def stalls(connection: ServerConnection) -> None:
+        await connection.recv()
+        opened.set()
+        connection.transport.pause_reading()
+        await released.wait()
+
+    async with serve(
+        stalls, "127.0.0.1", 0, close_timeout=0.2, ping_interval=None
+    ) as server:
+        try:
+            yield f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}", opened
+        finally:
+            released.set()
+
+
+def test_a_hop_cut_while_the_service_stalls_leaves_nothing_to_wait_for() -> None:
+    async def scenario() -> None:
+        async with _stalled_service() as (service_url, opened):
+            session = HearingSession(
+                service_url,
+                workload_token="workload",  # noqa: S106 - a scenario value
+                person_token="person",  # noqa: S106 - a scenario value
+                language=HearingLanguage.EN,
+                deadline_seconds=30,
+                held_limit_bytes=1,
+            )
+            app_ended = asyncio.Event()
+            hop = asyncio.create_task(
+                relay(
+                    _Browser([]),
+                    session,
+                    app_ended=app_ended,
+                    on_event=_no_events,
+                    frame_limit_bytes=FRAME_LIMIT,
+                )
+            )
+            await opened.wait()
+            app_ended.set()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(hop, 0.1)
+
+    started = time.monotonic()
+    asyncio.run(scenario())
+
+    assert time.monotonic() - started < CLOSE_TIMEOUT_SECONDS / 2

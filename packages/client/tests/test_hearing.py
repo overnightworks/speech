@@ -372,10 +372,20 @@ def test_leaving_the_context_closes_the_connection_with_the_normal_code() -> Non
     assert asyncio.run(scenario()) == CLOSE_NORMAL
 
 
-def test_a_base_url_that_is_not_an_origin_raises_value_error() -> None:
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://host/path",
+        "http://127.0.0.1:1#fragment",
+        "http://127.0.0.1:1?query=1",
+        "http://127.0.0.1:1/?",
+        "http://127.0.0.1:1#",
+    ],
+)
+def test_a_base_url_that_is_not_an_origin_raises_value_error(base_url: str) -> None:
     with pytest.raises(ValueError, match="base_url"):
         HearingSession(
-            "http://host/path",
+            base_url,
             workload_token=WORKLOAD_TOKEN,
             person_token=PERSON_TOKEN,
             language=HearingLanguage.DE,

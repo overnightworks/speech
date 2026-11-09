@@ -160,7 +160,7 @@ async def relay(
                 end.cancel()
             await asyncio.gather(*ends, return_exceptions=True)
         # `result` raises a failure of the app's event handling.
-        outcome = [end.result() for end in ends if not end.cancelled()][0]
+        outcome, *_ = (end.result() for end in ends if not end.cancelled())
         code = _close_for(outcome)
         if code is not None:
             await browser.close(code)

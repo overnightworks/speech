@@ -37,7 +37,7 @@ flowchart LR
   tag brings, with the Piper voice, the `small` hearing model and the
   caller table baked in; the release builds, attests and pushes it to GHCR, see
   [Delivery](#delivery). `scripts/prove_image.py` proves it.
-- `packages/client`: the wire types an app and the service share, the bounded speaking call, the bounded health fetch and the live hearing session (`HearingSession`: frames held up to a caller-set byte limit, typed server events, one closed outcome union) an app makes.
+- `packages/client`: the wire types an app and the service share, the bounded speaking call, the bounded health fetch and the live hearing session (`HearingSession`: frames held up to a caller-set byte limit, typed server events, one closed outcome union) an app makes, and `speech_client.relay`, which an app mounts behind its own login check to forward a browser's binary audio frames to that session and hand the typed events to the app, never to the browser.
 - `providers/*`: the voices that run in their own processes and environments. Each is its own uv project with its own lock; `providers/provider-contract` is the shared source the others install from. The client in `packages/client` is a uv workspace member of the root.
 
 ### Speaking
@@ -153,6 +153,10 @@ The root is read-only, the user is not root and no capability is kept.
   no spoken or heard text reaches a log. Each live turn logs its timings, and
   nothing it heard.
 - A refusal never says which token or claim failed beyond its code.
+- The browser hop of the client's relay is the app's: its frames are untrusted
+  and bounded (a text frame or a frame over the app's limit ends it with a named
+  close code), admission is the app's, and the tokens stay on the app's server,
+  so the browser sees neither a token nor an event.
 
 ## Constraints and reasons
 
