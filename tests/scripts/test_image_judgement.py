@@ -468,9 +468,7 @@ def test_a_tmp_back_at_its_start_passes() -> None:
 @pytest.mark.parametrize(
     ("outcome", "fault"),
     [
-        pytest.param(
-            LiveOutcome(None, (), "InvalidStatus"), "InvalidStatus", id="error"
-        ),
+        pytest.param(LiveOutcome(None, (), "Refused"), "Refused", id="error"),
         pytest.param(
             LiveOutcome("Guten Tag zusammen", ("Guten",), None), "no word", id="text"
         ),

@@ -21,9 +21,8 @@ from image_judgement import (
     require_marked_wav,
     seconds_to_healthy,
 )
-from proof_identity import mint_pair
+from proof_identity import TokenPair, mint_pair
 from prove_speech import SENTENCE
-from speech_client.hearing import realtime_url, session_update
 from speech_client.wire import (
     CONTENT_TYPE_HEADER,
     MODEL,
@@ -42,7 +41,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from image_judgement import BakedCaller
-    from proof_identity import Minting, TokenPair
+    from proof_identity import Minting
     from speech_service.config import CallerConfig
     from speech_service.voices import VoiceId
 
@@ -293,13 +292,17 @@ class Session:
         """Post `wav` to the file route."""
         return self.post_recording(headers, recording_form(wav, language))
 
-    def hear_live(self, headers: Mapping[str, str], wav: bytes) -> LiveOutcome:
-        """One live turn over the Realtime WebSocket, from the caller container."""
-        no_json = {k: v for k, v in headers.items() if k != CONTENT_TYPE_HEADER}
+    def hear_live(self, tokens: TokenPair | None, wav: bytes) -> LiveOutcome:
+        """One live turn through the client's session, from the caller container.
+
+        Without `tokens` the session offers empty ones, as a caller with none would.
+        """
+        offered = tokens or TokenPair(workload="", person="")
         specification = {
-            "url": realtime_url(self.service_url),
-            "headers": no_json,
-            "session_update": session_update(HearingLanguage.DE),
+            "base_url": self.service_url,
+            "workload_token": offered.workload,
+            "person_token": offered.person,
+            "language": HearingLanguage.DE.value,
             "frames": live_frames(wav),
             "pace_seconds": LIVE_PACE_SECONDS,
             "wait_seconds": LIVE_WAIT_SECONDS,
