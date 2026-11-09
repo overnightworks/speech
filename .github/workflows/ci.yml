@@ -165,8 +165,8 @@ jobs:
           exit 1
 
       - name: Token shapes and the caller check with real tokens
-        # One module against one Keycloak container: its tests share the realm's
-        # users and sessions, so workers would race on that state; it stays serial.
+        # One small module against one local Keycloak: each xdist worker would
+        # rebuild its module-scoped app and gain nothing, so it stays serial.
         run: uv run --locked pytest -p no:cacheprovider tests/test_callers_keycloak.py -m keycloak -v -rP
 
       - name: Keycloak log on failure
