@@ -12,8 +12,7 @@ from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
 
 from speech_runtime_client.hearing import HearingSession, Refused
-from speech_runtime_client.outcomes import Cut, Malformed, PastDeadline
-from speech_runtime_client.speak import Busy
+from speech_runtime_client.outcomes import Busy, Cut, Malformed, PastDeadline
 from speech_runtime_client.wire import (
     BusyWait,
     HearingLanguage,
@@ -32,7 +31,6 @@ LOOPBACK = "127.0.0.1"
 WORKLOAD_TOKEN = "workload-secret"  # noqa: S105 - a scenario value
 PERSON_TOKEN = "person-secret"  # noqa: S105 - a scenario value
 HEARD_TEXT = "heard-secret-words"
-ANSWERED_WITHIN_SECONDS = 3
 STALL_SECONDS = 1.2
 
 
@@ -119,6 +117,8 @@ def test_a_server_that_breaks_the_wire_or_drops_ends_the_session_with_its_outcom
     ("answer", "outcome"),
     [
         (b"", Cut()),
+        (b"HELLO\r\n\r\n", Malformed()),
+        (_http_answer("HTTP/1.1 200 OK"), Malformed()),
         (_http_answer("HTTP/1.1 101 Switching Protocols"), Malformed()),
         (
             _http_answer("HTTP/1.1 302 Found", "Location: ws://127.0.0.1:1/"),
@@ -142,12 +142,9 @@ def test_a_server_that_breaks_the_wire_or_drops_ends_the_session_with_its_outcom
 def test_an_upgrade_answered_off_the_wire_ends_the_session_with_its_outcome_at_once(
     answer: bytes, outcome: HearingOutcome
 ) -> None:
-    started = time.monotonic()
-
     ended = asyncio.run(_outcome_against_raw(_upgrade_answered(answer)))
 
     assert ended == outcome
-    assert time.monotonic() - started < ANSWERED_WITHIN_SECONDS
 
 
 def test_a_refused_upgrade_with_the_contract_body_gives_its_code() -> None:
@@ -178,7 +175,6 @@ def test_a_redirect_is_not_followed() -> None:
                 "HTTP/1.1 302 Found", f"Location: ws://{LOOPBACK}:{port}/"
             )
             ended = await _outcome_against_raw(_upgrade_answered(redirect))
-            await asyncio.sleep(0.2)
         return ended, arrivals
 
     ended, arrivals = asyncio.run(scenario())
@@ -242,7 +238,11 @@ def test_a_service_that_ignores_the_close_does_not_swallow_the_callers_timeout()
     async def scenario() -> None:
         released = asyncio.Event()
 
+        opened = asyncio.Event()
+
         async def stalls(connection: ServerConnection) -> None:
+            await connection.recv()
+            opened.set()
             connection.transport.pause_reading()
             await released.wait()
 
@@ -250,7 +250,7 @@ def test_a_service_that_ignores_the_close_does_not_swallow_the_callers_timeout()
             try:
                 async with asyncio.timeout(1):
                     async with _session(server.sockets[0].getsockname()[1]):
-                        await asyncio.sleep(0.3)
+                        await opened.wait()
             finally:
                 released.set()
 

@@ -575,7 +575,12 @@ def prove_taken_card(
             "live": {
                 "status": live_status,
                 "code": live_code,
-            },
+            }
+            | (
+                {}
+                if live is None or isinstance(live, Refused)
+                else {"outcome": repr(live)}
+            ),
         },
         "freed_afterwards": freed,
         "failures": failures + ([] if freed else ["the card was not freed"]),

@@ -21,7 +21,7 @@ Realtime events and the refusal list; build the body and read the refusals throu
 `speech_runtime_client.speak` makes the speaking call itself, within a total deadline and a
 byte cap, and answers with a typed outcome; its module documents them.
 `speech_runtime_client.health` fetches `GET /health` (WIRE-122) within a deadline and a
-cap and answers with a typed outcome; the outcomes both calls share live in
+cap and answers with a typed outcome; the outcomes the calls share live in
 `speech_runtime_client.outcomes`. `speech_runtime_client.hearing` runs the live hearing
 session: audio in, typed events out, one closed outcome when it ends, within a total deadline.
 

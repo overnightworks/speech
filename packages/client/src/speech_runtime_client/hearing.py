@@ -49,13 +49,13 @@ from websockets.exceptions import (
 )
 
 from speech_runtime_client.outcomes import (
+    Busy,
     Cut,
     Malformed,
     OverCap,
     PastDeadline,
     Unreachable,
 )
-from speech_runtime_client.speak import Busy
 from speech_runtime_client.wire import (
     REALTIME_INTENT,
     REALTIME_INTENT_PARAM,
@@ -146,11 +146,10 @@ def _refusal_code(body: bytes) -> RefusalCode | None:
         return None
 
 
-# In order: a timeout is an `OSError` too, and a dropped handshake an
-# `InvalidHandshake`.
+# In order: a timeout is an `OSError` too. A dropped handshake is the one
+# `InvalidMessage` that is `Cut`; the run below handles it first.
 _FAILURE_OUTCOMES: tuple[tuple[type[Exception], HearingOutcome], ...] = (
     (TimeoutError, PastDeadline()),
-    (InvalidMessage, Cut()),
     (InvalidHandshake, Malformed()),
     (ConnectionClosed, Cut()),
     (ServerEventError, Malformed()),
@@ -161,7 +160,7 @@ _FAILURES = tuple(kind for kind, _ in _FAILURE_OUTCOMES)
 
 def _refusal_outcome(refused: InvalidStatus) -> HearingOutcome:
     answer = refused.response
-    if HTTPStatus.MULTIPLE_CHOICES <= answer.status_code < HTTPStatus.BAD_REQUEST:
+    if answer.status_code < HTTPStatus.BAD_REQUEST:
         return Malformed()
     try:
         wait = busy_wait(answer.status_code, answer.headers)
@@ -281,6 +280,8 @@ class HearingSession:
                         await writer
         except InvalidStatus as refused:
             return _refusal_outcome(refused)
+        except InvalidMessage as unparsed:
+            return Cut() if isinstance(unparsed.__cause__, EOFError) else Malformed()
         except _FAILURES as failure:
             return next(
                 outcome
