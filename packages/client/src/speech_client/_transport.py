@@ -39,16 +39,22 @@ class Origin:
     port: int
 
 
-def checked_origin(base_url: str, deadline_seconds: float, cap_bytes: int) -> Origin:
+def base_origin(base_url: str) -> Origin:
     """The origin of `base_url`; a defect of the caller raises `ValueError`."""
     address = urlsplit(base_url)
     if address.scheme != "http" or not address.hostname or address.path:
         message = "base_url must be http://host[:port] with no path"
         raise ValueError(message)
+    return Origin(address.hostname, address.port or 80)
+
+
+def checked_origin(base_url: str, deadline_seconds: float, cap_bytes: int) -> Origin:
+    """The origin of `base_url`; a defect of the caller raises `ValueError`."""
+    origin = base_origin(base_url)
     if deadline_seconds <= 0 or cap_bytes <= 0:
         message = "deadline_seconds and cap_bytes must be above 0"
         raise ValueError(message)
-    return Origin(address.hostname, address.port or 80)
+    return origin
 
 
 class _DeadlineSocket(socket.socket):

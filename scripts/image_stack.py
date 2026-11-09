@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any, Final
 import httpx2
 
 import hearing_figures as figures
-from hearing_client import live_url, update_event
 from image_judgement import (
     TmpUsage,
     baked_caller,
@@ -24,6 +23,7 @@ from image_judgement import (
 )
 from proof_identity import mint_pair
 from prove_speech import SENTENCE
+from speech_client.hearing import realtime_url, session_update
 from speech_client.wire import (
     CONTENT_TYPE_HEADER,
     MODEL,
@@ -297,9 +297,9 @@ class Session:
         """One live turn over the Realtime WebSocket, from the caller container."""
         no_json = {k: v for k, v in headers.items() if k != CONTENT_TYPE_HEADER}
         specification = {
-            "url": live_url(self.service_url),
+            "url": realtime_url(self.service_url),
             "headers": no_json,
-            "session_update": update_event(HearingLanguage.DE),
+            "session_update": session_update(HearingLanguage.DE),
             "frames": live_frames(wav),
             "pace_seconds": LIVE_PACE_SECONDS,
             "wait_seconds": LIVE_WAIT_SECONDS,

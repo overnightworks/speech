@@ -85,8 +85,9 @@ overnightworks-speech-service @ git+https://github.com/overnightworks/speech@vX.
 ```
 
 The client carries the wire's types, the bounded speaking call
-(`speech_client.speak`) and the bounded health fetch
-(`speech_client.health`). The service is an application: its pin
+(`speech_client.speak`), the bounded health fetch
+(`speech_client.health`) and the live hearing session
+(`speech_client.hearing`). The service is an application: its pin
 installs the CPU path, and GPU hearing needs the pin with `[gpu]`.
 `scripts/check_release.py` holds the distributions at one version.
 

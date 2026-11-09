@@ -35,6 +35,7 @@ from pydantic import ValidationError
 
 from speech_client._transport import checked_origin, exchange, read_within
 from speech_client.outcomes import (
+    Busy,
     Cut,
     Malformed,
     OverCap,
@@ -43,7 +44,6 @@ from speech_client.outcomes import (
 )
 from speech_client.wire import (
     SPEECH_PATH,
-    BusyWait,
     Refusal,
     RefusalCode,
     RequestField,
@@ -101,13 +101,6 @@ class Refused:
     def param(self) -> RequestField | None:
         """The request field at fault, if any."""
         return self.refusal.error.param
-
-
-@dataclass(frozen=True, slots=True)
-class Busy:
-    """The service is busy and asks for a wait."""
-
-    wait: BusyWait
 
 
 type SpeakOutcome = (
