@@ -645,3 +645,92 @@ def test_a_partial_that_returns_after_its_turn_ended_adds_no_delta() -> None:
     socket = asyncio.run(scenario())
 
     assert socket.of_type(DELTA) == []
+
+
+def _timing_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [record for record in caplog.records if hasattr(record, "completed_ms")]
+
+
+def test_a_completed_turn_logs_one_line_with_its_timings(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def scenario() -> str:
+        engine = FakeHearing(hold=True)
+        clock = FakeClock()
+        hearing = loaded(engine, clock)
+        session, socket = await started(hearing, final_wait_seconds=WAIT_SECONDS)
+        await session.on_message(append(audio(0.5)))
+        await session.on_tick()
+        clock.jump(0.3)
+        engine.release.set()
+        await session.settled()
+        engine.release.clear()
+        engine.entered.clear()
+        running = hearing.gate.try_acquire()
+        assert running is not None
+        await session.on_message(commit())
+        await clock.until_a_wait_begins()
+        clock.jump(0.2)
+        running.close()
+        assert await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
+        clock.jump(0.5)
+        engine.release.set()
+        await session.settled()
+        return str(socket.of_type(COMPLETED)[0]["item_id"])
+
+    caplog.set_level(logging.INFO)
+
+    item_id = asyncio.run(scenario())
+
+    (record,) = _timing_records(caplog)
+    assert {
+        "item_id": record.item_id,
+        "ended_by": record.ended_by,
+        "audio_seconds": record.audio_seconds,
+        "wait_ms": record.wait_ms,
+        "decode_ms": record.decode_ms,
+        "completed_ms": record.completed_ms,
+        "partial_count": record.partial_count,
+        "partial_decode_ms": record.partial_decode_ms,
+    } == {
+        "item_id": item_id,
+        "ended_by": "client",
+        "audio_seconds": pytest.approx(0.5),
+        "wait_ms": 200,
+        "decode_ms": 500,
+        "completed_ms": 700,
+        "partial_count": 1,
+        "partial_decode_ms": 300,
+    }
+
+
+def test_a_failed_turn_logs_no_timings(caplog: pytest.LogCaptureFixture) -> None:
+    async def scenario() -> None:
+        engine = FakeHearing()
+        engine.fail_transcription = True
+        session, socket = await started(loaded(engine, FakeClock()))
+        await commit_a_turn(session)
+        await socket.until_closed()
+
+    caplog.set_level(logging.INFO)
+
+    asyncio.run(scenario())
+
+    assert _timing_records(caplog) == []
+
+
+def test_the_timing_line_holds_none_of_the_heard_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def scenario() -> None:
+        session, _ = await started(loaded(FakeHearing(), FakeClock()))
+        await commit_a_turn(session)
+        await session.settled()
+
+    caplog.set_level(logging.DEBUG)
+
+    asyncio.run(scenario())
+
+    (record,) = _timing_records(caplog)
+    assert HEARD_TEXT not in str(record.__dict__)
+    assert HEARD_TEXT not in caplog.text

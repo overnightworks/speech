@@ -150,7 +150,8 @@ The root is read-only, the user is not root and no capability is kept.
 - Which issuer, group and apps count is configuration
   (`SPEECH_CONFIG_FILE`).
 - No token, subject or key-set address reaches a log, an error or a repr, and
-  no spoken or heard text reaches a log.
+  no spoken or heard text reaches a log. Each live turn logs its timings, and
+  nothing it heard.
 - A refusal never says which token or claim failed beyond its code.
 
 ## Constraints and reasons
