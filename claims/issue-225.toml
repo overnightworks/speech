@@ -1,8 +1,0 @@
-claim_id = "09038f1f2aa8401aabf17e418594e7f9"
-agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
-role = "builder"
-base = "ad96de1321db357e9d4b8e5edb3d6e152f709adf"
-branch = "claude/issue-225-the-repository-takes-the-stem-speech"
-scope = ["AGENTS.md", "Dockerfile", "README.md", "compose.yaml", "docs", "packages/client", "providers", "pyproject.toml", "quality/config.toml", "scripts", "sonar-project.properties", "src", "tests", "uv.lock"]
-opened_commit = "3fcaa77d6146d4fb35124c02fcf1162f7f3d0f63"
-whole_reason = "One rename: every name moves to the stem speech in one switch without a compatibility layer, or imports, locks and CI break."
