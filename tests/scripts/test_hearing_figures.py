@@ -167,6 +167,17 @@ def test_silence_before_and_after_the_speech_is_not_a_pause() -> None:
     assert figures.check_continuous_turn(clip) == pytest.approx(5.0)
 
 
+def test_speech_only_cuts_the_silence_at_both_ends() -> None:
+    clip = tone(1.0, amplitude=0) + tone(2.0) + tone(1.0, amplitude=0)
+
+    assert figures.speech_only(clip) == tone(2.0)
+
+
+def test_speech_only_refuses_a_clip_without_speech() -> None:
+    with pytest.raises(figures.ClipError, match="holds no speech"):
+        figures.speech_only(tone(1.0, amplitude=0))
+
+
 def test_a_clip_that_reaches_the_turn_cap_is_refused() -> None:
     clip = tone(29.5)
 
