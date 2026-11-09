@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
 import time
 from dataclasses import dataclass
@@ -13,43 +12,37 @@ from typing import TYPE_CHECKING
 import httpx2
 from pydantic import ValidationError
 from websockets.asyncio.client import connect
-from websockets.exceptions import ConnectionClosed, InvalidStatus
+from websockets.exceptions import InvalidStatus
 
 import hearing_figures as figures
 from hearing_figures import LiveTurn
 from proof_identity import Minting, mint_pair
+from speech_runtime_client.hearing import (
+    HearingSession,
+    realtime_url,
+    session_update,
+)
 from speech_runtime_client.wire import (
     MODEL,
-    REALTIME_INTENT,
-    REALTIME_INTENT_PARAM,
-    REALTIME_PATH,
     TRANSCRIPTIONS_PATH,
-    AudioAppend,
     ErrorEvent,
     HearingLanguage,
     Refusal,
-    SessionAudio,
-    SessionInput,
-    SessionUpdate,
     TranscriptCompleted,
     TranscriptDelta,
     TranscriptFailed,
     Transcription,
     TranscriptionRequest,
-    TranscriptionSession,
-    TranscriptionSetting,
-    parse_server_event,
     token_headers,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
-
-    from websockets.asyncio.client import ClientConnection
+    from collections.abc import AsyncIterator, Callable, Sequence
 
     from prove_speech import (
         RunningSpeech,
     )
+    from speech_runtime_client.wire import ServerEvent
 
 
 LIVE_WAIT_SECONDS = 180.0
@@ -116,51 +109,17 @@ def hear_file(
     return seconds, Transcription.model_validate_json(response.content).text
 
 
-def live_url(base_url: str) -> str:
-    """The Realtime transcription WebSocket of the service at `base_url`."""
-    return (
-        f"ws{base_url.removeprefix('http')}{REALTIME_PATH}"
-        f"?{REALTIME_INTENT_PARAM}={REALTIME_INTENT}"
-    )
-
-
-def update_event(language: HearingLanguage) -> str:
-    """The one `session.update` that sets the language of a session."""
-    update = SessionUpdate(
-        type="session.update",
-        session=TranscriptionSession(
-            type="transcription",
-            audio=SessionAudio(
-                input=SessionInput(
-                    transcription=TranscriptionSetting(language=language)
-                )
-            ),
-        ),
-    )
-    return update.model_dump_json(exclude_none=True)
-
-
-async def _send_paced(
-    socket: ClientConnection, frames: Sequence[bytes], started: float
-) -> None:
-    """Send each frame when its audio would have been spoken, as a microphone does."""
-    for index, frame in enumerate(frames, start=1):
-        due = started + index * figures.FRAME_SECONDS
-        await asyncio.sleep(max(0.0, due - time.monotonic()))
-        append = AudioAppend(
-            type="input_audio_buffer.append", audio=base64.b64encode(frame).decode()
-        )
-        await socket.send(append.model_dump_json(exclude_none=True))
+live_url = realtime_url
+update_event = session_update
 
 
 async def receive_turn(
-    socket: ClientConnection, question_seconds: float, started: float
+    events: AsyncIterator[ServerEvent], question_seconds: float, started: float
 ) -> LiveTurn:
     """Read server events until the turn completes and return its figures."""
     delta_seconds: list[float] = []
     deltas: list[str] = []
-    async for message in socket:
-        event = parse_server_event(message)
+    async for event in events:
         elapsed = time.monotonic() - started
         if isinstance(event, TranscriptDelta):
             delta_seconds.append(elapsed)
@@ -180,28 +139,37 @@ async def receive_turn(
     raise SystemExit(failure)
 
 
+async def _send_paced(session: HearingSession, frames: Sequence[bytes]) -> None:
+    """Send each frame when its audio would have been spoken, as a microphone does."""
+    started = time.monotonic()
+    for index, frame in enumerate(frames, start=1):
+        due = started + index * figures.FRAME_SECONDS
+        await asyncio.sleep(max(0.0, due - time.monotonic()))
+        session.send(frame)
+
+
 async def hear_live(
     service: Service, language: HearingLanguage, pcm: bytes
 ) -> LiveTurn:
     """Stream one turn at speaking pace and watch for its deltas and its final."""
     question_seconds = figures.seconds_of(pcm)
     frames = figures.frames_with_closing_silence(pcm)
-    async with connect(
-        live_url(service.base_url),
-        additional_headers=minted_headers(service.minting),
-        open_timeout=LIVE_WAIT_SECONDS,
-    ) as socket:
-        await socket.send(update_event(language))
+    pair = mint_pair(service.minting)
+    async with HearingSession(
+        service.base_url,
+        workload_token=pair.workload,
+        person_token=pair.person,
+        language=language,
+        deadline_seconds=question_seconds + LIVE_WAIT_SECONDS,
+        held_limit_bytes=sum(map(len, frames)),
+    ) as session:
         started = time.monotonic()
-        sender = asyncio.create_task(_send_paced(socket, frames, started))
+        sender = asyncio.create_task(_send_paced(session, frames))
         try:
-            return await asyncio.wait_for(
-                receive_turn(socket, question_seconds, started),
-                question_seconds + LIVE_WAIT_SECONDS,
-            )
+            return await receive_turn(session.events(), question_seconds, started)
         finally:
             sender.cancel()
-            with contextlib.suppress(asyncio.CancelledError, ConnectionClosed):
+            with contextlib.suppress(asyncio.CancelledError):
                 await sender
 
 
@@ -214,7 +182,7 @@ async def upgrade_refusal(
     """The answer that refuses a live upgrade, or `None` if it was accepted."""
     try:
         async with open_connection(
-            live_url(service.base_url),
+            realtime_url(service.base_url),
             additional_headers=minted_headers(service.minting),
         ):
             return None
