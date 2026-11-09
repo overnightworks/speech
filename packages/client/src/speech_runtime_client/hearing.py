@@ -281,11 +281,13 @@ class HearingSession:
                     writer.cancel()
                     with contextlib.suppress(asyncio.CancelledError, ConnectionClosed):
                         await writer
-                    if deadline.expired():
-                        # A polite close would wait for the peer past the deadline.
+                    try:
+                        if not deadline.expired():
+                            await socket.close()
+                    finally:
+                        # A stalled peer holds a polite close past the deadline or a
+                        # cancel; aborting after a completed close is a no-op.
                         socket.transport.abort()
-                    else:
-                        await socket.close()
         except InvalidStatus as refused:
             return _refusal_outcome(refused)
         except InvalidMessage as unparsed:

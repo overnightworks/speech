@@ -1,8 +1,9 @@
-"""The hearing session against peers that misbehave, which the real service does not."""
+"""The hearing session against scripted peers the real route cannot be made to play."""
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -10,6 +11,7 @@ from typing import TYPE_CHECKING
 import pytest
 from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
+from websockets.frames import CloseCode
 
 from speech_runtime_client.hearing import HearingSession, Refused
 from speech_runtime_client.outcomes import Busy, Cut, Malformed, PastDeadline
@@ -21,7 +23,7 @@ from speech_runtime_client.wire import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable
 
     from websockets.asyncio.server import ServerConnection
 
@@ -33,6 +35,7 @@ PERSON_TOKEN = "person-secret"  # noqa: S105 - a scenario value
 HEARD_TEXT = "heard-secret-words"
 STALL_SECONDS = 1.2
 CLOSE_TIMEOUT_SECONDS = 10
+CLOSE_NORMAL = CloseCode.NORMAL_CLOSURE
 
 
 async def _says_nonsense(connection: ServerConnection) -> None:
@@ -55,14 +58,16 @@ async def _hears(connection: ServerConnection) -> None:
     await connection.close()
 
 
-def _session(port: int, deadline_seconds: float = 5) -> HearingSession:
+def _session(
+    port: int, deadline_seconds: float = 5, held_limit_bytes: int = 1
+) -> HearingSession:
     return HearingSession(
         f"http://{LOOPBACK}:{port}",
         workload_token=WORKLOAD_TOKEN,
         person_token=PERSON_TOKEN,
         language=HearingLanguage.DE,
         deadline_seconds=deadline_seconds,
-        held_limit_bytes=1,
+        held_limit_bytes=held_limit_bytes,
     )
 
 
@@ -233,54 +238,108 @@ def test_the_sockets_log_at_debug_carries_no_token_and_no_heard_text(
         assert secret not in client_log
 
 
+@contextlib.asynccontextmanager
+async def _stalled_service() -> AsyncIterator[tuple[int, asyncio.Event]]:
+    """A service that reads the first frame, then stops reading; yields port, opened."""
+    released = asyncio.Event()
+    opened = asyncio.Event()
+
+    async def stalls(connection: ServerConnection) -> None:
+        await connection.recv()
+        opened.set()
+        connection.transport.pause_reading()
+        await released.wait()
+
+    async with serve(stalls, LOOPBACK, 0, close_timeout=0.2) as server:
+        try:
+            yield server.sockets[0].getsockname()[1], opened
+        finally:
+            released.set()
+
+
 def test_a_service_that_ignores_the_close_does_not_swallow_the_callers_timeout() -> (
     None
 ):
     async def scenario() -> None:
-        released = asyncio.Event()
-
-        opened = asyncio.Event()
-
-        async def stalls(connection: ServerConnection) -> None:
-            await connection.recv()
-            opened.set()
-            connection.transport.pause_reading()
-            await released.wait()
-
-        async with serve(stalls, LOOPBACK, 0, close_timeout=0.2) as server:
-            try:
-                async with asyncio.timeout(1):
-                    async with _session(server.sockets[0].getsockname()[1]):
-                        await opened.wait()
-            finally:
-                released.set()
+        async with _stalled_service() as (port, opened):
+            async with asyncio.timeout(1):
+                async with _session(port):
+                    await opened.wait()
 
     with pytest.raises(TimeoutError):
         asyncio.run(scenario())
+
+
+def test_a_caller_leaving_a_service_that_ignores_the_close_is_not_held_by_it() -> None:
+    async def scenario() -> float:
+        async with _stalled_service() as (port, opened):
+            async with _session(port, 1):
+                await opened.wait()
+                started = time.monotonic()
+            return time.monotonic() - started
+
+    assert asyncio.run(scenario()) < CLOSE_TIMEOUT_SECONDS / 2
+
+
+def test_a_caller_cancelled_while_leaving_a_stalled_service_is_not_held_by_it() -> None:
+    async def scenario() -> float:
+        async with _stalled_service() as (port, opened):
+            started = 0.0
+            with contextlib.suppress(TimeoutError):
+                async with _session(port, 1):
+                    await opened.wait()
+                    started = time.monotonic()
+                    async with asyncio.timeout(0.3):
+                        await asyncio.sleep(0)
+                        await asyncio.Event().wait()
+            return time.monotonic() - started
+
+    assert asyncio.run(scenario()) < CLOSE_TIMEOUT_SECONDS / 2
 
 
 def test_a_peer_that_stops_reading_does_not_hold_the_session_past_its_deadline() -> (
     None
 ):
     async def scenario() -> tuple[HearingOutcome | None, float]:
-        released = asyncio.Event()
-        opened = asyncio.Event()
-
-        async def stalls(connection: ServerConnection) -> None:
-            await connection.recv()
-            opened.set()
-            connection.transport.pause_reading()
-            await released.wait()
-
-        async with serve(stalls, LOOPBACK, 0, close_timeout=0.2) as server:
+        async with _stalled_service() as (port, _):
             started = time.monotonic()
-            try:
-                outcome = await _outcome_at(server.sockets[0].getsockname()[1], 1)
-            finally:
-                released.set()
+            outcome = await _outcome_at(port, 1)
             return outcome, time.monotonic() - started
 
     outcome, elapsed = asyncio.run(scenario())
 
     assert outcome == PastDeadline()
     assert elapsed < CLOSE_TIMEOUT_SECONDS / 2
+
+
+def test_leaving_the_context_closes_the_connection_with_the_normal_code() -> None:
+    async def scenario() -> int | None:
+        codes: list[int | None] = []
+        opened = asyncio.Event()
+
+        async def records(connection: ServerConnection) -> None:
+            await connection.recv()
+            opened.set()
+            await connection.wait_closed()
+            codes.append(connection.close_code)
+
+        async with (
+            serve(records, LOOPBACK, 0) as server,
+            _session(server.sockets[0].getsockname()[1]),
+        ):
+            await opened.wait()
+        return codes[0]
+
+    assert asyncio.run(scenario()) == CLOSE_NORMAL
+
+
+def test_a_base_url_that_is_not_an_origin_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="base_url"):
+        HearingSession(
+            "http://host/path",
+            workload_token=WORKLOAD_TOKEN,
+            person_token=PERSON_TOKEN,
+            language=HearingLanguage.DE,
+            deadline_seconds=1,
+            held_limit_bytes=1,
+        )
