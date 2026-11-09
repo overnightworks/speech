@@ -14,15 +14,15 @@ from unittest.mock import Mock
 
 import pytest
 
-from speech_runtime_client.outcomes import Unreachable
-from speech_runtime_client.wire import Health
+from speech_client.outcomes import Unreachable
+from speech_client.wire import Health
 from tests.support.clock_support import FakeClock
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from speech_runtime_client.health import HealthOutcome
+    from speech_client.health import HealthOutcome
 
 PROVE = script_module("prove_speech")
 PIPE_BYTES = 65536
@@ -293,7 +293,7 @@ threading.Event().wait()
 def test_the_default_start_never_blocks_a_service_that_logs_past_the_pipe(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    package = tmp_path / "packages" / "speech_runtime_service"
+    package = tmp_path / "packages" / "speech_service"
     package.mkdir(parents=True)
     (package / "__init__.py").write_text("")
     (package / "__main__.py").write_text(

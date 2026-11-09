@@ -6,17 +6,17 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.status import HTTP_200_OK, HTTP_503_SERVICE_UNAVAILABLE
 
-from speech_runtime_client.wire import HearingHealth, RefusalCode
-from speech_runtime_service import hearing_models
-from speech_runtime_service.clock import LoopClock
-from speech_runtime_service.config import Settings
-from speech_runtime_service.hearing import Hearing, ResourceUnavailableError
-from speech_runtime_service.hearing_models import (
+from speech_client.wire import HearingHealth, RefusalCode
+from speech_service import hearing_models
+from speech_service.clock import LoopClock
+from speech_service.config import Settings
+from speech_service.hearing import Hearing, ResourceUnavailableError
+from speech_service.hearing_models import (
     HearingModel,
     HearingModelMissingError,
 )
-from speech_runtime_service.service import Runtime, RuntimeDependencies
-from speech_runtime_service.voices import VoiceId
+from speech_service.service import Runtime, RuntimeDependencies
+from speech_service.voices import VoiceId
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.hear_support import (
     FakeHearing,

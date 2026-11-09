@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-from speech_runtime_provider_contract import (
+from speech_provider_contract import (
     MAX_PCM_BYTES,
     QWEN_ARTIFACTS,
     QWEN_DEVICE,

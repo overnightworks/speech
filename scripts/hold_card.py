@@ -14,7 +14,7 @@ import threading
 import ctranslate2
 import numpy as np
 
-from speech_runtime_service.cuda_libs import prepare_cuda_libraries
+from speech_service.cuda_libs import prepare_cuda_libraries
 
 MIB = 1024 * 1024
 STEPS_MIB = (512, 16)

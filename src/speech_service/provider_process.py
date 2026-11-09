@@ -18,7 +18,7 @@ from enum import Enum, StrEnum
 from pathlib import Path
 from typing import IO, TYPE_CHECKING
 
-from speech_runtime_provider_contract import (
+from speech_provider_contract import (
     Frame,
     FrameDecoder,
     FrameKind,
@@ -519,7 +519,7 @@ def provider_entrypoint(
         / provider.value
         / ".venv"
         / "bin"
-        / (f"speech-runtime-{provider.value}-worker")
+        / (f"speech-{provider.value}-worker")
     )
 
 

@@ -6,7 +6,7 @@ import os
 import signal
 from functools import partial
 
-from speech_runtime_provider_contract import (
+from speech_provider_contract import (
     QWEN_SAMPLE_RATE,
     ProviderFunctions,
     QwenSpeaker,
@@ -25,7 +25,7 @@ def main() -> int:
         install_parent_death_signal(arguments.expected_parent_pid)
     except RuntimeError:
         return 1
-    from speech_runtime_qwen.model import load_model, pcm_chunks
+    from speech_qwen.model import load_model, pcm_chunks
 
     return serve_provider(
         device=arguments.device,

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from speech_runtime_service.cuda_libs import cuda_library_dirs
+from speech_service.cuda_libs import cuda_library_dirs
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

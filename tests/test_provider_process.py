@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 from anyio import run, run_process
-from speech_runtime_provider_contract import (
+from speech_provider_contract import (
     MAX_FRAME_LENGTH,
     QWEN_MODEL_ID,
     QWEN_SAMPLE_RATE,
@@ -30,7 +30,7 @@ from speech_runtime_provider_contract import (
     write_frame,
 )
 
-from speech_runtime_service.provider_process import (
+from speech_service.provider_process import (
     ProviderFailedError,
     ProviderLaunch,
     ProviderNotReadyError,
@@ -38,8 +38,8 @@ from speech_runtime_service.provider_process import (
     ProviderProtocolError,
     UnsupportedLanguageError,
 )
-from speech_runtime_service.service import Runtime, RuntimeDependencies
-from speech_runtime_service.voices import VoiceId
+from speech_service.service import Runtime, RuntimeDependencies
+from speech_service.voices import VoiceId
 from tests.support.worker_support import (
     assert_reaped,
     closed_provider,
@@ -47,6 +47,7 @@ from tests.support.worker_support import (
     fail_every_reap,
     numba_cache,
     observed,
+    provider_worker,
     wait_for_starts,
 )
 
@@ -65,7 +66,7 @@ def _provider_process(root: Path, cache: Path) -> ProviderProcess:
         ProviderLaunch(
             model_name=QWEN_MODEL_ID,
             sample_rate=QWEN_SAMPLE_RATE,
-            executable=root / "qwen" / ".venv" / "bin" / "speech-runtime-qwen-worker",
+            executable=provider_worker(root),
             arguments=_qwen_arguments(cache),
         )
     )
@@ -207,7 +208,7 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
         return real_popen(arguments, **keywords)
 
     monkeypatch.setattr(
-        "speech_runtime_service.provider_process.subprocess.Popen", recording_popen
+        "speech_service.provider_process.subprocess.Popen", recording_popen
     )
     engine = _provider_process(root, cache)
     loaded = threading.Thread(target=engine.load)
@@ -250,7 +251,7 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
     assert all(environment[key] == value for key, value in expected_environment.items())
     [(launch_arguments, launch)] = launches
     assert launch_arguments == [
-        str(root / "qwen/.venv/bin/speech-runtime-qwen-worker"),
+        str(provider_worker(root)),
         "--expected-parent-pid",
         str(os.getpid()),
         *_qwen_arguments(cache),
@@ -362,12 +363,8 @@ def test_duplicate_terminal_is_rejected_before_a_later_request(tmp_path: Path) -
 def test_partial_cancel_frame_cannot_extend_the_single_drain_deadline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        "speech_runtime_service.provider_process.CANCEL_DRAIN_SECONDS", 0.05
-    )
-    monkeypatch.setattr(
-        "speech_runtime_service.provider_process.TERMINATE_GRACE_SECONDS", 0.05
-    )
+    monkeypatch.setattr("speech_service.provider_process.CANCEL_DRAIN_SECONDS", 0.05)
+    monkeypatch.setattr("speech_service.provider_process.TERMINATE_GRACE_SECONDS", 0.05)
     engine = _engine(tmp_path, "partial-cancel")
     engine.load()
     chunks = engine.pcm_chunks("cancel", "de")
@@ -384,12 +381,8 @@ def test_partial_cancel_frame_cannot_extend_the_single_drain_deadline(
 def test_qwen_cancel_beyond_drain_reaps_then_runtime_loads_a_fresh_worker(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        "speech_runtime_service.provider_process.CANCEL_DRAIN_SECONDS", 0.05
-    )
-    monkeypatch.setattr(
-        "speech_runtime_service.provider_process.TERMINATE_GRACE_SECONDS", 0.05
-    )
+    monkeypatch.setattr("speech_service.provider_process.CANCEL_DRAIN_SECONDS", 0.05)
+    monkeypatch.setattr("speech_service.provider_process.TERMINATE_GRACE_SECONDS", 0.05)
     root, cache = closed_provider(tmp_path, "partial-cancel")
     constructed: list[ProviderProcess] = []
 
@@ -445,12 +438,8 @@ def test_close_allows_bounded_active_cancel_before_reaping(
     behavior: str,
     text: str,
 ) -> None:
-    monkeypatch.setattr(
-        "speech_runtime_service.provider_process.CANCEL_DRAIN_SECONDS", 0.2
-    )
-    monkeypatch.setattr(
-        "speech_runtime_service.provider_process.TERMINATE_GRACE_SECONDS", 0.05
-    )
+    monkeypatch.setattr("speech_service.provider_process.CANCEL_DRAIN_SECONDS", 0.2)
+    monkeypatch.setattr("speech_service.provider_process.TERMINATE_GRACE_SECONDS", 0.05)
     engine = _engine(tmp_path, behavior)
     engine.load()
     chunks = engine.pcm_chunks(text, "de")
@@ -553,11 +542,9 @@ def test_real_child_is_reaped_when_publication_setup_raises(
         def __init__(self) -> None:
             raise RuntimeError
 
+    monkeypatch.setattr("speech_service.provider_process.FrameDecoder", BrokenDecoder)
     monkeypatch.setattr(
-        "speech_runtime_service.provider_process.FrameDecoder", BrokenDecoder
-    )
-    monkeypatch.setattr(
-        "speech_runtime_service.provider_process.subprocess.Popen", recording_popen
+        "speech_service.provider_process.subprocess.Popen", recording_popen
     )
     with pytest.raises(RuntimeError, match="speech provider failed"):
         engine.load()
@@ -587,9 +574,7 @@ def test_cleanup_failure_reaps_and_reports_fatal_lifecycle(
 def test_term_resistant_leader_reaches_kill_and_reap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        "speech_runtime_service.provider_process.TERMINATE_GRACE_SECONDS", 0.05
-    )
+    monkeypatch.setattr("speech_service.provider_process.TERMINATE_GRACE_SECONDS", 0.05)
     engine = _engine(tmp_path, "term-resistant")
     engine.load()
     _, _, pid, _ = observed(tmp_path / "cache")
@@ -613,7 +598,7 @@ ready = Path(sys.argv[1])
 child_code = """
 import os, sys, time
 from pathlib import Path
-from speech_runtime_qwen.__main__ import install_parent_death_signal
+from speech_qwen.__main__ import install_parent_death_signal
 install_parent_death_signal(int(sys.argv[1]))
 Path(sys.argv[2]).write_text(str(os.getpid()))
 while True: time.sleep(1)

@@ -18,7 +18,7 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus
 import hearing_figures as figures
 from hearing_figures import LiveTurn
 from proof_identity import Minting, mint_pair
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     MODEL,
     REALTIME_INTENT,
     REALTIME_INTENT_PARAM,

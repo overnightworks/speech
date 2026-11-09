@@ -2,9 +2,9 @@
 
 import pytest
 
-from speech_runtime_service.hearing import HEARING_SAMPLE_RATE
-from speech_runtime_service.pcm import BYTES_PER_SAMPLE
-from speech_runtime_service.recording import (
+from speech_service.hearing import HEARING_SAMPLE_RATE
+from speech_service.pcm import BYTES_PER_SAMPLE
+from speech_service.recording import (
     RecordingTooLongError,
     UndecodableRecordingError,
     decode_recording,

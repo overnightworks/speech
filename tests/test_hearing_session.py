@@ -4,7 +4,7 @@ import struct
 
 import pytest
 
-from speech_runtime_service.hearing_session import (
+from speech_service.hearing_session import (
     SILENCE_SECONDS,
     HearingSession,
     SpeechStart,

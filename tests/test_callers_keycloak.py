@@ -17,7 +17,7 @@ from starlette.status import (
     HTTP_403_FORBIDDEN,
 )
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     WORKLOAD_TOKEN_HEADER,
     RefusalCode,
     speech_request_headers,

@@ -14,7 +14,7 @@ from packaging.markers import Marker
 
 from hearing_figures import words
 from prove_speech import spoken_in_log
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     REFUSAL_STATUS,
     Health,
     Refusal,
@@ -24,15 +24,15 @@ from speech_runtime_client.wire import (
     Transcription,
     busy_wait,
 )
-from speech_runtime_service.pcm import AI_MARK
-from speech_runtime_service.voices import GPU_VOICES, RESIDENT_VOICE, VoiceId
+from speech_service.pcm import AI_MARK
+from speech_service.voices import GPU_VOICES, RESIDENT_VOICE, VoiceId
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
 
     from image_stack import LiveOutcome, Reply
     from proof_identity import Minting
-    from speech_runtime_service.config import CallerConfig
+    from speech_service.config import CallerConfig
 
 FORBIDDEN_PATH_PARTS: Final = frozenset({".git", "tests", "providers"})
 KEY_FILE_SUFFIXES: Final = (".pem", ".key")

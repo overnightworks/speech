@@ -19,11 +19,11 @@ from starlette.status import (
     HTTP_503_SERVICE_UNAVAILABLE,
 )
 
-from speech_runtime_client.wire import RETRY_AFTER_HEADER, RefusalCode
-from speech_runtime_service.admission_gate import AdmissionGate, Lease
-from speech_runtime_service.clock import LoopClock
-from speech_runtime_service.pcm import pcm_from_wav
-from speech_runtime_service.voices import VoiceId
+from speech_client.wire import RETRY_AFTER_HEADER, RefusalCode
+from speech_service.admission_gate import AdmissionGate, Lease
+from speech_service.clock import LoopClock
+from speech_service.pcm import pcm_from_wav
+from speech_service.voices import VoiceId
 from tests.support.clock_support import FakeClock
 from tests.support.fakes_support import (
     SPEAK_SAMPLE_RATE,
@@ -52,7 +52,7 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
     from httpx2 import Response
 
-    from speech_runtime_service.service import Runtime
+    from speech_service.service import Runtime
 
 SHORT_WAIT_SECONDS = 0.2
 SLACK_SECONDS = 0.5

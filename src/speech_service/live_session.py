@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     AudioAppend,
     AudioCommit,
     AudioCommitted,
@@ -39,15 +39,15 @@ from speech_runtime_client.wire import (
     new_item_id,
     parse_client_event,
 )
-from speech_runtime_service.failures import log_failure
-from speech_runtime_service.hearing_session import (
+from speech_service.failures import log_failure
+from speech_service.hearing_session import (
     MAX_TURN_SECONDS,
     POLL_WAIT_SECONDS,
     HearingSession,
     SpeechStart,
     TurnEnd,
 )
-from speech_runtime_service.pcm import BYTES_PER_SAMPLE, Resampler
+from speech_service.pcm import BYTES_PER_SAMPLE, Resampler
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine, Sequence
@@ -55,7 +55,7 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
-    from speech_runtime_service.hearing import Hearing, HearingEngine
+    from speech_service.hearing import Hearing, HearingEngine
 
 logger = logging.getLogger(__name__)
 

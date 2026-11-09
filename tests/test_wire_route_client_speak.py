@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 import httpx2
 import pytest
 
-from speech_runtime_client.speak import (
+from speech_client.speak import (
     Busy,
     Cut,
     OverCap,
@@ -20,17 +20,17 @@ from speech_runtime_client.speak import (
     Spoken,
     speak,
 )
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     SPEECH_PATH,
     RefusalCode,
     ResponseFormat,
     refusal,
     speech_request_body,
 )
-from speech_runtime_service.config import Settings
-from speech_runtime_service.pcm import WAV_HEADER_BYTES
-from speech_runtime_service.service import Runtime
-from speech_runtime_service.voices import VoiceId
+from speech_service.config import Settings
+from speech_service.pcm import WAV_HEADER_BYTES
+from speech_service.service import Runtime
+from speech_service.voices import VoiceId
 from tests.support.fakes_support import (
     GATE_TIMEOUT_SECONDS,
     FakeSpeaking,
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from proof_identity import TokenPair
-    from speech_runtime_client.speak import SpeakOutcome
+    from speech_client.speak import SpeakOutcome
 
 PIPER = VoiceId.PIPER.value
 DEADLINE_SECONDS = 0.5

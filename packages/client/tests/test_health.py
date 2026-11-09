@@ -9,15 +9,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from speech_runtime_client.health import UnexpectedStatus, fetch_health
-from speech_runtime_client.outcomes import (
+from speech_client.health import UnexpectedStatus, fetch_health
+from speech_client.outcomes import (
     Cut,
     Malformed,
     OverCap,
     PastDeadline,
     Unreachable,
 )
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     AUTHORIZATION_HEADER,
     HEALTH_PATH,
     WORKLOAD_TOKEN_HEADER,
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     import socket
     import threading
 
-    from speech_runtime_client.health import HealthOutcome
+    from speech_client.health import HealthOutcome
     from support.listener_support import RawListener
 
 DEADLINE_SECONDS = 0.5

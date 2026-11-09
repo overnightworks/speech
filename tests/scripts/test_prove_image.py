@@ -91,7 +91,7 @@ def test_a_private_key_in_a_python_file_of_the_packages_is_reported(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     site_packages = tmp_path / "site-packages"
-    package = site_packages / "speech_runtime_service"
+    package = site_packages / "speech_service"
     package.mkdir(parents=True)
     (package / "leaked.py").write_bytes(b'KEY = """' + PRIVATE_KEY + b'"""')
     (package / "clean.py").write_text("VALUE = 1")
@@ -106,9 +106,7 @@ def test_a_private_key_in_a_python_file_of_the_packages_is_reported(
     runpy.run_path(str(INSPECT_IMAGE), run_name="__main__")
 
     report = json.loads(capsys.readouterr().out)
-    assert report["package_files_with_private_keys"] == [
-        "speech_runtime_service/leaked.py"
-    ]
+    assert report["package_files_with_private_keys"] == ["speech_service/leaked.py"]
     assert report["package_stray_files"] == []
 
 

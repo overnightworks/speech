@@ -9,7 +9,7 @@
 - `Malformed`: a 200 whose body is not a valid `Health`.
 - `OverCap`: the body would pass the byte cap; reading stops there.
 - `Cut`, `PastDeadline` and `Unreachable`, as for `speak`
-  (`speech_runtime_client.outcomes`).
+  (`speech_client.outcomes`).
 
 A timeout is `PastDeadline` before anything else; then a closed or reset
 connection is `Cut`; only then a parse failure is `Malformed`.
@@ -32,15 +32,15 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
-from speech_runtime_client._transport import checked_origin, exchange, read_within
-from speech_runtime_client.outcomes import (
+from speech_client._transport import checked_origin, exchange, read_within
+from speech_client.outcomes import (
     Cut,
     Malformed,
     OverCap,
     PastDeadline,
     Unreachable,
 )
-from speech_runtime_client.wire import HEALTH_PATH, Health
+from speech_client.wire import HEALTH_PATH, Health
 
 if TYPE_CHECKING:
     from http.client import HTTPConnection

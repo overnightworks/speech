@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from speech_runtime_client.wire import HearingLanguage
-from speech_runtime_service.admission_gate import Lease
+from speech_client.wire import HearingLanguage
+from speech_service.admission_gate import Lease
 from tests.support.hear_support import (
     WAIT_SECONDS,
     FakeHearing,
@@ -20,7 +20,7 @@ from tests.support.hear_support import (
 )
 
 if TYPE_CHECKING:
-    from speech_runtime_service.hearing import Hearing, HearingEngine
+    from speech_service.hearing import Hearing, HearingEngine
 
 AUDIO = b"\0\0" * 160
 

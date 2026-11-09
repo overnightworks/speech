@@ -15,14 +15,14 @@ subset of OpenAI's transcription endpoint, described under
 Realtime transcription WebSocket `/v1/realtime?intent=transcription`, described
 under [Hearing live](#hearing-live).
 
-`speech_runtime_client.wire` (the `overnightworks-speech-runtime-client`
+`speech_client.wire` (the `overnightworks-speech-client`
 distribution) owns the paths, the request types, the transcription answer, the
 Realtime events and the refusal list; build the body and read the refusals through it.
-`speech_runtime_client.speak` makes the speaking call itself, within a total deadline and a
+`speech_client.speak` makes the speaking call itself, within a total deadline and a
 byte cap, and answers with a typed outcome; its module documents them.
-`speech_runtime_client.health` fetches `GET /health` (WIRE-122) within a deadline and a
+`speech_client.health` fetches `GET /health` (WIRE-122) within a deadline and a
 cap and answers with a typed outcome; the outcomes both calls share live in
-`speech_runtime_client.outcomes`.
+`speech_client.outcomes`.
 
 ## Request
 
@@ -44,7 +44,7 @@ refused.
 
 **WIRE-12** A speak request carries the app's workload token in `Speech-Workload-Token`
 and the person's token as `Authorization: Bearer <token>`.
-`speech_request_headers` in `speech_runtime_client.wire` builds them with the
+`speech_request_headers` in `speech_client.wire` builds them with the
 content type, and `wire.py` owns the header names. The service answers only
 when both tokens are valid and belong together:
 
@@ -246,7 +246,7 @@ names is not part of the contract.
 | WIRE-103 | `unavailable` | 503 | the tokens cannot be checked because the issuer's key set is unreachable and no cached key serves, or the named voice cannot speak: it is not offered, the start load still runs, its load failed or found its files missing, its worker died while the request waited, or the service is shutting down (`param` `voice`); for a recording: hearing is not loaded or configured, or its decode failed | |
 
 **WIRE-104** Apps read the `busy` wait with `busy_wait(status, headers)` in
-`speech_runtime_client.wire`: it returns the wait in whole seconds, `None` for any
+`speech_client.wire`: it returns the wait in whole seconds, `None` for any
 other status, and fails loud on a `busy` without whole seconds, at least 1, in `Retry-After`.
 
 **WIRE-105** `n` is read as a decimal integer, so `/v01/...` is version 1. **WIRE-106** A path that is no
@@ -298,7 +298,7 @@ catalogue `model` whether it is loaded or not, and its WAV `sample_rate` (Piper'
 0 until it is loaded). **WIRE-126** A voice's `ready` is true exactly when a request for it
 would be spoken now: never during the start load or once shutdown began, and
 never for a GPU voice that is not loaded, failed, or whose worker died.
-**WIRE-127** The service builds the answer through `Health` in `speech_runtime_client.wire`,
+**WIRE-127** The service builds the answer through `Health` in `speech_client.wire`,
 which ignores keys it does not know. **WIRE-128** `hearing.model` is the configured hearing
 model, or `unavailable` when none is configured; **WIRE-129** `hearing.ready` is false while
 it loads and for good when its load found no CUDA device or no room on the card,

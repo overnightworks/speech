@@ -17,15 +17,15 @@ from starlette.status import (
 from starlette.testclient import WebSocketDenialResponse
 from starlette.websockets import WebSocketDisconnect
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     AUTHENTICATE_HEADER,
     REALTIME_PATH,
     RETRY_AFTER_HEADER,
     RefusalCode,
     token_headers,
 )
-from speech_runtime_service.config import Settings
-from speech_runtime_service.control import create_control_app
+from speech_service.config import Settings
+from speech_service.control import create_control_app
 from tests.support.hear_support import (
     HEARD_TEXT,
     WAIT_SECONDS,

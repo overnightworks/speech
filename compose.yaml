@@ -4,7 +4,7 @@
 # caller's whole environment, which must not decide them.
 
 services:
-  speech-runtime:
+  speech:
     build: .
     restart: unless-stopped
     environment:

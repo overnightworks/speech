@@ -6,17 +6,17 @@ import asyncio
 import threading
 from typing import TYPE_CHECKING
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     MODEL,
     TRANSCRIPTIONS_PATH,
     HearingLanguage,
 )
-from speech_runtime_service.clock import LoopClock
-from speech_runtime_service.config import Settings
-from speech_runtime_service.control import create_control_app
-from speech_runtime_service.hearing import Hearing
-from speech_runtime_service.pcm import wav_header
-from speech_runtime_service.service import Runtime
+from speech_service.clock import LoopClock
+from speech_service.config import Settings
+from speech_service.control import create_control_app
+from speech_service.hearing import Hearing
+from speech_service.pcm import wav_header
+from speech_service.service import Runtime
 from tests.support.fakes_support import FakeSpeaking, sine_pcm
 from tests.support.identity_support import valid_callers, valid_headers
 from tests.support.speak_support import SpeakCall, speak_scope
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from fastapi.testclient import TestClient
     from httpx2 import Response as ClientResponse
 
-    from speech_runtime_service.clock import Clock
+    from speech_service.clock import Clock
 
 BOUNDARY = "recording-boundary"
 MULTIPART = f"multipart/form-data; boundary={BOUNDARY}"

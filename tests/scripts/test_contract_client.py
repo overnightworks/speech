@@ -12,16 +12,16 @@ from typing import TYPE_CHECKING
 import jwt
 import pytest
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     AUTHORIZATION_HEADER,
     CONTENT_TYPE_HEADER,
     WORKLOAD_TOKEN_HEADER,
     Health,
 )
-from speech_runtime_service.config import Settings
-from speech_runtime_service.pcm import pcm_from_wav
-from speech_runtime_service.service import Runtime
-from speech_runtime_service.voices import VoiceId
+from speech_service.config import Settings
+from speech_service.pcm import pcm_from_wav
+from speech_service.service import Runtime
+from speech_service.voices import VoiceId
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE, FakeSpeaking
 from tests.support.identity_support import callers_trusting
 from tests.support.script_support import script_module

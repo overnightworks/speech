@@ -21,24 +21,24 @@ From the repository root, with [uv](https://docs.astral.sh/uv/):
 
 ```sh
 uv sync --locked
-uv run speech-runtime-fetch-voice de_DE-thorsten-medium
-SPEECH_CONFIG_FILE=/absolute/path/to/speech.toml uv run speech-runtime-service
+uv run speech-fetch-voice de_DE-thorsten-medium
+SPEECH_CONFIG_FILE=/absolute/path/to/speech.toml uv run speech-service
 ```
 
 The first command installs the CPU path (Piper). The second fetches the default
 voice at its pinned revision; the service never downloads. The third starts the
 service on `127.0.0.1:8080`; it refuses to start without the caller file.
 [`deploy/speech.toml`](deploy/speech.toml) is the file the container image
-carries and shows its keys. `uv run speech-runtime-service --help` prints usage.
+carries and shows its keys. `uv run speech-service --help` prints usage.
 
 `uv run python scripts/prove_speech.py` starts the service against a throwaway
 key set, speaks as a registered app and ends with `PROOF_OK`; on a host without
 a card, run it as `SPEECH_DEVICE=cpu uv run python scripts/prove_speech.py`.
 
-- **Hearing.** Fetch a model, then name it: `uv run speech-runtime-fetch-hearing-model large-v3`,
+- **Hearing.** Fetch a model, then name it: `uv run speech-fetch-hearing-model large-v3`,
   then `SPEECH_HEARING_MODEL=large-v3`. On the GPU, sync with
   `uv sync --locked --extra gpu` as well, or hearing stays unavailable.
-- **A GPU voice.** `uv run speech-runtime-fetch-voice qwen3-tts-0.6b`, `uv sync --locked`
+- **A GPU voice.** `uv run speech-fetch-voice qwen3-tts-0.6b`, `uv sync --locked`
   inside `providers/qwen`, then `SPEECH_GPU_VOICES=qwen3-tts-0.6b`. It always
   runs on `cuda`, so the card must be free.
 - **A container.** `Dockerfile` and `compose.yaml` build and run the service on
@@ -79,14 +79,14 @@ Three distributions are released together at one version, as the Git tag
 `vX.Y.Z`, and go to no registry. A host installs each by its Git pin:
 
 ```text
-overnightworks-speech-runtime-client @ git+https://github.com/overnightworks/speech-runtime@vX.Y.Z#subdirectory=packages/client
-overnightworks-speech-runtime-provider-contract @ git+https://github.com/overnightworks/speech-runtime@vX.Y.Z#subdirectory=providers/provider-contract
-overnightworks-speech-runtime-service @ git+https://github.com/overnightworks/speech-runtime@vX.Y.Z
+overnightworks-speech-client @ git+https://github.com/overnightworks/speech@vX.Y.Z#subdirectory=packages/client
+overnightworks-speech-provider-contract @ git+https://github.com/overnightworks/speech@vX.Y.Z#subdirectory=providers/provider-contract
+overnightworks-speech-service @ git+https://github.com/overnightworks/speech@vX.Y.Z
 ```
 
 The client carries the wire's types, the bounded speaking call
-(`speech_runtime_client.speak`) and the bounded health fetch
-(`speech_runtime_client.health`). The service is an application: its pin
+(`speech_client.speak`) and the bounded health fetch
+(`speech_client.health`). The service is an application: its pin
 installs the CPU path, and GPU hearing needs the pin with `[gpu]`.
 `scripts/check_release.py` holds the distributions at one version.
 

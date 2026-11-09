@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING
 
 from huggingface_hub import hf_hub_download, snapshot_download
 
-from speech_runtime_service.config import load_settings
-from speech_runtime_service.piper_voices import (
+from speech_service.config import load_settings
+from speech_service.piper_voices import (
     PinnedVoice,
     fetch_voice_files,
 )
-from speech_runtime_service.voices import VoiceId, fetch_qwen
+from speech_service.voices import VoiceId, fetch_qwen
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -31,7 +31,7 @@ def main(
     `argv` defaults to the command line.
     """
     parser = argparse.ArgumentParser(
-        prog="speech-runtime-fetch-voice",
+        prog="speech-fetch-voice",
         allow_abbrev=False,
         description="Fetch a Piper voice by its name, or a GPU voice by its id, at "
         "its pinned revision so the service can load it from local files.",

@@ -6,7 +6,7 @@ import sys
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
-from speech_runtime_qwen import __main__ as entrypoint
+from speech_qwen import __main__ as entrypoint
 
 if TYPE_CHECKING:
     import pytest
@@ -41,7 +41,7 @@ def test_entrypoint_loads_without_synthesis_before_ready(
     monkeypatch.setattr(entrypoint.os, "close", lambda *_args: None)
     monkeypatch.setitem(
         sys.modules,
-        "speech_runtime_qwen.model",
+        "speech_qwen.model",
         SimpleNamespace(
             load_model=lambda *_args: object(), pcm_chunks=lambda *_args: ()
         ),

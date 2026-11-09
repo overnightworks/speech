@@ -22,20 +22,20 @@ from starlette.status import (
 from websockets.asyncio.client import connect
 from websockets.exceptions import InvalidStatus
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     AUTHORIZATION_HEADER,
     REALTIME_PATH,
     SPEECH_PATH,
     RefusalCode,
     ResponseFormat,
 )
-from speech_runtime_service.pcm import (
+from speech_service.pcm import (
     AI_MARK,
     BYTES_PER_SAMPLE,
     WAV_HEADER_BYTES,
     pcm_from_wav,
 )
-from speech_runtime_service.service import Runtime
+from speech_service.service import Runtime
 from tests.support.fakes_support import (
     GATE_TIMEOUT_SECONDS,
     SPEAK_SAMPLE_RATE,

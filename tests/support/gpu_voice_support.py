@@ -13,19 +13,19 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import httpx2
-from speech_runtime_provider_contract import (
+from speech_provider_contract import (
     QWEN_ARTIFACTS,
     QWEN_MODEL_ID,
     QWEN_REVISION,
 )
 
-from speech_runtime_client.wire import HEALTH_PATH, Health
-from speech_runtime_service import __main__
-from speech_runtime_service.config import Settings
-from speech_runtime_service.control import create_control_app
-from speech_runtime_service.hearing import Hearing
-from speech_runtime_service.service import Runtime
-from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL, VoiceId
+from speech_client.wire import HEALTH_PATH, Health
+from speech_service import __main__
+from speech_service.config import Settings
+from speech_service.control import create_control_app
+from speech_service.hearing import Hearing
+from speech_service.service import Runtime
+from speech_service.voices import DEFAULT_SPEAKING_MODEL, VoiceId
 from tests.support.hear_support import FakeHearing
 from tests.support.identity_support import valid_callers, valid_headers
 from tests.support.speak_support import ASGI_TIMEOUT_SECONDS, wav_body
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     import pytest
     from fastapi import FastAPI
 
-    from speech_runtime_service.service import SpeakingEngine
+    from speech_service.service import SpeakingEngine
 
 PIPER_SAMPLE_RATE = 22_050
 PIPER_PCM = b"\x00\x01"

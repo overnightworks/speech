@@ -17,14 +17,14 @@ recording heard for a person. [`README.md`](../README.md) starts it,
 flowchart LR
     app[App holding both tokens] -->|speak, hear a recording| listener[TCP listener]
     edge[Edge, app network] -->|health| listener
-    listener --> service[speech_runtime_service]
+    listener --> service[speech_service]
     service -->|isolated processes| providers[providers/*]
     service -->|key set, https| issuer[Identity issuer]
 ```
 
 ## Building blocks
 
-- `src/speech_runtime_service`: the one process, its TCP listener and the
+- `src/speech_service`: the one process, its TCP listener and the
   routes. `voice_slot.py` holds one voice's engine lifecycle and its admission
   gate; `callers.py` decides who may call; `wire_route.py`
   serves the wire; `hearing.py` holds the hearing engine behind a port, its
@@ -75,7 +75,7 @@ flowchart LR
 - **One engine, local files only.** faster-whisper runs in the process, its
   inference in a worker thread off the event loop. It loads at start from the
   pinned snapshot in the Hugging Face cache (`local_files_only`) on
-  `SPEECH_DEVICE`; the command `speech-runtime-fetch-hearing-model` is the only
+  `SPEECH_DEVICE`; the command `speech-fetch-hearing-model` is the only
   thing that downloads a hearing model. The compute type follows the device. Decoding is
   deterministic (greedy, temperature 0).
 - **Load isolation.** A load that fails for want of the resource (no CUDA

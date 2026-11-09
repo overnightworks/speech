@@ -7,7 +7,7 @@ from http import HTTPStatus
 import pytest
 from pydantic import ValidationError
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     AUTHORIZATION_HEADER,
     CONTENT_TYPE_HEADER,
     MODEL,

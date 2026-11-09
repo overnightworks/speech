@@ -6,15 +6,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
-from speech_runtime_provider_contract import (
+from speech_provider_contract import (
     QWEN_ARTIFACTS,
     QWEN_MODEL_ID,
     QWEN_REVISION,
 )
 
-from speech_runtime_service import fetch_voice
-from speech_runtime_service.config import Settings
-from speech_runtime_service.piper_voices import (
+from speech_service import fetch_voice
+from speech_service.config import Settings
+from speech_service.piper_voices import (
     PINS,
     PinnedFile,
     PinnedVoice,
@@ -22,7 +22,7 @@ from speech_runtime_service.piper_voices import (
     VoicePin,
     fetch_voice_files,
 )
-from speech_runtime_service.voices import (
+from speech_service.voices import (
     DEFAULT_SPEAKING_MODEL,
     VoiceId,
     missing_artifacts,

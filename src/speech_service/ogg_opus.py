@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Final
 import av
 import numpy as np
 
-from speech_runtime_service.pcm import AI_MARK
+from speech_service.pcm import AI_MARK
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator

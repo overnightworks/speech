@@ -5,7 +5,7 @@ import struct
 
 import pytest
 
-from speech_runtime_service.pcm import Resampler
+from speech_service.pcm import Resampler
 from tests.support.fakes_support import sine_pcm
 
 INPUT_RATE = 24_000

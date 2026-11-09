@@ -9,15 +9,15 @@ import sys
 from typing import TYPE_CHECKING
 
 import pytest
-from speech_runtime_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
+from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 
-from speech_runtime_service.provider_process import (
+from speech_service.provider_process import (
     ENDED_BEFORE_READY,
     ProviderFailedError,
     ProviderLaunch,
     ProviderProcess,
 )
-from tests.support.worker_support import closed_provider
+from tests.support.worker_support import closed_provider, provider_worker
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -30,7 +30,7 @@ _CONTRACT_BODY = """import os
 import sys
 from pathlib import Path
 
-from speech_runtime_provider_contract import ProviderFunctions, serve_provider
+from speech_provider_contract import ProviderFunctions, serve_provider
 
 cache = sys.argv[sys.argv.index("--cache") + 1]
 protocol_stdout = os.dup(1)
@@ -58,7 +58,7 @@ raise SystemExit(serve_provider(
 
 def _provider(tmp_path: Path, body: str) -> ProviderProcess:
     root, cache = closed_provider(tmp_path)
-    entrypoint = root / "qwen/.venv/bin/speech-runtime-qwen-worker"
+    entrypoint = provider_worker(root)
     entrypoint.write_text(
         _ENTRYPOINT.format(python=sys.executable, body=body), encoding="utf-8"
     )

@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from speech_runtime_service import fetch_hearing_model
-from speech_runtime_service.hearing_models import HearingModel, model_directory
+from speech_service import fetch_hearing_model
+from speech_service.hearing_models import HearingModel, model_directory
 from tests.support.hear_support import write_snapshot
 
 if TYPE_CHECKING:

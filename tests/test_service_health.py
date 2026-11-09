@@ -1,11 +1,11 @@
 """GET /health answers the contract, including while the model is still loading."""
 
 from fastapi.testclient import TestClient
-from speech_runtime_provider_contract import QWEN_SAMPLE_RATE
+from speech_provider_contract import QWEN_SAMPLE_RATE
 
-from speech_runtime_client.wire import VoiceHealth
-from speech_runtime_service.service import Runtime
-from speech_runtime_service.voices import VoiceId, model_for_voice
+from speech_client.wire import VoiceHealth
+from speech_service.service import Runtime
+from speech_service.voices import VoiceId, model_for_voice
 from tests.support.fakes_support import (
     SPEAK_SAMPLE_RATE,
     FakeSpeaking,

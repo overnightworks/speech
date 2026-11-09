@@ -12,16 +12,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
-from speech_runtime_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
+from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 
-from speech_runtime_service import __main__
-from speech_runtime_service.config import Settings
-from speech_runtime_service.provider_process import ProviderLaunch, ProviderProcess
-from speech_runtime_service.service import Runtime, RuntimeDependencies
-from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL, VoiceId
+from speech_service import __main__
+from speech_service.config import Settings
+from speech_service.provider_process import ProviderLaunch, ProviderProcess
+from speech_service.service import Runtime, RuntimeDependencies
+from speech_service.voices import DEFAULT_SPEAKING_MODEL, VoiceId
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.identity_support import write_caller_configuration
 from tests.support.tcp_server_support import free_loopback_port, listens_on
+from tests.support.worker_support import provider_worker
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -157,7 +158,7 @@ def test_shutdown_closes_a_pending_real_adapter_before_awaiting_tasks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "providers"
-    entrypoint = root / "qwen/.venv/bin/speech-runtime-qwen-worker"
+    entrypoint = provider_worker(root)
     entrypoint.parent.mkdir(parents=True)
     entrypoint.write_text(
         f"""#!{sys.executable}
@@ -171,7 +172,7 @@ os.close(null)
 cache = Path(__import__("sys").argv[-1])
 while not (cache / "allow-ready").exists():
     time.sleep(0.01)
-from speech_runtime_provider_contract import Frame, FrameKind, write_frame
+from speech_provider_contract import Frame, FrameKind, write_frame
 write_frame(protocol, Frame(FrameKind.READY, 0, b"\\x00\\x01\\x00\\x00]\\xc0"))
 while True:
     time.sleep(1)
@@ -230,7 +231,7 @@ while True:
     monkeypatch.setattr(__main__, "build_server", lambda _app: server)
     monkeypatch.setattr(__main__, "_install_signal_handlers", install)
     monkeypatch.setattr(
-        "speech_runtime_service.provider_process.subprocess.Popen", observed_popen
+        "speech_service.provider_process.subprocess.Popen", observed_popen
     )
 
     outcome = asyncio.run(__main__.serve(_serving_settings(tmp_path)))

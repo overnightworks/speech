@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 
 import hearing_figures as figures
-from speech_runtime_client.wire import RefusalCode
-from speech_runtime_service.hearing_session import SILENCE_SECONDS
+from speech_client.wire import RefusalCode
+from speech_service.hearing_session import SILENCE_SECONDS
 
 RATE = 24000
 LOUD = 8000

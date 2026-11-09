@@ -2,7 +2,7 @@
 
 import asyncio
 
-from speech_runtime_service.admission_gate import AdmissionGate
+from speech_service.admission_gate import AdmissionGate
 from tests.support.clock_support import FakeClock
 
 MANY_WAITERS = 100

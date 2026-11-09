@@ -8,12 +8,12 @@ import json
 import struct
 from typing import TYPE_CHECKING
 
-from speech_runtime_service.live_session import LiveSession
+from speech_service.live_session import LiveSession
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from speech_runtime_service.hearing import Hearing
+    from speech_service.hearing import Hearing
 
 SPEECH_LEVEL = 5000
 INPUT_RATE = 24_000

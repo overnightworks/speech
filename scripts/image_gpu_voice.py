@@ -31,12 +31,12 @@ from image_stack import (
     start_with,
 )
 from prove_speech import SENTENCE
-from speech_runtime_client.wire import Health, RefusalCode, RequestField
-from speech_runtime_service.voices import RESIDENT_VOICE
+from speech_client.wire import Health, RefusalCode, RequestField
+from speech_service.voices import RESIDENT_VOICE
 
 if TYPE_CHECKING:
     from image_stack import Compose, Session
-    from speech_runtime_service.voices import VoiceId
+    from speech_service.voices import VoiceId
 
 GPU_VOICE_OVERRIDE: Final = FIXTURES / "compose.gpu-voice.yaml"
 VOICE_PARAM: Final[RequestField] = "voice"

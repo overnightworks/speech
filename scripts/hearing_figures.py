@@ -18,13 +18,13 @@ from typing import TYPE_CHECKING, Final
 
 import numpy as np
 
-from speech_runtime_client.wire import RefusalCode
-from speech_runtime_service.hearing_session import (
+from speech_client.wire import RefusalCode
+from speech_service.hearing_session import (
     MAX_TURN_SECONDS,
     SILENCE_SECONDS,
     SPEECH_RMS,
 )
-from speech_runtime_service.pcm import BYTES_PER_SAMPLE, LIVE_INPUT_RATE
+from speech_service.pcm import BYTES_PER_SAMPLE, LIVE_INPUT_RATE
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence

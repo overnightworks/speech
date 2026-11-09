@@ -12,7 +12,7 @@ from websockets.datastructures import Headers
 from websockets.exceptions import InvalidStatus
 from websockets.http11 import Response
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     DurationUsage,
     RefusalCode,
     ServerEventError,

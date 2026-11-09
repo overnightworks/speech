@@ -19,7 +19,7 @@ from starlette.status import (
     HTTP_503_SERVICE_UNAVAILABLE,
 )
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     AUTHENTICATE_HEADER,
     MODEL,
     RETRY_AFTER_HEADER,
@@ -28,9 +28,9 @@ from speech_runtime_client.wire import (
     RefusalCode,
     token_headers,
 )
-from speech_runtime_service.config import Settings
-from speech_runtime_service.control import create_control_app
-from speech_runtime_service.voices import VoiceId
+from speech_service.config import Settings
+from speech_service.control import create_control_app
+from speech_service.voices import VoiceId
 from tests.support.hear_support import (
     HEARD_TEXT,
     MULTIPART,
@@ -64,8 +64,8 @@ from tests.support.speak_support import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from speech_runtime_service.admission_gate import Lease
-    from speech_runtime_service.service import Runtime
+    from speech_service.admission_gate import Lease
+    from speech_service.service import Runtime
 
 SHORT_WAIT_SECONDS = 0.2
 SLACK_SECONDS = 0.5

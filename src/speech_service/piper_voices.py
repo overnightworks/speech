@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from huggingface_hub import hf_hub_download
 
-from speech_runtime_service.voices import DEFAULT_SPEAKING_MODEL, piper_voice_paths
+from speech_service.voices import DEFAULT_SPEAKING_MODEL, piper_voice_paths
 
 if TYPE_CHECKING:
     from collections.abc import Callable

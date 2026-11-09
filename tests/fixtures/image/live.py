@@ -14,7 +14,7 @@ import sys
 
 from websockets.asyncio.client import connect
 
-from speech_runtime_client.wire import AudioAppend, TranscriptCompleted, TranscriptDelta
+from speech_client.wire import AudioAppend, TranscriptCompleted, TranscriptDelta
 
 COMPLETED = TranscriptCompleted.model_fields["type"].default
 DELTA = TranscriptDelta.model_fields["type"].default

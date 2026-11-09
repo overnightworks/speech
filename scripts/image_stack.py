@@ -24,7 +24,7 @@ from image_judgement import (
 )
 from proof_identity import mint_pair
 from prove_speech import SENTENCE
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     CONTENT_TYPE_HEADER,
     MODEL,
     SPEECH_PATH,
@@ -35,22 +35,22 @@ from speech_runtime_client.wire import (
     speech_request_body,
     speech_request_headers,
 )
-from speech_runtime_service.config import Settings
-from speech_runtime_service.pcm import LIVE_INPUT_RATE, pcm_from_wav, wav_header
+from speech_service.config import Settings
+from speech_service.pcm import LIVE_INPUT_RATE, pcm_from_wav, wav_header
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from image_judgement import BakedCaller
     from proof_identity import Minting, TokenPair
-    from speech_runtime_service.config import CallerConfig
-    from speech_runtime_service.voices import VoiceId
+    from speech_service.config import CallerConfig
+    from speech_service.voices import VoiceId
 
 REPOSITORY: Final = Path(__file__).resolve().parents[1]
 FIXTURES: Final = REPOSITORY / "tests" / "fixtures" / "image"
-PROJECT: Final = "speech-runtime-proof"
-IMAGE: Final = "speech-runtime-proof"
-SERVICE: Final = "speech-runtime"
+PROJECT: Final = "speech-proof"
+IMAGE: Final = "speech-proof"
+SERVICE: Final = "speech"
 KEY_SERVER: Final = "key-server"
 LIVE_PACE_SECONDS: Final = 0.05
 LIVE_WAIT_SECONDS: Final = 120

@@ -6,22 +6,22 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, Protocol
 
-from speech_runtime_client.wire import (
+from speech_client.wire import (
     HEALTH_PATH,
     Health,
     HearingHealth,
     ResponseFormat,
     SpeakingHealth,
 )
-from speech_runtime_service.card import card_memory_mb
-from speech_runtime_service.clock import LoopClock
-from speech_runtime_service.failures import PayloadFreeFailure, SpeakingFailedError
-from speech_runtime_service.hearing import Hearing, hearing_from_settings
-from speech_runtime_service.ogg_opus import ogg_opus_chunks
-from speech_runtime_service.pcm import wav_header
-from speech_runtime_service.speaking import speaking_for_voice
-from speech_runtime_service.voice_slot import VoiceSlot
-from speech_runtime_service.voices import RESIDENT_VOICE, VoiceId, missing_artifacts
+from speech_service.card import card_memory_mb
+from speech_service.clock import LoopClock
+from speech_service.failures import PayloadFreeFailure, SpeakingFailedError
+from speech_service.hearing import Hearing, hearing_from_settings
+from speech_service.ogg_opus import ogg_opus_chunks
+from speech_service.pcm import wav_header
+from speech_service.speaking import speaking_for_voice
+from speech_service.voice_slot import VoiceSlot
+from speech_service.voices import RESIDENT_VOICE, VoiceId, missing_artifacts
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Iterator
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
     from fastapi import FastAPI
 
-    from speech_runtime_service.config import Settings
+    from speech_service.config import Settings
 
 logger = logging.getLogger(__name__)
 

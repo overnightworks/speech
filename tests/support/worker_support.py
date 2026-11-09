@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from speech_service.provider_process import ProviderId, provider_entrypoint
+
 WORKER_WAIT_SECONDS = 10.0
 
 _WORKER = r"""#!{python}
@@ -28,7 +30,7 @@ os.close(null)
 print("provider print noise", flush=True)
 os.write(1, b"native provider noise\n")
 
-from speech_runtime_provider_contract import (
+from speech_provider_contract import (
     MAX_FRAME_LENGTH, Frame, FrameKind, ProviderFailure, read_frame, write_frame
 )
 
@@ -143,12 +145,18 @@ while True:
 """
 
 
+def provider_worker(root: Path, provider: ProviderId = ProviderId.QWEN) -> Path:
+    """Return the worker path the service resolves under a provider root."""
+    entrypoint = provider_entrypoint(root, provider)
+    assert entrypoint is not None
+    return entrypoint
+
+
 def closed_provider(
     tmp_path: Path, behavior: str = "normal", provider_name: str = "qwen"
 ) -> tuple[Path, Path]:
     root = tmp_path / "providers"
-    provider = root / provider_name
-    entrypoint = provider / ".venv" / "bin" / f"speech-runtime-{provider_name}-worker"
+    entrypoint = provider_worker(root, ProviderId(provider_name))
     entrypoint.parent.mkdir(parents=True, exist_ok=True)
     entrypoint.write_text(
         _WORKER.format(
@@ -278,7 +286,5 @@ def fail_every_reap(monkeypatch: pytest.MonkeyPatch) -> list[int]:
         started.append(process.pid)
         return ReapedThenFailing(process)
 
-    monkeypatch.setattr(
-        "speech_runtime_service.provider_process.subprocess.Popen", popen
-    )
+    monkeypatch.setattr("speech_service.provider_process.subprocess.Popen", popen)
     return started
