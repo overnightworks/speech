@@ -19,7 +19,6 @@ from pathlib import Path
 import pytest
 from anyio import run, run_process
 from speech_provider_contract import (
-    MAX_FRAME_LENGTH,
     QWEN_MODEL_ID,
     QWEN_SAMPLE_RATE,
     Frame,
@@ -136,12 +135,10 @@ def test_protocol_rejects_illegal_lengths_kinds_and_payloads(encoded: bytes) -> 
         read_frame(stream)
 
 
-@pytest.mark.parametrize(
-    "encoded", [struct.pack("!I", 8), struct.pack("!I", MAX_FRAME_LENGTH + 1)]
-)
-def test_protocol_reports_a_stream_cut_inside_a_frame(encoded: bytes) -> None:
+def test_protocol_reports_a_payload_cut_short_after_its_header() -> None:
+    stream = BytesIO(struct.pack("!IBQ", 12, FrameKind.PCM, 1) + b"\x00")
     with pytest.raises(EOFError):
-        read_frame(BytesIO(encoded))
+        read_frame(stream)
 
 
 @pytest.mark.parametrize(
