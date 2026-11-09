@@ -1,8 +1,0 @@
-claim_id = "93b3987c6b5b4e8ba5e863b394306b48"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "8aaeef58e11ef545e833081f832d5cd8c17181a8"
-branch = "claude/issue-235-ci-jobs-within-15-minutes"
-scope = [".github/workflows/ci.yml", ".github/workflows/release-distributions.yml", "providers/qwen/pyproject.toml", "providers/qwen/uv.lock", "pyproject.toml", "uv.lock"]
-opened_commit = "bc6b71afdfa91a4e6ef2218024afdcc897d1c3f6"
-whole_reason = "The limits and the parallel runs land together, because a lower limit without parallel tests could cut a slow run."
