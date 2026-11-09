@@ -116,8 +116,6 @@ def test_parent_rejects_a_worker_that_advertises_another_rate(tmp_path: Path) ->
 @pytest.mark.parametrize(
     "encoded",
     [
-        struct.pack("!I", 8),
-        struct.pack("!I", MAX_FRAME_LENGTH + 1),
         struct.pack("!IBQ", 9, 255, 1),
         struct.pack("!IBQ", 9, FrameKind.PCM, 1),
         struct.pack("!IBQ", 10, FrameKind.FAILED, 1) + b"\x02",
@@ -134,8 +132,16 @@ def test_parent_rejects_a_worker_that_advertises_another_rate(tmp_path: Path) ->
 )
 def test_protocol_rejects_illegal_lengths_kinds_and_payloads(encoded: bytes) -> None:
     stream = BytesIO(encoded)
-    with pytest.raises((ProtocolError, EOFError)):
+    with pytest.raises(ProtocolError):
         read_frame(stream)
+
+
+@pytest.mark.parametrize(
+    "encoded", [struct.pack("!I", 8), struct.pack("!I", MAX_FRAME_LENGTH + 1)]
+)
+def test_protocol_reports_a_stream_cut_inside_a_frame(encoded: bytes) -> None:
+    with pytest.raises(EOFError):
+        read_frame(BytesIO(encoded))
 
 
 @pytest.mark.parametrize(
@@ -156,7 +162,7 @@ def test_protocol_accepts_a_request_failure_with_or_without_its_cause(
 def test_protocol_refuses_invalid_synthesis_payloads(payload: bytes) -> None:
     stream = BytesIO()
     frame = Frame(FrameKind.SYNTHESIZE, 1, payload)
-    with pytest.raises((ProtocolError, EOFError)):
+    with pytest.raises(ProtocolError):
         write_frame(stream, frame)
 
 
