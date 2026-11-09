@@ -60,14 +60,16 @@ async def _hears(connection: ServerConnection) -> None:
     await connection.close()
 
 
-def _session(port: int, deadline_seconds: float = 5) -> HearingSession:
+def _session(
+    port: int, deadline_seconds: float = 5, held_limit_bytes: int = 1
+) -> HearingSession:
     return HearingSession(
         f"http://{LOOPBACK}:{port}",
         workload_token=WORKLOAD_TOKEN,
         person_token=PERSON_TOKEN,
         language=HearingLanguage.DE,
         deadline_seconds=deadline_seconds,
-        held_limit_bytes=1,
+        held_limit_bytes=held_limit_bytes,
     )
 
 
@@ -270,7 +272,9 @@ def test_a_service_that_ignores_the_close_does_not_swallow_the_callers_timeout()
         asyncio.run(scenario())
 
 
-def test_a_caller_leaving_a_service_that_ignores_the_close_is_not_held_by_it() -> None:
+def test_the_session_deadline_frees_a_caller_leaving_a_service_ignoring_the_close() -> (
+    None
+):
     async def scenario() -> float:
         async with _stalled_service() as (port, opened):
             async with _session(port, 1):
@@ -281,7 +285,7 @@ def test_a_caller_leaving_a_service_that_ignores_the_close_is_not_held_by_it() -
     assert asyncio.run(scenario()) < CLOSE_TIMEOUT_SECONDS / 2
 
 
-def test_the_session_deadline_frees_a_caller_cancelled_while_leaving_a_stall() -> None:
+def test_a_caller_cancelled_while_leaving_a_stalled_service_is_not_held_by_it() -> None:
     async def scenario() -> float:
         async with _stalled_service() as (port, opened):
             started = time.monotonic()
@@ -313,14 +317,7 @@ def test_a_send_after_the_held_limit_is_passed_never_reaches_the_peer() -> None:
 
         async with serve(records, LOOPBACK, 0) as server:
             port = server.sockets[0].getsockname()[1]
-            async with HearingSession(
-                f"http://{LOOPBACK}:{port}",
-                workload_token=WORKLOAD_TOKEN,
-                person_token=PERSON_TOKEN,
-                language=HearingLanguage.DE,
-                deadline_seconds=5,
-                held_limit_bytes=2,
-            ) as session:
+            async with _session(port, held_limit_bytes=2) as session:
                 async with asyncio.timeout(5):
                     await setup_received.wait()
                 for pcm in (b"a", b"bcd", b"e"):
