@@ -265,6 +265,13 @@ class HearingSession:
             with contextlib.suppress(asyncio.QueueFull):
                 self._received.put_nowait(None)
 
+    def _may_close_politely(self) -> bool:
+        """Whether no caller has run out of time, whether before or during the exit."""
+        runner = asyncio.current_task()
+        # `__aexit__` cancels the runner once; a second cancel is the caller's own
+        # and may merge into the first before the runner sees either.
+        return not self._abandoned and (runner is None or runner.cancelling() <= 1)
+
     async def _session(self) -> HearingOutcome:
         try:
             async with (
@@ -279,18 +286,21 @@ class HearingSession:
                 await socket.send(self._update)
                 writer = asyncio.create_task(self._write(socket))
                 try:
-                    await self._read(socket)
-                finally:
-                    writer.cancel()
-                    with contextlib.suppress(asyncio.CancelledError, ConnectionClosed):
-                        await writer
                     try:
-                        if not (deadline.expired() or self._abandoned):
-                            await socket.close()
+                        await self._read(socket)
                     finally:
-                        # A stalled peer holds a polite close past the deadline or a
-                        # cancel; aborting after a completed close is a no-op.
-                        socket.transport.abort()
+                        writer.cancel()
+                        # `asyncio.wait` does not absorb a cancel of this task.
+                        await asyncio.wait({writer})
+                        if not writer.cancelled():
+                            with contextlib.suppress(ConnectionClosed):
+                                writer.result()
+                        if not deadline.expired() and self._may_close_politely():
+                            await socket.close()
+                finally:
+                    # A stalled peer holds a polite close past the deadline or a
+                    # cancel; aborting after a completed close is a no-op.
+                    socket.transport.abort()
         except InvalidStatus as refused:
             return _refusal_outcome(refused)
         except InvalidMessage as unparsed:

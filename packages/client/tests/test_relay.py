@@ -367,3 +367,26 @@ def test_a_caller_timeout_before_the_hop_ends_aborts_a_stalled_service() -> None
         return elapsed
 
     assert asyncio.run(scenario()) < CLOSE_BOUND_SECONDS
+
+
+@pytest.mark.parametrize("yields_before_cancel", range(31))
+def test_a_cancel_at_any_moment_after_the_apps_end_signal_returns_at_once(
+    yields_before_cancel: int,
+) -> None:
+    async def scenario() -> float:
+        async with _stalled_service() as (service_url, opened):
+            app_ended = asyncio.Event()
+            hop = asyncio.create_task(_stalled_hop(service_url, app_ended))
+            await opened.wait()
+            app_ended.set()
+            for _ in range(yields_before_cancel):
+                await asyncio.sleep(0)
+            started = time.monotonic()
+            hop.cancel()
+            await asyncio.wait({hop}, timeout=CLOSE_BOUND_SECONDS)
+            elapsed = time.monotonic() - started
+            assert hop.done()
+        assert asyncio.all_tasks() == {asyncio.current_task()}
+        return elapsed
+
+    assert asyncio.run(scenario()) < CLOSE_BOUND_SECONDS / 2
