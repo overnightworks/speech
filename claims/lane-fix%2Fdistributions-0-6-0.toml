@@ -1,8 +1,0 @@
-claim_id = "e73a00918a164429a1a2555c408b3641"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "0dbb0f4d727c3b198971fb9dabb034581f9569d5"
-branch = "fix/distributions-0-6-0"
-scope = ["packages/client/pyproject.toml", "providers/provider-contract/pyproject.toml", "providers/qwen/uv.lock", "pyproject.toml", "uv.lock"]
-opened_commit = "b06eacccbef4f9223842ba3370aa0db2c2754ccc"
-whole_reason = "One version stands in three project files and their two lockfiles, and the release gate requires them to agree in one commit."
