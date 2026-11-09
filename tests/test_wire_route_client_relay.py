@@ -143,8 +143,9 @@ async def _received(browser: ClientConnection) -> list[str | bytes]:
 
 
 async def _close_code(browser: ClientConnection) -> int:
+    receiving = asyncio.wait_for(browser.recv(), WAIT_SECONDS)
     with pytest.raises(ConnectionClosed) as closed:
-        await asyncio.wait_for(browser.recv(), WAIT_SECONDS)
+        await receiving
     assert closed.value.rcvd is not None
     return closed.value.rcvd.code
 
