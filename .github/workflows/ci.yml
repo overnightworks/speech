@@ -104,7 +104,6 @@ jobs:
   image:
     name: "Speech: image"
     runs-on: ubuntu-24.04
-    # The proof holds its own 1800 s cap, build included.
     timeout-minutes: 15
     steps:
       - name: Check out the event commit
