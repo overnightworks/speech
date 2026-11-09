@@ -8,7 +8,7 @@ Run each in its project's own directory (the root, or `providers/qwen`).
 - `uv run --locked pytest -q <named tests>`: targeted tests. The default run deselects the `keycloak` marker.
 - `uv run --locked --project ../qwen ruff check --config pyproject.toml .`: lint `providers/provider-contract`, from its directory.
 - `uv run --locked pytest -q -m keycloak tests/test_callers_keycloak.py`: token shapes against a Keycloak you start yourself on a free port and name in `KEYCLOAK_URL`, under `/tmp/probe-stack.lock`.
-- `scripts/prove_speech.py`: starts the providers and takes `/tmp/probe-stack.lock` itself.
+- `uv run python scripts/prove_speech.py`: stage proof of health and speaking; starts the providers and takes `/tmp/probe-stack.lock` itself.
 
 ## Rules
 
