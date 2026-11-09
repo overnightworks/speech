@@ -18,8 +18,9 @@ standard works with it unchanged.
 
 ## Who uses it today
 
-presentator and hopin are registered as its callers; neither speaks or hears
-through it live yet.
+presentator and hopin are registered as its callers. presentator's
+co-presenter speaks and hears through it live; hopin's game master speaks
+through it.
 
 ## Deliberate non-goals
 
