@@ -33,7 +33,7 @@ jobs:
     name: Build
     needs: gate
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:

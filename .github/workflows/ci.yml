@@ -19,7 +19,7 @@ jobs:
   speech:
     name: "Speech: lint, tests"
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Check out the event commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -46,7 +46,7 @@ jobs:
         run: uv run --locked ruff format --check
 
       - name: Test
-        run: uv run --locked pytest -q --cov --cov-report=xml:coverage-root.xml
+        run: uv run --locked pytest -q -n auto --cov --cov-report=xml:coverage-root.xml
 
       - name: Upload the coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -57,7 +57,7 @@ jobs:
   qwen-provider:
     name: "Speech: Qwen provider"
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: providers/qwen
@@ -92,7 +92,7 @@ jobs:
       - name: Test
         working-directory: ${{ github.workspace }}
         run: >-
-          uv run --locked --project providers/qwen pytest -q providers/qwen/tests
+          uv run --locked --project providers/qwen pytest -q -n auto providers/qwen/tests
           --cov --cov-report=xml:coverage-qwen.xml
 
       - name: Upload the coverage report
@@ -104,8 +104,7 @@ jobs:
   image:
     name: "Speech: image"
     runs-on: ubuntu-24.04
-    # The proof holds its own 1800 s cap, build included.
-    timeout-minutes: 35
+    timeout-minutes: 15
     steps:
       - name: Check out the event commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -128,7 +127,7 @@ jobs:
   keycloak-token-shapes:
     name: keycloak-token-shapes
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     env:
       KEYCLOAK_IMAGE: quay.io/keycloak/keycloak:26.8.1@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
       KEYCLOAK_URL: http://localhost:8080
@@ -166,6 +165,8 @@ jobs:
           exit 1
 
       - name: Token shapes and the caller check with real tokens
+        # One small module against one local Keycloak: each xdist worker would
+        # rebuild its module-scoped app and gain nothing, so it stays serial.
         run: uv run --locked pytest -p no:cacheprovider tests/test_callers_keycloak.py -m keycloak -v -rP
 
       - name: Keycloak log on failure
