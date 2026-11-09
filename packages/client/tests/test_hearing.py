@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
+import json
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -14,7 +16,7 @@ from websockets.asyncio.server import serve
 from websockets.frames import CloseCode
 
 from speech_client.hearing import HearingSession, Refused
-from speech_client.outcomes import Busy, Cut, Malformed, PastDeadline
+from speech_client.outcomes import Busy, Cut, Malformed, OverCap, PastDeadline
 from speech_client.wire import (
     BusyWait,
     HearingLanguage,
@@ -279,7 +281,7 @@ def test_a_caller_leaving_a_service_that_ignores_the_close_is_not_held_by_it() -
     assert asyncio.run(scenario()) < CLOSE_TIMEOUT_SECONDS / 2
 
 
-def test_a_caller_cancelled_while_leaving_a_stalled_service_is_not_held_by_it() -> None:
+def test_the_session_deadline_frees_a_caller_cancelled_while_leaving_a_stall() -> None:
     async def scenario() -> float:
         async with _stalled_service() as (port, opened):
             started = time.monotonic()
@@ -290,6 +292,51 @@ def test_a_caller_cancelled_while_leaving_a_stalled_service_is_not_held_by_it() 
             return time.monotonic() - started
 
     assert asyncio.run(scenario()) < CLOSE_TIMEOUT_SECONDS / 2
+
+
+def test_a_send_after_the_held_limit_is_passed_never_reaches_the_peer() -> None:
+    async def scenario() -> tuple[HearingOutcome | None, list[bytes]]:
+        received: list[bytes] = []
+        setup_received = asyncio.Event()
+        closed = asyncio.Event()
+
+        async def records(connection: ServerConnection) -> None:
+            try:
+                async for message in connection:
+                    audio = json.loads(message).get("audio")
+                    if audio is None:
+                        setup_received.set()
+                    else:
+                        received.append(base64.b64decode(audio))
+            finally:
+                closed.set()
+
+        async with serve(records, LOOPBACK, 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            async with HearingSession(
+                f"http://{LOOPBACK}:{port}",
+                workload_token=WORKLOAD_TOKEN,
+                person_token=PERSON_TOKEN,
+                language=HearingLanguage.DE,
+                deadline_seconds=5,
+                held_limit_bytes=2,
+            ) as session:
+                async with asyncio.timeout(5):
+                    await setup_received.wait()
+                for pcm in (b"a", b"bcd", b"e"):
+                    session.send(pcm)
+                async with asyncio.timeout(5):
+                    async for _ in session.events():
+                        pass
+                outcome = session.outcome
+            async with asyncio.timeout(5):
+                await closed.wait()
+        return outcome, received
+
+    outcome, received = asyncio.run(scenario())
+
+    assert outcome == OverCap()
+    assert received == [b"a"]
 
 
 def test_a_peer_that_stops_reading_does_not_hold_the_session_past_its_deadline() -> (

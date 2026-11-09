@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
+import tomllib
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
@@ -92,8 +94,15 @@ def test_a_model_missing_from_the_cache_names_the_command_that_fetches_it(
 ) -> None:
     monkeypatch.setenv("SPEECH_HUGGINGFACE_CACHE", str(tmp_path))
 
-    with pytest.raises(SystemExit, match=r"fetch it with: \S+ small"):
+    with pytest.raises(SystemExit, match=r"fetch it with: (\S+) small") as refused:
         HEARING.require_cached_models([HearingModel.SMALL])
+
+    hinted = re.search(r"fetch it with: (\S+) small", str(refused.value))
+    scripts = tomllib.loads(
+        (Path(__file__).parents[2] / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["scripts"]
+    assert hinted is not None
+    assert scripts[hinted[1]] == "speech_service.fetch_hearing_model:main"
 
 
 def test_the_resident_memory_with_a_voice_includes_what_its_synthesis_took(

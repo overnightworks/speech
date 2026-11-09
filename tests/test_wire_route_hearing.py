@@ -135,7 +135,7 @@ def test_a_recording_is_heard_in_the_language_asked_for() -> None:
         "other-format",
         "unknown-field",
         "other-model",
-        "previous-model-name",
+        "model-speech-runtime",
         "no-model",
     ],
 )

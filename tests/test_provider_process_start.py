@@ -6,7 +6,8 @@ import logging
 import os
 import re
 import sys
-from typing import TYPE_CHECKING
+import tomllib
+from pathlib import Path
 
 import pytest
 from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
@@ -14,13 +15,12 @@ from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 from speech_service.provider_process import (
     ENDED_BEFORE_READY,
     ProviderFailedError,
+    ProviderId,
     ProviderLaunch,
     ProviderProcess,
+    provider_entrypoint,
 )
 from tests.support.worker_support import closed_provider, provider_worker
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 _ENTRYPOINT = """#!{python}
 {body}
@@ -70,6 +70,19 @@ def _provider(tmp_path: Path, body: str) -> ProviderProcess:
             arguments=("--device", "cpu", "--cache", str(cache)),
         )
     )
+
+
+def test_the_derived_worker_name_is_the_script_the_provider_declares() -> None:
+    declared = tomllib.loads(
+        (Path(__file__).parents[1] / "providers/qwen/pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+    )["project"]["scripts"]
+
+    entrypoint = provider_entrypoint(Path("providers"), ProviderId.QWEN)
+
+    assert entrypoint is not None
+    assert entrypoint.name in declared
 
 
 def test_provider_failing_to_import_logs_the_module_and_its_own_exit_status(
