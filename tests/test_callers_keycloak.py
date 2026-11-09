@@ -175,11 +175,24 @@ def test_a_person_missing_the_app_or_the_service_group_is_forbidden(
     assert_refusal(response, HTTP_403_FORBIDDEN, RefusalCode.FORBIDDEN, None)
 
 
+def assert_exchanged_for_the_app(subject_token: str, exchanged: str) -> None:
+    subject_claims = claims_of(subject_token)
+    claims = claims_of(exchanged)
+
+    assert claims["azp"] == APP_CLIENT
+    assert claims["sub"] == subject_claims["sub"]
+    assert MINTING.audience in audiences_of(claims)
+    assert {SERVICE_GROUP, APP_GROUP} <= set(claims["groups"])
+    assert claims["exp"] <= subject_claims["exp"]
+
+
 def test_an_agent_token_exchanged_by_its_app_speaks(wire: TestClient) -> None:
     """WIRE-15: an agent's token exchanged by its app speaks."""
     agent = person_token("mozart", client=AGENT_CLIENT, with_audience=False)
+    exchanged = exchanged_token(agent)
 
-    response = speak(wire, workload_token(APP_CLIENT), exchanged_token(agent))
+    assert_exchanged_for_the_app(agent, exchanged)
+    response = speak(wire, workload_token(APP_CLIENT), exchanged)
 
     assert response.status_code == HTTP_200_OK
     assert info_comment_before_data(response.content) is not None
@@ -190,8 +203,10 @@ def test_an_agent_service_account_token_exchanged_by_its_app_speaks(
 ) -> None:
     """WIRE-15: a service account's token exchanged by its app speaks."""
     agent = workload_token(AGENT_CLIENT, with_audience=False)
+    exchanged = exchanged_token(agent)
 
-    response = speak(wire, workload_token(APP_CLIENT), exchanged_token(agent))
+    assert_exchanged_for_the_app(agent, exchanged)
+    response = speak(wire, workload_token(APP_CLIENT), exchanged)
 
     assert response.status_code == HTTP_200_OK
 
