@@ -1,53 +1,33 @@
-Audience: every agent that edits this repository.
+# speech-runtime
 
-Code policy and coordination live once, in the global contract. This file adds
-only this repository's facts.
+## Commands
 
-## Projects
+Run each in its project's own directory (the root, or `providers/qwen`).
 
-The root is the speech service (`src/`, `tests/`, `scripts/`). Each
-`providers/<name>` is its own uv project with its own `uv.lock`;
-`providers/provider-contract` is the shared source the others install from.
-`packages/client` is the speech wire's client distribution, a uv workspace member of the root: linted and tested from the root, and the one owner of the wire's types.
-The GPU providers are live code: the models are kept and used. An advisory no
-relock reaches is allowlisted in `quality/config.toml`; each record names its
-owning item and the model-library cap that holds it.
+- `uv run --locked ruff check` and `uv run --locked ruff format --check`: lint and format.
+- `uv run --locked pytest -q <named tests>`: targeted tests. The default run deselects the `keycloak` marker.
+- `uv run --locked --project ../qwen ruff check --config pyproject.toml .`: lint `providers/provider-contract`, from its directory.
+- `uv run --locked pytest -q -m keycloak tests/test_callers_keycloak.py`: token shapes against a Keycloak you start yourself on a free port and name in `KEYCLOAK_URL`, under `/tmp/probe-stack.lock`.
+- `scripts/prove_speech.py`: starts the providers and takes `/tmp/probe-stack.lock` itself.
 
-## Checks
+## Rules
 
-CI calls the shared quality gate from the `quality` job of
-`.github/workflows/ci.yml`, pinned by SHA. Its required check is
-`quality / verdict`; `quality/config.toml` lists the jobs that must be green
-for it, so a new mandatory CI job is added there by its display name. Secret
-scanning and the SonarCloud scan run inside the gate, and
-`sonar-project.properties` may carry only the keys the gate allows.
+- `providers/provider-contract` has no ruff and no lock of its own: never run `uv run ruff` there, it leaves a stray `uv.lock`.
+- A new mandatory CI job is added by its display name to `mandatory_jobs` in `quality/config.toml`; the required check is `quality / verdict`.
+- A new root entry is declared in `quality/config.toml` with a reason, or lives in its owner's directory.
+- An advisory no relock reaches is allowlisted in `quality/config.toml` with its owning item and the model-library cap that holds it.
+- `sonar-project.properties` carries only the keys the quality gate allows.
+- Coverage reports are `coverage-<job>.xml` with paths relative to the repository root, as `[tool.coverage.run]` in the root `pyproject.toml` sets.
+- The GPU providers are live code: do not delete them as unused.
 
-The `keycloak-token-shapes` job serves the throwaway realm of
-`tests/fixtures/keycloak/realm.json` from Keycloak and runs the tests marked
-`keycloak` (`tests/test_callers_keycloak.py`) from the root's locked environment;
-the default run deselects them. Run them locally only with a Keycloak you start
-yourself on a free port, under the probe-stack lock, and `KEYCLOAK_URL` naming it.
+## Owners
 
-Each speech job writes a Cobertura report (`coverage-<job>.xml`, paths relative
-to the repository root, set by `[tool.coverage.run]` in the root `pyproject.toml`);
-the `coverage` job gathers the two into the artifact the gate hands to SonarCloud.
+- `packages/client` owns the wire's types.
+- `docs/wire.md` owns the wire's ruled behaviour.
 
-The gate's root-layout rule holds the root entries: a new root entry is declared
-in `quality/config.toml` with a reason, or lives in its owner's directory.
+## Documents
 
-Targeted local commands, run in the project's own directory:
-
-```bash
-uv run --locked ruff check
-uv run --locked ruff format --check
-uv run --locked pytest -q <named tests>
-```
-
-`providers/provider-contract` has no ruff and no lock of its own. Lint it with
-Qwen's locked ruff, from `providers/provider-contract`, and never `uv run ruff` there, which leaves a stray `uv.lock`:
-
-```bash
-uv run --locked --project ../qwen ruff check --config pyproject.toml .
-```
-
-`scripts/prove_speech.py` starts the providers and takes `/tmp/probe-stack.lock`.
+- `README.md`: read when you start or configure the service.
+- `docs/VISION.md`: read when you judge whether a change still serves the service's purpose.
+- `docs/ARCHITECTURE.md`: read when you change a building block, the trust model or delivery.
+- `docs/wire.md`: read when you change or call the speak, hear or live-hearing wire.
