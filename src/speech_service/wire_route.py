@@ -369,7 +369,12 @@ class _RealtimeRoute:
         """Serve `session` until the client leaves; its decodes end however it exits."""
         poller = asyncio.create_task(poll_forever(session))
         try:
-            await session.start()
+            try:
+                await session.start()
+            except RuntimeError:
+                if not await _client_has_left(websocket):
+                    raise
+                return
             while True:
                 message = await websocket.receive()
                 if message["type"] == "websocket.disconnect":
@@ -397,6 +402,20 @@ class _RealtimeRoute:
             wait = max(1, math.ceil(self._settings.hearing_busy_wait_seconds))
             return _refused(RefusalCode.BUSY, headers={RETRY_AFTER_HEADER: str(wait)})
         return place
+
+
+async def _client_has_left(websocket: WebSocket) -> bool:
+    """Whether the server already queued the client's disconnect.
+
+    uvicorn rejects a send with a `RuntimeError` when the client left before the
+    accept took effect, so only a queued disconnect tells that leave from a bug.
+    """
+    try:
+        async with asyncio.timeout(0):
+            message = await websocket.receive()
+    except TimeoutError:
+        return False
+    return message["type"] == "websocket.disconnect"
 
 
 class _NotARoute:
