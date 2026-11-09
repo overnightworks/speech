@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 from websockets.asyncio.server import serve
+from websockets.datastructures import Headers
+from websockets.http11 import Request, Response
 
 from speech_runtime_client.hearing import Refused
 from speech_runtime_client.wire import (
@@ -57,30 +59,32 @@ def test_only_a_503_with_the_contract_body_gives_a_refusal_code(
     assert CLIENT.refusal_code(status, body) == code
 
 
-async def _upgrade_outcome(peer: object) -> object:
-    async with await asyncio.start_server(peer, "127.0.0.1", 0) as server:
-        port = server.sockets[0].getsockname()[1]
-        service = SimpleNamespace(base_url=f"http://127.0.0.1:{port}", minting=MINTING)
-        return await asyncio.wait_for(CLIENT.hear_upgrade(service), 10)
-
-
 def test_a_refused_upgrade_gives_the_status_and_the_code_that_refused_it() -> None:
     body = unavailable_body()
-    answer = (
-        b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n"
-        + f"Content-Length: {len(body)}\r\n\r\n".encode()
-        + body
-    )
 
-    async def peer(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        await reader.readuntil(b"\r\n\r\n")
-        writer.write(answer)
-        await writer.drain()
-        writer.close()
+    def refuse(_: ServerConnection, __: Request) -> Response:
+        return Response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Service Unavailable",
+            Headers({"Content-Length": str(len(body))}),
+            body,
+        )
 
-    outcome = asyncio.run(_upgrade_outcome(peer))
+    async def scenario() -> object:
+        async with serve(unreachable, "127.0.0.1", 0, process_request=refuse) as server:
+            port = server.sockets[0].getsockname()[1]
+            service = SimpleNamespace(
+                base_url=f"http://127.0.0.1:{port}", minting=MINTING
+            )
+            return await asyncio.wait_for(CLIENT.hear_upgrade(service), 10)
+
+    outcome = asyncio.run(scenario())
 
     assert outcome == Refused(HTTPStatus.SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE)
+
+
+async def unreachable(_: ServerConnection) -> None:
+    """The handler of a service that refuses every upgrade before it runs."""
 
 
 def test_an_accepted_upgrade_gives_no_outcome() -> None:
