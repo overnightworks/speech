@@ -62,25 +62,13 @@ raise SystemExit(serve_provider(
 
 _FAILING_BODY = """import errno
 import os
-import queue
 import sys
-import threading
 from pathlib import Path
 
 from speech_provider_contract import ProviderFunctions, serve_provider
 
 cache = sys.argv[sys.argv.index("--cache") + 1]
 protocol_stdout = os.dup(1)
-command_arrived = threading.Event()
-
-
-class SignallingQueue(queue.Queue):
-    def put(self, item, *arguments, **keywords):
-        super().put(item, *arguments, **keywords)
-        command_arrived.set()
-
-
-queue.Queue = SignallingQueue
 
 
 class AcceleratorError(RuntimeError):
@@ -120,7 +108,6 @@ class PropertyCodeError(RuntimeError):
 
 
 def synthesize(model, text, language):
-    command_arrived.clear()
 {synthesis}
     yield b"\\x00\\x01"
 
@@ -326,8 +313,8 @@ def test_a_failure_during_a_cancel_drain_logs_its_cause(
     engine = _provider(
         tmp_path,
         _FAILING_BODY.format(
-            synthesis="    yield b'\\x00\\x01'\n    command_arrived.wait()\n"
-            "    raise OSError(errno.EIO, text)"
+            synthesis="    try:\n        while True:\n            yield b'\\x00\\x01'\n"
+            "    except GeneratorExit:\n        raise OSError(errno.EIO, text)"
         ),
     )
     with caplog.at_level(logging.DEBUG):
@@ -338,9 +325,8 @@ def test_a_failure_during_a_cancel_drain_logs_its_cause(
         engine.close()
 
     _assert_no_sentence(caplog)
-    assert f"{SYNTHESIS_FAILED}, request 1, cause: builtins.OSError[EIO]" in (
-        caplog.text
-    )
+    cause = "builtins.GeneratorExit -> builtins.OSError[EIO]"
+    assert f"{SYNTHESIS_FAILED}, request 1, cause: {cause}" in caplog.text
     assert engine.ready is False
 
 
