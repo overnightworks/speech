@@ -1,0 +1,8 @@
+claim_id = "0dab0c39129e4bd5986de18d023bd6a6"
+agent = "Claude f9263e7c-770c-4714-a559-669466757d0c"
+role = "builder"
+base = "12a360970b64728c43616af7858b5ff138e69274"
+branch = "claude/issue-219-agent-token-exchange-proof"
+scope = ["docs/wire.md", "tests/fixtures/keycloak/realm.json", "tests/support/keycloak_support.py", "tests/test_callers_keycloak.py"]
+opened_commit = "1b524e11f499d7038c550b2036fbcd3e564aa869"
+whole_reason = "One proof: the realm fixture, its helper, its tests and the one wire sentence move together."
