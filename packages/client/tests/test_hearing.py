@@ -220,6 +220,7 @@ def test_a_deadline_below_the_opening_bound_ends_a_stalled_opening_past_deadline
             return time.monotonic() - started
 
     with pytest.MonkeyPatch.context() as patch:
+        # The socket's own open timeout must not end the opening before the deadline.
         patch.setitem(connect.__init__.__kwdefaults__, "open_timeout", 0.2)
         elapsed = asyncio.run(scenario())
 
@@ -306,7 +307,7 @@ def test_a_caller_cancelled_while_leaving_a_stalled_service_is_not_held_by_it() 
             started = time.monotonic()
             with contextlib.suppress(TimeoutError):
                 async with asyncio.timeout(0.3):
-                    async with session_to(port, 30):
+                    async with session_to(port, 30, opening_seconds=30):
                         await opened.wait()
             return time.monotonic() - started
 
@@ -588,7 +589,10 @@ def test_a_leave_whose_cancel_the_callers_code_turned_into_another_error_aborts(
     callers_code: Callable[[], Awaitable[None]], turned_into: type[BaseException]
 ) -> None:
     async def hearing(port: int, opened: asyncio.Event) -> None:
-        async with asyncio.timeout(0.3), session_to(port, 30):
+        async with (
+            asyncio.timeout(0.3),
+            session_to(port, 30, opening_seconds=30),
+        ):
             await opened.wait()
             await callers_code()
 
