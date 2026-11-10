@@ -3,6 +3,6 @@ agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
 role = "builder"
 base = "bec9d255a3577f2413a458487ef9e0a1020e176b"
 branch = "claude/issue-268-hearing-opening-bound"
-scope = ["docs/wire.md", "packages/client/src/speech_client/hearing.py", "packages/client/src/speech_client/outcomes.py", "packages/client/tests/test_hearing.py", "packages/client/tests/test_relay.py"]
+scope = ["docs/wire.md", "packages/client/src/speech_client/hearing.py", "packages/client/src/speech_client/outcomes.py", "packages/client/tests/support/hearing_support.py", "packages/client/tests/test_hearing.py", "packages/client/tests/test_hearing_opening.py", "packages/client/tests/test_relay.py"]
 opened_commit = "c60e329aa3be5d418201cb8e5ffecce0b4996011"
 whole_reason = "One bound in one module with its two description sentences and the tests of both observable boundaries (session, relay); no part ships alone."
