@@ -52,7 +52,7 @@ from tests.support.worker_support import (
     wait_for_starts,
 )
 
-_SCRATCH_VARIABLES = ("NUMBA_CACHE_DIR", "TMPDIR", "TRITON_CACHE_DIR")
+_SCRATCH_VARIABLES = ("NUMBA_CACHE_DIR", "TMPDIR")
 
 
 def _engine(tmp_path: Path, behavior: str = "normal") -> ProviderProcess:
@@ -242,7 +242,6 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
     loaded.start()
     loaded.join(timeout=5)
     assert not loaded.is_alive()
-
     response: list[bytes] = []
     request = threading.Thread(
         target=lambda: response.extend(engine.pcm_chunks("Hallo", "de-DE"))
@@ -257,7 +256,6 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
     cwd, environment, pid, arguments = observed(cache)
     assert list(engine.pcm_chunks("later", "en")) == [b"\x00\x01"]
     engine.close()
-
     assert cwd == str(root / "qwen")
     assert arguments == {
         "expected_parent_pid": str(os.getpid()),
@@ -272,6 +270,7 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
         "PYTHONUNBUFFERED": "1",
         "PATH": os.defpath,
         "LD_LIBRARY_PATH": str(cublas),
+        "TORCH_DISABLE_NATIVE_JIT": "1",
         **dict.fromkeys(_SCRATCH_VARIABLES, environment["TMPDIR"]),
     }
     assert set(environment) <= {*expected_environment, "LC_CTYPE"}
