@@ -242,7 +242,6 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
     loaded.start()
     loaded.join(timeout=5)
     assert not loaded.is_alive()
-
     response: list[bytes] = []
     request = threading.Thread(
         target=lambda: response.extend(engine.pcm_chunks("Hallo", "de-DE"))
@@ -257,7 +256,6 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
     cwd, environment, pid, arguments = observed(cache)
     assert list(engine.pcm_chunks("later", "en")) == [b"\x00\x01"]
     engine.close()
-
     assert cwd == str(root / "qwen")
     assert arguments == {
         "expected_parent_pid": str(os.getpid()),
