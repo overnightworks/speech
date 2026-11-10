@@ -277,6 +277,7 @@ def test_stop_ends_the_playing_and_waiting_sounds_at_once_and_aborts_the_held_fe
             await stage.hand_over(url(LONG), url(HELD), url(SHORT))
             await stage.until("s.sounds[0].startedValue === 'playing'")
             await stage.side.arrival(HELD)
+            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
             await stage.act("stop")
             silent_ms = await stage.silent_within()
             await asyncio.wait_for(stage.side.held_aborted.wait(), WAIT_SECONDS)
@@ -347,6 +348,7 @@ def test_muting_ends_the_playing_and_waiting_sounds_at_once_and_silences_the_out
         async with _activated(tmp_path) as stage:
             await stage.hand_over(url(LONG), url(SHORT))
             await stage.until("s.sounds[0].startedValue === 'playing'")
+            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
             await stage.set_muted(muted=True)
             silent_ms = await stage.silent_within()
             return await stage.snapshot(), silent_ms
