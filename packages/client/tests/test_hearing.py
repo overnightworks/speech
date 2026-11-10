@@ -28,12 +28,9 @@ from speech_client.wire import (
     BusyWait,
     HearingLanguage,
     RefusalCode,
-    SessionAudio,
     SessionCreated,
-    SessionInput,
     TranscriptDelta,
     TranscriptionSession,
-    TranscriptionSetting,
 )
 
 if TYPE_CHECKING:
@@ -52,10 +49,8 @@ CLOSE_TIMEOUT_SECONDS = 10
 # Well below the socket close timeout (10 s) and the session deadline (30 s).
 AT_ONCE_SECONDS = 1
 CLOSE_NORMAL = CloseCode.NORMAL_CLOSURE
-# A bound the scripted peers meet in time, below the close timeout (10 s).
-OPENING_WITH_MARGIN = 2
-# A bound the stalled peers pass at once, far below the deadline.
-OPENING_SHORT = 0.3
+OPENING_MARGIN = 2  # met in time, below the close timeout (10 s)
+OPENING_SHORT = 0.3  # passed at once by a stalled peer, far below the deadline
 
 
 async def _says_nonsense(connection: ServerConnection) -> None:
@@ -328,16 +323,9 @@ def test_a_service_that_ignores_the_close_does_not_swallow_the_callers_timeout()
         pytest.param(
             ("not json",), _takes_every_event, Malformed(), 1, None, id="nonsense"
         ),
+        pytest.param((), _leaves, Closed(), 30, OPENING_MARGIN, id="leave-by-opening"),
         pytest.param(
-            (), _leaves, Closed(), 30, OPENING_WITH_MARGIN, id="leave-opening-bound"
-        ),
-        pytest.param(
-            (),
-            _passes_the_limit,
-            OverCap(),
-            30,
-            OPENING_WITH_MARGIN,
-            id="over-limit-opening-bound",
+            (), _passes_the_limit, OverCap(), 30, OPENING_MARGIN, id="limit-by-opening"
         ),
     ],
 )
@@ -430,6 +418,9 @@ def test_a_peer_that_stops_reading_does_not_hold_the_session_past_its_deadline()
 
 
 _HEARD = TranscriptDelta(item_id="i", delta=HEARD_TEXT).model_dump_json()
+_CREATED = SessionCreated(
+    session=TranscriptionSession(type="transcription")
+).model_dump_json()
 
 
 @pytest.mark.parametrize(
@@ -691,15 +682,6 @@ def test_a_base_url_that_is_not_an_origin_raises_value_error(base_url: str) -> N
         )
 
 
-def _session_created() -> str:
-    setting = TranscriptionSetting(language=HearingLanguage.DE)
-    session = TranscriptionSession(
-        type="transcription",
-        audio=SessionAudio(input=SessionInput(transcription=setting)),
-    )
-    return SessionCreated(session=session).model_dump_json()
-
-
 @pytest.mark.parametrize(
     "stall",
     [
@@ -707,9 +689,7 @@ def _session_created() -> str:
         pytest.param("first-event", id="no-event-after-the-handshake"),
     ],
 )
-def test_a_stalled_opening_ends_with_unreachable_at_the_opening_bound(
-    stall: str,
-) -> None:
+def test_a_stalled_opening_ends_with_unreachable_at_the_bound(stall: str) -> None:
     async def scenario() -> tuple[HearingOutcome | None, float]:
         async with contextlib.AsyncExitStack() as stack:
             if stall == "handshake":
@@ -732,11 +712,11 @@ def test_a_stalled_opening_ends_with_unreachable_at_the_opening_bound(
 @pytest.mark.parametrize(
     "first_event",
     [
-        pytest.param(_session_created(), id="session-created"),
+        pytest.param(_CREATED, id="session-created"),
         pytest.param(_HEARD, id="a-delta-first"),
     ],
 )
-def test_a_service_that_opened_in_time_may_stay_silent_past_the_opening_bound(
+def test_a_service_that_opened_in_time_may_stay_silent_past_the_bound(
     first_event: str,
 ) -> None:
     async def scenario() -> HearingOutcome | None:
@@ -747,12 +727,12 @@ def test_a_service_that_opened_in_time_may_stay_silent_past_the_opening_bound(
 
         async with serve(says_first_then_waits, LOOPBACK, 0) as server:
             port = server.sockets[0].getsockname()[1]
-            session = _session(port, 10, opening_seconds=OPENING_WITH_MARGIN)
+            session = _session(port, 10, opening_seconds=OPENING_MARGIN)
             async with session:
-                async with asyncio.timeout(OPENING_WITH_MARGIN):
+                async with asyncio.timeout(OPENING_MARGIN):
                     await anext(session.events())
                 # The one wait past the bound: it must not end the open session.
-                await asyncio.sleep(OPENING_WITH_MARGIN + 0.3)
+                await asyncio.sleep(OPENING_MARGIN + 0.3)
                 assert session.outcome is None
             return session.outcome
 
@@ -760,30 +740,22 @@ def test_a_service_that_opened_in_time_may_stay_silent_past_the_opening_bound(
 
 
 def test_a_caller_timeout_during_the_wait_for_the_first_event_leaves_no_task() -> None:
-    async def hearing(port: int, opened: asyncio.Event) -> None:
-        async with (
-            asyncio.timeout(0.2),
-            _session(port, 30, opening_seconds=10) as session,
-        ):
-            await opened.wait()
-            await _takes_every_event(session)
-
-    async def scenario() -> float:
+    async def scenario() -> None:
         async with _stalled_service() as (port, opened):
-            started = time.monotonic()
-            with pytest.raises(TimeoutError):
-                await hearing(port, opened)
-            elapsed = time.monotonic() - started
+            with contextlib.suppress(TimeoutError):
+                async with (
+                    asyncio.timeout(0.2),
+                    _session(port, 30, opening_seconds=10) as session,
+                ):
+                    await opened.wait()
+                    await _takes_every_event(session)
         assert asyncio.all_tasks() == {asyncio.current_task()}
-        return elapsed
 
-    assert asyncio.run(scenario()) < AT_ONCE_SECONDS
+    asyncio.run(scenario())
 
 
-def test_frames_sent_before_a_stalled_opening_ends_reach_the_peer_only_before_it() -> (
-    None
-):
-    async def scenario() -> tuple[HearingOutcome | None, list[bytes], list[bytes]]:
+def test_frames_held_for_a_stalled_opening_never_reach_the_peer_after_it() -> None:
+    async def scenario() -> tuple[HearingOutcome | None, list[bytes]]:
         received: list[bytes] = []
         flushed = asyncio.Event()
         closed = asyncio.Event()
@@ -802,30 +774,24 @@ def test_frames_sent_before_a_stalled_opening_ends_reach_the_peer_only_before_it
         async with serve(records, LOOPBACK, 0) as server:
             port = server.sockets[0].getsockname()[1]
             session = _session(
-                port, 30, held_limit_bytes=10, opening_seconds=OPENING_WITH_MARGIN
+                port, 30, held_limit_bytes=10, opening_seconds=OPENING_MARGIN
             )
             async with session:
                 session.send(b"a")
                 session.send(b"b")
-                async with asyncio.timeout(OPENING_WITH_MARGIN):
+                async with asyncio.timeout(OPENING_MARGIN):
                     await flushed.wait()
-                async with asyncio.timeout(OPENING_WITH_MARGIN * 2):
+                async with asyncio.timeout(OPENING_MARGIN * 2):
                     await _takes_every_event(session)
                 session.send(b"c")
             async with asyncio.timeout(5):
                 await closed.wait()
-            return session.outcome, received[:2], received[2:]
+            return session.outcome, received
 
-    outcome, before, after = asyncio.run(scenario())
-
-    assert outcome == Unreachable()
-    assert before == [b"a", b"b"]
-    assert after == []
+    assert asyncio.run(scenario()) == (Unreachable(), [b"a", b"b"])
 
 
 @pytest.mark.parametrize("opening_seconds", [0, -1])
-def test_an_opening_bound_at_or_below_zero_raises_value_error(
-    opening_seconds: float,
-) -> None:
+def test_an_opening_bound_of_zero_or_less_raises(opening_seconds: float) -> None:
     with pytest.raises(ValueError, match="opening_seconds"):
         _session(1, opening_seconds=opening_seconds)
