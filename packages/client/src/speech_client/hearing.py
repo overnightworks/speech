@@ -24,8 +24,16 @@ socket's logger above debug; no outcome and no repr carries a token or heard tex
     (`speech_client.outcomes`); `deadline_seconds` bounds the whole
     session, opening included.
 
+A failure outside these outcomes ends the session at once; `outcome` stays
+`None` and leaving the context raises the failure.
+
 A caller reads `events()` while it sends: the session waits for the caller to
 take an event before it reads the next one.
+
+Leaving the context in order closes the connection with the normal code, within
+the socket's close timeout or at the deadline, which then keeps the end's
+outcome. Leaving under cancellation, or a cancel while leaving, aborts the
+connection at once, without a close handshake.
 """
 
 from __future__ import annotations
@@ -159,6 +167,48 @@ _FAILURE_OUTCOMES: tuple[tuple[type[Exception], HearingOutcome], ...] = (
 _FAILURES = tuple(kind for kind, _ in _FAILURE_OUTCOMES)
 
 
+def _failure_outcome(failure: BaseException) -> HearingOutcome:
+    return next(
+        outcome for kind, outcome in _FAILURE_OUTCOMES if isinstance(failure, kind)
+    )
+
+
+def _left_under_cancellation(exception: BaseException | None) -> bool:
+    # A cancel the caller's own code turned into another exception still counts.
+    task = asyncio.current_task()
+    return isinstance(exception, asyncio.CancelledError) or (
+        task is not None and task.cancelling() > 0
+    )
+
+
+async def _settled(*tasks: asyncio.Task[object]) -> None:
+    """Cancel `tasks` and wait until each is done, retrieving every result.
+
+    A failure outside the outcome mapping is raised, even over a cancel that
+    landed meanwhile, as in a task group; otherwise that cancel is raised again.
+    The cancel count is left as it is, for `asyncio.timeout` and the caller.
+    """
+    for task in tasks:
+        task.cancel()
+    try:
+        await asyncio.wait(tasks)
+    except asyncio.CancelledError:
+        await _settled(*tasks)
+        raise
+    failures = [task.exception() for task in tasks if not task.cancelled()]
+    for failure in failures:
+        if failure is not None and not isinstance(failure, _FAILURES):
+            raise failure
+
+
+async def _abandoned(opening: asyncio.Task[ClientConnection]) -> None:
+    try:
+        await _settled(opening)
+    finally:
+        if not opening.cancelled() and opening.exception() is None:
+            opening.result().transport.abort()
+
+
 def _refusal_outcome(refused: InvalidStatus) -> HearingOutcome:
     answer = refused.response
     if answer.status_code < HTTPStatus.BAD_REQUEST:
@@ -197,15 +247,16 @@ class HearingSession:
         self._held: deque[bytes] = deque()
         self._held_bytes = 0
         self._held_changed = asyncio.Event()
-        self._over_limit = False
+        self._end: asyncio.Future[HearingOutcome] | None = None
         self._received: asyncio.Queue[ServerEvent | None] = asyncio.Queue(maxsize=1)
         self._runner: asyncio.Task[None] | None = None
         self.outcome: HearingOutcome | None = None
 
     async def __aenter__(self) -> Self:
         """Start opening the connection."""
+        self._end = asyncio.get_running_loop().create_future()
         # Eager, so a cancel cannot end the runner before its first await.
-        self._runner = asyncio.create_task(self._run(), eager_start=True)
+        self._runner = asyncio.create_task(self._run(self._end), eager_start=True)
         return self
 
     async def __aexit__(
@@ -216,23 +267,23 @@ class HearingSession:
     ) -> None:
         """Close the connection and wait until the session is gone."""
         assert self._runner is not None  # noqa: S101 - entered
-        self._runner.cancel()
-        try:
-            await self._runner
-        except asyncio.CancelledError:
-            # Only the runner's own cancellation is ours to absorb.
-            task = asyncio.current_task()
-            if task is not None and task.cancelling():
-                raise
+        assert self._end is not None  # noqa: S101 - entered
+        if _left_under_cancellation(exception):
+            self._runner.cancel()
+        elif not self._end.done():
+            self._end.set_result(Closed())
+        # A cancel landing while the runner runs is passed to it and raised here; once
+        # the runner has finished, asyncio raises it here or at the caller's next
+        # await. Nothing absorbs it.
+        await self._runner
 
     def send(self, pcm: bytes) -> None:
         """Queue PCM16 audio; past the held limit the session ends with `OverCap`."""
-        assert self._runner is not None  # noqa: S101 - entered
-        if self._over_limit:
+        assert self._end is not None  # noqa: S101 - entered
+        if self._end.done():
             return
         if self._held_bytes + len(pcm) > self._held_limit_bytes:
-            self._over_limit = True
-            self._runner.cancel()
+            self._end.set_result(OverCap())
             return
         self._held.append(pcm)
         self._held_bytes += len(pcm)
@@ -241,64 +292,96 @@ class HearingSession:
     async def events(self) -> AsyncIterator[ServerEvent]:
         """The server events, in order, until the session ends."""
         while True:
-            if self.outcome is not None and self._received.empty():
+            if (
+                self._runner is not None
+                and self._runner.done()
+                and self._received.empty()
+            ):
                 return
             event = await self._received.get()
             if event is None:
                 return
             yield event
 
-    async def _run(self) -> None:
+    async def _run(self, end: asyncio.Future[HearingOutcome]) -> None:
         try:
-            self.outcome = await self._session()
+            self.outcome = await self._session(end)
         except asyncio.CancelledError:
-            if not self._over_limit:
-                self.outcome = Closed()
-                raise
-            self.outcome = OverCap()
+            self.outcome = Closed()
+            raise
         finally:
             # Wakes a caller waiting in `events()`; when an event is still queued,
-            # that caller sees the outcome after taking it.
+            # that caller sees the session ended after taking it.
             with contextlib.suppress(asyncio.QueueFull):
                 self._received.put_nowait(None)
 
-    async def _session(self) -> HearingOutcome:
+    async def _session(self, end: asyncio.Future[HearingOutcome]) -> HearingOutcome:
+        ended: HearingOutcome | None = None
         try:
-            async with (
-                asyncio.timeout(self._deadline_seconds) as deadline,
-                _Connect(
-                    self._url,
-                    additional_headers=self._headers,
-                    open_timeout=None,
-                    logger=_SOCKET_LOGGER,
-                ) as socket,
-            ):
-                await socket.send(self._update)
-                writer = asyncio.create_task(self._write(socket))
+            async with asyncio.timeout(self._deadline_seconds):
+                socket = await self._open(end)
+                if socket is None:
+                    return end.result()
                 try:
-                    await self._read(socket)
+                    await socket.send(self._update)
+                    ended = await self._converse(socket, end)
+                    await socket.close()
+                    return ended
                 finally:
-                    writer.cancel()
-                    with contextlib.suppress(asyncio.CancelledError, ConnectionClosed):
-                        await writer
-                    try:
-                        if not deadline.expired():
-                            await socket.close()
-                    finally:
-                        # A stalled peer holds a polite close past the deadline or a
-                        # cancel; aborting after a completed close is a no-op.
-                        socket.transport.abort()
+                    # A stalled peer holds a polite close past the deadline or a
+                    # cancel; aborting after a completed close is a no-op.
+                    socket.transport.abort()
+        except TimeoutError as timed_out:
+            # The deadline that cuts the polite close of an end keeps that end.
+            return _failure_outcome(timed_out) if ended is None else ended
         except InvalidStatus as refused:
             return _refusal_outcome(refused)
         except InvalidMessage as unparsed:
             return Cut() if isinstance(unparsed.__cause__, EOFError) else Malformed()
         except _FAILURES as failure:
-            return next(
-                outcome
-                for kind, outcome in _FAILURE_OUTCOMES
-                if isinstance(failure, kind)
-            )
-        return Closed()
+            return _failure_outcome(failure)
+
+    async def _open(
+        self, end: asyncio.Future[HearingOutcome]
+    ) -> ClientConnection | None:
+        opening = asyncio.create_task(self._connect())
+        try:
+            await asyncio.wait({opening, end}, return_when=asyncio.FIRST_COMPLETED)
+        except asyncio.CancelledError:
+            await _abandoned(opening)
+            raise
+        if opening.done():
+            return opening.result()
+        await _abandoned(opening)
+        return None
+
+    async def _connect(self) -> ClientConnection:
+        return await _Connect(
+            self._url,
+            additional_headers=self._headers,
+            open_timeout=None,
+            logger=_SOCKET_LOGGER,
+        )
+
+    async def _converse(
+        self, socket: ClientConnection, end: asyncio.Future[HearingOutcome]
+    ) -> HearingOutcome:
+        reader = asyncio.create_task(self._read(socket))
+        writer = asyncio.create_task(self._write(socket))
+        pending = {reader, writer, end}
+        try:
+            while reader in pending and end in pending:
+                done, pending = await asyncio.wait(
+                    pending, return_when=asyncio.FIRST_COMPLETED
+                )
+                if writer in done and writer.exception() is not None:
+                    break
+        finally:
+            await _settled(reader, writer)
+        for child in (reader, writer):
+            if not child.cancelled() and (failure := child.exception()) is not None:
+                return _failure_outcome(failure)
+        return end.result() if reader.cancelled() else Closed()
 
     async def _read(self, socket: ClientConnection) -> None:
         async for message in socket:
@@ -307,15 +390,17 @@ class HearingSession:
             await self._received.put(parse_server_event(message))
 
     async def _write(self, socket: ClientConnection) -> None:
-        while True:
-            await self._held_changed.wait()
-            self._held_changed.clear()
-            while self._held:
-                pcm = self._held.popleft()
-                await socket.send(
-                    AudioAppend(
-                        type="input_audio_buffer.append",
-                        audio=base64.b64encode(pcm).decode(),
-                    ).model_dump_json(exclude_none=True)
-                )
-                self._held_bytes -= len(pcm)
+        # The reader tells how the connection ended.
+        with contextlib.suppress(ConnectionClosed):
+            while True:
+                await self._held_changed.wait()
+                self._held_changed.clear()
+                while self._held:
+                    pcm = self._held.popleft()
+                    await socket.send(
+                        AudioAppend(
+                            type="input_audio_buffer.append",
+                            audio=base64.b64encode(pcm).decode(),
+                        ).model_dump_json(exclude_none=True)
+                    )
+                    self._held_bytes -= len(pcm)

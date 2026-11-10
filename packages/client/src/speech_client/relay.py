@@ -19,9 +19,8 @@ own detector decides what speech is.
 socket with the `HopClose` of that end. `app_ended` ends the browser hop at once.
 `relay` itself returns when the session has closed: within the socket's close
 timeout, or at the session's deadline when the service no longer reads. A cancel
-of `relay`, a caller's timeout included, runs the same polite close, within the
-socket's close timeout or at the session's deadline, unless it lands while that
-close is under way, which it then aborts. Either way no task is left behind.
+of `relay`, a caller's timeout included, aborts the service socket at once,
+without a close handshake, whenever it lands, and leaves no task behind.
 `relay` enters and leaves `session` itself: pass it unentered. A failure of
 `on_event` is raised, and no task the relay started outlives it. The relay logs
 nothing.
@@ -137,6 +136,8 @@ async def _deliver(
 ) -> RelayOutcome:
     async for event in session.events():
         await on_event(event)
+    # After an unexpected failure the outcome stays `None`; leaving the session
+    # then raises that failure in place of this assertion.
     assert session.outcome is not None  # noqa: S101 - events ran out
     return session.outcome
 
