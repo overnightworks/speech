@@ -8,5 +8,5 @@
     "sourceMap": true
   },
   "include": [],
-  "files": ["src/resampler.ts", "src/hop.ts"]
+  "files": ["src/capture.ts", "src/resampler.ts", "src/hop.ts"]
 }

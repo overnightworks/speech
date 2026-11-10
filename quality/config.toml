@@ -1,5 +1,5 @@
 [gate]
-mandatory_jobs = ["Speech: lint, tests", "Speech: Qwen provider", "Speech: image", "keycloak-token-shapes", "Speech: browser package"]
+mandatory_jobs = ["Speech: lint, tests", "Speech: Qwen provider", "Speech: image", "keycloak-token-shapes", "Speech: browser package", "Speech: browser capture flow"]
 
 [[root.allow]]
 entry = "packages/"

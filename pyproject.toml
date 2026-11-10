@@ -38,6 +38,7 @@ speech-fetch-voice = "speech_service.fetch_voice:main"
 dev = [
     "cryptography==50.0.2",
     "httpx2==2.16.0",
+    "playwright==1.64.0",
     "pyjwt[crypto]==2.15.1",
     "pytest==9.2.0",
     "pytest-cov==7.1.0",
@@ -60,8 +61,11 @@ overnightworks-speech-client = { workspace = true }
 overnightworks-speech-provider-contract = { path = "providers/provider-contract", editable = true }
 
 [tool.pytest.ini_options]
-addopts = "--strict-config --strict-markers --import-mode=importlib -m 'not keycloak'"
-markers = ["keycloak: needs the CI Keycloak that the keycloak-token-shapes job serves"]
+addopts = "--strict-config --strict-markers --import-mode=importlib -m 'not keycloak and not browser'"
+markers = [
+    "keycloak: needs the CI Keycloak that the keycloak-token-shapes job serves",
+    "browser: drives Chromium against the built browser package",
+]
 pythonpath = [".", "scripts"]
 testpaths = ["tests", "packages/client/tests"]
 

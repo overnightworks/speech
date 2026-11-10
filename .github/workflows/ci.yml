@@ -146,6 +146,90 @@ jobs:
           path: packages/browser/coverage/coverage-browser-unit.lcov
           if-no-files-found: error
 
+  browser-flow:
+    name: "Speech: browser capture flow"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the event commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          version: "0.10.9"
+
+      - name: Install locked dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
+        with:
+          package_json_file: packages/browser/package.json
+
+      - name: Install Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: packages/browser/package.json
+          check-latest: true
+          cache: pnpm
+          cache-dependency-path: packages/browser/pnpm-lock.yaml
+
+      - name: Build the browser package
+        working-directory: packages/browser
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Cache Chromium
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+
+      # apt on the runner can stall on a slow mirror; each attempt is bounded so
+      # a stall costs one retry instead of the test budget.
+      - name: Install Chromium
+        id: install-chromium
+        continue-on-error: true
+        timeout-minutes: 5
+        run: uv run --locked playwright install --with-deps chromium
+
+      - name: Install Chromium again
+        if: steps.install-chromium.outcome == 'failure'
+        timeout-minutes: 3
+        run: |
+          # The timed-out attempt leaves its apt-get running and holding the dpkg lock.
+          sudo pkill -x apt-get || true
+          sudo pkill -x apt || true
+          while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done
+          uv run --locked playwright install --with-deps chromium
+
+      - name: Run the browser capture flow
+        timeout-minutes: 4
+        env:
+          SPEECH_BROWSER_COVERAGE_DIR: ${{ runner.temp }}/browser-coverage-raw
+        # Each worker drives real-time audio graphs; two fit the runner without
+        # starving the render threads.
+        run: uv run --locked pytest -q -n 2 -m browser tests/test_wire_route_browser_capture.py
+
+      - name: Convert the page coverage to lcov
+        working-directory: packages/browser
+        env:
+          SPEECH_BROWSER_COVERAGE_DIR: ${{ runner.temp }}/browser-coverage-raw
+        run: node scripts/page-coverage-report.js "${SPEECH_BROWSER_COVERAGE_DIR}"
+
+      - name: Upload the coverage report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-browser-flow
+          path: packages/browser/coverage/flow/coverage-browser-flow.lcov
+          if-no-files-found: error
+
   image:
     name: "Speech: image"
     runs-on: ubuntu-24.04
@@ -227,20 +311,28 @@ jobs:
     needs:
       - speech
       - qwen-provider
+      - browser-unit
+      - browser-flow
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Download the two coverage reports
+      - name: Download the coverage reports
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: coverage-*
           merge-multiple: true
 
+      # The two reports name disjoint files, so their concatenation is one valid lcov.
+      - name: Merge the browser coverage
+        run: cat coverage-browser-unit.lcov coverage-browser-flow.lcov > coverage-browser.lcov
+
       - name: Upload the coverage reports for the quality gate
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage
-          path: coverage-*.xml
+          path: |
+            coverage-*.xml
+            coverage-browser.lcov
           if-no-files-found: error
 
   quality:
@@ -252,6 +344,7 @@ jobs:
       - qwen-provider
       - image
       - browser-unit
+      - browser-flow
     if: always()
     uses: overnightworks/quality/.github/workflows/gate.yml@2d2b68bf3916b34f6f2c72a540c1e3d8a947b750 # v0.10.0
     with:
