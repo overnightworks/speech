@@ -1,8 +1,0 @@
-claim_id = "1b7536bb04e840ae9913806dbe676a88"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "bec9d255a3577f2413a458487ef9e0a1020e176b"
-branch = "claude/issue-267-capture-on-message"
-scope = ["README.md", "docs/ARCHITECTURE.md", "packages/browser/src/capture.ts", "packages/client/src/speech_client/relay.py", "tests/fixtures/browser", "tests/support/browser_support.py", "tests/test_wire_route_browser_capture.py"]
-opened_commit = "947d246fe362c522a685a9ef01bda148754db0fb"
-whole_reason = "The option, its flow cells in the capture flow's fixtures and the two documents that describe capture change together."
