@@ -47,6 +47,15 @@ def test_library_path_names_the_cuda_packages_of_any_python_three_venv(
     assert environment["LD_LIBRARY_PATH"] == os.pathsep.join([str(cublas), str(cudnn)])
 
 
+@pytest.mark.parametrize("variable", ["NUMBA_CACHE_DIR", "TMPDIR", "TRITON_CACHE_DIR"])
+def test_writable_directories_are_the_workers_scratch_directory(
+    tmp_path: Path, variable: str
+) -> None:
+    scratch = tmp_path / "scratch"
+
+    assert provider_environment(tmp_path, scratch)[variable] == str(scratch)
+
+
 @pytest.mark.parametrize("visible_devices", ["", "0,1"])
 def test_visible_devices_are_passed_through_when_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, visible_devices: str
@@ -86,6 +95,7 @@ def test_a_parent_token_does_not_reach_the_provider_environment(
         "PATH",
         "NUMBA_CACHE_DIR",
         "TMPDIR",
+        "TRITON_CACHE_DIR",
         "CUDA_VISIBLE_DEVICES",
         "LD_LIBRARY_PATH",
     }
