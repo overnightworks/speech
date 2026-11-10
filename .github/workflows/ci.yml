@@ -133,8 +133,8 @@ jobs:
       - name: Check types
         run: pnpm run check
 
-      - name: Build
-        run: pnpm run build
+      - name: Pack the tarball and install it into an empty project
+        run: node scripts/pack-release.js "$RUNNER_TEMP/release-files"
 
       - name: Test
         run: pnpm run test:coverage

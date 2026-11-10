@@ -1,10 +1,11 @@
-"""Check that the distributions stand at one version, and at the released one.
+"""Check that the release's artefacts stand at one version, and at the released one.
 
 The release set is the root project plus each local project the root declares in
-`[tool.uv.workspace] members` and as a `path` in `[tool.uv.sources]`. The
-distributions' release workflow runs this before it creates the tag, and reads
-its rows with `--rows`. Without a version the check only requires that the set
-agrees, which the default test run does on every pull request.
+`[tool.uv.workspace] members` and as a `path` in `[tool.uv.sources]`, and each
+`packages/*/package.json`. The distributions' release workflow runs this before
+it creates the tag, and reads its rows with `--rows`. Without a version the
+check only requires that the set agrees, which the default test run does on
+every pull request.
 """
 
 # ruff: noqa: T201 - the distributions' release workflow reads this command's output
@@ -12,6 +13,7 @@ agrees, which the default test run does on every pull request.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import tomllib
 from dataclasses import dataclass
@@ -69,12 +71,18 @@ def release_rows(root: Path) -> list[DistributionRow]:
 
 
 def release_faults(root: Path, expected: str | None) -> list[str]:
-    """One line per distribution whose version is off, each naming its project file."""
+    """One line per artefact whose version is off, each naming its version file."""
     versions = {
         (Path(directory) / "pyproject.toml").as_posix(): _read_project(root, directory)[
             "project"
         ]["version"]
         for directory in _release_directories(root)
+    }
+    versions |= {
+        package_file.relative_to(root).as_posix(): json.loads(
+            package_file.read_text(encoding="utf-8")
+        )["version"]
+        for package_file in sorted(root.glob("packages/*/package.json"))
     }
     if expected is not None:
         return [

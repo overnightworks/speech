@@ -75,8 +75,9 @@ The process's own:
 
 ## Install as a dependency
 
-Three distributions are released together at one version, as the Git tag
-`vX.Y.Z`, and go to no registry. A host installs each by its Git pin:
+Three Python distributions and the browser package are released together at one
+version, as the Git tag `vX.Y.Z`, and go to no registry. A host installs each
+distribution by its Git pin:
 
 ```text
 overnightworks-speech-client @ git+https://github.com/overnightworks/speech@vX.Y.Z#subdirectory=packages/client
@@ -89,7 +90,18 @@ The client carries the wire's types, the bounded speaking call
 (`speech_client.health`) and the live hearing session
 (`speech_client.hearing`). The service is an application: its pin
 installs the CPU path, and GPU hearing needs the pin with `[gpu]`.
-`scripts/check_release.py` holds the distributions at one version.
+
+The browser package `overnightworks-speech-browser` is a release file of the
+tag, `overnightworks-speech-browser-X.Y.Z.tgz`, at the client's version. A host
+pins its URL, and the release notes give the `sha512-` integrity that pnpm
+writes into the lockfile:
+
+```text
+https://github.com/overnightworks/speech/releases/download/vX.Y.Z/overnightworks-speech-browser-X.Y.Z.tgz
+```
+
+`scripts/check_release.py` holds the distributions and the browser package at
+one version.
 
 ## Release
 
@@ -103,7 +115,8 @@ gh workflow run release-distributions.yml -f version=X.Y.Z
 
 `release.yml` releases the app: it builds, attests and pushes the image to GHCR,
 then sets the dated tag `vYYYY.MM.DD.N`. `release-distributions.yml` releases the
-three distributions at one `X.Y.Z`. Both run quality's release gate; its refusals
+three distributions and the browser package at one `X.Y.Z`, and uploads the
+package's tarball as a release file. Both run quality's release gate; its refusals
 and the path itself are in
 [quality's `docs/release.md`](https://github.com/overnightworks/quality/blob/2d2b68bf3916b34f6f2c72a540c1e3d8a947b750/docs/release.md).
 

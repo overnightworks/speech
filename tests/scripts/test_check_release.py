@@ -1,7 +1,8 @@
-"""The release check names the version fields that are off in what the root declares."""
+"""The release check names the version fields that are off, package.json included."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,12 @@ def _write_project(root: Path, directory: str, name: str, version: str) -> None:
         f'[project]\nname = "{name}"\nversion = "{version}"\n\n'
         f'[tool.hatch.build.targets.wheel]\npackages = ["src/{package}"]\n'
     )
+
+
+def _write_package(root: Path, directory: str, version: str) -> None:
+    package = root / directory
+    package.mkdir(parents=True, exist_ok=True)
+    (package / "package.json").write_text(json.dumps({"version": version}))
 
 
 def _write_root(
@@ -52,6 +59,7 @@ def tree(tmp_path: Path) -> Path:
     )
     _write_project(tmp_path, "libs/client", "the-client", RELEASE)
     _write_project(tmp_path, "libs/contract", "the-contract", RELEASE)
+    _write_package(tmp_path, "packages/web", RELEASE)
     return tmp_path
 
 
@@ -109,14 +117,23 @@ def test_a_project_declared_both_ways_is_one_row(tree: Path) -> None:
     assert "the-client" in names
 
 
-@pytest.mark.parametrize("off", [".", "libs/client", "libs/contract"])
-def test_a_field_that_is_off_is_named(tree: Path, off: str) -> None:
+@pytest.mark.parametrize(
+    ("off", "project_file"),
+    [
+        (".", "pyproject.toml"),
+        ("libs/client", "libs/client/pyproject.toml"),
+        ("libs/contract", "libs/contract/pyproject.toml"),
+        ("packages/web", "packages/web/package.json"),
+    ],
+)
+def test_a_field_that_is_off_is_named(tree: Path, off: str, project_file: str) -> None:
     if off == ".":
         _write_root(tree, OTHER, members=("libs/client",), sources=("libs/contract",))
+    elif off.startswith("packages/"):
+        _write_package(tree, off, OTHER)
     else:
         _write_project(tree, off, Path(off).name, OTHER)
 
-    project_file = "pyproject.toml" if off == "." else f"{off}/pyproject.toml"
     for expected in (None, RELEASE):
         faults = release_faults(tree, expected)
         assert any(fault.startswith(f"{project_file} ") for fault in faults)
@@ -131,6 +148,7 @@ def test_a_wrong_input_names_every_field(tree: Path) -> None:
             "pyproject.toml",
             "libs/client/pyproject.toml",
             "libs/contract/pyproject.toml",
+            "packages/web/package.json",
         )
     )
 
@@ -159,3 +177,10 @@ def test_a_further_project_at_another_version_is_named_and_listed(
         "libs/extra/pyproject.toml" in fault for fault in release_faults(tree, RELEASE)
     )
     assert "the-extra" in {row.name for row in release_rows(tree)}
+
+
+def test_a_package_json_without_a_version_fails_loud(tree: Path) -> None:
+    (tree / "packages/web/package.json").write_text("{}")
+
+    with pytest.raises(KeyError):
+        release_faults(tree, None)
