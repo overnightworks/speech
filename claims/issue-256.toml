@@ -1,8 +1,0 @@
-claim_id = "3bd13f15f52148d2995019f0fa57ded6"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "50b1c174a946ec2d06461b8da4e9ded78d6e7c16"
-branch = "claude/issue-256-the-player"
-scope = [".github/workflows/ci.yml", "AGENTS.md", "README.md", "docs/ARCHITECTURE.md", "docs/VISION.md", "packages/browser/package.json", "packages/browser/scripts/page-coverage-report.js", "packages/browser/src/capture.ts", "packages/browser/src/index.ts", "packages/browser/src/player.ts", "packages/browser/tsconfig.build.json", "packages/browser/tsconfig.json", "quality/config.toml", "tests/fixtures/browser", "tests/support/browser_support.py", "tests/test_wire_route_browser_player.py"]
-opened_commit = "0ccb4a2f6cce0d77d1587b171f0082b588abb21a"
-whole_reason = "The player, the package entry that exports it, its Chromium flow in the one browser flow job and the documents of #216's last slice land together: none of them has a caller or a true sentence without the player."
