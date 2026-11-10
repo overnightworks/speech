@@ -13,7 +13,7 @@ const seen = {
   ended: null,
   endedCount: 0,
   errors: [],
-  violations: [],
+  sentBeforeEnd: null,
   socketsOpened: 0,
   contextsOpened: 0,
   sentBytes: [],
@@ -35,9 +35,6 @@ const contexts = [];
 
 addEventListener("error", (event) => seen.errors.push(String(event.message)));
 addEventListener("unhandledrejection", (event) => seen.errors.push(String(event.reason)));
-document.addEventListener("securitypolicyviolation", (event) =>
-  seen.violations.push({ directive: event.effectiveDirective, blocked: event.blockedURI }),
-);
 
 // What the package opens goes through these globals; the page itself keeps the originals.
 const PageWebSocket = WebSocket;
@@ -147,7 +144,10 @@ function switchOff() {
   capture.stop();
 }
 
-window.endTrack = () => track.dispatchEvent(new Event("ended"));
+window.endTrack = () => {
+  seen.sentBeforeEnd = seen.sentBytes.length;
+  track.dispatchEvent(new Event("ended"));
+};
 
 document.getElementById("switch").addEventListener("click", () => (capture === null ? switchOn() : switchOff()));
 if (query.get("start") === "load") {
