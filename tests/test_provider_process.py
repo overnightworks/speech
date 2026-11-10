@@ -270,7 +270,9 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
         "PYTHONUNBUFFERED": "1",
         "PATH": os.defpath,
         "LD_LIBRARY_PATH": str(cublas),
-        **dict.fromkeys(("NUMBA_CACHE_DIR", "TMPDIR"), environment["TMPDIR"]),
+        **dict.fromkeys(
+            ("NUMBA_CACHE_DIR", "TMPDIR", "TRITON_CACHE_DIR"), environment["TMPDIR"]
+        ),
     }
     assert set(environment) <= {*expected_environment, "LC_CTYPE"}
     assert all(environment[key] == value for key, value in expected_environment.items())

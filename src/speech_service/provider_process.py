@@ -580,6 +580,9 @@ def provider_environment(provider_directory: Path, scratch: Path) -> dict[str, s
         # directory (onnxruntime a log per process, torch its compile cache),
         # which would outlive the worker in the service's own small /tmp.
         "TMPDIR": str(scratch),
+        # Triton creates its kernel cache under the home directory, which the
+        # image's read-only root does not have for the service's user.
+        "TRITON_CACHE_DIR": str(scratch),
     }
     visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
     if visible_devices is not None:
