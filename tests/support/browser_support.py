@@ -161,7 +161,7 @@ class HeldResponse(Response):
             {
                 "type": "http.response.start",
                 "status": HTTPStatus.OK,
-                "headers": self.raw_headers[:1],
+                "headers": self.raw_headers,
             }
         )
         released = asyncio.create_task(self._side.held_release.wait())

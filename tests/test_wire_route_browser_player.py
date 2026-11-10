@@ -272,7 +272,7 @@ def test_a_route_of_the_app_plays_once_whether_handed_as_text_or_as_a_url_object
 def test_stop_ends_the_playing_and_waiting_sounds_at_once_and_aborts_the_held_fetch(
     tmp_path: Path,
 ) -> None:
-    async def scenario() -> tuple[dict[str, object], float, AppSide]:
+    async def scenario() -> tuple[dict[str, object], float]:
         async with _activated(tmp_path) as stage:
             await stage.hand_over(url(LONG), url(HELD), url(SHORT))
             await stage.until("s.sounds[0].startedValue === 'playing'")
@@ -280,9 +280,9 @@ def test_stop_ends_the_playing_and_waiting_sounds_at_once_and_aborts_the_held_fe
             await stage.act("stop")
             silent_ms = await stage.silent_within()
             await asyncio.wait_for(stage.side.held_aborted.wait(), WAIT_SECONDS)
-            return await stage.snapshot(), silent_ms, stage.side
+            return await stage.snapshot(), silent_ms
 
-    seen, silent_ms, _ = asyncio.run(scenario())
+    seen, silent_ms = asyncio.run(scenario())
 
     assert seen["endedAtAction"] == ["stopped"] * 3
     assert _starts(seen) == ["playing", "ended", "ended"]
