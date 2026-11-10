@@ -147,7 +147,7 @@ jobs:
           if-no-files-found: error
 
   browser-flow:
-    name: "Speech: browser capture flow"
+    name: "Speech: browser flows"
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -209,13 +209,13 @@ jobs:
           while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done
           uv run --locked playwright install --with-deps chromium
 
-      - name: Run the browser capture flow
-        timeout-minutes: 4
+      - name: Run the browser flows
+        timeout-minutes: 8
         env:
           SPEECH_BROWSER_COVERAGE_DIR: ${{ runner.temp }}/browser-coverage-raw
         # Each worker drives real-time audio graphs; two fit the runner without
         # starving the render threads.
-        run: uv run --locked pytest -q -n 2 -m browser tests/test_wire_route_browser_capture.py
+        run: uv run --locked pytest -q -n 2 -m browser tests/test_wire_route_browser_capture.py tests/test_wire_route_browser_player.py
 
       - name: Convert the page coverage to lcov
         working-directory: packages/browser

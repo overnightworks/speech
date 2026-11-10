@@ -38,7 +38,7 @@ flowchart LR
   caller table baked in; the release builds, attests and pushes it to GHCR, see
   [Delivery](#delivery). `scripts/prove_image.py` proves it.
 - `packages/client`: the wire types an app and the service share, the bounded speaking call, the bounded health fetch, the live hearing session (`HearingSession`: frames held up to a caller-set byte limit, typed server events, one closed outcome union) and the relay (`relay`) of a browser socket to that session an app makes.
-- `packages/browser`: the framework-free browser package (`overnightworks-speech-browser`) an app's page streams its microphone with. `startCapture` takes the first audio track of the app's own stream, resamples it with a filter to the wire's PCM16 at 24 kHz in its own same-origin AudioWorklet file and main-thread resampler, and sends 100 ms frames to the app's relay route; it has no loudness gate, and its `ended` names how the hop ended. Its `hop.ts` is generated from `PcmFormat` and `speech_client.relay` by `scripts/generate_browser_wire.py`.
+- `packages/browser`: the framework-free browser package (`overnightworks-speech-browser`) an app's page streams its microphone and plays sounds with. `startCapture` takes the first audio track of the app's own stream, resamples it with a filter to the wire's PCM16 at 24 kHz in its own same-origin AudioWorklet file and main-thread resampler, and sends 100 ms frames to the app's relay route; it has no loudness gate, and its `ended` names how the hop ended. `createPlayer` plays the sounds an app hands it, each as bytes or the URL of the app's own route, in the order of the calls, as sources into the player's one GainNode, the only input of the output (a later per-frame reader taps that node; the package builds none). It reports each sound's start and end once, with how it ended (played, stopped, muted, refused for lack of user activation, or failed to load); `stop` and `setMuted(true)` end the playing and every waiting sound at once and abort their fetches, and `close` also closes the context. Both are exported from one entry, `index.ts`. Its `hop.ts` is generated from `PcmFormat` and `speech_client.relay` by `scripts/generate_browser_wire.py`.
 - `providers/*`: the voices that run in their own processes and environments. Each is its own uv project with its own lock; `providers/provider-contract` is the shared source the others install from. The client in `packages/client` is a uv workspace member of the root.
 
 ### Speaking
@@ -171,6 +171,10 @@ The root is read-only, the user is not root and no capability is kept.
   `Permissions-Policy` (webauth's default turns it off), owns the stream and the
   switch, and serves the worklet from its own origin, which webauth's
   `script-src 'self'` admits.
+- The browser package's player fetches only the URL the app hands it, with the
+  browser's default same-origin credentials and no added header, which
+  webauth's `connect-src 'self'` admits, and holds no token. It plays through
+  Web Audio and keeps nothing on the device.
 
 ## Constraints and reasons
 
