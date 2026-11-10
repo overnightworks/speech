@@ -1,4 +1,4 @@
-// Turns the raw V8 coverage the browser capture flow collected from Chromium into an lcov of the page's own sources.
+// Turns the raw V8 coverage the browser flows collected from Chromium into an lcov of the page's own sources.
 // Usage: node scripts/page-coverage-report.js <raw coverage directory>
 // It writes coverage/flow/coverage-browser-flow.lcov.
 import { existsSync } from "node:fs";
@@ -11,7 +11,7 @@ const [rawDirectory] = process.argv.slice(2);
 const REPORT_DIRECTORY = "coverage/flow";
 const LCOV_FILE = "coverage-browser-flow.lcov";
 // The unit lcov measures the resampler and the generated module; this one measures the rest.
-const MEASURED = ["src/capture.ts", "src/capture-worklet.ts"];
+const MEASURED = ["src/capture.ts", "src/capture-worklet.ts", "src/player.ts", "src/index.ts"];
 const BUILD_PATH = "/dist/";
 const repositoryRoot = path.resolve("../..");
 const lcovPath = path.join(REPORT_DIRECTORY, LCOV_FILE);
@@ -19,7 +19,7 @@ const lcovPath = path.join(REPORT_DIRECTORY, LCOV_FILE);
 await rm(lcovPath, { force: true });
 
 const report = new CoverageReport({
-  name: "Browser capture flow",
+  name: "Browser flows",
   outputDir: REPORT_DIRECTORY,
   // The maps name sources relative to the package; the lcov names them from the repository root.
   reports: [["lcovonly", { file: LCOV_FILE, projectRoot: repositoryRoot }]],

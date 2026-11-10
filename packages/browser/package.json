@@ -6,8 +6,8 @@
   "private": true,
   "exports": {
     ".": {
-      "types": "./dist/capture.d.ts",
-      "default": "./dist/capture.js"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./capture-worklet.js": "./dist/capture-worklet.js"
   },

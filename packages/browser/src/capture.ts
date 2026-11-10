@@ -51,15 +51,9 @@ export function startCapture(options: CaptureOptions): Capture {
   return { started: run.started, ended: run.ended, stop: () => run.finish() };
 }
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
-  let resolve: (value: T) => void = () => undefined;
-  const promise = new Promise<T>((resolvePromise) => (resolve = resolvePromise));
-  return { promise, resolve };
-}
-
 class CaptureRun {
-  readonly #startedGate = deferred<"streaming" | "ended">();
-  readonly #endedGate = deferred<CaptureEnd>();
+  readonly #startedGate = Promise.withResolvers<"streaming" | "ended">();
+  readonly #endedGate = Promise.withResolvers<CaptureEnd>();
   readonly started = this.#startedGate.promise;
   readonly ended = this.#endedGate.promise;
   readonly #options: CaptureOptions;

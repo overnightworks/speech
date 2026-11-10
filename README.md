@@ -100,6 +100,13 @@ writes into the lockfile:
 https://github.com/overnightworks/speech/releases/download/vX.Y.Z/overnightworks-speech-browser-X.Y.Z.tgz
 ```
 
+The package gives an app's page two things. `startCapture` streams the app's
+own microphone stream to the app's relay route as PCM16 at 24 kHz. `createPlayer`
+plays sounds one after another, each handed over as bytes or as the URL of the
+app's own route, with stop, mute and close, and reports each sound's start and
+end once. The app keeps the routes and the tokens, and none of the tokens reach the
+browser; the switches are the app's own controls on its page.
+
 `scripts/check_release.py` holds the distributions and the browser package at
 one version.
 

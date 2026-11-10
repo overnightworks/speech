@@ -11,6 +11,10 @@ standard works with it unchanged.
   those on offer.
 - **Hearing:** a recording or a live audio stream in, the words out as they are
   spoken.
+- **Browser package:** a framework-free browser package (capture from the app's
+  own microphone stream as PCM16 at 24 kHz, playback with queue, stop and mute)
+  and a relay helper the app mounts behind its own login check. The app keeps the
+  route, admission, switches, token choice and when a hearing ends.
 - **Interchangeable models:** new voices and hearing models join by
   configuration, and no app has to change for it.
 - **Trusted callers only:** it serves the apps it knows, each with everything it

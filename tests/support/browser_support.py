@@ -1,18 +1,23 @@
 """The stand-in app a browser drives, under webauth's headers.
 
-It serves its page, the built package and a recording, and relays its hop.
+It serves its pages, the built package and recordings, relays its hop and answers
+sounds: one it has the service speak, and test-written ones it serves whole, holds
+until released, or cuts off mid-body.
 """
 
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import FastAPI, WebSocket
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request, WebSocket
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from playwright.async_api import async_playwright
 from pydantic import SecretStr
 from webauth.config import SessionLifetime, WebAuthConfig, install_web_auth_config
 from webauth.middleware import SecurityHeadersMiddleware
@@ -22,17 +27,39 @@ from webauth.rate_limit import SingleProcessRateLimitBackend
 
 from speech_client.hearing import HearingSession
 from speech_client.relay import HOP_FRAME_BYTES, relay
-from speech_client.wire import HearingLanguage, ServerEvent, TranscriptCompleted
+from speech_client.speak import Spoken, speak
+from speech_client.wire import (
+    HearingLanguage,
+    ResponseFormat,
+    ServerEvent,
+    TranscriptCompleted,
+)
+from speech_service.pcm import wav_header
+from speech_service.voices import VoiceId
+from tests.support.fakes_support import SPEAK_SAMPLE_RATE, sine_pcm
 from tests.support.identity_support import valid_pair
+from tests.support.page_coverage_support import PageCoverage
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import AsyncIterator, Mapping
+
+    from playwright.async_api import Page
+    from starlette.types import Receive, Scope, Send
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 PACKAGE_BUILD = REPOSITORY / "packages/browser/dist"
 PAGE_FILES = REPOSITORY / "tests/fixtures/browser"
 HOP_PATH = "/hear"
 REFUSING_HOP_PATH = "/refuse"
+VOICE_PATH = "/voice"
+SOUNDS_PATH = "/sounds"
+HELD_PATH = "/held"
+CUT_PATH = "/cut"
+CHROMIUM_FLAGS = (
+    "--use-fake-device-for-media-stream",
+    "--use-fake-ui-for-media-stream",
+    "--autoplay-policy=document-user-activation-required",
+)
 RECORDING = "fixture.wav"
 # An app that records turns the microphone on for its own origin;
 # webauth's default turns it off.
@@ -40,6 +67,10 @@ MICROPHONE_ON = "camera=(), microphone=(self), geolocation=()"
 SESSION_SECONDS = 30
 HELD_LIMIT_BYTES = 4 * 1024 * 1024
 LOOPBACK = "127.0.0.1"
+WAV_MEDIA_TYPE = "audio/wav"
+SPOKEN_TEXT = "Hello"
+SPEAK_SECONDS = 10.0
+SPEAK_CAP_BYTES = 1024 * 1024
 
 
 @dataclass
@@ -51,12 +82,26 @@ class AppSide:
     events: list[ServerEvent] = field(default_factory=list)
     app_ended: asyncio.Event = field(default_factory=asyncio.Event)
     completed: asyncio.Event = field(default_factory=asyncio.Event)
+    requests: list[str] = field(default_factory=list)
+    spoken: list[bytes] = field(default_factory=list)
+    held_release: asyncio.Event = field(default_factory=asyncio.Event)
+    held_aborted: asyncio.Event = field(default_factory=asyncio.Event)
+    arrivals: dict[str, asyncio.Event] = field(default_factory=dict)
 
     @classmethod
     def new(cls) -> AppSide:
         """A side with a fresh token pair for its session."""
         pair = valid_pair()
         return cls(tokens=(pair.workload, pair.person))
+
+    def record_request(self, path: str) -> None:
+        """Note that the app's route `path` was asked."""
+        self.requests.append(path)
+        self.arrivals.setdefault(path, asyncio.Event()).set()
+
+    async def arrival(self, path: str) -> None:
+        """Wait until the app's route `path` has been asked."""
+        await self.arrivals.setdefault(path, asyncio.Event()).wait()
 
     async def take(self, event: ServerEvent) -> None:
         """Keep a server event the relay hands the app."""
@@ -98,6 +143,91 @@ def _web_auth_config() -> WebAuthConfig:
     )
 
 
+class HeldResponse(Response):
+    """A WAV answer whose headers leave at once and whose body waits for the test.
+
+    The body goes out once `side.held_release` is set; a client that leaves first sets
+    `side.held_aborted`.
+    """
+
+    def __init__(self, body: bytes, side: AppSide) -> None:
+        """Hold `body` for `side`."""
+        super().__init__(body, media_type=WAV_MEDIA_TYPE)
+        self._side = side
+
+    async def __call__(self, _scope: Scope, receive: Receive, send: Send) -> None:
+        """Answer once released, or note that the client left."""
+        await send(
+            {
+                "type": "http.response.start",
+                "status": HTTPStatus.OK,
+                "headers": self.raw_headers,
+            }
+        )
+        released = asyncio.create_task(self._side.held_release.wait())
+        left = asyncio.create_task(_until_disconnect(receive))
+        done, pending = await asyncio.wait(
+            {released, left}, return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            task.cancel()
+        if released in done:
+            await send({"type": "http.response.body", "body": self.body})
+        else:
+            self._side.held_aborted.set()
+
+
+async def _until_disconnect(receive: Receive) -> None:
+    while (await receive())["type"] != "http.disconnect":
+        pass
+
+
+def _install_sounds(
+    app: FastAPI, service_url: str, side: AppSide, recordings: Path
+) -> None:
+    """The routes that answer a sound: spoken by the service, whole, held or cut off."""
+
+    @app.get(VOICE_PATH)
+    async def voice(request: Request) -> Response:
+        side.record_request(request.url.path)
+        outcome = await asyncio.to_thread(
+            speak,
+            service_url,
+            SPOKEN_TEXT,
+            VoiceId.PIPER.value,
+            response_format=ResponseFormat.WAV,
+            workload_token=side.tokens[0],
+            person_token=side.tokens[1],
+            deadline_seconds=SPEAK_SECONDS,
+            cap_bytes=SPEAK_CAP_BYTES,
+        )
+        if not isinstance(outcome, Spoken):
+            raise HTTPException(502)
+        side.spoken.append(outcome.audio)
+        return Response(outcome.audio, media_type=WAV_MEDIA_TYPE)
+
+    @app.get(f"{SOUNDS_PATH}/{{name}}")
+    async def sound(name: str, request: Request) -> FileResponse:
+        side.record_request(request.url.path)
+        return FileResponse(recordings / name, media_type=WAV_MEDIA_TYPE)
+
+    @app.get(f"{HELD_PATH}/{{name}}")
+    async def held(name: str, request: Request) -> Response:
+        side.record_request(request.url.path)
+        return HeldResponse((recordings / name).read_bytes(), side)
+
+    @app.get(f"{CUT_PATH}/{{name}}")
+    async def cut(name: str, request: Request) -> StreamingResponse:
+        side.record_request(request.url.path)
+        body = (recordings / name).read_bytes()
+
+        async def first_half_then_abort() -> AsyncIterator[bytes]:
+            yield body[: len(body) // 2]
+            raise ConnectionAbortedError
+
+        return StreamingResponse(first_half_then_abort(), media_type=WAV_MEDIA_TYPE)
+
+
 def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
     """The app: the page, the package, the recording in `recordings`, and the relay."""
     app = FastAPI()
@@ -112,7 +242,7 @@ def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
 
     @app.get(f"/{RECORDING}")
     async def recording() -> FileResponse:
-        return FileResponse(recordings / RECORDING, media_type="audio/wav")
+        return FileResponse(recordings / RECORDING, media_type=WAV_MEDIA_TYPE)
 
     @app.websocket(HOP_PATH)
     async def hear(browser: WebSocket) -> None:
@@ -137,6 +267,28 @@ def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
     async def refuse(browser: WebSocket) -> None:
         await browser.close()
 
+    _install_sounds(app, service_url, side, recordings)
     app.mount("/dist", StaticFiles(directory=PACKAGE_BUILD), name="package")
     app.mount("/", StaticFiles(directory=PAGE_FILES), name="page")
     return app
+
+
+def write_sound(path: Path, seconds: float) -> None:
+    """Write a WAV of a tone `seconds` long, in the voice's format."""
+    pcm = sine_pcm(seconds, SPEAK_SAMPLE_RATE)
+    path.write_bytes(wav_header(SPEAK_SAMPLE_RATE, len(pcm)) + pcm)
+
+
+@asynccontextmanager
+async def chromium_page() -> AsyncIterator[tuple[Page, PageCoverage]]:
+    """A Chromium page under the autoplay policy, with its coverage if asked for."""
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(args=CHROMIUM_FLAGS)
+        try:
+            page = await browser.new_page()
+            coverage = PageCoverage.from_environment()
+            await coverage.watch(page)
+            yield page, coverage
+            await coverage.write()
+        finally:
+            await browser.close()
