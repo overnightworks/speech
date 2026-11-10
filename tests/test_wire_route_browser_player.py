@@ -432,8 +432,11 @@ def test_a_sound_handed_over_without_a_click_is_refused_and_plays_after_one(
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
         async with _stage(tmp_path) as stage:
+            ended = asyncio.Event()
+            await stage.page.expose_function("noteEnded", lambda _sound: ended.set())
             await stage.open(handOver=SHORT)
-            refused = await stage.finish()
+            await asyncio.wait_for(ended.wait(), WAIT_SECONDS)
+            refused = await stage.snapshot()
             await stage.activate()
             await stage.hand_over(url(SHORT))
             return refused, await stage.finish()

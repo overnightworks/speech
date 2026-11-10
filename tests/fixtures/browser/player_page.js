@@ -198,6 +198,7 @@ function handOver(spec) {
     sound.endedAt = performance.now();
     seen.log.push({ event: "ended", id: sound.id, value: end.kind, at: sound.endedAt });
     if (spec.bytes !== undefined) seen.bytes[spec.bytes].after = byteStore.get(spec.bytes).byteLength;
+    window.noteEnded?.(sound.id);
   });
   return sound.id;
 }
@@ -242,5 +243,6 @@ window.playerPage = {
 player = entry.createPlayer();
 
 // A sound handed over while the page loads, before any click: the autoplay policy refuses it.
+// The test learns of its end through `window.noteEnded`, because any call of the test into the page counts as a click.
 const atLoad = new URLSearchParams(location.search).get("handOver");
 if (atLoad !== null) handOver({ url: atLoad });
