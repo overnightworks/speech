@@ -23,7 +23,9 @@ byte cap, and answers with a typed outcome; its module documents them.
 `speech_client.health` fetches `GET /health` (WIRE-122) within a deadline and a
 cap and answers with a typed outcome; the outcomes the calls share live in
 `speech_client.outcomes`. `speech_client.hearing` runs the live hearing
-session: audio in, typed events out, one closed outcome when it ends, within a total deadline.
+session: audio in, typed events out, one closed outcome when it ends, within a total
+deadline and an opening bound; a service that does not open the session in time ends
+it with `Unreachable`.
 
 ## Request
 

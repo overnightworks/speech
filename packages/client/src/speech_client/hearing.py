@@ -22,7 +22,10 @@ socket's logger above debug; no outcome and no repr carries a token or heard tex
     no token travels to another origin.
   - `Cut`, `PastDeadline` and `Unreachable`, as for `speak`
     (`speech_client.outcomes`); `deadline_seconds` bounds the whole
-    session, opening included.
+    session, opening included. `opening_seconds` (default `OPENING_SECONDS`)
+    bounds the opening: the handshake and the wait for the first event, which
+    the service sends first (WIRE-68). A service that does not speak by then
+    ends the session with `Unreachable`; a strictly smaller deadline wins.
 
 A failure outside these outcomes ends the session at once; `outcome` stays
 `None` and leaving the context raises the failure.
@@ -31,9 +34,9 @@ A caller reads `events()` while it sends: the session waits for the caller to
 take an event before it reads the next one.
 
 Leaving the context in order closes the connection with the normal code, within
-the socket's close timeout or at the deadline, which then keeps the end's
-outcome. Leaving under cancellation, or a cancel while leaving, aborts the
-connection at once, without a close handshake.
+the socket's close timeout, at the deadline or, before the first event, at the
+opening bound, which then keeps the end's outcome. Leaving under cancellation, or a
+cancel while leaving, aborts the connection at once, without a close handshake.
 """
 
 from __future__ import annotations
@@ -45,7 +48,7 @@ import logging
 from collections import deque
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Final, Self
 
 from pydantic import ValidationError
 from websockets.asyncio.client import connect
@@ -111,6 +114,8 @@ type HearingOutcome = (
     Closed | Refused | Busy | OverCap | Malformed | PastDeadline | Cut | Unreachable
 )
 
+OPENING_SECONDS: Final = 5.0
+
 # The socket logs request headers and frame texts at debug; this logger never
 # passes them on unless an app raises it on purpose.
 _SOCKET_LOGGER = logging.getLogger(f"{__name__}.socket")
@@ -171,6 +176,15 @@ def _failure_outcome(failure: BaseException) -> HearingOutcome:
     return next(
         outcome for kind, outcome in _FAILURE_OUTCOMES if isinstance(failure, kind)
     )
+
+
+def _timeout_outcome(
+    timed_out: TimeoutError, ended: HearingOutcome | None, opening: asyncio.Timeout
+) -> HearingOutcome:
+    # A bound that cuts the polite close of an end keeps that end.
+    if ended is not None:
+        return ended
+    return Unreachable() if opening.expired() else _failure_outcome(timed_out)
 
 
 def _left_under_cancellation(exception: BaseException | None) -> bool:
@@ -234,15 +248,20 @@ class HearingSession:
         language: HearingLanguage,
         deadline_seconds: float,
         held_limit_bytes: int,
+        opening_seconds: float = OPENING_SECONDS,
     ) -> None:
         """Take every input; nothing is opened before `__aenter__`."""
         base_origin(base_url)
+        if opening_seconds <= 0:
+            message = "opening_seconds must be above 0"
+            raise ValueError(message)
         self._url = realtime_url(base_url)
         self._headers = token_headers(
             workload_token=workload_token, person_token=person_token
         )
         self._update = session_update(language)
         self._deadline_seconds = deadline_seconds
+        self._opening_seconds = opening_seconds
         self._held_limit_bytes = held_limit_bytes
         self._held: deque[bytes] = deque()
         self._held_bytes = 0
@@ -317,14 +336,15 @@ class HearingSession:
 
     async def _session(self, end: asyncio.Future[HearingOutcome]) -> HearingOutcome:
         ended: HearingOutcome | None = None
+        opening = asyncio.timeout(self._opening_seconds)
         try:
-            async with asyncio.timeout(self._deadline_seconds):
+            async with asyncio.timeout(self._deadline_seconds), opening:
                 socket = await self._open(end)
                 if socket is None:
                     return end.result()
                 try:
                     await socket.send(self._update)
-                    ended = await self._converse(socket, end)
+                    ended = await self._converse(socket, end, opening)
                     await socket.close()
                     return ended
                 finally:
@@ -332,8 +352,7 @@ class HearingSession:
                     # cancel; aborting after a completed close is a no-op.
                     socket.transport.abort()
         except TimeoutError as timed_out:
-            # The deadline that cuts the polite close of an end keeps that end.
-            return _failure_outcome(timed_out) if ended is None else ended
+            return _timeout_outcome(timed_out, ended, opening)
         except InvalidStatus as refused:
             return _refusal_outcome(refused)
         except InvalidMessage as unparsed:
@@ -364,9 +383,12 @@ class HearingSession:
         )
 
     async def _converse(
-        self, socket: ClientConnection, end: asyncio.Future[HearingOutcome]
+        self,
+        socket: ClientConnection,
+        end: asyncio.Future[HearingOutcome],
+        opening: asyncio.Timeout,
     ) -> HearingOutcome:
-        reader = asyncio.create_task(self._read(socket))
+        reader = asyncio.create_task(self._read(socket, opening))
         writer = asyncio.create_task(self._write(socket))
         pending = {reader, writer, end}
         try:
@@ -383,11 +405,17 @@ class HearingSession:
                 return _failure_outcome(failure)
         return end.result() if reader.cancelled() else Closed()
 
-    async def _read(self, socket: ClientConnection) -> None:
+    async def _read(self, socket: ClientConnection, opening: asyncio.Timeout) -> None:
         async for message in socket:
             if not isinstance(message, str):
                 raise ServerEventError
-            await self._received.put(parse_server_event(message))
+            event = parse_server_event(message)
+            # The first event proves the session is open, before a slow caller can
+            # hold the queue. A bound that expires in this very pass has won:
+            # rescheduling then raises.
+            if not opening.expired():
+                opening.reschedule(None)
+            await self._received.put(event)
 
     async def _write(self, socket: ClientConnection) -> None:
         # The reader tells how the connection ended.

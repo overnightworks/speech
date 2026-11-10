@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Self
 import pytest
 from websockets.asyncio.server import serve
 
-from speech_client.hearing import Closed, HearingSession, Refused
+from speech_client.hearing import OPENING_SECONDS, Closed, HearingSession, Refused
 from speech_client.outcomes import (
     Busy,
     Cut,
@@ -48,6 +48,8 @@ if TYPE_CHECKING:
 FRAME_LIMIT = 8
 # Well below the socket close timeout (10 s) and the session deadline (30 s).
 CLOSE_BOUND_SECONDS = 2
+# An opening bound a stalled service passes at once, far below the deadline.
+STALLED_OPENING_SECONDS = 0.3
 SECRET_WORDS = "heard-secret-words"  # noqa: S105 - a scenario value
 DISCONNECT = {"type": "websocket.disconnect", "code": 1001}
 
@@ -298,6 +300,10 @@ def test_the_relay_needs_no_starlette_to_be_imported() -> None:
     assert done.returncode == 0
 
 
+async def _never_answers(reader: asyncio.StreamReader, _: object) -> None:
+    await reader.read()
+
+
 @contextlib.asynccontextmanager
 async def _stalled_service() -> AsyncIterator[tuple[str, asyncio.Event]]:
     """A service that reads the first frame, then stops reading and never pings."""
@@ -319,7 +325,12 @@ async def _stalled_service() -> AsyncIterator[tuple[str, asyncio.Event]]:
             released.set()
 
 
-def _stalled_hop(service_url: str, app_ended: asyncio.Event) -> Awaitable[RelayOutcome]:
+def _stalled_hop(
+    service_url: str,
+    app_ended: asyncio.Event,
+    browser: _Browser | None = None,
+    opening_seconds: float = OPENING_SECONDS,
+) -> Awaitable[RelayOutcome]:
     session = HearingSession(
         service_url,
         workload_token="workload",  # noqa: S106 - a scenario value
@@ -327,9 +338,10 @@ def _stalled_hop(service_url: str, app_ended: asyncio.Event) -> Awaitable[RelayO
         language=HearingLanguage.EN,
         deadline_seconds=30,
         held_limit_bytes=1,
+        opening_seconds=opening_seconds,
     )
     return relay(
-        _Browser([]),
+        browser or _Browser([]),
         session,
         app_ended=app_ended,
         on_event=_no_events,
@@ -390,3 +402,31 @@ def test_a_cancel_at_any_moment_after_the_apps_end_signal_returns_at_once(
         return elapsed
 
     assert asyncio.run(scenario()) < CLOSE_BOUND_SECONDS / 2
+
+
+@pytest.mark.parametrize("stall", ["handshake", "first-event"])
+def test_a_service_that_does_not_open_ends_the_hop_with_the_service_failed_close(
+    stall: str,
+) -> None:
+    async def scenario() -> tuple[RelayOutcome, list[int], float]:
+        browser = _Browser([])
+        async with contextlib.AsyncExitStack() as stack:
+            if stall == "handshake":
+                server = await stack.enter_async_context(
+                    await asyncio.start_server(_never_answers, "127.0.0.1", 0)
+                )
+                url = f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}"
+            else:
+                url, _ = await stack.enter_async_context(_stalled_service())
+            started = time.monotonic()
+            outcome = await asyncio.wait_for(
+                _stalled_hop(url, asyncio.Event(), browser, STALLED_OPENING_SECONDS),
+                CLOSE_BOUND_SECONDS * 2,
+            )
+            return outcome, browser.closed_with, time.monotonic() - started
+
+    outcome, closed_with, elapsed = asyncio.run(scenario())
+
+    assert outcome == Unreachable()
+    assert closed_with == [HopClose.SERVICE_FAILED]
+    assert elapsed < CLOSE_BOUND_SECONDS

@@ -8,12 +8,14 @@ and refusal records and these, so a caller matches one closed union per call:
 - `PastDeadline`: the total deadline passed, at connect, send or any read.
 - `OverCap`: the body would pass the byte cap; reading stops there.
 - `Malformed`: the answer breaks the wire.
-- `Unreachable`: the name did not resolve or no address accepted the connection.
+- `Unreachable`: the name did not resolve, no address accepted the connection, or
+  the service did not open the session within the opening bound.
 
 `Busy` (the 429 and the wait the service asks for; the app decides to retry)
 is shared by `speak` and the hearing session only.
 
-A timeout is `PastDeadline` before anything else; then a closed or reset
+A timeout is `PastDeadline` before anything else, except the hearing session's
+opening bound, which is `Unreachable`; then a closed or reset
 connection is `Cut`; only then a parse failure is `Malformed`.
 """
 
@@ -48,7 +50,7 @@ class Malformed:
 
 @dataclass(frozen=True, slots=True)
 class Unreachable:
-    """The connection never came up."""
+    """The connection never came up, or the service never opened the session."""
 
 
 @dataclass(frozen=True, slots=True)
