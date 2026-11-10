@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Self
 import pytest
 from websockets.asyncio.server import serve
 
-from speech_client.hearing import Closed, HearingSession, Refused
+from speech_client.hearing import OPENING_SECONDS, Closed, HearingSession, Refused
 from speech_client.outcomes import (
     Busy,
     Cut,
@@ -49,7 +49,7 @@ FRAME_LIMIT = 8
 # Well below the socket close timeout (10 s) and the session deadline (30 s).
 CLOSE_BOUND_SECONDS = 2
 # An opening bound a stalled service passes at once, far below the deadline.
-OPENING_SECONDS = 0.3
+STALLED_OPENING_SECONDS = 0.3
 SECRET_WORDS = "heard-secret-words"  # noqa: S105 - a scenario value
 DISCONNECT = {"type": "websocket.disconnect", "code": 1001}
 
@@ -329,7 +329,7 @@ def _stalled_hop(
     service_url: str,
     app_ended: asyncio.Event,
     browser: _Browser | None = None,
-    opening: dict[str, float] | None = None,
+    opening_seconds: float = OPENING_SECONDS,
 ) -> Awaitable[RelayOutcome]:
     session = HearingSession(
         service_url,
@@ -338,7 +338,7 @@ def _stalled_hop(
         language=HearingLanguage.EN,
         deadline_seconds=30,
         held_limit_bytes=1,
-        **(opening or {}),
+        opening_seconds=opening_seconds,
     )
     return relay(
         browser or _Browser([]),
@@ -420,9 +420,7 @@ def test_a_service_that_does_not_open_ends_the_hop_with_the_service_failed_close
                 url, _ = await stack.enter_async_context(_stalled_service())
             started = time.monotonic()
             outcome = await asyncio.wait_for(
-                _stalled_hop(
-                    url, asyncio.Event(), browser, {"opening_seconds": OPENING_SECONDS}
-                ),
+                _stalled_hop(url, asyncio.Event(), browser, STALLED_OPENING_SECONDS),
                 CLOSE_BOUND_SECONDS * 2,
             )
             return outcome, browser.closed_with, time.monotonic() - started
