@@ -15,7 +15,9 @@ function greatestCommonDivisor(a: number, b: number): number {
 function besselI0(x: number): number {
   let sum = 1;
   let term = 1;
-  for (let k = 1; term > sum * 1e-12; k += 1) {
+  let k = 0;
+  while (term > sum * 1e-12) {
+    k += 1;
     term *= (x / (2 * k)) ** 2;
     sum += term;
   }
