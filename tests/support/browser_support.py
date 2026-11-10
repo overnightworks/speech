@@ -2,7 +2,9 @@
 
 It serves its pages, the built package and recordings, relays its hop and answers
 sounds: one it has the service speak, and test-written ones it serves whole, holds
-until released, or cuts off mid-body.
+until released, or cuts off mid-body. Besides the hop that sends nothing, it has one
+whose route writes messages of its own on the browser socket, and a worklet file it
+holds until released.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from speech_client.wire import (
     ResponseFormat,
     ServerEvent,
     TranscriptCompleted,
+    TranscriptDelta,
 )
 from speech_service.pcm import wav_header
 from speech_service.voices import VoiceId
@@ -41,7 +44,7 @@ from tests.support.identity_support import valid_pair
 from tests.support.page_coverage_support import PageCoverage
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Mapping
+    from collections.abc import AsyncIterator, Callable, Mapping
 
     from playwright.async_api import Page
     from starlette.types import Receive, Scope, Send
@@ -50,6 +53,8 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 PACKAGE_BUILD = REPOSITORY / "packages/browser/dist"
 PAGE_FILES = REPOSITORY / "tests/fixtures/browser"
 HOP_PATH = "/hear"
+MESSAGING_HOP_PATH = "/hear-messaging"
+HELD_WORKLET_PATH = "/held-worklet.js"
 REFUSING_HOP_PATH = "/refuse"
 VOICE_PATH = "/voice"
 SOUNDS_PATH = "/sounds"
@@ -87,6 +92,10 @@ class AppSide:
     held_release: asyncio.Event = field(default_factory=asyncio.Event)
     held_aborted: asyncio.Event = field(default_factory=asyncio.Event)
     arrivals: dict[str, asyncio.Event] = field(default_factory=dict)
+    # What the messaging hop's route writes on the browser socket, in order: its
+    # transcripts join the test's own, and `None` ends the hop once the rest is sent.
+    outbox: asyncio.Queue[str | bytes | None] = field(default_factory=asyncio.Queue)
+    worklet_release: asyncio.Event = field(default_factory=asyncio.Event)
 
     @classmethod
     def new(cls) -> AppSide:
@@ -228,6 +237,50 @@ def _install_sounds(
         return StreamingResponse(first_half_then_abort(), media_type=WAV_MEDIA_TYPE)
 
 
+async def _write_outbox(browser: WebSocket, side: AppSide) -> None:
+    """Write the outbox on the browser socket; `None` ends the hop."""
+    while (item := await side.outbox.get()) is not None:
+        if isinstance(item, bytes):
+            await browser.send_bytes(item)
+        else:
+            await browser.send_text(item)
+    side.app_ended.set()
+
+
+def _install_messaging(
+    app: FastAPI, session_of: Callable[[], HearingSession], side: AppSide
+) -> None:
+    """The hop whose route writes messages of its own; a worklet file the test holds."""
+
+    async def forward_transcript(event: ServerEvent) -> None:
+        await side.take(event)
+        if isinstance(event, TranscriptDelta | TranscriptCompleted):
+            side.outbox.put_nowait(event.model_dump_json())
+
+    @app.websocket(MESSAGING_HOP_PATH)
+    async def hear_messaging(browser: WebSocket) -> None:
+        await browser.accept()
+        writing = asyncio.create_task(_write_outbox(browser, side))
+        try:
+            await relay(
+                RecordingSocket(browser, side.frames),
+                session_of(),
+                app_ended=side.app_ended,
+                on_event=forward_transcript,
+                frame_limit_bytes=HOP_FRAME_BYTES,
+            )
+        finally:
+            writing.cancel()
+
+    @app.get(HELD_WORKLET_PATH)
+    async def held_worklet(request: Request) -> FileResponse:
+        side.record_request(request.url.path)
+        await side.worklet_release.wait()
+        return FileResponse(
+            PACKAGE_BUILD / "capture-worklet.js", media_type="text/javascript"
+        )
+
+
 def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
     """The app: the page, the package, the recording in `recordings`, and the relay."""
     app = FastAPI()
@@ -244,10 +297,8 @@ def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
     async def recording() -> FileResponse:
         return FileResponse(recordings / RECORDING, media_type=WAV_MEDIA_TYPE)
 
-    @app.websocket(HOP_PATH)
-    async def hear(browser: WebSocket) -> None:
-        await browser.accept()
-        session = HearingSession(
+    def new_session() -> HearingSession:
+        return HearingSession(
             service_url,
             workload_token=side.tokens[0],
             person_token=side.tokens[1],
@@ -255,9 +306,13 @@ def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
             deadline_seconds=SESSION_SECONDS,
             held_limit_bytes=HELD_LIMIT_BYTES,
         )
+
+    @app.websocket(HOP_PATH)
+    async def hear(browser: WebSocket) -> None:
+        await browser.accept()
         await relay(
             RecordingSocket(browser, side.frames),
-            session,
+            new_session(),
             app_ended=side.app_ended,
             on_event=side.take,
             frame_limit_bytes=HOP_FRAME_BYTES,
@@ -267,6 +322,7 @@ def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
     async def refuse(browser: WebSocket) -> None:
         await browser.close()
 
+    _install_messaging(app, new_session, side)
     _install_sounds(app, service_url, side, recordings)
     app.mount("/dist", StaticFiles(directory=PACKAGE_BUILD), name="package")
     app.mount("/", StaticFiles(directory=PAGE_FILES), name="page")
