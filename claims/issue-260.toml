@@ -1,0 +1,8 @@
+claim_id = "64d5825ab2d345a8aecd3882228370a9"
+agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
+role = "builder"
+base = "8e1f14197d0a73b80878b422141bb5712e0802c3"
+branch = "claude/issue-260-no-native-triton-kernels"
+scope = ["src/speech_service/provider_process.py", "tests/support/worker_support.py", "tests/test_provider_process.py", "tests/test_provider_process_environment.py"]
+opened_commit = "240e0a5469392c008196f59365bc646087f9878d"
+whole_reason = "The environment owner and the three test files that read its variables change together."
