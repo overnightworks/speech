@@ -9,12 +9,7 @@ from typing import TYPE_CHECKING
 from websockets.asyncio.server import serve
 
 from speech_client.hearing import OPENING_SECONDS, HearingSession
-from speech_client.wire import (
-    HearingLanguage,
-    SessionCreated,
-    TranscriptDelta,
-    TranscriptionSession,
-)
+from speech_client.wire import HearingLanguage, TranscriptDelta
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -30,7 +25,6 @@ HEARD_TEXT = "heard-secret-words"
 # Well below the socket close timeout (10 s) and the session deadline (30 s).
 AT_ONCE_SECONDS = 1
 OPENING_MARGIN = 2  # met in time, below the close timeout (10 s)
-OPENING_SHORT = 0.3  # passed at once by a stalled peer, far below the deadline
 
 
 async def silent_peer(reader: asyncio.StreamReader, _: object) -> None:
@@ -95,6 +89,3 @@ async def stalled_service(
 
 
 HEARD_DELTA = TranscriptDelta(item_id="i", delta=HEARD_TEXT).model_dump_json()
-CREATED_EVENT = SessionCreated(
-    session=TranscriptionSession(type="transcription")
-).model_dump_json()

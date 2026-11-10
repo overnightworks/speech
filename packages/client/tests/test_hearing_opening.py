@@ -14,11 +14,9 @@ from websockets.asyncio.server import serve
 
 from packages.client.tests.support.hearing_support import (
     AT_ONCE_SECONDS,
-    CREATED_EVENT,
     HEARD_DELTA,
     LOOPBACK,
     OPENING_MARGIN,
-    OPENING_SHORT,
     outcome_at,
     session_to,
     silent_peer,
@@ -27,11 +25,17 @@ from packages.client.tests.support.hearing_support import (
 )
 from speech_client.hearing import Closed
 from speech_client.outcomes import Unreachable
+from speech_client.wire import SessionCreated, TranscriptionSession
 
 if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection
 
     from speech_client.hearing import HearingOutcome, HearingSession
+
+OPENING_SHORT = 0.3  # passed at once by a stalled peer, far below the deadline
+CREATED_EVENT = SessionCreated(
+    session=TranscriptionSession(type="transcription")
+).model_dump_json()
 
 
 @pytest.mark.parametrize(
