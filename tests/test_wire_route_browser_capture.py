@@ -41,7 +41,7 @@ from tests.support.page_coverage_support import PageCoverage
 from tests.support.tcp_server_support import serving_asgi, serving_over_tcp
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Sequence
+    from collections.abc import AsyncIterator
     from pathlib import Path
 
     from playwright.async_api import Page
@@ -114,6 +114,15 @@ class Stage:
         """Have the messaging route write `messages`; `None` ends the hop."""
         for message in messages:
             self.side.outbox.put_nowait(message)
+
+    async def held(self) -> str:
+        """Every value the page holds, the messages the app was handed included."""
+        held = await self.page.evaluate(
+            "() => [document.documentElement.outerHTML, location.href,"
+            " JSON.stringify(localStorage), JSON.stringify(sessionStorage),"
+            " document.cookie, JSON.stringify(window.capturePage)].join('\\n')"
+        )
+        return held + repr(await self.page.context.cookies())
 
     async def switch_off(self) -> dict[str, object]:
         """Switch hearing off and return what the page saw once the capture ended."""
@@ -239,28 +248,16 @@ class Streamed:
     policy: str
 
 
-async def _stream_and_stop(
-    tmp_path: Path, source: str, *, messages: Sequence[str] = ()
-) -> Streamed:
+async def _stream_and_stop(tmp_path: Path, source: str) -> Streamed:
     async with _stage(tmp_path) as stage:
         page = await stage.page.request.get(f"{stage.base_url}/capture.html")
-        stage.send(*messages)
-        await stage.switch_on_until_streaming(
-            source=source, **(MESSAGING if messages else {})
-        )
-        await stage.until(f"seen.messages.length >= {len(messages)}")
+        await stage.switch_on_until_streaming(source=source)
         seen = await stage.switch_off()
-        held = await stage.page.evaluate(
-            "() => [document.documentElement.outerHTML, location.href,"
-            " JSON.stringify(localStorage), JSON.stringify(sessionStorage),"
-            " document.cookie].join('\\n')"
-        )
-        cookies = await stage.page.context.cookies()
         return Streamed(
             seen=seen,
             frames=stage.side.frames,
             side=stage.side,
-            held=held + repr(cookies),
+            held=await stage.held(),
             policy=page.headers["content-security-policy"],
         )
 
@@ -466,26 +463,38 @@ def _numbered(count: int) -> list[str]:
     return [str(number) for number in range(count)]
 
 
+async def _transcribed_turn(tmp_path: Path) -> tuple[Streamed, list[str]]:
+    """A recorded turn on the messaging route, ended after its transcripts arrived."""
+    _write_layout(tmp_path / RECORDING, 1.0, 1.0)
+    async with _stage(tmp_path) as stage:
+        page = await stage.page.request.get(f"{stage.base_url}/capture.html")
+        await stage.open(source="wav", **MESSAGING)
+        await stage.switch()
+        await asyncio.wait_for(stage.side.completed.wait(), WAIT_SECONDS)
+        transcripts = [
+            event.type
+            for event in stage.side.events
+            if isinstance(event, TranscriptDelta | TranscriptCompleted)
+        ]
+        await stage.until(f"seen.messages.length >= {len(transcripts)}")
+        before = len((await stage.seen())["sentBytes"])
+        await stage.until(f"seen.sentBytes.length > {before}")
+        seen = await stage.switch_off()
+        turn = Streamed(
+            seen=seen,
+            frames=stage.side.frames,
+            side=stage.side,
+            held=await stage.held(),
+            policy=page.headers["content-security-policy"],
+        )
+        return turn, transcripts
+
+
 def test_the_routes_transcripts_reach_on_message_in_order_while_frames_stream(
     tmp_path: Path,
 ) -> None:
-    async def scenario() -> tuple[dict[str, object], list[str]]:
-        _write_layout(tmp_path / RECORDING, 1.0, 1.0)
-        async with _stage(tmp_path) as stage:
-            await stage.open(source="wav", **MESSAGING)
-            await stage.switch()
-            await asyncio.wait_for(stage.side.completed.wait(), WAIT_SECONDS)
-            transcripts = [
-                event.type
-                for event in stage.side.events
-                if isinstance(event, TranscriptDelta | TranscriptCompleted)
-            ]
-            await stage.until(f"seen.messages.length >= {len(transcripts)}")
-            before = len((await stage.seen())["sentBytes"])
-            await stage.until(f"seen.sentBytes.length > {before}")
-            return await stage.switch_off(), transcripts
-
-    seen, transcripts = asyncio.run(scenario())
+    turn, transcripts = asyncio.run(_transcribed_turn(tmp_path))
+    seen = turn.seen
 
     assert transcripts
     assert [message["kind"] for message in seen["messages"]] == ["text"] * len(
@@ -673,9 +682,7 @@ def test_a_burst_of_small_messages_arrives_in_order(tmp_path: Path) -> None:
 def test_no_token_appears_in_any_value_the_page_holds_while_messages_flow(
     tmp_path: Path,
 ) -> None:
-    streamed = asyncio.run(
-        _stream_and_stop(tmp_path, "tone", messages=_numbered(BURST))
-    )
+    turn, _ = asyncio.run(_transcribed_turn(tmp_path))
 
-    assert len(streamed.seen["messages"]) == BURST
-    assert not any(token in streamed.held for token in streamed.side.tokens)
+    assert turn.seen["messages"]
+    assert not any(token in turn.held for token in turn.side.tokens)
