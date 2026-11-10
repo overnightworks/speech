@@ -47,14 +47,22 @@ function endOfSocket(code: number): CaptureEnd {
  */
 export function startCapture(options: CaptureOptions): Capture {
   const run = new CaptureRun(options);
+  run.start();
   return { started: run.started, ended: run.ended, stop: () => run.finish() };
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((resolvePromise) => (resolve = resolvePromise));
+  return { promise, resolve };
+}
+
 class CaptureRun {
-  readonly started: Promise<"streaming" | "ended">;
-  readonly ended: Promise<CaptureEnd>;
-  #settleStarted: (value: "streaming" | "ended") => void = () => undefined;
-  #settleEnded: (end: CaptureEnd) => void = () => undefined;
+  readonly #startedGate = deferred<"streaming" | "ended">();
+  readonly #endedGate = deferred<CaptureEnd>();
+  readonly started = this.#startedGate.promise;
+  readonly ended = this.#endedGate.promise;
+  readonly #options: CaptureOptions;
   // The first cause; "socket" leaves it to the code the socket closes with.
   #cause: CaptureEnd | "socket" | undefined;
   #track: MediaStreamTrack | undefined;
@@ -69,9 +77,12 @@ class CaptureRun {
   readonly #framer = new Framer();
   readonly #onTrackEnded = (): void => this.finish();
 
-  constructor({ stream, hopUrl, workletUrl }: CaptureOptions) {
-    this.started = new Promise((resolve) => (this.#settleStarted = resolve));
-    this.ended = new Promise((resolve) => (this.#settleEnded = resolve));
+  constructor(options: CaptureOptions) {
+    this.#options = options;
+  }
+
+  start(): void {
+    const { stream, hopUrl, workletUrl } = this.#options;
     const track = stream.getAudioTracks()[0];
     if (track === undefined || track.readyState === "ended") {
       this.finish({ kind: "local", failure: "no-audio-track" });
@@ -140,7 +151,7 @@ class CaptureRun {
     this.#node.port.onmessage = (event: MessageEvent<Float32Array>) => this.#send(resampler.push(event.data));
     this.#source = context.createMediaStreamSource(new MediaStream([this.#track as MediaStreamTrack]));
     this.#source.connect(this.#node);
-    this.#settleStarted("streaming");
+    this.#startedGate.resolve("streaming");
   }
 
   #send(samples: Float32Array, last = false): void {
@@ -177,8 +188,8 @@ class CaptureRun {
       [code] = await Promise.all([this.#socketClosed, this.#context?.close()]);
     } finally {
       const cause = this.#cause === "socket" ? endOfSocket(code) : (this.#cause as CaptureEnd);
-      this.#settleStarted("ended");
-      this.#settleEnded(cause);
+      this.#startedGate.resolve("ended");
+      this.#endedGate.resolve(cause);
     }
   }
 }
