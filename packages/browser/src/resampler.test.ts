@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { HOP_FRAME_BYTES, SAMPLE_RATE } from "./hop.js";
+import { HOP_FRAME_BYTES, HOP_FRAME_SAMPLES, SAMPLE_BYTES, SAMPLE_RATE } from "./hop.js";
 import { Framer, Resampler } from "./resampler.js";
 
 const RENDER_QUANTUM = 128;
@@ -103,11 +103,23 @@ describe("Framer", () => {
 
   it("cuts frames of whole samples across blocks, every one but the last of the hop's frame size", () => {
     const framer = new Framer();
-    const blocks = [new Float32Array(1000), new Float32Array(1401), new Float32Array(2400), new Float32Array(2403)];
+    const tailSamples = 4;
+    const sizes = [
+      HOP_FRAME_SAMPLES / 2,
+      HOP_FRAME_SAMPLES / 2 + 1,
+      HOP_FRAME_SAMPLES,
+      HOP_FRAME_SAMPLES + tailSamples - 1,
+    ];
+    const blocks = sizes.map((size) => new Float32Array(size));
 
     const frames = [...blocks.flatMap((block) => framer.push(block)), ...framer.flush()];
 
-    expect(frames.map((frame) => frame.byteLength)).toEqual([HOP_FRAME_BYTES, HOP_FRAME_BYTES, HOP_FRAME_BYTES, 8]);
+    expect(frames.map((frame) => frame.byteLength)).toEqual([
+      HOP_FRAME_BYTES,
+      HOP_FRAME_BYTES,
+      HOP_FRAME_BYTES,
+      tailSamples * SAMPLE_BYTES,
+    ]);
   });
 
   it("writes PCM16 little-endian, clamped to the full scale", () => {

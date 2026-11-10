@@ -48,11 +48,11 @@ export class Resampler {
   #received = 0;
   #next = 0;
 
-  constructor(inputRate: number, outputRate: number = SAMPLE_RATE) {
-    const divisor = greatestCommonDivisor(inputRate, outputRate);
-    this.#up = outputRate / divisor;
+  constructor(inputRate: number) {
+    const divisor = greatestCommonDivisor(inputRate, SAMPLE_RATE);
+    this.#up = SAMPLE_RATE / divisor;
     this.#down = inputRate / divisor;
-    const lowerRate = Math.min(inputRate, outputRate);
+    const lowerRate = Math.min(inputRate, SAMPLE_RATE);
     const transition = (TRANSITION_SHARE * lowerRate) / inputRate;
     this.#halfWidth = Math.ceil((STOPBAND_DB - 7.95) / (2.285 * 2 * Math.PI * transition) / 2);
     const cutoff = (CUTOFF_SHARE * lowerRate) / inputRate;

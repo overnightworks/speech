@@ -21,7 +21,7 @@ from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
 from speech_client.hearing import HearingSession
-from speech_client.relay import HOP_FRAME_BYTES, RelayOutcome, relay
+from speech_client.relay import HOP_FRAME_BYTES, relay
 from speech_client.wire import HearingLanguage, ServerEvent, TranscriptCompleted
 from tests.support.identity_support import valid_pair
 
@@ -51,9 +51,6 @@ class AppSide:
     events: list[ServerEvent] = field(default_factory=list)
     app_ended: asyncio.Event = field(default_factory=asyncio.Event)
     completed: asyncio.Event = field(default_factory=asyncio.Event)
-    outcome: asyncio.Future[RelayOutcome] = field(
-        default_factory=lambda: asyncio.get_running_loop().create_future()
-    )
 
     @classmethod
     def new(cls) -> AppSide:
@@ -128,14 +125,12 @@ def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
             deadline_seconds=SESSION_SECONDS,
             held_limit_bytes=HELD_LIMIT_BYTES,
         )
-        side.outcome.set_result(
-            await relay(
-                RecordingSocket(browser, side.frames),
-                session,
-                app_ended=side.app_ended,
-                on_event=side.take,
-                frame_limit_bytes=HOP_FRAME_BYTES,
-            )
+        await relay(
+            RecordingSocket(browser, side.frames),
+            session,
+            app_ended=side.app_ended,
+            on_event=side.take,
+            frame_limit_bytes=HOP_FRAME_BYTES,
         )
 
     @app.websocket(REFUSING_HOP_PATH)
