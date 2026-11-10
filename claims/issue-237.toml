@@ -1,8 +1,0 @@
-claim_id = "1906e454929e4b4da5a3392dc68aab86"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "d95961217937f90628fa2e51ae83929fcb70d434"
-branch = "claude/issue-237-an-app-s-browser-streams-its-microphone"
-scope = [".aco/board.toml", ".github/dependabot.yml", ".github/workflows/ci.yml", ".github/workflows/code-scanning.yml", ".gitignore", "AGENTS.md", "docs/ARCHITECTURE.md", "packages/browser", "packages/client/src/speech_client/relay.py", "packages/client/src/speech_client/wire.py", "pyproject.toml", "quality/config.toml", "scripts/generate_browser_wire.py", "sonar-project.properties", "tests/fixtures/browser", "tests/scripts/test_generate_browser_wire.py", "tests/support/browser_support.py", "tests/support/page_coverage_support.py", "tests/test_wire_route_browser_capture.py", "uv.lock"]
-opened_commit = "1a66557f1b6ee5e72626511cbee7eb80d9d42c52"
-whole_reason = "Capture, resampler, worklet, generator, page coverage and the toolchain that builds and proves them land together, because none has a caller without the others and a toolchain alone would run ahead of its caller."
