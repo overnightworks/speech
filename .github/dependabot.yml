@@ -46,3 +46,11 @@ updates:
           - "transformers"
           - "accelerate"
           - "qwen-tts"
+  - package-ecosystem: npm
+    directory: /packages/browser
+    schedule:
+      interval: weekly
+    # @vitest/coverage-v8 requires exactly the installed vitest as its peer, so both move in one update.
+    groups:
+      vitest:
+        patterns: ["vitest", "@vitest/*"]

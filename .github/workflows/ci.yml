@@ -101,6 +101,51 @@ jobs:
           name: coverage-qwen
           path: coverage-qwen.xml
 
+  browser-unit:
+    name: "Speech: browser package"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: packages/browser
+    steps:
+      - name: Check out the event commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
+        with:
+          package_json_file: packages/browser/package.json
+
+      - name: Install Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: packages/browser/package.json
+          check-latest: true
+          cache: pnpm
+          cache-dependency-path: packages/browser/pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check types
+        run: pnpm run check
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Test
+        run: pnpm run test:coverage
+
+      - name: Upload the coverage report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-browser-unit
+          path: packages/browser/coverage/coverage-browser-unit.lcov
+          if-no-files-found: error
+
   image:
     name: "Speech: image"
     runs-on: ubuntu-24.04
@@ -206,6 +251,7 @@ jobs:
       - speech
       - qwen-provider
       - image
+      - browser-unit
     if: always()
     uses: overnightworks/quality/.github/workflows/gate.yml@2d2b68bf3916b34f6f2c72a540c1e3d8a947b750 # v0.10.0
     with:

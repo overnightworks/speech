@@ -6,4 +6,6 @@ dependency_paths = [
   "packages/client/pyproject.toml",
   "providers/qwen/pyproject.toml",
   "providers/qwen/uv.lock",
+  "packages/browser/package.json",
+  "packages/browser/pnpm-lock.yaml",
 ]
