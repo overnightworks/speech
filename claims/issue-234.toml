@@ -1,8 +1,0 @@
-claim_id = "b240ed5d639d4ed8bfb24fed69568e09"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "8d936c3104a0f4c28288bff0195c869b407d385b"
-branch = "claude/issue-234-a-caller-s-cancel-ends-a-hearing-session"
-scope = ["packages/client/src/speech_client/hearing.py", "packages/client/src/speech_client/relay.py", "packages/client/tests/test_hearing.py", "packages/client/tests/test_relay.py"]
-opened_commit = "4bbdff07c84920fad4bb5aaad8395c7178410885"
-whole_reason = "The session's end state, its proof and the relay's docstring sentence change together, because the sentence is true only with the state."
