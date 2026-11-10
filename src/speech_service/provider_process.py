@@ -580,9 +580,10 @@ def provider_environment(provider_directory: Path, scratch: Path) -> dict[str, s
         # directory (onnxruntime a log per process, torch its compile cache),
         # which would outlive the worker in the service's own small /tmp.
         "TMPDIR": str(scratch),
-        # Triton creates its kernel cache under the home directory, which the
-        # image's read-only root does not have for the service's user.
-        "TRITON_CACHE_DIR": str(scratch),
+        # Torch's native operations would launch triton kernels, and triton
+        # builds a C module at first use, which needs a compiler the image
+        # does not ship.
+        "TORCH_DISABLE_NATIVE_JIT": "1",
     }
     visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
     if visible_devices is not None:

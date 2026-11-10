@@ -47,13 +47,19 @@ def test_library_path_names_the_cuda_packages_of_any_python_three_venv(
     assert environment["LD_LIBRARY_PATH"] == os.pathsep.join([str(cublas), str(cudnn)])
 
 
-@pytest.mark.parametrize("variable", ["NUMBA_CACHE_DIR", "TMPDIR", "TRITON_CACHE_DIR"])
+@pytest.mark.parametrize("variable", ["NUMBA_CACHE_DIR", "TMPDIR"])
 def test_writable_directories_are_the_workers_scratch_directory(
     tmp_path: Path, variable: str
 ) -> None:
     scratch = tmp_path / "scratch"
 
     assert provider_environment(tmp_path, scratch)[variable] == str(scratch)
+
+
+def test_torch_native_kernels_are_switched_off(tmp_path: Path) -> None:
+    environment = provider_environment(tmp_path, tmp_path / "scratch")
+
+    assert environment["TORCH_DISABLE_NATIVE_JIT"] == "1"
 
 
 @pytest.mark.parametrize("visible_devices", ["", "0,1"])
@@ -95,7 +101,7 @@ def test_a_parent_token_does_not_reach_the_provider_environment(
         "PATH",
         "NUMBA_CACHE_DIR",
         "TMPDIR",
-        "TRITON_CACHE_DIR",
+        "TORCH_DISABLE_NATIVE_JIT",
         "CUDA_VISIBLE_DEVICES",
         "LD_LIBRARY_PATH",
     }
