@@ -96,6 +96,7 @@ jobs:
       - name: Pack the browser package and prove its install
         id: pack
         working-directory: packages/browser
+        shell: bash
         run: |
           pnpm install --frozen-lockfile
           node scripts/pack-release.js "$RUNNER_TEMP/release-files" | tee -a "$GITHUB_OUTPUT"
