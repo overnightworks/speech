@@ -2,7 +2,7 @@
 // The query names the scenario: `source` (device, wav, tone, two-tones, none), `hop` (the relay
 // route), `worklet` (file, blob) and `start` (click, load). `window.capturePage` holds what the
 // page saw, for the test to read.
-import { startCapture } from "/dist/capture.js";
+import { startCapture } from "/dist/index.js";
 
 const query = new URLSearchParams(location.search);
 const WORKLET_PATH = "/dist/capture-worklet.js";
