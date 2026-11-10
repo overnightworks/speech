@@ -1,4 +1,4 @@
-"""The provider emits only ordered frames and one sanitized failure value."""
+"""The provider emits only ordered frames and a failure that carries no payload."""
 
 from __future__ import annotations
 
@@ -17,10 +17,12 @@ from typing import TYPE_CHECKING
 import pytest
 import speech_provider_contract as worker
 from speech_provider_contract import (
+    MAX_FAILURE_CAUSE_BYTES,
     Frame,
     FrameKind,
     ProviderFailure,
     ProviderFunctions,
+    failure_cause,
     read_frame,
     write_frame,
 )
@@ -44,6 +46,15 @@ def _frames(encoded: bytes) -> list[Frame]:
     while stream.tell() < len(encoded):
         frames.append(read_frame(stream))
     return frames
+
+
+def _assert_failed_with_cause(
+    frame: Frame, request_id: int, type_name: str, detail: str
+) -> None:
+    assert (frame.kind, frame.request_id) == (FrameKind.FAILED, request_id)
+    cause = failure_cause(frame.payload)
+    assert type_name in cause
+    assert detail not in cause
 
 
 def _run_worker(
@@ -98,10 +109,9 @@ def test_run_loads_warms_then_maps_active_input_eof_to_sanitized_failure(
     assert result == 1
     assert observed == [("cpu", Path("/closed/cache"))]
     assert calls == [("Hallo.", "de"), ("Hello", "en")]
-    assert frames == [
-        Frame(FrameKind.READY, 0, b"\x00\x01\x00\x00]\xc0"),
-        Frame(FrameKind.FAILED, 1, bytes([ProviderFailure.PROVIDER_FAILURE])),
-    ]
+    ready, failed = frames
+    assert ready == Frame(FrameKind.READY, 0, b"\x00\x01\x00\x00]\xc0")
+    _assert_failed_with_cause(failed, 1, "builtins.EOFError", "Hello")
     assert not any(
         thread.name == "speech-provider-input" and thread.is_alive()
         for thread in threading.enumerate()
@@ -306,7 +316,10 @@ def test_wrong_direction_out_of_order_and_stale_commands_fail_once(
     command_queue.put(EOFError())
     worker.serve_commands(command_queue, output, lambda *_args: (), object())
     frames = _frames(output.getvalue())
-    assert frames[-1] == Frame(FrameKind.FAILED, failure_id, b"\x01")
+    if failure_id:
+        _assert_failed_with_cause(frames[-1], failure_id, "ProtocolError", "stale")
+    else:
+        assert frames[-1] == Frame(FrameKind.FAILED, 0, b"\x01")
     assert sum(frame.kind is FrameKind.FAILED for frame in frames) == 1
 
 
@@ -320,16 +333,21 @@ def _wait_for_frames(output: BytesIO, expected: int) -> None:
 
 
 def test_model_and_pcm_validation_failure_emit_only_active_failure() -> None:
-    for synthesizer in (
-        lambda *_args: (_ for _ in ()).throw(RuntimeError("raw model detail")),
-        lambda *_args: iter((b"\x00",)),
+    detail = "raw model detail"
+    for synthesizer, type_name in (
+        (
+            lambda *_args: (_ for _ in ()).throw(RuntimeError(detail)),
+            "builtins.RuntimeError",
+        ),
+        (lambda *_args: iter((b"\x00",)), "ProtocolError"),
     ):
         commands: queue.Queue[Frame | BaseException] = queue.Queue()
         output = BytesIO()
         commands.put(Frame(FrameKind.SYNTHESIZE, 9, b"\x01Hallo"))
         worker.serve_commands(commands, output, synthesizer, object())
-        assert _frames(output.getvalue()) == [Frame(FrameKind.FAILED, 9, b"\x01")]
-        assert b"raw model detail" not in output.getvalue()
+        (frame,) = _frames(output.getvalue())
+        _assert_failed_with_cause(frame, 9, type_name, detail)
+        assert detail.encode() not in output.getvalue()
 
 
 @pytest.mark.parametrize(
@@ -387,7 +405,13 @@ def test_every_request_exit_closes_its_iterator_before_terminal_output(
         )
     assert events.index("closed") < events.index(terminal)
     if failure != "normal":
-        assert _frames(output.getvalue()) == [Frame(FrameKind.FAILED, 9, b"\x01")]
+        (frame,) = _frames(output.getvalue())
+        _assert_failed_with_cause(
+            frame,
+            9,
+            "builtins.RuntimeError" if failure == "synthesis" else "ProtocolError",
+            "Hallo",
+        )
 
 
 def test_active_protocol_failure_closes_the_iterator_before_sanitized_failure(
@@ -425,7 +449,8 @@ def test_active_protocol_failure_closes_the_iterator_before_sanitized_failure(
 
     worker.serve_commands(commands, output, lambda *_args: ClosableIterator(), object())
     assert events == ["closed", FrameKind.FAILED]
-    assert _frames(output.getvalue()) == [Frame(FrameKind.FAILED, 9, b"\x01")]
+    (frame,) = _frames(output.getvalue())
+    _assert_failed_with_cause(frame, 9, "ProtocolError", "Hallo")
 
 
 def test_iterator_cleanup_failure_emits_only_the_active_failure() -> None:
@@ -447,8 +472,72 @@ def test_iterator_cleanup_failure_emits_only_the_active_failure() -> None:
     worker.serve_commands(
         commands, output, lambda *_args: FailingCloseIterator(), object()
     )
-    assert _frames(output.getvalue()) == [Frame(FrameKind.FAILED, 9, b"\x01")]
+    (frame,) = _frames(output.getvalue())
+    _assert_failed_with_cause(frame, 9, "builtins.RuntimeError", "cleanup detail")
     assert b"cleanup detail" not in output.getvalue()
+
+
+def _raise_at_depth(depth: int, error: Exception, cause: Exception | None) -> None:
+    if depth:
+        _raise_at_depth(depth - 1, error, cause)
+    raise error from cause
+
+
+def _deep_chain(kinds: list[type[Exception]], depth: int) -> Exception:
+    cause: Exception | None = None
+    for kind in kinds:
+        try:
+            _raise_at_depth(depth, kind(), cause)
+        except Exception as raised:  # noqa: BLE001 - each kind becomes the next link
+            cause = raised
+    assert cause is not None
+    return cause
+
+
+def _failed_frame_for(error: Exception) -> Frame:
+    def synthesize(*_args: object) -> Iterator[bytes]:
+        raise error
+
+    commands: queue.Queue[Frame | BaseException] = queue.Queue()
+    output = BytesIO()
+    commands.put(Frame(FrameKind.SYNTHESIZE, 9, b"\x01Hallo"))
+    worker.serve_commands(commands, output, synthesize, object())
+    (frame,) = _frames(output.getvalue())
+    return frame
+
+
+def test_a_long_deep_chain_keeps_the_links_nearest_its_root_within_the_bound() -> None:
+    long_name = type("Long" * 250, (Exception,), {})
+    root_first = [KeyError, ValueError, long_name, TypeError, LookupError, OSError]
+
+    frame = _failed_frame_for(_deep_chain(root_first, 300))
+
+    cause = failure_cause(frame.payload)
+    lines = cause.split("\n")
+    assert len(cause) <= MAX_FAILURE_CAUSE_BYTES
+    assert lines[0].startswith("builtins.KeyError -> builtins.ValueError -> ")
+    assert lines[0].endswith(" -> builtins.TypeError (+2 outer)")
+    assert "LookupError" not in lines[0]
+    first_line_label_bytes, other_line_bytes = 128, 256
+    assert len(lines[0].split(" -> ")[2]) == first_line_label_bytes
+    assert all(len(line) <= other_line_bytes for line in lines[1:])
+    assert lines[1] == "builtins.KeyError"
+    assert lines[12].endswith(", in _raise_at_depth")
+    assert lines[13] == "    raise error from cause"
+    assert lines[14] == "builtins.ValueError"
+
+
+def test_a_failing_cause_encoder_still_sends_a_bare_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unreadable(_error: BaseException) -> object:
+        raise RuntimeError
+
+    monkeypatch.setattr(worker, "failure_links", unreadable)
+
+    assert _failed_frame_for(RuntimeError()) == Frame(
+        FrameKind.FAILED, 9, bytes([ProviderFailure.PROVIDER_FAILURE])
+    )
 
 
 def _run_bootstrap(write_fd: int) -> None:

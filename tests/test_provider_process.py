@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import logging
 import os
 import stat
 import struct
@@ -18,7 +19,6 @@ from pathlib import Path
 import pytest
 from anyio import run, run_process
 from speech_provider_contract import (
-    MAX_FRAME_LENGTH,
     QWEN_MODEL_ID,
     QWEN_SAMPLE_RATE,
     Frame,
@@ -31,6 +31,7 @@ from speech_provider_contract import (
 )
 
 from speech_service.provider_process import (
+    SYNTHESIS_FAILED,
     ProviderFailedError,
     ProviderLaunch,
     ProviderNotReadyError,
@@ -114,11 +115,15 @@ def test_parent_rejects_a_worker_that_advertises_another_rate(tmp_path: Path) ->
 @pytest.mark.parametrize(
     "encoded",
     [
-        struct.pack("!I", 8),
-        struct.pack("!I", MAX_FRAME_LENGTH + 1),
         struct.pack("!IBQ", 9, 255, 1),
         struct.pack("!IBQ", 9, FrameKind.PCM, 1),
         struct.pack("!IBQ", 10, FrameKind.FAILED, 1) + b"\x02",
+        struct.pack("!IBQ", 26, FrameKind.FAILED, 0) + b"\x01builtins.OSError",
+        struct.pack("!IBQ", 4107, FrameKind.FAILED, 1) + b"\x01" + b"a" * 4097,
+        *(
+            struct.pack("!IBQ", 11, FrameKind.FAILED, 1) + b"\x01" + byte
+            for byte in (b"\x00", b"\t", b"\r", b"\x7f", b"\x80")
+        ),
         struct.pack("!IBQ", 15, FrameKind.READY, 0) + b"\x00\x02\x00\x00]\xc0",
         struct.pack("!IBQ", 10, FrameKind.SYNTHESIZE, 1) + b"\x03",
         struct.pack("!IBQ", 12, FrameKind.PCM, 1) + b"\x00\x01\x02",
@@ -126,8 +131,28 @@ def test_parent_rejects_a_worker_that_advertises_another_rate(tmp_path: Path) ->
 )
 def test_protocol_rejects_illegal_lengths_kinds_and_payloads(encoded: bytes) -> None:
     stream = BytesIO(encoded)
-    with pytest.raises((ProtocolError, EOFError)):
+    with pytest.raises(ProtocolError):
         read_frame(stream)
+
+
+def test_protocol_reports_a_payload_cut_short_after_its_header() -> None:
+    stream = BytesIO(struct.pack("!IBQ", 12, FrameKind.PCM, 1) + b"\x00")
+    with pytest.raises(EOFError):
+        read_frame(stream)
+
+
+@pytest.mark.parametrize(
+    "payload", [b"\x01", b"\x01builtins.OSError", b"\x01" + b"a\n" * 2048]
+)
+def test_protocol_accepts_a_request_failure_with_or_without_its_cause(
+    payload: bytes,
+) -> None:
+    frame = Frame(FrameKind.FAILED, 1, payload)
+
+    encoded = BytesIO()
+    write_frame(encoded, frame)
+
+    assert read_frame(BytesIO(encoded.getvalue())) == frame
 
 
 @pytest.mark.parametrize("payload", [b"", b"\x03text", b"\x01\xff"])
@@ -303,14 +328,19 @@ def test_stale_wrong_direction_out_of_order_and_midstream_exit_fail_closed(
 
 
 def test_request_failure_is_sanitized_and_marks_the_adapter_unready(
-    tmp_path: Path,
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     engine = _engine(tmp_path)
     engine.load()
-    with pytest.raises(RuntimeError, match="speech provider synthesis failed"):
+    with (
+        caplog.at_level(logging.ERROR),
+        pytest.raises(RuntimeError, match=SYNTHESIS_FAILED),
+    ):
         list(engine.pcm_chunks("failed", "de"))
     assert engine.ready is False
     engine.close()
+
+    assert f"{SYNTHESIS_FAILED}, request 1, cause: none" in caplog.text
 
 
 @pytest.mark.parametrize(
