@@ -147,7 +147,7 @@ jobs:
           if-no-files-found: error
 
   browser-flow:
-    name: "Speech: browser flows"
+    name: "Speech: browser capture flow"
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
