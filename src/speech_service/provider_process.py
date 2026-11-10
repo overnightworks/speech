@@ -23,6 +23,7 @@ from speech_provider_contract import (
     FrameDecoder,
     FrameKind,
     ProtocolError,
+    failure_cause,
     ready_sample_rate,
     write_frame,
 )
@@ -39,6 +40,10 @@ _READ_SIZE = 64 * 1024
 _STDERR_TAIL_BYTES = 4096
 ENDED_BEFORE_READY = "speech provider ended before ready"
 """The record that opens the log of a provider that ended before it was ready."""
+ENDED_AFTER_READY = "speech provider ended after ready"
+"""The record of a provider that was ready and then ended through a failure."""
+SYNTHESIS_FAILED = "speech provider synthesis failed"
+"""The message of a failed synthesis and the record of the cause it carries."""
 _WORKER_DIRECTORY_PREFIX = "speech-provider-"
 """The name prefix of each worker's private directory in the temporary directory.
 
@@ -67,7 +72,7 @@ class ProviderSynthesisFailedError(RuntimeError):
 
     def __init__(self) -> None:
         """Carry the one message every failed synthesis reports."""
-        super().__init__("speech provider synthesis failed")
+        super().__init__(SYNTHESIS_FAILED)
 
 
 class ProviderCleanupFailedError(RuntimeError):
@@ -200,6 +205,7 @@ class ProviderProcess:
                     yield frame.payload
                     continue
                 if frame.kind is FrameKind.FAILED:
+                    _log_synthesis_failure(request_id, frame.payload)
                     self._mark_failed()
                     raise ProviderSynthesisFailedError
                 completed = True
@@ -239,6 +245,7 @@ class ProviderProcess:
         stderr: IO[bytes] | None = None
         scratch: tempfile.TemporaryDirectory[str] | None = None
         lifecycle_failed = False
+        provider_failed = False
         try:
             scratch = tempfile.TemporaryDirectory(prefix=_WORKER_DIRECTORY_PREFIX)
             stderr = tempfile.TemporaryFile()  # noqa: SIM115 - closed on every exit below
@@ -256,6 +263,7 @@ class ProviderProcess:
             )
             if outcome is _OwnerExit.PROVIDER_FAILURE:
                 self._set_failed()
+                provider_failed = True
         except Exception:
             logger.exception("speech provider owner thread failed")
             lifecycle_failed = True
@@ -275,7 +283,7 @@ class ProviderProcess:
                     logger.exception("speech provider scratch cleanup failed")
             if stderr is not None:
                 try:
-                    _close_stderr(child, stderr)
+                    _close_stderr(child, stderr, provider_failed=provider_failed)
                 except Exception:
                     logger.exception("speech provider stderr cleanup failed")
             with self._state_lock:
@@ -448,6 +456,7 @@ class ProviderProcess:
             if frame.kind in {FrameKind.COMPLETE, FrameKind.CANCELLED}:
                 return
             if frame.kind is FrameKind.FAILED:
+                _log_synthesis_failure(request_id, frame.payload)
                 raise ProviderProtocolError
 
     def _mark_failed(self) -> None:
@@ -481,8 +490,25 @@ class ProviderProcess:
                 stream.close()
 
 
-def _close_stderr(child: subprocess.Popen[bytes] | None, stderr: IO[bytes]) -> None:
-    """Log what a provider that never became ready wrote, then close its file.
+def _log_synthesis_failure(request_id: int, payload: bytes) -> None:
+    logger.error(
+        "%s, request %d, cause: %s",
+        SYNTHESIS_FAILED,
+        request_id,
+        failure_cause(payload) or "none",
+    )
+
+
+def _close_stderr(
+    child: subprocess.Popen[bytes] | None,
+    stderr: IO[bytes],
+    *,
+    provider_failed: bool,
+) -> None:
+    """Log how a provider ended, then close its startup stderr file.
+
+    A provider that never became ready has its stderr tail logged; one that
+    was ready and then failed has only its exit status logged.
 
     Call after the provider is reaped. The exit status is the provider's own
     when it ended by itself; a negative number is the signal that stopped it,
@@ -498,6 +524,8 @@ def _close_stderr(child: subprocess.Popen[bytes] | None, stderr: IO[bytes]) -> N
                 child.returncode,
                 stderr.read().decode("utf-8", errors="replace"),
             )
+        elif provider_failed and child is not None:
+            logger.error("%s, exit status %s", ENDED_AFTER_READY, child.returncode)
     finally:
         stderr.close()
 
