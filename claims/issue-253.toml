@@ -1,8 +1,0 @@
-claim_id = "3e84cc08db8a424ab73409eaa8e29b5e"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "15420b5369cc1ad60a91b6059427ff3781bde2bb"
-branch = "claude/issue-253-the-release-takes-the-tarball"
-scope = [".github/workflows/ci.yml", ".github/workflows/release-distributions.yml", "AGENTS.md", "README.md", "packages/browser/package.json", "packages/browser/scripts/pack-release.js", "scripts/check_release.py", "tests/scripts/test_check_release.py"]
-opened_commit = "dfe8ab48e1b4aef9ad08d4528a5a29f31faf5b06"
-whole_reason = "One proof script, called by both PR CI and the release, owns packing and the empty-project install, so the release's tarball logic runs on every pull request before the operator's first dispatch; the version check, that script and the release workflow have no caller apart."
