@@ -1,0 +1,35 @@
+{
+  "name": "overnightworks-speech-browser",
+  "version": "0.6.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/capture.d.ts",
+      "default": "./dist/capture.js"
+    },
+    "./capture-worklet.js": "./dist/capture-worklet.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "packageManager": "pnpm@12.18.0",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^24 || ^26",
+      "onFail": "error"
+    }
+  },
+  "scripts": {
+    "check": "tsc -p tsconfig.json && tsc -p tsconfig.worklet.json --noEmit",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.worklet.json",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@types/audioworklet": "^0.0.100",
+    "@vitest/coverage-v8": "^5.1.0",
+    "monocart-coverage-reports": "^3.2.1",
+    "typescript": "^6.0.3",
+    "vitest": "^5.1.0"
+  }
+}

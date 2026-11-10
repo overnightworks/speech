@@ -13,6 +13,10 @@ session holds it up to its own byte limit. A text frame, or a frame over
 measures loudness or detects speech: everything is streamed, and the service's
 own detector decides what speech is.
 
+A browser sends 100 ms of audio a frame: `HOP_FRAME_SAMPLES` samples of the
+wire's `PcmFormat`, `HOP_FRAME_BYTES` bytes; the last frame of a hop may be
+shorter. An app may pass `HOP_FRAME_BYTES` as `frame_limit_bytes`.
+
 `relay` returns one `RelayOutcome`, a closed union a caller matches with
 `assert_never`: the session's own `HearingOutcome`, or a hop end (`BrowserLeft`,
 `AppEnded`, `RuleBroken`). Unless the browser left, the relay closes the browser
@@ -31,7 +35,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import TYPE_CHECKING, Protocol, assert_never
+from typing import TYPE_CHECKING, Final, Protocol, assert_never
 
 from speech_client.hearing import Closed, HearingOutcome, HearingSession, Refused
 from speech_client.outcomes import (
@@ -42,11 +46,16 @@ from speech_client.outcomes import (
     PastDeadline,
     Unreachable,
 )
+from speech_client.wire import PcmFormat, SessionInput
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
     from speech_client.wire import ServerEvent
+
+
+HOP_FRAME_SAMPLES: Final = SessionInput().format.rate // 10
+HOP_FRAME_BYTES: Final = HOP_FRAME_SAMPLES * PcmFormat.sample_bytes * PcmFormat.channels
 
 
 class HopClose(IntEnum):

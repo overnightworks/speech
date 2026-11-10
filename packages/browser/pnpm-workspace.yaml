@@ -1,0 +1,4 @@
+# A coverage reporter's agent skills are not part of building or testing the package.
+permissions:
+  monocart-coverage-reports:
+    skills: false

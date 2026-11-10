@@ -38,6 +38,7 @@ flowchart LR
   caller table baked in; the release builds, attests and pushes it to GHCR, see
   [Delivery](#delivery). `scripts/prove_image.py` proves it.
 - `packages/client`: the wire types an app and the service share, the bounded speaking call, the bounded health fetch, the live hearing session (`HearingSession`: frames held up to a caller-set byte limit, typed server events, one closed outcome union) and the relay (`relay`) of a browser socket to that session an app makes.
+- `packages/browser`: the framework-free browser package (`overnightworks-speech-browser`) an app's page streams its microphone with. `startCapture` takes the first audio track of the app's own stream, resamples it with a filter to the wire's PCM16 at 24 kHz in its own same-origin AudioWorklet file and main-thread resampler, and sends 100 ms frames to the app's relay route; it has no loudness gate, and its `ended` names how the hop ended. Its `hop.ts` is generated from `PcmFormat` and `speech_client.relay` by `scripts/generate_browser_wire.py`.
 - `providers/*`: the voices that run in their own processes and environments. Each is its own uv project with its own lock; `providers/provider-contract` is the shared source the others install from. The client in `packages/client` is a uv workspace member of the root.
 
 ### Speaking
@@ -165,6 +166,11 @@ The root is read-only, the user is not root and no capability is kept.
   and bounded (a text frame or a frame over the app's limit ends it with a named
   close code), admission is the app's, and the tokens stay on the app's server,
   so the browser sees neither a token nor an event.
+- The browser package receives no token and reads no message from
+  the hop. It opens no device: the app turns the microphone on in its own
+  `Permissions-Policy` (webauth's default turns it off), owns the stream and the
+  switch, and serves the worklet from its own origin, which webauth's
+  `script-src 'self'` admits.
 
 ## Constraints and reasons
 

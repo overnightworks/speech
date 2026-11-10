@@ -1,9 +1,9 @@
 [gate]
-mandatory_jobs = ["Speech: lint, tests", "Speech: Qwen provider", "Speech: image", "keycloak-token-shapes"]
+mandatory_jobs = ["Speech: lint, tests", "Speech: Qwen provider", "Speech: image", "keycloak-token-shapes", "Speech: browser package", "Speech: browser capture flow"]
 
 [[root.allow]]
 entry = "packages/"
-reason = "the uv workspace's member distributions"
+reason = "the client packages an app builds on: the uv workspace's Python client and the pnpm browser package"
 
 [[root.allow]]
 entry = "deploy/"

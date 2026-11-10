@@ -14,7 +14,7 @@ import json
 from dataclasses import dataclass
 from enum import StrEnum
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Annotated, Final, Literal
+from typing import TYPE_CHECKING, Annotated, ClassVar, Final, Literal
 from uuid import uuid4
 
 from pydantic import (
@@ -310,7 +310,15 @@ class _SessionPart(BaseModel):
 
 
 class PcmFormat(_SessionPart):
-    """PCM16 little-endian mono at 24 kHz, the one input format."""
+    """PCM16 little-endian mono at 24 kHz, the one input format.
+
+    A sample is `sample_bytes` bytes and a frame of samples has `channels`
+    channels. Both are class constants, so the session's shape names only
+    `type` and `rate`.
+    """
+
+    sample_bytes: ClassVar[int] = 2
+    channels: ClassVar[int] = 1
 
     type: Literal["audio/pcm"]
     rate: Literal[24000]
