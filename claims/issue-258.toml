@@ -1,0 +1,8 @@
+claim_id = "2e9e0de7d8b4495f974c0b7df18888c1"
+agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
+role = "builder"
+base = "827b2ec496deaabd632c7960c4bea7115981faf8"
+branch = "claude/issue-258-triton-cache-in-scratch"
+scope = ["src/speech_service/provider_process.py", "tests/support/worker_support.py", "tests/test_provider_process.py", "tests/test_provider_process_environment.py"]
+opened_commit = "d09ac94e4e765b7d6dca8f6624f7ea943028b036"
+whole_reason = "The environment owner and the three test files that read its variables change together."
