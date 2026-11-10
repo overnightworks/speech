@@ -1,4 +1,4 @@
-"""The release check names the version fields that are off in what the root declares, package.json files too."""
+"""The release check names the version fields that are off, package.json included."""
 
 from __future__ import annotations
 

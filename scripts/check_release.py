@@ -2,9 +2,10 @@
 
 The release set is the root project plus each local project the root declares in
 `[tool.uv.workspace] members` and as a `path` in `[tool.uv.sources]`, and each
-`packages/*/package.json`. The distributions' release workflow runs this before it creates the tag, and reads
-its rows with `--rows`. Without a version the check only requires that the set
-agrees, which the default test run does on every pull request.
+`packages/*/package.json`. The distributions' release workflow runs this before
+it creates the tag, and reads its rows with `--rows`. Without a version the
+check only requires that the set agrees, which the default test run does on
+every pull request.
 """
 
 # ruff: noqa: T201 - the distributions' release workflow reads this command's output
