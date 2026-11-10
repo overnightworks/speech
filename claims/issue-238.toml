@@ -1,8 +1,0 @@
-claim_id = "6b9a16de707c406bbcc56806e6e1dff4"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "1dacccbda11a118305dabeabce2c4122a6f3c8da"
-branch = "claude/issue-238-a-failed-synthesis-logs-its-cause"
-scope = ["docs/ARCHITECTURE.md", "providers/provider-contract/src/speech_provider_contract/__init__.py", "providers/qwen/tests/test_worker.py", "src/speech_service/failures.py", "src/speech_service/provider_process.py", "tests/test_failures.py", "tests/test_provider_process.py", "tests/test_provider_process_environment.py", "tests/test_provider_process_start.py"]
-opened_commit = "e1a901b003985b0c0e7ae846e8bc3990d502902b"
-whole_reason = "One trust rule on one new channel: the contract's renderer, its reuse in log_failure, the FAILED frame that carries its output, the service record that reads it, their tests and the Trust sentence hold only together."
