@@ -10,6 +10,12 @@ export interface CaptureOptions {
   readonly hopUrl: string | URL;
   /** Where the app serves the exported worklet file. */
   readonly workletUrl: string | URL;
+  /**
+   * Receives every message the app's server sends on the hop, as the browser delivers it: text as a string, binary as
+   * an ArrayBuffer. It is called from the socket's creation, in arrival order, and never after the capture ends; the
+   * package does not read a message, and a throw surfaces as an uncaught error of the page without ending the capture.
+   */
+  readonly onMessage?: (data: string | ArrayBuffer) => void;
 }
 
 export interface Capture {
@@ -42,8 +48,9 @@ function endOfSocket(code: number): CaptureEnd {
 /**
  * Streams the first audio track of the app's stream to the app's relay route as PCM16 frames at the wire's rate.
  *
- * The package opens no device, never stops the app's track and reads no message from the hop. Audio is taken only
- * once the hop is open, and everything is sent: there is no loudness gate.
+ * The package opens no device, never stops the app's track and interprets no message of the hop; it hands each one to
+ * `onMessage` as it came. Audio is taken only once the hop is open, and everything is sent: there is no loudness
+ * gate.
  */
 export function startCapture(options: CaptureOptions): Capture {
   const run = new CaptureRun(options);
@@ -95,6 +102,7 @@ class CaptureRun {
     }
     try {
       this.#socket = new WebSocket(hopUrl);
+      this.#socket.binaryType = "arraybuffer";
     } catch (error) {
       void this.#context.close();
       throw error;
@@ -112,6 +120,13 @@ class CaptureRun {
       });
     });
     socket.addEventListener("open", () => this.#connectWhenReady());
+    const { onMessage } = this.#options;
+    if (onMessage !== undefined) {
+      // The browser delivers no message to a socket that is not open, and every end closes it in `finish`.
+      socket.addEventListener("message", (event: MessageEvent<string | ArrayBuffer>) =>
+        onMessage(event.data),
+      );
+    }
     const failed = (failure: LocalFailure) => () => this.finish({ kind: "local", failure });
     Promise.resolve()
       .then(() => context.audioWorklet.addModule(workletUrl))
