@@ -2,6 +2,8 @@
   "name": "overnightworks-speech-browser",
   "version": "0.6.0",
   "type": "module",
+  "license": "MIT",
+  "private": true,
   "exports": {
     ".": {
       "types": "./dist/capture.d.ts",
@@ -21,6 +23,7 @@
     }
   },
   "scripts": {
+    "prepack": "pnpm run build",
     "check": "tsc -p tsconfig.json && tsc -p tsconfig.worklet.json --noEmit",
     "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.worklet.json",
     "test:coverage": "vitest run --coverage"
