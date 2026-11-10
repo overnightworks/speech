@@ -1,11 +1,12 @@
 // The stand-in app's page: its switch starts and stops the package on a stream the page owns.
 // The query names the scenario: `source` (device, wav, tone, two-tones, none), `hop` (the relay
-// route), `worklet` (file, blob) and `start` (click, load). `window.capturePage` holds what the
-// page saw, for the test to read.
+// route), `worklet` (file, blob, held), `start` (click, load) and the message knobs: `messages`
+// (set: pass `onMessage`), `stopAt` (call stop() at that message) and `throwFirst` (set: the first
+// call throws). `window.capturePage` holds what the page saw, for the test to read.
 import { startCapture } from "/dist/index.js";
 
 const query = new URLSearchParams(location.search);
-const WORKLET_PATH = "/dist/capture-worklet.js";
+const WORKLET_PATHS = { file: "/dist/capture-worklet.js", held: "/held-worklet.js" };
 const TWO_TONES = [440, 1250];
 
 const seen = {
@@ -18,6 +19,9 @@ const seen = {
   contextsOpened: 0,
   sentBytes: [],
   messagesReceived: 0,
+  messages: [],
+  startedAtFirstMessage: null,
+  messagesAfterEnded: 0,
   packageGetUserMediaCalls: 0,
   openedAt: null,
   startedAt: null,
@@ -105,10 +109,25 @@ async function prepareSource() {
 
 async function workletUrl() {
   if (query.get("worklet") !== "blob") {
-    return WORKLET_PATH;
+    return WORKLET_PATHS[query.get("worklet") ?? "file"];
   }
-  const source = await (await fetch(WORKLET_PATH)).text();
+  const source = await (await fetch(WORKLET_PATHS.file)).text();
   return URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+}
+
+function messageRecord(data) {
+  if (typeof data === "string") return { kind: "text", text: data };
+  if (data instanceof ArrayBuffer) return { kind: "binary", bytes: Array.from(new Uint8Array(data)) };
+  return { kind: typeof data };
+}
+
+// The page's `onMessage`: it keeps what it was handed and acts on the knobs.
+function onMessage(data) {
+  seen.startedAtFirstMessage ??= seen.started === null ? "pending" : seen.started;
+  if (seen.ended !== null) seen.messagesAfterEnded += 1;
+  seen.messages.push(messageRecord(data));
+  if (query.has("throwFirst") && seen.messages.length === 1) throw new Error("the page's callback threw");
+  if (seen.messages.length === Number(query.get("stopAt"))) capture.stop();
 }
 
 let capture = null;
@@ -122,6 +141,7 @@ async function switchOn() {
     stream,
     hopUrl: new URL(query.get("hop") ?? "/hear", location.href.replace(/^http/, "ws")),
     workletUrl: await workletUrl(),
+    ...(query.has("messages") ? { onMessage } : {}),
   });
   capture.started.then((started) => {
     seen.started = started;

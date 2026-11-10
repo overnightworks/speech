@@ -2,8 +2,9 @@
 
 `relay` forwards the binary frames of a browser socket to a `HearingSession` and
 hands the session's typed events to the app, never to the browser. The tokens
-stay in the session on the app's server; the browser sees no token and no event,
-only the close code that names how the hop ended. The app keeps the route,
+stay in the session on the app's server; the relay forwards the browser no token
+and no event, only the close code that names how the hop ended. What the app's
+route writes on its own browser socket is the app's. The app keeps the route,
 admission (accepting the socket included), its switches, the token choice and
 when a hearing ends: it sets `app_ended` to end it.
 

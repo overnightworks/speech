@@ -7,9 +7,10 @@ headers, against the real service over TCP with a fake hearing engine.
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import wave
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
@@ -25,8 +26,11 @@ from speech_client.wire import (
     PcmFormat,
     SessionInput,
     TranscriptCompleted,
+    TranscriptDelta,
 )
 from tests.support.browser_support import (
+    HELD_WORKLET_PATH,
+    MESSAGING_HOP_PATH,
     RECORDING,
     REFUSING_HOP_PATH,
     AppSide,
@@ -67,6 +71,9 @@ TURN_EXTRA_SECONDS = (0.3, 1.6)
 FRAMES_BEFORE_STOP = 3
 STOP_BOUND_MS = 1000
 CLOSED = 3
+# The page passes `onMessage`, and the app's route writes messages of its own.
+MESSAGING = {"hop": MESSAGING_HOP_PATH, "messages": "1"}
+BURST = 100
 
 
 @dataclass(frozen=True)
@@ -103,6 +110,20 @@ class Stage:
         await self.switch()
         await self.until(f"seen.sentBytes.length >= {FRAMES_BEFORE_STOP}")
 
+    def send(self, *messages: str | bytes | None) -> None:
+        """Have the messaging route write `messages`; `None` ends the hop."""
+        for message in messages:
+            self.side.outbox.put_nowait(message)
+
+    async def held(self) -> str:
+        """Every value the page holds, the messages the app was handed included."""
+        held = await self.page.evaluate(
+            "() => [document.documentElement.outerHTML, location.href,"
+            " JSON.stringify(localStorage), JSON.stringify(sessionStorage),"
+            " document.cookie, JSON.stringify(window.capturePage)].join('\\n')"
+        )
+        return held + repr(await self.page.context.cookies())
+
     async def switch_off(self) -> dict[str, object]:
         """Switch hearing off and return what the page saw once the capture ended."""
         await self.coverage.take_worklets()
@@ -112,8 +133,11 @@ class Stage:
 
 
 @asynccontextmanager
-async def _stage(tmp_path: Path) -> AsyncIterator[Stage]:
-    async with serving_over_tcp(hear_runtime(FakeHearing())) as service:
+async def _stage(
+    tmp_path: Path, *, hearing_available: bool = True
+) -> AsyncIterator[Stage]:
+    engine = FakeHearing() if hearing_available else None
+    async with serving_over_tcp(hear_runtime(engine)) as service:
         side = AppSide.new()
         app = stand_in_app(service.base_url, side, tmp_path)
         async with serving_asgi(app) as base_url, async_playwright() as playwright:
@@ -196,6 +220,23 @@ async def _play(tmp_path: Path, quiet: float, speech: float) -> tuple[AppSide, f
         return stage.side, completed.usage.seconds
 
 
+@asynccontextmanager
+async def _service_taken(stage: Stage) -> AsyncIterator[None]:
+    """Another session holds the service's one hearing."""
+    other = AppSide.new()
+    taking = HearingSession(
+        stage.service_url,
+        workload_token=other.tokens[0],
+        person_token=other.tokens[1],
+        language=HearingLanguage.EN,
+        deadline_seconds=WAIT_SECONDS,
+        held_limit_bytes=HOP_FRAME_BYTES,
+    )
+    async with taking:
+        await asyncio.wait_for(anext(taking.events()), WAIT_SECONDS)
+        yield
+
+
 @dataclass(frozen=True)
 class Streamed:
     """What the page and the app's side saw of a capture switched on and off."""
@@ -212,17 +253,11 @@ async def _stream_and_stop(tmp_path: Path, source: str) -> Streamed:
         page = await stage.page.request.get(f"{stage.base_url}/capture.html")
         await stage.switch_on_until_streaming(source=source)
         seen = await stage.switch_off()
-        held = await stage.page.evaluate(
-            "() => [document.documentElement.outerHTML, location.href,"
-            " JSON.stringify(localStorage), JSON.stringify(sessionStorage),"
-            " document.cookie].join('\\n')"
-        )
-        cookies = await stage.page.context.cookies()
         return Streamed(
             seen=seen,
             frames=stage.side.frames,
             side=stage.side,
-            held=held + repr(cookies),
+            held=await stage.held(),
             policy=page.headers["content-security-policy"],
         )
 
@@ -297,7 +332,9 @@ def test_every_frame_is_binary_whole_samples_of_the_frame_size_and_the_last_arri
     assert [len(frame) for frame in streamed.frames] == streamed.seen["sentBytes"]
 
 
-def test_the_page_receives_no_message_and_holds_no_token(tmp_path: Path) -> None:
+def test_on_a_hop_that_sends_none_the_page_receives_no_message_and_holds_no_token(
+    tmp_path: Path,
+) -> None:
     streamed = asyncio.run(_stream_and_stop(tmp_path, "tone"))
 
     assert streamed.side.events
@@ -323,22 +360,11 @@ def test_the_apps_end_signal_reaches_ended_as_the_hops_normal_close(
 
 def test_a_busy_service_reaches_ended_as_the_hops_busy_close(tmp_path: Path) -> None:
     async def scenario() -> dict[str, object]:
-        async with _stage(tmp_path) as stage:
-            other = AppSide.new()
-            taking = HearingSession(
-                stage.service_url,
-                workload_token=other.tokens[0],
-                person_token=other.tokens[1],
-                language=HearingLanguage.EN,
-                deadline_seconds=WAIT_SECONDS,
-                held_limit_bytes=HOP_FRAME_BYTES,
-            )
-            async with taking:
-                await asyncio.wait_for(anext(taking.events()), WAIT_SECONDS)
-                await stage.open(source="tone")
-                await stage.switch()
-                await stage.until("seen.ended !== null")
-                return await stage.seen()
+        async with _stage(tmp_path) as stage, _service_taken(stage):
+            await stage.open(source="tone")
+            await stage.switch()
+            await stage.until("seen.ended !== null")
+            return await stage.seen()
 
     seen = asyncio.run(scenario())
 
@@ -427,3 +453,236 @@ def test_the_first_audio_track_of_two_is_the_one_streamed(tmp_path: Path) -> Non
     first, second = streamed.seen["trackTones"]
 
     assert _amplitude_at(samples, first) > 10 * _amplitude_at(samples, second)
+
+
+def _texts(seen: dict[str, object]) -> list[object]:
+    return [message["text"] for message in seen["messages"]]
+
+
+def _numbered(count: int) -> list[str]:
+    return [str(number) for number in range(count)]
+
+
+async def _transcribed_turn(tmp_path: Path) -> tuple[Streamed, list[str]]:
+    """A recorded turn on the messaging route, ended after its transcripts arrived."""
+    _write_layout(tmp_path / RECORDING, 1.0, 1.0)
+    async with _stage(tmp_path) as stage:
+        page = await stage.page.request.get(f"{stage.base_url}/capture.html")
+        await stage.open(source="wav", **MESSAGING)
+        await stage.switch()
+        await asyncio.wait_for(stage.side.completed.wait(), WAIT_SECONDS)
+        transcripts = [
+            event.type
+            for event in stage.side.events
+            if isinstance(event, TranscriptDelta | TranscriptCompleted)
+        ]
+        await stage.until(f"seen.messages.length >= {len(transcripts)}")
+        before = len((await stage.seen())["sentBytes"])
+        await stage.until(f"seen.sentBytes.length > {before}")
+        seen = await stage.switch_off()
+        turn = Streamed(
+            seen=seen,
+            frames=stage.side.frames,
+            side=stage.side,
+            held=await stage.held(),
+            policy=page.headers["content-security-policy"],
+        )
+        return turn, transcripts
+
+
+def test_the_routes_transcripts_reach_on_message_in_order_while_frames_stream(
+    tmp_path: Path,
+) -> None:
+    turn, transcripts = asyncio.run(_transcribed_turn(tmp_path))
+    seen = turn.seen
+
+    assert transcripts
+    assert [message["kind"] for message in seen["messages"]] == ["text"] * len(
+        transcripts
+    )
+    assert [json.loads(text)["type"] for text in _texts(seen)] == transcripts
+    assert seen["errors"] == []
+
+
+def test_text_and_binary_messages_interleave_as_strings_and_exact_array_buffers(
+    tmp_path: Path,
+) -> None:
+    sent: list[str | bytes] = ["one", bytes(range(256)), "two", b"\x00\xff", "three"]
+
+    async def scenario() -> dict[str, object]:
+        async with _stage(tmp_path) as stage:
+            stage.send(*sent)
+            await stage.switch_on_until_streaming(source="tone", **MESSAGING)
+            await stage.until(f"seen.messages.length >= {len(sent)}")
+            return await stage.switch_off()
+
+    seen = asyncio.run(scenario())
+
+    assert seen["messages"] == [
+        {"kind": "text", "text": message}
+        if isinstance(message, str)
+        else {"kind": "binary", "bytes": list(message)}
+        for message in sent
+    ]
+
+
+def test_a_message_sent_at_accept_arrives_while_the_worklet_is_held_and_before_started(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> tuple[dict[str, object], dict[str, object]]:
+        async with _stage(tmp_path) as stage:
+            stage.send("at accept")
+            await stage.open(source="tone", worklet="held", **MESSAGING)
+            await stage.switch()
+            await stage.side.arrival(HELD_WORKLET_PATH)
+            await stage.until("seen.messages.length >= 1")
+            while_held = await stage.seen()
+            stage.side.worklet_release.set()
+            await stage.until("seen.started !== null")
+            return while_held, await stage.switch_off()
+
+    while_held, seen = asyncio.run(scenario())
+
+    assert while_held["started"] is None
+    assert seen["startedAtFirstMessage"] == "pending"
+    assert seen["started"] == "streaming"
+    assert _texts(seen) == ["at accept"]
+
+
+def test_a_last_message_before_the_apps_end_signal_arrives_before_ended(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with _stage(tmp_path) as stage:
+            await stage.switch_on_until_streaming(source="tone", **MESSAGING)
+            await stage.coverage.take_worklets()
+            stage.send("last", None)
+            await stage.until("seen.ended !== null")
+            return await stage.seen()
+
+    seen = asyncio.run(scenario())
+
+    assert _texts(seen) == ["last"]
+    assert seen["messagesAfterEnded"] == 0
+    assert seen["ended"] == {"kind": "hop", "close": HopClose.NORMAL}
+
+
+@pytest.mark.parametrize(
+    ("failure", "hearing_available", "taken"),
+    [(HopClose.SERVICE_FAILED, False, False), (HopClose.BUSY, True, True)],
+    ids=["service-failed", "busy"],
+)
+def test_the_message_sent_at_accept_arrives_before_a_failing_hop_ends(
+    tmp_path: Path, failure: HopClose, *, hearing_available: bool, taken: bool
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with _stage(tmp_path, hearing_available=hearing_available) as stage:
+            stage.send("at accept")
+            async with AsyncExitStack() as arrangement:
+                if taken:
+                    await arrangement.enter_async_context(_service_taken(stage))
+                await stage.open(source="tone", **MESSAGING)
+                await stage.switch()
+                await stage.until("seen.ended !== null")
+                return await stage.seen()
+
+    seen = asyncio.run(scenario())
+
+    assert _texts(seen)[0] == "at accept"
+    assert seen["ended"] == {"kind": "hop", "close": failure}
+    assert seen["messagesAfterEnded"] == 0
+
+
+def test_a_stop_from_inside_the_callback_ends_delivery_at_once(tmp_path: Path) -> None:
+    stop_at = 5
+
+    async def scenario() -> dict[str, object]:
+        async with _stage(tmp_path) as stage:
+            stage.send(*_numbered(BURST))
+            await stage.open(source="tone", stopAt=str(stop_at), **MESSAGING)
+            await stage.switch()
+            await stage.until("seen.ended !== null")
+            return await stage.seen()
+
+    seen = asyncio.run(scenario())
+
+    assert _texts(seen) == _numbered(stop_at)
+    assert seen["ended"] == {"kind": "hop", "close": HopClose.NORMAL}
+    assert seen["errors"] == []
+
+
+def test_a_throwing_callback_surfaces_one_page_error_and_the_capture_goes_on(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with _stage(tmp_path) as stage:
+            stage.send("first", "second", "third")
+            await stage.switch_on_until_streaming(
+                source="tone", throwFirst="1", **MESSAGING
+            )
+            await stage.until("seen.messages.length >= 3")
+            return await stage.switch_off()
+
+    seen = asyncio.run(scenario())
+
+    assert len(seen["errors"]) == 1
+    assert "the page's callback threw" in seen["errors"][0]
+    assert _texts(seen) == ["first", "second", "third"]
+    assert seen["started"] == "streaming"
+    assert seen["ended"] == {"kind": "hop", "close": HopClose.NORMAL}
+
+
+def test_without_on_message_a_route_that_sends_changes_nothing_for_the_capture(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with _stage(tmp_path) as stage:
+            stage.send("dropped", b"also dropped")
+            await stage.switch_on_until_streaming(source="tone", hop=MESSAGING_HOP_PATH)
+            await stage.until("seen.messagesReceived >= 2")
+            return await stage.switch_off()
+
+    seen = asyncio.run(scenario())
+
+    assert seen["messages"] == []
+    assert seen["started"] == "streaming"
+    assert seen["errors"] == []
+    assert seen["ended"] == {"kind": "hop", "close": HopClose.NORMAL}
+
+
+def test_no_callback_follows_a_local_failure_on_a_route_that_sends(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with _stage(tmp_path) as stage:
+            stage.send(*_numbered(BURST))
+            await stage.open(source="tone", worklet="blob", **MESSAGING)
+            await stage.switch()
+            await stage.until("seen.ended !== null")
+            return await stage.seen()
+
+    seen = asyncio.run(scenario())
+
+    assert seen["ended"] == {"kind": "local", "failure": "worklet-refused"}
+    assert seen["messagesAfterEnded"] == 0
+    assert seen["errors"] == []
+
+
+def test_a_burst_of_small_messages_arrives_in_order(tmp_path: Path) -> None:
+    async def scenario() -> dict[str, object]:
+        async with _stage(tmp_path) as stage:
+            stage.send(*_numbered(BURST))
+            await stage.switch_on_until_streaming(source="tone", **MESSAGING)
+            await stage.until(f"seen.messages.length >= {BURST}")
+            return await stage.switch_off()
+
+    assert _texts(asyncio.run(scenario())) == _numbered(BURST)
+
+
+def test_no_token_appears_in_any_value_the_page_holds_while_messages_flow(
+    tmp_path: Path,
+) -> None:
+    turn, _ = asyncio.run(_transcribed_turn(tmp_path))
+
+    assert turn.seen["messages"]
+    assert not any(token in turn.held for token in turn.side.tokens)

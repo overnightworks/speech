@@ -101,7 +101,9 @@ https://github.com/overnightworks/speech/releases/download/vX.Y.Z/overnightworks
 ```
 
 The package gives an app's page two things. `startCapture` streams the app's
-own microphone stream to the app's relay route as PCM16 at 24 kHz. `createPlayer`
+own microphone stream to the app's relay route as PCM16 at 24 kHz, and hands the
+app, through an optional `onMessage`, each message its own route writes on that
+socket. `createPlayer`
 plays sounds one after another, each handed over as bytes or as the URL of the
 app's own route, with stop, mute and close, and reports each sound's start and
 end once. The app keeps the routes and the tokens, and none of the tokens reach the
