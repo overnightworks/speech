@@ -69,7 +69,7 @@ describe("Resampler", () => {
 
       const whole = resampled(rate, input, [input.length]);
 
-      expect(whole.length).toBe(Math.ceil((input.length * SAMPLE_RATE) / rate));
+      expect(whole).toHaveLength(Math.ceil((input.length * SAMPLE_RATE) / rate));
       expect(resampled(rate, input, [RENDER_QUANTUM])).toEqual(whole);
       expect(resampled(rate, input, ODD_SIZES)).toEqual(whole);
     },
