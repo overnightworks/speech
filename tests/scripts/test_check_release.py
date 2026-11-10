@@ -117,8 +117,16 @@ def test_a_project_declared_both_ways_is_one_row(tree: Path) -> None:
     assert "the-client" in names
 
 
-@pytest.mark.parametrize("off", [".", "libs/client", "libs/contract", "packages/web"])
-def test_a_field_that_is_off_is_named(tree: Path, off: str) -> None:
+@pytest.mark.parametrize(
+    ("off", "project_file"),
+    [
+        (".", "pyproject.toml"),
+        ("libs/client", "libs/client/pyproject.toml"),
+        ("libs/contract", "libs/contract/pyproject.toml"),
+        ("packages/web", "packages/web/package.json"),
+    ],
+)
+def test_a_field_that_is_off_is_named(tree: Path, off: str, project_file: str) -> None:
     if off == ".":
         _write_root(tree, OTHER, members=("libs/client",), sources=("libs/contract",))
     elif off.startswith("packages/"):
@@ -126,11 +134,6 @@ def test_a_field_that_is_off_is_named(tree: Path, off: str) -> None:
     else:
         _write_project(tree, off, Path(off).name, OTHER)
 
-    project_file = (
-        f"{off}/package.json"
-        if off.startswith("packages/")
-        else ("pyproject.toml" if off == "." else f"{off}/pyproject.toml")
-    )
     for expected in (None, RELEASE):
         faults = release_faults(tree, expected)
         assert any(fault.startswith(f"{project_file} ") for fault in faults)
