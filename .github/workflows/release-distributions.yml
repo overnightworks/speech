@@ -1,8 +1,9 @@
 name: Release distributions
 
-# The three distributions' release: one X.Y.Z, proven installable by Git pin at
-# the gated commit, then the git tag. Every quality call below is pinned at a
-# quality release.
+# The release of the three Python distributions and the browser package: one
+# X.Y.Z, the distributions proven installable by Git pin and the browser package
+# packed as a tarball release file at the gated commit, then the git tag. Every
+# quality call below is pinned at a quality release.
 on:
   workflow_dispatch:
     inputs:
@@ -37,7 +38,7 @@ jobs:
     permissions:
       contents: read
     outputs:
-      notes: ${{ steps.install.outputs.notes }}
+      notes: ${{ steps.notes.outputs.notes }}
     env:
       VERSION: ${{ inputs.version }}
       COMMIT: ${{ needs.gate.outputs.commit }}
@@ -54,7 +55,7 @@ jobs:
           version: "0.10.9"
           enable-cache: false
 
-      - name: Refuse unless every distribution's version equals the version
+      - name: Refuse unless every artefact's version equals the version
         run: python3 scripts/check_release.py "$VERSION"
 
       - name: Install each distribution by its Git pin into an empty project
@@ -72,13 +73,61 @@ jobs:
             (cd "$host" && uv add "$distribution @ $repository@$COMMIT$fragment" && uv run python -c "import $module")
             pins+="- \`$distribution @ $repository@v$VERSION$fragment\`"$'\n'
           done <<<"$rows"
-          delimiter="notes-$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+          delimiter="pins-$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
           {
-            echo "notes<<$delimiter"
-            printf 'Install by Git pin at this tag:\n\n%s' "$pins"
+            echo "pins<<$delimiter"
+            printf '%s' "$pins"
             echo
             echo "$delimiter"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
+        with:
+          package_json_file: packages/browser/package.json
+
+      - name: Install Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: packages/browser/package.json
+          check-latest: true
+          package-manager-cache: false
+
+      - name: Pack the browser package and prove its install
+        id: pack
+        working-directory: packages/browser
+        run: |
+          pnpm install --frozen-lockfile
+          node scripts/pack-release.js "$RUNNER_TEMP/release-files" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Write the notes
+        id: notes
+        shell: bash
+        env:
+          PINS: ${{ steps.install.outputs.pins }}
+          FILE: ${{ steps.pack.outputs.file }}
+          INTEGRITY: ${{ steps.pack.outputs.integrity }}
+        run: |
+          if [ -z "$FILE" ] || [ -z "$INTEGRITY" ]; then
+            echo "the pack printed no file name or integrity" >&2
+            exit 1
+          fi
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/v$VERSION/$FILE"
+          delimiter="notes-$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+          {
+            echo "notes<<$delimiter"
+            printf 'Install by Git pin at this tag:\n\n%s\n' "$PINS"
+            printf "The browser package's tarball, by URL and the integrity pnpm writes into the lockfile:\n\n"
+            printf '```text\n%s\n%s\n```\n' "$url" "$INTEGRITY"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload the release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: ${{ runner.temp }}/release-files
+          if-no-files-found: error
 
   tag:
     name: Tag
@@ -92,3 +141,4 @@ jobs:
       version: ${{ inputs.version }}
       commit: ${{ needs.gate.outputs.commit }}
       notes: ${{ needs.build.outputs.notes }}
+      artifact: release-files
