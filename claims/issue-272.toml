@@ -1,0 +1,8 @@
+claim_id = "edf8de0d05c9454e97905e5e6bf03e59"
+agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
+role = "builder"
+base = "13e50c0cbb11033502367b2b0216c7f2647b4860"
+branch = "claude/issue-272-release-0-8-0"
+scope = ["packages/browser/package.json", "packages/client/pyproject.toml", "providers/provider-contract/pyproject.toml", "providers/qwen/uv.lock", "pyproject.toml", "uv.lock"]
+opened_commit = "22529e40d979d4c89f23dc7a694c78ce00a3cbf8"
+whole_reason = "One version moves every artefact together, because check_release.py refuses any artefact that stands apart."
