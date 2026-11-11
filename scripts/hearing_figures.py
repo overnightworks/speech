@@ -35,7 +35,7 @@ MIN_GROWING_DELTAS: Final = 2
 FRAME_SECONDS: Final = 0.1
 FRAME_BYTES: Final = int(LIVE_INPUT_RATE * FRAME_SECONDS) * BYTES_PER_SAMPLE
 TRAILING_SILENCE_SECONDS: Final = 2.0
-# Above it, the language step costs more than the item allows; the item decides.
+# Above it, the two-language session adds more latency to a final than a turn may bear.
 LANGUAGE_STEP_LIMIT_SECONDS: Final = 0.3
 
 

@@ -168,9 +168,9 @@ either field, and every field the service does not apply (prompt, keywords, nois
 reduction, include).
 
 **Languages.** **WIRE-135** `transcription.languages` is a strict, ordered set; its
-first element is the main language, and `session.updated` echoes the setting in the form
-the client sent. The service hears each ended turn, and each partial, in exactly one
-language of the set: the language the identifier names, or the main language when it
+first element is the main language. A `languages` update is echoed by `session.updated`
+with `languages` and without `language`; any other update is echoed as before. The
+service hears each ended turn, and each partial, in exactly one language of the set: the language the identifier names, or the main language when it
 does not know. No language outside the set is ever chosen. A set of one language, like
 `language`, is decoded in that language with no language step. This deviates from
 OpenAI, where `languages` is a hint: here it is a strict set.

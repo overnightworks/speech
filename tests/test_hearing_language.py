@@ -1,5 +1,6 @@
 """The adapter names a language in one encoder pass and decodes as faster-whisper."""
 
+import math
 import struct
 from pathlib import Path
 
@@ -25,7 +26,8 @@ DE = HearingLanguage.DE
 EN = HearingLanguage.EN
 FLOOR = voiced_floor(HearingModel.SMALL)
 FRAME_SAMPLES = round(HEARING_SAMPLE_RATE * VOICED_FRAME_SECONDS)
-FLOOR_FRAMES = round(FLOOR / VOICED_FRAME_SECONDS)
+# The tolerance keeps a floor that is an exact frame multiple from rounding up a frame.
+FLOOR_FRAMES = math.ceil(FLOOR / VOICED_FRAME_SECONDS - 1e-9)
 LOUD = 5000
 
 
@@ -218,7 +220,7 @@ def test_when_the_identifier_does_not_know_the_first_language_of_the_set_holds(
 def test_a_word_after_a_long_pause_below_the_floor_is_heard_in_the_main_language(
     stand_in: StandInWhisper,
 ) -> None:
-    """WIRE-136: a turn counts its voiced seconds, not its length."""
+    """A turn counts its voiced seconds, not its length."""
     stand_in.probabilities = {"de": 0.1, "en": 0.9}
     five_seconds = round(5.0 / VOICED_FRAME_SECONDS)
     pcm = _frames(five_seconds, 0) + _speech(FLOOR_FRAMES - 1)

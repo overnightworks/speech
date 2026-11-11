@@ -8,6 +8,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
+import numpy as np
+
 from speech_service.admission_gate import AdmissionGate, Lease
 from speech_service.cuda_libs import cuda_library_dirs, prepare_cuda_libraries
 from speech_service.hearing_models import model_directory, voiced_floor
@@ -243,7 +245,6 @@ class WhisperHearing:
         A set of two or more encodes the first window once; the identifier chooses
         from that pass and the decode reuses its output.
         """
-        import numpy as np  # noqa: PLC0415 - only the loaded engine needs it
         from faster_whisper.audio import pad_or_trim  # noqa: PLC0415 - as above
         from faster_whisper.tokenizer import Tokenizer  # noqa: PLC0415 - as above
         from faster_whisper.transcribe import (  # noqa: PLC0415 - as above

@@ -283,9 +283,7 @@ def test_the_echo_names_the_setting_in_the_form_the_client_sent(
     assert reparsed == event
 
 
-def test_the_new_session_created_still_parses_where_an_old_strict_client_reads_it() -> (
-    None
-):
+def test_session_created_carries_no_languages_key() -> None:
     created = SessionCreated(
         session=TranscriptionSession(type="transcription")
     ).model_dump_json()

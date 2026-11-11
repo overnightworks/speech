@@ -158,7 +158,7 @@ def test_the_final_names_its_own_language_and_the_deltas_name_none() -> None:
     """WIRE-71, WIRE-75: a partial may be heard in another language than its final."""
 
     async def scenario() -> FakeSocket:
-        engine = FakeHearing("Good morning")
+        engine = FakeHearing("Guten Morgen")
         clock = FakeClock()
         session, socket = await started(loaded(engine, clock))
         await session.on_message(update(None, languages=["de", "en"]))
@@ -170,7 +170,7 @@ def test_the_final_names_its_own_language_and_the_deltas_name_none() -> None:
             clock.advance(0.4)
             await session.on_message(append(audio(0.1)))
         engine.heard_in = HearingLanguage.EN
-        engine.text = "Guten Morgen"
+        engine.text = "Good morning"
         await session.on_message(commit())
         await session.settled()
         return socket
@@ -182,7 +182,7 @@ def test_the_final_names_its_own_language_and_the_deltas_name_none() -> None:
     assert all("languages" not in delta for delta in deltas)
     (completed,) = socket.of_type(COMPLETED)
     assert completed["languages"] == [{"code": "en"}]
-    assert completed["transcript"] == "Guten Morgen"
+    assert completed["transcript"] == "Good morning"
 
 
 def test_two_questions_make_two_items_chained_by_their_predecessor() -> None:

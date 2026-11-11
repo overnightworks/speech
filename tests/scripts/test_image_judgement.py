@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 import jwt
@@ -501,9 +502,8 @@ def test_a_final_in_another_language_than_expected_fails_the_proof() -> None:
 
 
 def _clip(voiced_seconds: float) -> bytes:
-    samples = round(voiced_seconds / VOICED_FRAME_SECONDS) * round(
-        SAMPLE_RATE * VOICED_FRAME_SECONDS
-    )
+    frames = math.ceil(voiced_seconds / VOICED_FRAME_SECONDS - 1e-9)
+    samples = frames * round(SAMPLE_RATE * VOICED_FRAME_SECONDS)
     pcm = b"\x88\x13" * samples
     return wav_header(SAMPLE_RATE, len(pcm)) + pcm
 

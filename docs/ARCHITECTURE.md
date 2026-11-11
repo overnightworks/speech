@@ -29,11 +29,12 @@ flowchart LR
   gate; `callers.py` decides who may call; `wire_route.py`
   serves the wire; `hearing.py` holds the hearing engine behind a port, the
   language identifier behind its own port, the engine's gate and its one
-  submission worker; `live_session.py` is a live session's
-  state machine; `hearing_session.py` schedules its turns and partials; `pcm.py`
-  holds the resampler and the voiced-speech count; `hearing_models.py` the pinned models; `recording.py` the
-  incremental decode of an uploaded recording; `clock.py` the monotonic clock
-  every gate deadline is read and waited on.
+  submission worker; `live_session.py` is a live session's state machine;
+  `hearing_session.py` schedules its turns and partials; `pcm.py` holds the
+  resampler and the voiced-speech count; `hearing_models.py` the pinned models
+  and each one's voiced floor; `recording.py` the incremental decode of an
+  uploaded recording; `clock.py` the monotonic clock every gate deadline is read
+  and waited on.
 - `Dockerfile`, `compose.yaml`, `deploy/speech.toml`: the container the dated
   tag brings, with the Piper voice, the `small` hearing model and the
   caller table baked in; the release builds, attests and pushes it to GHCR, see
