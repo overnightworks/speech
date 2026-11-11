@@ -1,7 +1,0 @@
-claim_id = "b0ef38edd5714c1899cb1dae70fb76d9"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "009ae21354dc4d43dc668746ce9f7861df699fce"
-branch = "dependabot/npm_and_yarn/packages/browser/typescript-7.0.2"
-scope = ["packages/browser/package.json", "packages/browser/pnpm-lock.yaml"]
-opened_commit = "e2a7e9b2265fd4cf7567dde747715ad2ade39dde"
