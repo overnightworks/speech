@@ -39,25 +39,18 @@ def turn(
     )
 
 
-@pytest.mark.parametrize(
-    ("added", "above_limit"),
-    [(0.1, False), (figures.LANGUAGE_STEP_LIMIT_SECONDS + 0.01, True)],
-    ids=["within-the-limit", "past-the-limit"],
-)
-def test_the_language_step_is_the_median_added_to_the_final_and_what_it_chose(
-    added: float, *, above_limit: bool
-) -> None:
+def test_the_language_step_is_the_median_added_to_the_final_and_what_it_chose() -> None:
     single = [turn(2.0, (), 3.0), turn(2.0, (), 3.2), turn(2.0, (), 3.1)]
     two = [
-        turn(2.0, (), 3.0 + added, HearingLanguage.EN),
-        turn(2.0, (), 3.2 + added, HearingLanguage.EN),
-        turn(2.0, (), 3.1 + added, HearingLanguage.DE),
+        turn(2.0, (), 3.4, HearingLanguage.EN),
+        turn(2.0, (), 3.6, HearingLanguage.EN),
+        turn(2.0, (), 3.5, HearingLanguage.DE),
     ]
 
-    record = figures.judged_language_step_record(single, two)
+    record = figures.language_step_record(single, two)
 
-    assert record["added_seconds"] == pytest.approx(added)
-    assert record["above_limit"] is above_limit
+    assert record["added_seconds"] == pytest.approx(0.4)
+    assert "above_limit" not in record
     assert record["chosen"] == ["de", "en"]
 
 

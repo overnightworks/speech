@@ -36,8 +36,6 @@ MIN_GROWING_DELTAS: Final = 2
 FRAME_SECONDS: Final = 0.1
 FRAME_BYTES: Final = int(LIVE_INPUT_RATE * FRAME_SECONDS) * BYTES_PER_SAMPLE
 TRAILING_SILENCE_SECONDS: Final = 2.0
-# Above it, the two-language session adds more latency to a final than a turn may bear.
-LANGUAGE_STEP_LIMIT_SECONDS: Final = 0.3
 PARTIAL_FIGURES: Final = frozenset(
     {"first_partial_from_start", "first_partial_after_end"}
 )
@@ -112,20 +110,6 @@ def language_step_record(
         "added_seconds": _added_seconds(single, two),
         "chosen": sorted({turn.language.value for turn in two}),
         "heard": sorted({turn.transcript for turn in two}),
-    }
-
-
-def judged_language_step_record(
-    single: Sequence[LiveTurn], two: Sequence[LiveTurn]
-) -> dict[str, object]:
-    """The language step of `language_step_record`, and whether it passes the limit.
-
-    Judged on the question only: its turns carry no partial, so their finals are
-    stable enough to hold against `LANGUAGE_STEP_LIMIT_SECONDS`.
-    """
-    return {
-        **language_step_record(single, two),
-        "above_limit": _added_seconds(single, two) > LANGUAGE_STEP_LIMIT_SECONDS,
     }
 
 
