@@ -511,11 +511,12 @@ def _clip(voiced_seconds: float) -> bytes:
 def test_a_clip_below_the_voiced_floor_cannot_prove_the_language_step() -> None:
     floor = voiced_floor(HearingModel.SMALL)
 
-    judged.require_voiced_floor(_clip(floor), HearingModel.SMALL)
+    long_enough = _clip(floor)
+    too_short = _clip(floor - 2 * VOICED_FRAME_SECONDS)
+
+    judged.require_voiced_floor(long_enough, HearingModel.SMALL)
     with pytest.raises(SystemExit, match="voiced seconds"):
-        judged.require_voiced_floor(
-            _clip(floor - 2 * VOICED_FRAME_SECONDS), HearingModel.SMALL
-        )
+        judged.require_voiced_floor(too_short, HearingModel.SMALL)
 
 
 @pytest.mark.parametrize(
