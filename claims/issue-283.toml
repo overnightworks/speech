@@ -1,0 +1,8 @@
+claim_id = "9d43863fba624e42a9ad37601793e49b"
+agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
+role = "builder"
+base = "7abbd56a929ab0c77c86271a499c2e9253974c91"
+branch = "claude/issue-283-hearing-proof-cpu"
+scope = ["scripts/hearing_figures.py", "scripts/prove_hearing.py", "tests/scripts/test_hearing_figures.py", "tests/scripts/test_prove_hearing.py"]
+opened_commit = "d3988a09bafd628b87934f05ab82d6d26753bc2b"
+whole_reason = "The proof script, its figures module and their two test modules change together: the record's shape and its failure rule are one contract."
