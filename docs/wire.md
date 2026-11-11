@@ -158,10 +158,22 @@ client may send one `session.update` with `session.type` `transcription` before
 its first append; the service answers `session.updated` with the applied session.
 **WIRE-57** Accepted: the format absent or exactly `{"type": "audio/pcm", "rate": 24000}`;
 `transcription.model` absent or `speech`; `transcription.language`
-absent, `de` or `en`; `turn_detection` absent or `{"type": "server_vad"}`. **WIRE-58** Anything
+absent, `de` or `en`; `transcription.languages` absent or a non-empty array of
+distinct `de` or `en`; `turn_detection` absent or `{"type": "server_vad"}`. **WIRE-58** Anything
 else ends the session with an `error`, among it a second update, an update after
-audio, `null` turn detection, `languages`, and every field the service does not
-apply (prompt, keywords, noise reduction, include).
+audio, `null` turn detection, `language` and `languages` together, an empty or
+repeating `languages`, a code the service does not hear (`param` ends with the
+element's index, such as `...transcription.languages.1`), an explicit `null` for
+either field, and every field the service does not apply (prompt, keywords, noise
+reduction, include).
+
+**Languages.** **WIRE-135** `transcription.languages` is a strict, ordered set; its
+first element is the main language, and `session.updated` echoes the setting in the form
+the client sent. The service hears each ended turn, and each partial, in exactly one
+language of the set: the language the identifier names, or the main language when it
+does not know. No language outside the set is ever chosen. A set of one language, like
+`language`, is decoded in that language with no language step. This deviates from
+OpenAI, where `languages` is a hint: here it is a strict set.
 
 **Client events.** **WIRE-59** Only `session.update`, `input_audio_buffer.append` (base64
 PCM16 at 24 kHz) and
@@ -183,13 +195,19 @@ open turn, so at most 90 s of audio.
 | WIRE-68 | `session.created` | first, on every session |
 | WIRE-69 | `session.updated` | after a valid `session.update` |
 | WIRE-70 | `input_audio_buffer.speech_started` (`item_id`, `audio_start_ms`) | speech first heard in the turn |
-| WIRE-71 | `conversation.item.input_audio_transcription.delta` (`item_id`, `content_index` 0, `delta`) | zero or more, before the commit: the words two consecutive decodes agree on. Provisional. |
+| WIRE-71 | `conversation.item.input_audio_transcription.delta` (`item_id`, `content_index` 0, `delta`) | zero or more, before the commit: the words two consecutive decodes agree on. Provisional; a delta names no language, and a partial may be heard in another language than its final. |
 | WIRE-72 | `input_audio_buffer.speech_stopped` (`item_id`, `audio_end_ms`) | silence or the cap ended the turn; not sent after a client commit |
 | WIRE-73 | `input_audio_buffer.committed` (`item_id`, `previous_item_id`) | the turn is closed; `previous_item_id` is `null` for the first |
 | WIRE-74 | `conversation.item.created` (`item`, `previous_item_id`) | right after `committed`; the item is a user message with one `input_audio` part whose `transcript` is `null` |
-| WIRE-75 | `conversation.item.input_audio_transcription.completed` (`item_id`, `content_index` 0, `transcript`, `usage`) | the authoritative text, possibly empty, with `usage` `{"type": "duration", "seconds": ...}`; it replaces the deltas |
+| WIRE-75 | `conversation.item.input_audio_transcription.completed` (`item_id`, `content_index` 0, `transcript`, `usage`, `languages`) | the authoritative text, possibly empty, with `usage` `{"type": "duration", "seconds": ...}` and `languages` (WIRE-136); it replaces the deltas |
 | WIRE-76 | `conversation.item.input_audio_transcription.failed` (`item_id`, `content_index` 0, `error`) | only as a session ends |
 | WIRE-77 | `error` (`error.type`, `error.code`, `error.message`, `error.param`, `error.event_id`) | the session ends after it |
+
+**WIRE-136** `completed.languages` is `[{"code": "<code>"}]` with exactly one element, the
+language the turn was decoded in: also for a session of one language, for a turn heard in
+the main language because the identifier did not know, and for an empty transcript. It is
+never `[]`, which deviates from OpenAI, whose `languages` may come back empty. `failed` and
+`error` carry no language.
 
 **WIRE-78** Every server event has a fresh `event_id`. Correlate by `item_id`: OpenAI does not
 order completions across items; **WIRE-79** here the second ended turn's `completed` waits

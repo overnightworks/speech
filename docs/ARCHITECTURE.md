@@ -27,17 +27,18 @@ flowchart LR
 - `src/speech_service`: the one process, its TCP listener and the
   routes. `voice_slot.py` holds one voice's engine lifecycle and its admission
   gate; `callers.py` decides who may call; `wire_route.py`
-  serves the wire; `hearing.py` holds the hearing engine behind a port, its
-  gate and its one submission worker; `live_session.py` is a live session's
+  serves the wire; `hearing.py` holds the hearing engine behind a port, the
+  language identifier behind its own port, the engine's gate and its one
+  submission worker; `live_session.py` is a live session's
   state machine; `hearing_session.py` schedules its turns and partials; `pcm.py`
-  holds the resampler; `hearing_models.py` the pinned models; `recording.py` the
+  holds the resampler and the voiced-speech count; `hearing_models.py` the pinned models; `recording.py` the
   incremental decode of an uploaded recording; `clock.py` the monotonic clock
   every gate deadline is read and waited on.
 - `Dockerfile`, `compose.yaml`, `deploy/speech.toml`: the container the dated
   tag brings, with the Piper voice, the `small` hearing model and the
   caller table baked in; the release builds, attests and pushes it to GHCR, see
   [Delivery](#delivery). `scripts/prove_image.py` proves it.
-- `packages/client`: the wire types an app and the service share, the bounded speaking call, the bounded health fetch, the live hearing session (`HearingSession`: frames held up to a caller-set byte limit, typed server events, one closed outcome union) and the relay (`relay`) of a browser socket to that session an app makes.
+- `packages/client`: the wire types an app and the service share, the bounded speaking call, the bounded health fetch, the live hearing session (`HearingSession`: the allowed languages, frames held up to a caller-set byte limit, typed server events that name each item's language, one closed outcome union) and the relay (`relay`) of a browser socket to that session an app makes.
 - `packages/browser`: the framework-free browser package (`overnightworks-speech-browser`) an app's page streams its microphone and plays sounds with. `startCapture` takes the first audio track of the app's own stream, resamples it with a filter to the wire's PCM16 at 24 kHz in its own same-origin AudioWorklet file and main-thread resampler, and sends 100 ms frames to the app's relay route; it has no loudness gate, hands the app every message the app's own server sends down the hop (its optional `onMessage`, uninterpreted, in arrival order, until the capture ends), and its `ended` names how the hop ended. `createPlayer` plays the sounds an app hands it, each as bytes or the URL of the app's own route, in the order of the calls, as sources into the player's one GainNode, the only input of the output (the one node a per-frame reader can tap; the package builds none). It reports each sound's start and end once, with how it ended (played, stopped, muted, refused (no user activation, or `resume()` refused), or failed to load); `stop` and `setMuted(true)` end the playing and every waiting sound at once and abort their fetches, and `close` also closes the context. Both are exported from one entry, `index.ts`. Its `hop.ts` is generated from `PcmFormat` and `speech_client.relay` by `scripts/generate_browser_wire.py`.
 - `providers/*`: the voices that run in their own processes and environments. Each is its own uv project with its own lock; `providers/provider-contract` is the shared source the others install from. The client in `packages/client` is a uv workspace member of the root.
 
@@ -79,6 +80,14 @@ flowchart LR
   `SPEECH_DEVICE`; the command `speech-fetch-hearing-model` is the only
   thing that downloads a hearing model. The compute type follows the device. Decoding is
   deterministic (greedy, temperature 0).
+- **The language choice is its own step.** For a session set of two or more
+  languages, a `LanguageIdentifier` behind a fixed port inside `hearing.py` names
+  a language of the set or says it does not know, and then the set's first
+  language holds. The recogniser encodes the first window once and lends the
+  identifier its language scores and the PCM, so the choice costs one decoder
+  step; the shipped `ScoreIdentifier` does not know below the model's voiced
+  seconds (`hearing_models.py`). The session, the wire and the decode never see
+  which identifier runs.
 - **The relay.** `speech_client.relay` (in `packages/client`) is what an app
   mounts behind its own login check: it forwards a browser's binary audio
   frames to a hearing session and hands the typed events to the app, never to
