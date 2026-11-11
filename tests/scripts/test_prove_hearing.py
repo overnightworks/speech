@@ -202,7 +202,7 @@ def test_both_languages_run_in_one_fixed_order_for_every_clip() -> None:
         HEARING.Ports(live=live, hear=lambda *_: (0.5, "Wie")),
     )
 
-    two_languages = [allowed for allowed in handed if len(allowed) == 2]
+    two_languages = [allowed for allowed in handed if len(allowed) > 1]
     assert two_languages
     assert set(two_languages) == {
         (HEARING.HearingLanguage.DE, HEARING.HearingLanguage.EN)
