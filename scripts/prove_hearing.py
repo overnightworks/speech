@@ -391,7 +391,7 @@ def measure_language(
         "question": {
             "reference": language.question,
             "live": figures.live_record(language.question, live),
-            "two_languages": figures.language_step_record(live, two),
+            "two_languages": figures.judged_language_step_record(live, two),
             "file": figures.file_record(language.question, files),
         },
         "long_turn": _long_turn_record(service, language, clip, ports, runs),

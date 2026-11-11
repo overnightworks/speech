@@ -54,7 +54,7 @@ def test_the_language_step_is_the_median_added_to_the_final_and_what_it_chose(
         turn(2.0, (), 3.1 + added, HearingLanguage.DE),
     ]
 
-    record = figures.language_step_record(single, two)
+    record = figures.judged_language_step_record(single, two)
 
     assert record["added_seconds"] == pytest.approx(added)
     assert record["above_limit"] is above_limit
@@ -391,7 +391,7 @@ def test_a_long_turn_without_growing_deltas_or_timing_is_not_measured() -> None:
     ]
 
 
-def test_the_long_turn_takes_the_medians_of_its_interleaved_runs() -> None:
+def test_the_long_turn_takes_medians_and_reports_its_step_with_spread() -> None:
     deltas = (1.0, 2.0)
     single = [
         turn(question=3.0, deltas=deltas, final=final)
@@ -404,8 +404,13 @@ def test_the_long_turn_takes_the_medians_of_its_interleaved_runs() -> None:
 
     record = figures.long_turn_record("wort", single, two, (0.5, "wort"))
 
-    assert record["two_languages"]["added_seconds"] == pytest.approx(0.5)
-    assert record["two_languages"]["above_limit"] is True
+    step = record["two_languages"]
+    assert step["added_seconds"] == pytest.approx(0.5)
+    assert "above_limit" not in step
+    assert step["single_final_lowest_after_end"] == pytest.approx(2.0)
+    assert step["single_final_highest_after_end"] == pytest.approx(6.0)
+    assert step["two_final_lowest_after_end"] == pytest.approx(2.5)
+    assert step["two_final_highest_after_end"] == pytest.approx(6.5)
     assert record["live"]["timing"]["final_after_end"] == pytest.approx(4.0)
     assert record["live"]["growing_deltas"] == len(deltas)
     assert record["live"]["word_errors"]["errors"] == 0

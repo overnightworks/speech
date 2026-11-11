@@ -82,25 +82,50 @@ def timing_of(turn: LiveTurn) -> Timing:
     )
 
 
+def _median_final_after_end(turns: Sequence[LiveTurn]) -> float:
+    return statistics.median(timing_of(turn).final_after_end for turn in turns)
+
+
+def _added_seconds(single: Sequence[LiveTurn], two: Sequence[LiveTurn]) -> float:
+    return _median_final_after_end(two) - _median_final_after_end(single)
+
+
 def language_step_record(
     single: Sequence[LiveTurn], two: Sequence[LiveTurn]
 ) -> dict[str, object]:
     """The final's median time after the turn's end in a two-language session.
 
-    Set against the same turns in a one-language session; the language step's
-    added seconds, whether they pass the limit, and what the step chose and heard.
+    Set against the same turns in a one-language session. Reported, not judged:
+    each series also carries its lowest and highest final after the end, since
+    one run's final moves by about a second and a median alone hides that.
     """
-    single_after_end = statistics.median(timing_of(t).final_after_end for t in single)
-    two_after_end = statistics.median(timing_of(t).final_after_end for t in two)
-    added = two_after_end - single_after_end
+    single_finals = [timing_of(turn).final_after_end for turn in single]
+    two_finals = [timing_of(turn).final_after_end for turn in two]
     return {
         "runs": len(two),
-        "single_final_after_end": single_after_end,
-        "two_final_after_end": two_after_end,
-        "added_seconds": added,
-        "above_limit": added > LANGUAGE_STEP_LIMIT_SECONDS,
+        "single_final_after_end": statistics.median(single_finals),
+        "single_final_lowest_after_end": min(single_finals),
+        "single_final_highest_after_end": max(single_finals),
+        "two_final_after_end": statistics.median(two_finals),
+        "two_final_lowest_after_end": min(two_finals),
+        "two_final_highest_after_end": max(two_finals),
+        "added_seconds": _added_seconds(single, two),
         "chosen": sorted({turn.language.value for turn in two}),
         "heard": sorted({turn.transcript for turn in two}),
+    }
+
+
+def judged_language_step_record(
+    single: Sequence[LiveTurn], two: Sequence[LiveTurn]
+) -> dict[str, object]:
+    """The language step of `language_step_record`, and whether it passes the limit.
+
+    Judged on the question only: its turns carry no partial, so their finals are
+    stable enough to hold against `LANGUAGE_STEP_LIMIT_SECONDS`.
+    """
+    return {
+        **language_step_record(single, two),
+        "above_limit": _added_seconds(single, two) > LANGUAGE_STEP_LIMIT_SECONDS,
     }
 
 
