@@ -169,11 +169,13 @@ reduction, include).
 
 **Languages.** **WIRE-135** `transcription.languages` is a strict, ordered set; its
 first element is the main language. A `languages` update is echoed by `session.updated`
-with `languages` and without `language`; any other update is echoed as before. The
-service hears each ended turn, and each partial, in exactly one language of the set: the language the identifier names, or the main language when it
-does not know. No language outside the set is ever chosen. A set of one language, like
-`language`, is decoded in that language with no language step. This deviates from
-OpenAI, where `languages` is a hint: here it is a strict set.
+with `languages` and without `language`; a `language` update, or one that names neither
+field, is echoed with `language` and without `languages`. The service hears each ended
+turn, and each partial, in exactly one language of the set: the language the identifier
+names, or the main language when it does not know. No language outside the set is ever
+chosen. A set of one language, like `language`, is decoded in that language with no
+language step. This deviates from OpenAI, where `languages` is a hint: here it is a
+strict set.
 
 **Client events.** **WIRE-59** Only `session.update`, `input_audio_buffer.append` (base64
 PCM16 at 24 kHz) and
