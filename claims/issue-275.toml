@@ -1,7 +1,0 @@
-claim_id = "5c4d1258f3984ce59965b31efa07e87b"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "9fdc9218132c788a6e304a3f5f306f0d2849b0c5"
-branch = "claude/issue-275-ci-time-standard"
-scope = [".github/workflows/ci.yml"]
-opened_commit = "119a6bdfe4e6cdb90b69429a0cb5807b1866771e"
