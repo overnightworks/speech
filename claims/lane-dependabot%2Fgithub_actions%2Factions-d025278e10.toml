@@ -1,7 +1,0 @@
-claim_id = "3f5ace9783e44335904534da2a78aeec"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "1632c56583be510229577936476a81272fe8c033"
-branch = "dependabot/github_actions/actions-d025278e10"
-scope = [".github/workflows/ci.yml", ".github/workflows/release-distributions.yml"]
-opened_commit = "4d68216ab5eb0be3c9f885716f7747f768578940"
