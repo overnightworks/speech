@@ -9,8 +9,8 @@ on:
 # A pull request collapses onto its newest push, but every push to main keeps a
 # group of its own so no landing is ever cancelled by the next one.
 concurrency:
-  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -149,7 +149,7 @@ jobs:
   browser-flow:
     name: "Speech: browser capture flow"
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - name: Check out the event commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -294,9 +294,9 @@ jobs:
           exit 1
 
       - name: Token shapes and the caller check with real tokens
-        # One small module against one local Keycloak: each xdist worker would
-        # rebuild its module-scoped app and gain nothing, so it stays serial.
-        run: uv run --locked pytest -p no:cacheprovider tests/test_callers_keycloak.py -m keycloak -v -rP
+        # The realm is read-only here: each test only asks it for tokens, so the
+        # workers share no state.
+        run: uv run --locked pytest -n 2 -p no:cacheprovider tests/test_callers_keycloak.py -m keycloak -v -rP
 
       - name: Keycloak log on failure
         if: failure()
