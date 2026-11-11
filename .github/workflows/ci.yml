@@ -9,8 +9,8 @@ on:
 # A pull request collapses onto its newest push, but every push to main keeps a
 # group of its own so no landing is ever cancelled by the next one.
 concurrency:
-  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
