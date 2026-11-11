@@ -37,6 +37,7 @@ FRAME_BYTES: Final = int(LIVE_INPUT_RATE * FRAME_SECONDS) * BYTES_PER_SAMPLE
 TRAILING_SILENCE_SECONDS: Final = 2.0
 # Above it, the two-language session adds more latency to a final than a turn may bear.
 LANGUAGE_STEP_LIMIT_SECONDS: Final = 0.3
+PARTIAL_FIGURES: Final = frozenset({"first_partial_from_start", "first_partial_after_end"})
 
 
 @dataclass(frozen=True)
@@ -360,15 +361,22 @@ def _heard_nothing(heard: object) -> bool:
 def _unmeasured_figures(entry: object, path: tuple[str, ...] = ()) -> Iterator[str]:
     """The paths of the figures of the record that measure nothing.
 
-    A null `median` (fewer than `MIN_RUNS` runs had it) or long-turn `timing`
-    figure, a long turn with fewer than `MIN_GROWING_DELTAS` growing deltas, and
-    a `heard` text that is empty, which would score a word error rate of 1.0 yet
-    prove no hearing.
+    A null figure of a question's `median`, except a first partial: a clip may
+    draw no partial, which `runs_with_partial` records. A null figure of a long
+    turn's `timing`, including its first partial, a long turn with fewer than
+    `MIN_GROWING_DELTAS` growing deltas, and a `heard` text that is empty, which
+    would score a word error rate of 1.0 yet prove no hearing.
     """
     if not isinstance(entry, dict):
         return
     for key, value in entry.items():
-        if key in ("median", "timing") and isinstance(value, dict):
+        if key == "median" and isinstance(value, dict):
+            yield from (
+                " ".join((*path, figure))
+                for figure, number in value.items()
+                if number is None and figure not in PARTIAL_FIGURES
+            )
+        elif key == "timing" and isinstance(value, dict):
             yield from (
                 " ".join((*path, figure))
                 for figure, number in value.items()

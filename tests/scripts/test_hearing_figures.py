@@ -333,23 +333,36 @@ def test_only_unfinished_or_missing_models_and_stages_are_not_measured() -> None
     ]
 
 
-def test_a_figure_that_is_null_in_every_run_is_named_not_measured() -> None:
-    silent = figures.timing_record(figures.Timing(None, None, 4.0, 3.5))
-    heard = figures.timing_record(figures.Timing(1.0, 0.5, 4.0, 3.5))
+@pytest.mark.parametrize(
+    ("median", "unmeasured"),
+    [
+        (
+            figures.timing_record(figures.Timing(None, None, 4.0, 3.5)),
+            [],
+        ),
+        (
+            {
+                "first_partial_from_start": None,
+                "first_partial_after_end": None,
+                "final_from_start": 4.0,
+                "final_after_end": None,
+            },
+            ["small languages de question live final_after_end"],
+        ),
+    ],
+    ids=["no-partial-in-the-question", "no-final-in-the-question"],
+)
+def test_a_question_figure_that_is_null_is_named_only_when_it_is_not_a_partial(
+    median: dict[str, float | None], unmeasured: list[str]
+) -> None:
     models = {
         "small": {
             "status": figures.StageStatus.MEASURED,
-            "languages": {
-                "de": {"question": {"live": {"median": silent}}},
-                "en": {"question": {"live": {"median": heard}}},
-            },
+            "languages": {"de": {"question": {"live": {"median": median}}}},
         }
     }
 
-    assert figures.not_measured(["small"], models, {}) == [
-        "small languages de question live first_partial_from_start",
-        "small languages de question live first_partial_after_end",
-    ]
+    assert figures.not_measured(["small"], models, {}) == unmeasured
 
 
 def test_a_long_turn_without_growing_deltas_or_timing_is_not_measured() -> None:
