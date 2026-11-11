@@ -250,3 +250,65 @@ def test_an_identifier_that_reads_only_the_pcm_can_replace_the_shipped_one(
     second = engine.transcribe(_speech(100), (DE, EN))
 
     assert (first.language, second.language) == (EN, DE)
+
+
+def _utterance(pcm: bytes, *, de: float, en: float) -> Utterance:
+    return Utterance(pcm, LanguageScores({DE: de, EN: en}))
+
+
+def test_a_language_outside_the_set_is_never_chosen() -> None:
+    """WIRE-135: no language outside the set is ever chosen."""
+    scores = LanguageScores({DE: 0.04, EN: 0.03})
+
+    named = ScoreIdentifier(FLOOR).identify(
+        Utterance(_speech(FLOOR_FRAMES + 20), scores), (EN,)
+    )
+
+    assert named is EN
+
+
+@pytest.mark.parametrize(
+    ("de", "en", "named"),
+    [(0.51, 0.49, DE), (0.49, 0.51, EN)],
+    ids=["german-leads", "english-leads"],
+)
+def test_above_the_floor_the_higher_score_is_named_either_way(
+    de: float, en: float, named: HearingLanguage
+) -> None:
+    identifier = ScoreIdentifier(FLOOR)
+    utterance = _utterance(_speech(FLOOR_FRAMES + 20), de=de, en=en)
+
+    assert identifier.identify(utterance, (DE, EN)) is named
+    assert identifier.identify(utterance, (EN, DE)) is named
+
+
+@pytest.mark.parametrize(
+    ("de", "en"), [(0.4, 0.4), (0.0, 0.0)], ids=["tie", "all-zero"]
+)
+def test_a_tie_or_scores_of_zero_are_not_known(de: float, en: float) -> None:
+    utterance = _utterance(_speech(FLOOR_FRAMES + 20), de=de, en=en)
+
+    assert ScoreIdentifier(FLOOR).identify(utterance, (DE, EN)) is None
+
+
+@pytest.mark.parametrize(
+    ("frames", "named"),
+    [(FLOOR_FRAMES, EN), (FLOOR_FRAMES - 1, None)],
+    ids=["at-the-floor", "one-frame-below"],
+)
+def test_the_floor_is_met_at_exactly_its_voiced_seconds_and_not_one_frame_below(
+    frames: int, named: HearingLanguage | None
+) -> None:
+    utterance = _utterance(_speech(frames), de=0.1, en=0.9)
+
+    assert ScoreIdentifier(FLOOR).identify(utterance, (DE, EN)) is named
+
+
+def test_silence_holds_no_voiced_speech_so_it_is_not_known() -> None:
+    identifier = ScoreIdentifier(FLOOR)
+
+    assert (
+        identifier.identify(_utterance(_frames(500, 0), de=0.1, en=0.9), (EN, DE))
+        is None
+    )
+    assert identifier.identify(_utterance(b"", de=0.1, en=0.9), (EN, DE)) is None

@@ -66,6 +66,10 @@ def test_the_root_mean_square_of_loud_samples_does_not_overflow_sixteen_bits() -
     assert rms(pcm) == pytest.approx(1.0, abs=1e-3)
 
 
+def test_less_than_one_sample_has_no_level() -> None:
+    assert rms(b"") == rms(b"\x7f") == 0.0
+
+
 def test_an_odd_trailing_byte_is_ignored() -> None:
     pcm = struct.pack("<2h", 3000, 3000)
 

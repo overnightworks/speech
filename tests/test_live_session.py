@@ -154,40 +154,6 @@ def test_every_completed_item_names_exactly_the_language_it_was_heard_in(
     assert completed["languages"] == [{"code": (heard_in or allowed[0]).value}]
 
 
-def test_two_turns_of_a_set_are_each_heard_in_their_own_language() -> None:
-    """WIRE-135: each ended turn is heard in one language of the set."""
-
-    async def scenario() -> FakeSocket:
-        engine = FakeHearing()
-        session, socket = await started(loaded(engine, FakeClock()))
-        await session.on_message(update(None, languages=["de", "en"]))
-        for language in (HearingLanguage.DE, HearingLanguage.EN):
-            engine.heard_in = language
-            await _one_question(session)
-            await session.settled()
-        return socket
-
-    socket = asyncio.run(scenario())
-
-    languages = [event["languages"] for event in socket.of_type(COMPLETED)]
-    assert languages == [[{"code": "de"}], [{"code": "en"}]]
-
-
-def test_an_empty_transcript_still_names_the_one_language_it_was_decoded_in() -> None:
-    """WIRE-136: `languages` is never empty, an empty transcript included."""
-
-    async def scenario() -> FakeSocket:
-        session, socket = await started(loaded(FakeHearing(text=""), FakeClock()))
-        await session.on_message(update(None, languages=["en", "de"]))
-        await _one_question(session)
-        await session.settled()
-        return socket
-
-    (completed,) = asyncio.run(scenario()).of_type(COMPLETED)
-
-    assert (completed["transcript"], completed["languages"]) == ("", [{"code": "en"}])
-
-
 def test_the_final_names_its_own_language_and_the_deltas_name_none() -> None:
     """WIRE-71, WIRE-75: a partial may be heard in another language than its final."""
 
@@ -217,29 +183,6 @@ def test_the_final_names_its_own_language_and_the_deltas_name_none() -> None:
     (completed,) = socket.of_type(COMPLETED)
     assert completed["languages"] == [{"code": "en"}]
     assert completed["transcript"] == "Guten Morgen"
-
-
-def test_a_failed_item_and_the_error_name_no_language() -> None:
-    """WIRE-136: only a completed item carries `languages`."""
-
-    async def scenario() -> FakeSocket:
-        engine = FakeHearing(hold=True)
-        engine.heard_in = HearingLanguage.EN
-        session, socket = await started(loaded(engine, FakeClock()))
-        await session.on_message(update(None, languages=["de", "en"]))
-        await commit_a_turn(session)
-        engine.fail_transcription = True
-        engine.release.set()
-        await socket.until_closed()
-        await session.settled()
-        return socket
-
-    socket = asyncio.run(scenario())
-
-    (failed,) = socket.of_type(FAILED)
-    (error,) = socket.of_type("error")
-    assert "languages" not in failed
-    assert "languages" not in error
 
 
 def test_two_questions_make_two_items_chained_by_their_predecessor() -> None:

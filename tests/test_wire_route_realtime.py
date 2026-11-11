@@ -52,6 +52,7 @@ from tests.support.speak_support import assert_refusal_body
 
 URL = f"{REALTIME_PATH}?intent=transcription"
 COMPLETED = "conversation.item.input_audio_transcription.completed"
+FAILED = "conversation.item.input_audio_transcription.failed"
 
 
 def _client(engine: FakeHearing | None = None, **settings: float) -> TestClient:
@@ -113,6 +114,62 @@ def test_a_session_with_a_set_echoes_it_and_names_the_language_of_each_item() ->
     assert [languages for _, languages in engine.heard] == [
         (HearingLanguage.DE, HearingLanguage.EN)
     ]
+
+
+def _completed_per_turn(
+    engine: FakeHearing, setup: str, *heard_in: HearingLanguage | None
+) -> list[dict[str, object]]:
+    """The `completed` event of one committed turn for each entry of `heard_in`."""
+    completed = []
+    with _client(engine).websocket_connect(URL, headers=valid_headers()) as socket:
+        socket.receive_json()
+        socket.send_text(setup)
+        socket.receive_json()
+        for language in heard_in:
+            engine.heard_in = language
+            socket.send_text(append(audio(0.5)))
+            socket.send_text(commit())
+            completed.append([socket.receive_json() for _ in range(4)][-1])
+    return completed
+
+
+def test_two_turns_of_a_set_are_each_heard_in_their_own_language() -> None:
+    """WIRE-135: each ended turn is heard in one language of the set."""
+    setup = update(None, languages=["de", "en"])
+
+    completed = _completed_per_turn(
+        FakeHearing(), setup, HearingLanguage.DE, HearingLanguage.EN
+    )
+
+    assert [event["languages"] for event in completed] == [
+        [{"code": "de"}],
+        [{"code": "en"}],
+    ]
+
+
+def test_an_empty_transcript_still_names_the_one_language_it_was_decoded_in() -> None:
+    """WIRE-136: `languages` is never empty, an empty transcript included."""
+    setup = update(None, languages=["en", "de"])
+
+    (completed,) = _completed_per_turn(FakeHearing(text=""), setup, None)
+
+    assert (completed["transcript"], completed["languages"]) == ("", [{"code": "en"}])
+
+
+def test_a_failed_item_and_the_error_name_no_language() -> None:
+    """WIRE-136: only a completed item carries `languages`."""
+    engine = FakeHearing()
+    engine.fail_transcription = True
+    with _client(engine).websocket_connect(URL, headers=valid_headers()) as socket:
+        socket.receive_json()
+        socket.send_text(update(None, languages=["de", "en"]))
+        socket.receive_json()
+        socket.send_text(append(audio(0.5)))
+        socket.send_text(commit())
+        ended = [socket.receive_json() for _ in range(5)]
+
+    assert [event["type"] for event in ended[-2:]] == [FAILED, "error"]
+    assert all("languages" not in event for event in ended[-2:])
 
 
 def test_a_registered_app_with_no_hearing_key_opens_a_live_session() -> None:
