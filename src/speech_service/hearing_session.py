@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 from speech_service.hearing import HEARING_SAMPLE_RATE
-from speech_service.pcm import BYTES_PER_SAMPLE, is_silence
+from speech_service.pcm import BYTES_PER_SAMPLE, SPEECH_RMS, is_silence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 PARTIAL_PERIOD_SECONDS: Final = 0.4
 MIN_AUDIO_SECONDS: Final = 0.4
 SILENCE_SECONDS: Final = 0.5
-SPEECH_RMS: Final = 0.02
 POLL_WAIT_SECONDS: Final = 0.3
 MAX_TURN_SECONDS: Final = 30.0
 _BYTES_PER_SECOND: Final = HEARING_SAMPLE_RATE * BYTES_PER_SAMPLE

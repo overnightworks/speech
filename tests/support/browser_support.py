@@ -302,7 +302,7 @@ def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
             service_url,
             workload_token=side.tokens[0],
             person_token=side.tokens[1],
-            language=HearingLanguage.EN,
+            languages=(HearingLanguage.EN,),
             deadline_seconds=SESSION_SECONDS,
             held_limit_bytes=HELD_LIMIT_BYTES,
         )

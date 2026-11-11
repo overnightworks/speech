@@ -37,7 +37,7 @@ DELTA = "conversation.item.input_audio_transcription.delta"
 
 
 def _transcribe_silence(engine: HearingEngine) -> str:
-    return engine.transcribe(b"\0\0", HearingLanguage.DE)
+    return engine.transcribe(b"\0\0", (HearingLanguage.DE,)).text
 
 
 async def _one_question(session: LiveSession) -> None:
@@ -105,7 +105,7 @@ def test_a_session_hears_in_its_language(messages: list[str], language: str) -> 
 
     engine = asyncio.run(scenario())
 
-    assert [heard.value for _, heard in engine.heard] == [language]
+    assert [heard for _, heard in engine.heard] == [(HearingLanguage(language),)]
 
 
 def test_a_valid_update_is_answered_with_the_applied_session() -> None:
@@ -120,6 +120,69 @@ def test_a_valid_update_is_answered_with_the_applied_session() -> None:
 
     assert socket.events[-1]["type"] == "session.updated"
     assert json.dumps(socket.events[-1]["session"]).count('"en"') == 1
+
+
+@pytest.mark.parametrize(
+    ("messages", "heard_in"),
+    [
+        ([], None),
+        ([update("en")], None),
+        ([update(None, languages=["en"])], None),
+        ([update(None, languages=["en", "de"])], HearingLanguage.DE),
+    ],
+    ids=["default", "language", "one-element-set", "set-of-two"],
+)
+def test_every_completed_item_names_exactly_the_language_it_was_heard_in(
+    messages: list[str], heard_in: HearingLanguage | None
+) -> None:
+    """WIRE-75, WIRE-136: a completed item names one language, the engine's."""
+
+    async def scenario() -> tuple[FakeSocket, FakeHearing]:
+        engine = FakeHearing()
+        engine.heard_in = heard_in
+        session, socket = await started(loaded(engine, FakeClock()))
+        for message in messages:
+            await session.on_message(message)
+        await _one_question(session)
+        await session.settled()
+        return socket, engine
+
+    socket, engine = asyncio.run(scenario())
+
+    (completed,) = socket.of_type(COMPLETED)
+    (_, allowed) = engine.heard[0]
+    assert completed["languages"] == [{"code": (heard_in or allowed[0]).value}]
+
+
+def test_the_final_names_its_own_language_and_the_deltas_name_none() -> None:
+    """WIRE-71, WIRE-75: a partial may be heard in another language than its final."""
+
+    async def scenario() -> FakeSocket:
+        engine = FakeHearing("Guten Morgen")
+        clock = FakeClock()
+        session, socket = await started(loaded(engine, clock))
+        await session.on_message(update(None, languages=["de", "en"]))
+        await session.on_message(append(audio(0.5)))
+        engine.heard_in = HearingLanguage.DE
+        for _ in range(2):
+            await session.on_tick()
+            await session.settled()
+            clock.advance(0.4)
+            await session.on_message(append(audio(0.1)))
+        engine.heard_in = HearingLanguage.EN
+        engine.text = "Good morning"
+        await session.on_message(commit())
+        await session.settled()
+        return socket
+
+    socket = asyncio.run(scenario())
+
+    deltas = socket.of_type(DELTA)
+    assert deltas
+    assert all("languages" not in delta for delta in deltas)
+    (completed,) = socket.of_type(COMPLETED)
+    assert completed["languages"] == [{"code": "en"}]
+    assert completed["transcript"] == "Good morning"
 
 
 def test_two_questions_make_two_items_chained_by_their_predecessor() -> None:

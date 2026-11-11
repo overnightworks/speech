@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 import jwt
@@ -10,9 +11,16 @@ import pytest
 import image_judgement as judged
 from image_stack import REPOSITORY, LiveOutcome, Reply
 from proof_identity import mint_pair
-from speech_client.wire import Health, RefusalCode, Transcription, refusal
+from speech_client.wire import (
+    Health,
+    HearingLanguage,
+    RefusalCode,
+    Transcription,
+    refusal,
+)
 from speech_service.config import CallerConfig, load_caller_config
-from speech_service.pcm import wav_header
+from speech_service.hearing_models import HearingModel, voiced_floor
+from speech_service.pcm import VOICED_FRAME_SECONDS, wav_header
 from speech_service.voices import RESIDENT_VOICE, VoiceId
 
 if TYPE_CHECKING:
@@ -483,6 +491,32 @@ def test_a_live_turn_without_a_final_of_the_sentence_fails_the_proof(
 
 def test_a_live_turn_with_a_final_of_the_sentence_passes() -> None:
     judged.require_final(LiveOutcome("die Kamera", (), None), SENTENCE)
+
+
+def test_a_final_in_another_language_than_expected_fails_the_proof() -> None:
+    turn = LiveOutcome("die Kamera", (), None, language="en")
+
+    with pytest.raises(SystemExit, match="names en, expected de"):
+        judged.require_language(turn, HearingLanguage.DE)
+    judged.require_language(turn, HearingLanguage.EN)
+
+
+def _clip(voiced_seconds: float) -> bytes:
+    frames = math.ceil(voiced_seconds / VOICED_FRAME_SECONDS - 1e-9)
+    samples = frames * round(SAMPLE_RATE * VOICED_FRAME_SECONDS)
+    pcm = b"\x88\x13" * samples
+    return wav_header(SAMPLE_RATE, len(pcm)) + pcm
+
+
+def test_a_clip_below_the_voiced_floor_cannot_prove_the_language_step() -> None:
+    floor = voiced_floor(HearingModel.SMALL)
+
+    long_enough = _clip(floor)
+    too_short = _clip(floor - 2 * VOICED_FRAME_SECONDS)
+
+    judged.require_voiced_floor(long_enough, HearingModel.SMALL)
+    with pytest.raises(SystemExit, match="voiced seconds"):
+        judged.require_voiced_floor(too_short, HearingModel.SMALL)
 
 
 @pytest.mark.parametrize(

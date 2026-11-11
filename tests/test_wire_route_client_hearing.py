@@ -17,7 +17,9 @@ from speech_client.wire import (
     HearingLanguage,
     RefusalCode,
     SessionCreated,
+    SessionUpdated,
     TranscriptCompleted,
+    TranscriptLanguage,
 )
 from tests.support.hear_support import HEARD_TEXT, FakeHearing, hear_runtime
 from tests.support.identity_support import valid_pair
@@ -51,7 +53,7 @@ def _session(
         base_url,
         workload_token=workload_token or pair.workload,
         person_token=pair.person,
-        language=HearingLanguage.EN,
+        languages=(HearingLanguage.EN,),
         deadline_seconds=deadline_seconds,
         held_limit_bytes=held_limit_bytes,
     )
@@ -95,6 +97,24 @@ def test_audio_sent_before_the_connection_is_open_is_heard_in_one_turn() -> None
 
     assert isinstance(events[0], SessionCreated)
     assert events[-1].transcript == HEARD_TEXT
+
+
+def test_a_session_of_one_language_sends_the_set_and_hears_that_language() -> None:
+    """WIRE-57, WIRE-136: the client always sends `languages`; completed names one."""
+
+    async def scenario() -> list[ServerEvent]:
+        async with _serving_session() as session:
+            session.send(_tone(0.5))
+            session.send(_tone(1.0, level=0))
+            return await asyncio.wait_for(_until_completed(session), 10)
+
+    events = asyncio.run(scenario())
+
+    (updated,) = [event for event in events if isinstance(event, SessionUpdated)]
+    setting = updated.session.audio.input.transcription
+    assert (setting.language, setting.languages) == (None, (HearingLanguage.EN,))
+    assert isinstance(events[-1], TranscriptCompleted)
+    assert events[-1].languages == (TranscriptLanguage(code=HearingLanguage.EN),)
 
 
 def test_leaving_the_context_ends_the_session_closed() -> None:

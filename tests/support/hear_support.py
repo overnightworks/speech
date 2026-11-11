@@ -14,7 +14,7 @@ from speech_client.wire import (
 from speech_service.clock import LoopClock
 from speech_service.config import Settings
 from speech_service.control import create_control_app
-from speech_service.hearing import Hearing
+from speech_service.hearing import Heard, Hearing
 from speech_service.pcm import wav_header
 from speech_service.service import Runtime
 from tests.support.fakes_support import FakeSpeaking, sine_pcm
@@ -39,7 +39,10 @@ WAIT_SECONDS = 5.0
 
 
 class FakeHearing:
-    """A hearing engine at the port: it answers a fixed text, or holds its decode."""
+    """A hearing engine at the port: it answers a fixed text, or holds its decode.
+
+    It says it heard in `heard_in`, or in the main language of the set when unset.
+    """
 
     model_name = "fake-ear"
 
@@ -54,7 +57,8 @@ class FakeHearing:
         self.text = text
         self._load_error = load_error
         self.closed = 0
-        self.heard: list[tuple[int, HearingLanguage]] = []
+        self.heard: list[tuple[int, tuple[HearingLanguage, ...]]] = []
+        self.heard_in: HearingLanguage | None = None
         self.entered = threading.Event()
         self.release = threading.Event()
         if not hold:
@@ -69,10 +73,10 @@ class FakeHearing:
         if self._load_error is not None:
             raise self._load_error
 
-    def transcribe(self, pcm: bytes, language: HearingLanguage) -> str:
-        """Record the audio and language, wait for the test's release, answer."""
+    def transcribe(self, pcm: bytes, languages: tuple[HearingLanguage, ...]) -> Heard:
+        """Record the audio and the set, wait for the test's release, answer."""
         with self._guard:
-            self.heard.append((len(pcm), language))
+            self.heard.append((len(pcm), languages))
             self._active += 1
             self.most_concurrent = max(self.most_concurrent, self._active)
         try:
@@ -82,7 +86,7 @@ class FakeHearing:
                 raise TimeoutError(message)
             if self.fail_transcription:
                 raise RuntimeError(self.text)
-            return self.text
+            return Heard(self.text, self.heard_in or languages[0])
         finally:
             with self._guard:
                 self._active -= 1

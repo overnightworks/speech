@@ -114,6 +114,7 @@ async def receive_turn(
                 tuple(deltas),
                 elapsed,
                 event.transcript,
+                event.languages[0].code,
             )
         elif isinstance(event, TranscriptFailed | ErrorEvent):
             failure = f"the live session failed with {type(event).__name__}"
@@ -131,9 +132,12 @@ async def _send_paced(session: HearingSession, frames: Sequence[bytes]) -> None:
 
 
 async def hear_live(
-    service: Service, language: HearingLanguage, pcm: bytes
+    service: Service, languages: tuple[HearingLanguage, ...], pcm: bytes
 ) -> LiveTurn:
-    """Stream one turn at speaking pace and watch for its deltas and its final."""
+    """Stream one turn at speaking pace in a session of `languages`.
+
+    Watches for its deltas and its final.
+    """
     question_seconds = figures.seconds_of(pcm)
     frames = figures.frames_with_closing_silence(pcm)
     pair = mint_pair(service.minting)
@@ -141,7 +145,7 @@ async def hear_live(
         service.base_url,
         workload_token=pair.workload,
         person_token=pair.person,
-        language=language,
+        languages=languages,
         deadline_seconds=question_seconds + LIVE_WAIT_SECONDS,
         held_limit_bytes=sum(map(len, frames)),
     ) as session:
@@ -168,7 +172,7 @@ async def hear_upgrade(service: Service) -> HearingOutcome | None:
         service.base_url,
         workload_token=pair.workload,
         person_token=pair.person,
-        language=HearingLanguage.DE,
+        languages=(HearingLanguage.DE,),
         deadline_seconds=LIVE_WAIT_SECONDS,
         held_limit_bytes=0,
     ) as session:

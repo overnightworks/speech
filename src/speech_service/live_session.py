@@ -33,6 +33,7 @@ from speech_client.wire import (
     TranscriptDelta,
     TranscriptFailed,
     TranscriptionSession,
+    TranscriptLanguage,
     UserMessageItem,
     error_event,
     item_failure,
@@ -55,7 +56,7 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
-    from speech_service.hearing import Hearing, HearingEngine
+    from speech_service.hearing import Heard, Hearing, HearingEngine
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ class LiveSession:
         self._resampler = Resampler()
         self._lock = asyncio.Lock()
         self._tasks: set[asyncio.Task[None]] = set()
-        self._language = HearingLanguage.DE
+        self._languages = (HearingLanguage.DE,)
         self._configured = False
         self._audio_seen = False
         self._ended = False
@@ -225,7 +226,7 @@ class LiveSession:
             )
             return
         self._configured = True
-        self._language = event.session.audio.input.transcription.language
+        self._languages = event.session.audio.input.transcription.allowed
         await self._emit(SessionUpdated(session=event.session))
 
     async def _on_append(self, event: AudioAppend) -> None:
@@ -310,7 +311,7 @@ class LiveSession:
             return
         try:
             final.decode_started_at = self._clock.now()
-            text = await asyncio.wrap_future(
+            heard = await asyncio.wrap_future(
                 self._hearing.submit(lease, self._transcription(final.pcm))
             )
             final.decode_finished_at = self._clock.now()
@@ -321,16 +322,17 @@ class LiveSession:
         if ahead is not None:
             await ahead.emitted.wait()
         async with self._lock:
-            await self._complete(final, text)
+            await self._complete(final, heard)
 
-    async def _complete(self, final: _Final, text: str) -> None:
+    async def _complete(self, final: _Final, heard: Heard) -> None:
         seconds = len(final.pcm) / _PCM_BYTES_PER_SECOND
         del self._unfinished[final.item_id]
         await self._emit(
             TranscriptCompleted(
                 item_id=final.item_id,
-                transcript=text,
+                transcript=heard.text,
                 usage=DurationUsage(seconds=seconds),
+                languages=(TranscriptLanguage(code=heard.language),),
             )
         )
         self._finals.popleft()
@@ -354,13 +356,13 @@ class LiveSession:
 
     async def _run_partial(
         self,
-        future: Future[str],
+        future: Future[Heard],
         turn_number: int,
         started_at: float,
         partials: _Partials,
     ) -> None:
         try:
-            text = await asyncio.wrap_future(future)
+            heard = await asyncio.wrap_future(future)
             partials.count += 1
             partials.seconds += self._clock.now() - started_at
         except Exception as error:  # noqa: BLE001 - logged by type and never by message
@@ -370,7 +372,7 @@ class LiveSession:
         async with self._lock:
             if self._ended or turn_number != self._turn_number:
                 return
-            await self._emit_agreed(text)
+            await self._emit_agreed(heard.text)
 
     async def _emit_agreed(self, text: str) -> None:
         words = text.split()
@@ -387,11 +389,11 @@ class LiveSession:
         self._sent_words = agreed
         await self._emit(TranscriptDelta(item_id=self._open_item_id(), delta=delta))
 
-    def _transcription(self, pcm: bytes) -> Callable[[HearingEngine], str]:
-        language = self._language
+    def _transcription(self, pcm: bytes) -> Callable[[HearingEngine], Heard]:
+        languages = self._languages
 
-        def job(engine: HearingEngine) -> str:
-            return engine.transcribe(pcm, language)
+        def job(engine: HearingEngine) -> Heard:
+            return engine.transcribe(pcm, languages)
 
         return job
 

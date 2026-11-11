@@ -17,6 +17,7 @@ from prove_speech import spoken_in_log
 from speech_client.wire import (
     REFUSAL_STATUS,
     Health,
+    HearingLanguage,
     Refusal,
     RefusalCode,
     RequestField,
@@ -24,7 +25,8 @@ from speech_client.wire import (
     Transcription,
     busy_wait,
 )
-from speech_service.pcm import AI_MARK
+from speech_service.hearing_models import HearingModel, voiced_floor
+from speech_service.pcm import AI_MARK, pcm_from_wav, voiced_seconds
 from speech_service.voices import GPU_VOICES, RESIDENT_VOICE, VoiceId
 
 if TYPE_CHECKING:
@@ -394,6 +396,29 @@ def require_final(outcome: LiveOutcome, sentence: str) -> None:
         message = f"the live turn ended without a final: {outcome.error}"
         raise SystemExit(message)
     require_heard(outcome.final, sentence)
+
+
+def require_language(outcome: LiveOutcome, expected: HearingLanguage) -> None:
+    """Fail unless the live turn's final names `expected` as its language."""
+    if outcome.language != expected.value:
+        message = f"the final names {outcome.language}, expected {expected.value}"
+        raise SystemExit(message)
+
+
+def require_voiced_floor(wav: bytes, model: HearingModel) -> None:
+    """Fail unless `wav` holds the voiced seconds `model` needs to name a language.
+
+    A clip below the floor would be heard in the main language and prove nothing.
+    """
+    rate, pcm = pcm_from_wav(wav)
+    voiced = voiced_seconds(pcm, rate)
+    floor = voiced_floor(model)
+    if voiced < floor:
+        message = (
+            f"the clip holds {voiced:.2f} voiced seconds, below the {floor} that"
+            f" {model.value} needs to choose a language"
+        )
+        raise SystemExit(message)
 
 
 def is_speaking_alone(health: Mapping[str, Mapping[str, object]]) -> bool:

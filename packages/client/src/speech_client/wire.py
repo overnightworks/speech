@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Final, Literal
 from uuid import uuid4
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -25,7 +26,9 @@ from pydantic import (
     StrictInt,
     TypeAdapter,
     ValidationError,
+    ValidationInfo,
     field_validator,
+    model_validator,
 )
 
 if TYPE_CHECKING:
@@ -324,11 +327,63 @@ class PcmFormat(_SessionPart):
     rate: Literal[24000]
 
 
+def _absent(value: object) -> bool:
+    return value is None
+
+
+def _distinct(codes: tuple[HearingLanguage, ...]) -> tuple[HearingLanguage, ...]:
+    if len(set(codes)) != len(codes):
+        message = "languages must not repeat a code"
+        raise ValueError(message)
+    return codes
+
+
+AllowedLanguages = Annotated[
+    tuple[HearingLanguage, ...], Field(min_length=1), AfterValidator(_distinct)
+]
+
+
 class TranscriptionSetting(_SessionPart):
-    """The model and the language a session hears."""
+    """The model and the languages a session hears.
+
+    A request names `language`, or `languages` (an ordered set whose first element
+    is the main language), or neither. Only the field a request named is dumped;
+    neither means `language` is German.
+    """
 
     model: Literal["speech"] = MODEL
-    language: HearingLanguage = HearingLanguage.DE
+    language: HearingLanguage | None = Field(None, exclude_if=_absent)
+    languages: AllowedLanguages | None = Field(None, exclude_if=_absent)
+
+    @field_validator("language", "languages")
+    @classmethod
+    def _is_not_null(cls, value: object) -> object:
+        if value is None:
+            message = "an explicit null is not a language"
+            raise ValueError(message)
+        return value
+
+    @field_validator("languages")
+    @classmethod
+    def _is_not_beside_language(cls, value: object, info: ValidationInfo) -> object:
+        if info.data.get("language") is not None:
+            message = "language and languages are not sent together"
+            raise ValueError(message)
+        return value
+
+    @model_validator(mode="after")
+    def _names_german_when_neither_is_named(self) -> TranscriptionSetting:
+        if self.language is None and self.languages is None:
+            # The model is frozen, and a validator may not return another instance.
+            object.__setattr__(self, "language", HearingLanguage.DE)
+        return self
+
+    @property
+    def allowed(self) -> tuple[HearingLanguage, ...]:
+        """The languages the session hears; the first is the main one."""
+        if self.languages is not None:
+            return self.languages
+        return (self.language,)
 
 
 class ServerVad(_SessionPart):
@@ -534,6 +589,14 @@ class DurationUsage(BaseModel):
     seconds: float
 
 
+class TranscriptLanguage(BaseModel):
+    """The language an item was decoded in."""
+
+    model_config = ConfigDict(frozen=True)
+
+    code: HearingLanguage
+
+
 class TranscriptCompleted(_ServerEvent):
     """An item's authoritative transcript, possibly empty; its one success terminal."""
 
@@ -544,6 +607,7 @@ class TranscriptCompleted(_ServerEvent):
     content_index: Literal[0] = 0
     transcript: str
     usage: DurationUsage
+    languages: tuple[TranscriptLanguage]
 
 
 class ItemFailure(BaseModel):

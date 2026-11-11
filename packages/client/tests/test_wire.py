@@ -39,6 +39,7 @@ from speech_client.wire import (
     TranscriptFailed,
     TranscriptionRequest,
     TranscriptionSession,
+    TranscriptLanguage,
     VoiceHealth,
     busy_wait,
     error_event,
@@ -152,10 +153,6 @@ def test_a_session_update_names_the_language_it_applies() -> None:
             {"transcription": {"language": "fr"}},
             "audio.input.transcription.language",
         ),
-        (
-            {"transcription": {"languages": ["de"]}},
-            "audio.input.transcription.languages",
-        ),
         ({"transcription": {"prompt": "x"}}, "audio.input.transcription.prompt"),
         ({"turn_detection": None}, "audio.input.turn_detection"),
         (
@@ -172,7 +169,6 @@ def test_a_session_update_names_the_language_it_applies() -> None:
         "other-format",
         "other-model",
         "other-language",
-        "languages",
         "prompt",
         "null-turn-detection",
         "semantic-vad",
@@ -192,6 +188,108 @@ def test_a_session_update_with_a_value_the_service_does_not_apply_is_refused(
 
     assert refused.value.param == f"session.{param}"
     assert refused.value.event_id == "e1"
+
+
+def _transcription(setting: dict[str, object]) -> str:
+    return _session_update(
+        {"type": "transcription", "audio": {"input": {"transcription": setting}}}
+    )
+
+
+_PATH = "session.audio.input.transcription"
+
+
+def test_a_session_update_names_the_ordered_set_of_languages_it_applies() -> None:
+    """WIRE-57: the update accepts `languages`; its order carries the main language."""
+    event = parse_client_event(_transcription({"languages": ["en", "de"]}))
+
+    assert isinstance(event, SessionUpdate)
+    setting = event.session.audio.input.transcription
+    assert setting.allowed == (HearingLanguage.EN, HearingLanguage.DE)
+
+
+@pytest.mark.parametrize(
+    ("setting", "allowed"),
+    [
+        ({}, (HearingLanguage.DE,)),
+        ({"language": "en"}, (HearingLanguage.EN,)),
+        ({"languages": ["en"]}, (HearingLanguage.EN,)),
+    ],
+    ids=["neither", "language", "one-language-in-the-set"],
+)
+def test_a_session_that_names_one_language_hears_exactly_that_one(
+    setting: dict[str, object], allowed: tuple[HearingLanguage, ...]
+) -> None:
+    event = parse_client_event(_transcription(setting))
+
+    assert isinstance(event, SessionUpdate)
+    assert event.session.audio.input.transcription.allowed == allowed
+
+
+@pytest.mark.parametrize(
+    ("setting", "param"),
+    [
+        ({"language": "de", "languages": ["de"]}, f"{_PATH}.languages"),
+        ({"languages": ["de", "de"]}, f"{_PATH}.languages"),
+        ({"languages": []}, f"{_PATH}.languages"),
+        ({"languages": ["de", "fr"]}, f"{_PATH}.languages.1"),
+        ({"language": None}, f"{_PATH}.language"),
+        ({"languages": None}, f"{_PATH}.languages"),
+        ({"language": None, "languages": ["de"]}, f"{_PATH}.language"),
+        ({"language": "de", "languages": None}, f"{_PATH}.languages"),
+    ],
+    ids=[
+        "both",
+        "duplicate",
+        "empty",
+        "unknown-code",
+        "null-language",
+        "null-languages",
+        "null-language-with-languages",
+        "null-languages-with-language",
+    ],
+)
+def test_a_set_the_service_cannot_hear_is_refused_naming_the_field_at_fault(
+    setting: dict[str, object], param: str
+) -> None:
+    """WIRE-58: each refusal names the dotted path of the field at fault."""
+    with pytest.raises(ClientEventError) as refused:
+        parse_client_event(_transcription(setting))
+
+    assert refused.value.param == param
+    assert refused.value.event_id == "e1"
+
+
+@pytest.mark.parametrize(
+    ("setting", "echoed"),
+    [
+        ({"languages": ["en", "de"]}, {"model": MODEL, "languages": ["en", "de"]}),
+        ({"language": "en"}, {"model": MODEL, "language": "en"}),
+        ({}, {"model": MODEL, "language": "de"}),
+    ],
+    ids=["languages", "language", "neither"],
+)
+def test_the_echo_names_the_setting_in_the_form_the_client_sent(
+    setting: dict[str, object], echoed: dict[str, object]
+) -> None:
+    """WIRE-57: `session.updated` echoes the applied setting as it was sent."""
+    event = parse_client_event(_transcription(setting))
+    assert isinstance(event, SessionUpdate)
+
+    sent = json.loads(SessionUpdated(session=event.session).model_dump_json())
+
+    assert sent["session"]["audio"]["input"]["transcription"] == echoed
+    reparsed = parse_client_event(_session_update(sent["session"]))
+    assert reparsed == event
+
+
+def test_session_created_carries_no_languages_key() -> None:
+    created = SessionCreated(
+        session=TranscriptionSession(type="transcription")
+    ).model_dump_json()
+
+    assert "languages" not in created
+    assert parse_server_event(created).type == "session.created"
 
 
 def test_a_session_update_whose_session_names_no_type_is_refused() -> None:
@@ -410,7 +508,10 @@ def _each_server_event() -> list[ServerEvent]:
         AudioCommitted(item_id="item", previous_item_id=None),
         ItemCreated(previous_item_id=None, item={"id": "item"}),
         TranscriptCompleted(
-            item_id="item", transcript="Wie spät", usage=DurationUsage(seconds=1.5)
+            item_id="item",
+            transcript="Wie spät",
+            usage=DurationUsage(seconds=1.5),
+            languages=(TranscriptLanguage(code=HearingLanguage.DE),),
         ),
         TranscriptFailed(
             item_id="item", error=item_failure(RefusalCode.BUSY, param="audio")
@@ -479,6 +580,39 @@ def test_a_malformed_server_event_is_refused(text: str) -> None:
         parse_server_event(text)
 
 
+def test_a_completed_item_names_exactly_the_one_language_it_was_heard_in() -> None:
+    """WIRE-136: `languages` holds exactly one element, the language of the decode."""
+    event = TranscriptCompleted(
+        item_id="item",
+        transcript="",
+        usage=DurationUsage(seconds=1.0),
+        languages=(TranscriptLanguage(code=HearingLanguage.EN),),
+    )
+
+    sent = json.loads(event.model_dump_json())
+
+    assert sent["languages"] == [{"code": "en"}]
+
+
+@pytest.mark.parametrize(
+    "languages",
+    [[], [{"code": "de"}, {"code": "en"}], [{"code": "fr"}]],
+    ids=["none", "two", "unknown-code"],
+)
+def test_a_completed_item_without_exactly_one_known_language_is_not_an_event(
+    languages: list[dict[str, str]],
+) -> None:
+    event = TranscriptCompleted(
+        item_id="item",
+        transcript="Wie",
+        usage=DurationUsage(seconds=1.0),
+        languages=(TranscriptLanguage(code=HearingLanguage.DE),),
+    ).model_dump(mode="json")
+
+    with pytest.raises(ServerEventError):
+        parse_server_event(json.dumps({**event, "languages": languages}))
+
+
 def test_a_server_event_ignores_a_key_it_does_not_know() -> None:
     delta = TranscriptDelta(item_id="item", delta="Wie")
     text = json.dumps({**delta.model_dump(), "unknown": "x"})
@@ -489,7 +623,10 @@ def test_a_server_event_ignores_a_key_it_does_not_know() -> None:
 def test_a_refused_server_event_leaks_none_of_its_content() -> None:
     words = "distinctive transcript"
     event = TranscriptCompleted(
-        item_id="item", transcript=words, usage=DurationUsage(seconds=1.0)
+        item_id="item",
+        transcript=words,
+        usage=DurationUsage(seconds=1.0),
+        languages=(TranscriptLanguage(code=HearingLanguage.DE),),
     ).model_dump()
     del event["usage"]
 

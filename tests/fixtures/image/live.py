@@ -1,10 +1,10 @@
 """Hear one live turn from the proof's caller container; print the outcome as JSON.
 
 The turn arrives on standard input: a JSON object with the service's `base_url`,
-the `workload_token` and `person_token`, the `language`, the audio `frames`
+the `workload_token` and `person_token`, the `languages`, the audio `frames`
 (base64), and the seconds between two frames and to wait for the session. The
-outcome is the final transcript and the texts of the partials before it, or an
-`error` naming the outcome that ended the session.
+outcome is the final transcript, the language it names and the texts of the
+partials before it, or an `error` naming the outcome that ended the session.
 """
 
 # ruff: noqa: T201 - this script's output is the outcome the proof reads
@@ -36,7 +36,7 @@ async def turn(specification: dict[str, object]) -> dict[str, object]:
         specification["base_url"],
         workload_token=specification["workload_token"],
         person_token=specification["person_token"],
-        language=HearingLanguage(specification["language"]),
+        languages=tuple(map(HearingLanguage, specification["languages"])),
         deadline_seconds=specification["wait_seconds"],
         held_limit_bytes=sum(map(len, frames)),
     ) as session:
@@ -48,7 +48,11 @@ async def turn(specification: dict[str, object]) -> dict[str, object]:
                 if isinstance(event, TranscriptDelta):
                     partials.append(event.delta)
                 elif isinstance(event, TranscriptCompleted):
-                    return {"final": event.transcript, "partials": partials}
+                    return {
+                        "final": event.transcript,
+                        "language": event.languages[0].code.value,
+                        "partials": partials,
+                    }
         finally:
             sender.cancel()
             with contextlib.suppress(asyncio.CancelledError):

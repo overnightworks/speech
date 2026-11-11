@@ -10,12 +10,20 @@ from speech_service.hearing_models import (
     HearingModelMissingError,
     fetch_model,
     model_directory,
+    voiced_floor,
 )
 from tests.support.hear_support import write_snapshot
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
+
+
+@pytest.mark.parametrize("model", list(HearingModel))
+def test_every_catalogue_model_names_a_positive_voiced_floor(
+    model: HearingModel,
+) -> None:
+    assert voiced_floor(model) > 0
 
 
 @pytest.fixture

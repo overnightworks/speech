@@ -18,13 +18,14 @@ from typing import TYPE_CHECKING, Final
 
 import numpy as np
 
-from speech_client.wire import RefusalCode
-from speech_service.hearing_session import (
-    MAX_TURN_SECONDS,
-    SILENCE_SECONDS,
+from speech_client.wire import HearingLanguage, RefusalCode
+from speech_service.hearing_session import MAX_TURN_SECONDS, SILENCE_SECONDS
+from speech_service.pcm import (
+    BYTES_PER_SAMPLE,
+    LIVE_INPUT_RATE,
     SPEECH_RMS,
+    frame_rms,
 )
-from speech_service.pcm import BYTES_PER_SAMPLE, LIVE_INPUT_RATE
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -34,7 +35,8 @@ MIN_GROWING_DELTAS: Final = 2
 FRAME_SECONDS: Final = 0.1
 FRAME_BYTES: Final = int(LIVE_INPUT_RATE * FRAME_SECONDS) * BYTES_PER_SAMPLE
 TRAILING_SILENCE_SECONDS: Final = 2.0
-INT16_SCALE: Final = 32768.0
+# Above it, the two-language session adds more latency to a final than a turn may bear.
+LANGUAGE_STEP_LIMIT_SECONDS: Final = 0.3
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,7 @@ class LiveTurn:
     deltas: tuple[str, ...]
     completed_seconds: float
     transcript: str
+    language: HearingLanguage
 
 
 @dataclass(frozen=True)
@@ -73,6 +76,28 @@ def timing_of(turn: LiveTurn) -> Timing:
         final_from_start=turn.completed_seconds,
         final_after_end=turn.completed_seconds - turn.question_seconds,
     )
+
+
+def language_step_record(
+    single: Sequence[LiveTurn], two: Sequence[LiveTurn]
+) -> dict[str, object]:
+    """The final's median time after the turn's end in a two-language session.
+
+    Set against the same turns in a one-language session; the language step's
+    added seconds, whether they pass the limit, and what the step chose and heard.
+    """
+    single_after_end = statistics.median(timing_of(t).final_after_end for t in single)
+    two_after_end = statistics.median(timing_of(t).final_after_end for t in two)
+    added = two_after_end - single_after_end
+    return {
+        "runs": len(two),
+        "single_final_after_end": single_after_end,
+        "two_final_after_end": two_after_end,
+        "added_seconds": added,
+        "above_limit": added > LANGUAGE_STEP_LIMIT_SECONDS,
+        "chosen": sorted({turn.language.value for turn in two}),
+        "heard": sorted({turn.transcript for turn in two}),
+    }
 
 
 def count_growing_deltas(deltas: Sequence[str]) -> int:
@@ -169,11 +194,8 @@ class ClipError(ValueError):
     """A clip that cannot serve as one continuous turn."""
 
 
-def _frame_rms(pcm: bytes) -> list[float]:
-    samples = np.frombuffer(pcm, dtype="<i2").astype(np.float64) / INT16_SCALE
-    count = len(samples) // (FRAME_BYTES // BYTES_PER_SAMPLE)
-    frames = samples[: count * (FRAME_BYTES // BYTES_PER_SAMPLE)].reshape(count, -1)
-    return np.sqrt((frames**2).mean(axis=1)).tolist()
+def _frame_levels(pcm: bytes) -> list[float]:
+    return frame_rms(pcm, FRAME_BYTES // BYTES_PER_SAMPLE).tolist()
 
 
 def check_continuous_turn(pcm: bytes) -> float:
@@ -191,7 +213,7 @@ def check_continuous_turn(pcm: bytes) -> float:
             f" below the {MAX_TURN_SECONDS:.0f} s turn cap"
         )
         raise ClipError(message)
-    all_levels = _frame_rms(pcm)
+    all_levels = _frame_levels(pcm)
     loud = [index for index, level in enumerate(all_levels) if level >= SPEECH_RMS]
     if not loud:
         message = "the clip holds no speech"
@@ -211,7 +233,9 @@ def check_continuous_turn(pcm: bytes) -> float:
 
 def speech_only(pcm: bytes) -> bytes:
     """`pcm` (24 kHz) without the silence before its first and after its last speech."""
-    loud = [index for index, level in enumerate(_frame_rms(pcm)) if level >= SPEECH_RMS]
+    loud = [
+        index for index, level in enumerate(_frame_levels(pcm)) if level >= SPEECH_RMS
+    ]
     if not loud:
         message = "the clip holds no speech"
         raise ClipError(message)
