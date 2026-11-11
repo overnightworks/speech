@@ -32,6 +32,7 @@ from speech_provider_contract import (
 
 from speech_service.provider_process import (
     SYNTHESIS_FAILED,
+    ProviderCleanupFailedError,
     ProviderFailedError,
     ProviderLaunch,
     ProviderNotReadyError,
@@ -469,17 +470,27 @@ def test_close_allows_bounded_active_cancel_before_reaping(
     behavior: str,
     text: str,
 ) -> None:
-    monkeypatch.setattr("speech_service.provider_process.CANCEL_DRAIN_SECONDS", 0.2)
-    monkeypatch.setattr("speech_service.provider_process.TERMINATE_GRACE_SECONDS", 0.05)
+    drain_seconds = 0.2
+    grace_seconds = 5
+    monkeypatch.setattr(
+        "speech_service.provider_process.CANCEL_DRAIN_SECONDS", drain_seconds
+    )
+    monkeypatch.setattr(
+        "speech_service.provider_process.TERMINATE_GRACE_SECONDS", grace_seconds
+    )
     engine = _engine(tmp_path, behavior)
     engine.load()
     chunks = engine.pcm_chunks(text, "de")
     assert next(chunks) == b"\x00\x01"
-    closed: list[bool] = []
+    outcomes: list[ProviderCleanupFailedError | None] = []
 
     def close_engine() -> None:
-        engine.close()
-        closed.append(True)
+        try:
+            engine.close()
+        except ProviderCleanupFailedError as error:
+            outcomes.append(error)
+        else:
+            outcomes.append(None)
 
     closing = threading.Thread(target=close_engine)
     closing.start()
@@ -487,11 +498,14 @@ def test_close_allows_bounded_active_cancel_before_reaping(
 
     started = time.monotonic()
     chunks.close()
+    cancelled_seconds = time.monotonic() - started
     closing.join(timeout=5)
+    closed_seconds = time.monotonic() - started
 
     assert not closing.is_alive()
-    assert closed == [True]
-    assert time.monotonic() - started < 1
+    assert outcomes == [None]
+    assert cancelled_seconds < drain_seconds + 1
+    assert closed_seconds < grace_seconds
     assert (tmp_path / "cache/cancel-observed").exists()
     _, _, pid, _ = observed(tmp_path / "cache")
     assert_reaped(pid)
