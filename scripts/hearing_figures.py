@@ -361,6 +361,17 @@ def _heard_nothing(heard: object) -> bool:
     return isinstance(texts, list) and any(not text.strip() for text in texts)
 
 
+def _null_figures(
+    timing_figures: dict[str, object], path: tuple[str, ...], optional: frozenset[str]
+) -> Iterator[str]:
+    """The paths of a timing's null figures, except those the record may lack."""
+    yield from (
+        " ".join((*path, figure))
+        for figure, number in timing_figures.items()
+        if number is None and figure not in optional
+    )
+
+
 def _unmeasured_figures(entry: object, path: tuple[str, ...] = ()) -> Iterator[str]:
     """The paths of the figures of the record that measure nothing.
 
@@ -373,18 +384,9 @@ def _unmeasured_figures(entry: object, path: tuple[str, ...] = ()) -> Iterator[s
     if not isinstance(entry, dict):
         return
     for key, value in entry.items():
-        if key == "median" and isinstance(value, dict):
-            yield from (
-                " ".join((*path, figure))
-                for figure, number in value.items()
-                if number is None and figure not in PARTIAL_FIGURES
-            )
-        elif key == "timing" and isinstance(value, dict):
-            yield from (
-                " ".join((*path, figure))
-                for figure, number in value.items()
-                if number is None
-            )
+        if key in ("median", "timing") and isinstance(value, dict):
+            optional = PARTIAL_FIGURES if key == "median" else frozenset()
+            yield from _null_figures(value, path, optional)
         elif key == "growing_deltas":
             if value < MIN_GROWING_DELTAS:
                 yield " ".join((*path, key))
