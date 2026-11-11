@@ -1,7 +1,0 @@
-claim_id = "f019777faaf6455cb3d19036c726a424"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "233d8125ffc3be017ec244526036b1895e1066c0"
-branch = "claude/issue-271-provider-close-test-grace"
-scope = ["tests/test_provider_process.py"]
-opened_commit = "01a805469f9f13df07fa342009c0b37106d0913c"
