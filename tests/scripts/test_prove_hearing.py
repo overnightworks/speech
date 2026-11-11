@@ -183,6 +183,32 @@ def test_the_record_names_the_clips_a_language_was_measured_with() -> None:
     assert other != first
 
 
+def test_both_languages_run_in_one_fixed_order_for_every_clip() -> None:
+    handed: list[tuple[object, ...]] = []
+
+    async def live(
+        _: object, allowed: tuple[object, ...], __: bytes
+    ) -> HEARING.LiveTurn:
+        handed.append(allowed)
+        return await _one_delta_turn(_, allowed, b"")
+
+    english = HEARING.LANGUAGES[1]
+
+    HEARING.measure_language(
+        SimpleNamespace(),  # type: ignore[arg-type]
+        english,
+        HEARING.Clip(b"question", b"long turn"),
+        5,
+        HEARING.Ports(live=live, hear=lambda *_: (0.5, "Wie")),
+    )
+
+    two_languages = [allowed for allowed in handed if len(allowed) == 2]
+    assert two_languages
+    assert set(two_languages) == {
+        (HEARING.HearingLanguage.DE, HEARING.HearingLanguage.EN)
+    }
+
+
 async def _one_delta_turn(_: object, __: object, ___: bytes) -> HEARING.LiveTurn:
     return HEARING.LiveTurn(
         2.0, (2.5,), ("Wie",), 6.0, "Wie", HEARING.HearingLanguage.DE

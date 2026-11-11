@@ -146,6 +146,9 @@ LANGUAGES = (
 )
 
 
+BOTH_LANGUAGES = tuple(language.code for language in LANGUAGES)
+
+
 @dataclass(frozen=True)
 class Clip:
     """A language's two clips at the wire's 24 kHz PCM16 mono."""
@@ -377,11 +380,6 @@ def _file_record(
     }
 
 
-def _both_languages(main: HearingLanguage) -> tuple[HearingLanguage, ...]:
-    """The proof's languages as one set, `main` first."""
-    return (main, *(code for code in (lang.code for lang in LANGUAGES) if code != main))
-
-
 def _long_turn_record(
     service: Service,
     language: Language,
@@ -389,8 +387,7 @@ def _long_turn_record(
     ports: Ports,
 ) -> dict[str, object]:
     turn = asyncio.run(ports.live(service, (language.code,), clip.long_turn))
-    both = _both_languages(language.code)
-    two = asyncio.run(ports.live(service, both, clip.long_turn))
+    two = asyncio.run(ports.live(service, BOTH_LANGUAGES, clip.long_turn))
     seconds, text = ports.hear(service, language.code, clip.long_turn)
     return {
         "two_languages": figures.language_step_record([turn], [two]),
@@ -423,12 +420,14 @@ def measure_language(
 ) -> dict[str, object]:
     """One language's short question, live and from a file, and its long turn."""
     ports.hear(service, language.code, clip.question)
-    both = _both_languages(language.code)
     live = [
         asyncio.run(ports.live(service, (language.code,), clip.question))
         for _ in range(runs)
     ]
-    two = [asyncio.run(ports.live(service, both, clip.question)) for _ in range(runs)]
+    two = [
+        asyncio.run(ports.live(service, BOTH_LANGUAGES, clip.question))
+        for _ in range(runs)
+    ]
     files = [ports.hear(service, language.code, clip.question) for _ in range(runs)]
     print("question", language.code.value, f"runs={runs}")
     return {
