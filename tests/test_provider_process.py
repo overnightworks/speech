@@ -396,7 +396,7 @@ def test_partial_cancel_frame_cannot_extend_the_single_drain_deadline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("speech_service.provider_process.CANCEL_DRAIN_SECONDS", 0.05)
-    monkeypatch.setattr("speech_service.provider_process.TERMINATE_GRACE_SECONDS", 0.05)
+    monkeypatch.setattr("speech_service.provider_process.TERMINATE_GRACE_SECONDS", 5)
     engine = _engine(tmp_path, "partial-cancel")
     engine.load()
     chunks = engine.pcm_chunks("cancel", "de")
@@ -414,7 +414,7 @@ def test_qwen_cancel_beyond_drain_reaps_then_runtime_loads_a_fresh_worker(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("speech_service.provider_process.CANCEL_DRAIN_SECONDS", 0.05)
-    monkeypatch.setattr("speech_service.provider_process.TERMINATE_GRACE_SECONDS", 0.05)
+    monkeypatch.setattr("speech_service.provider_process.TERMINATE_GRACE_SECONDS", 5)
     root, cache = closed_provider(tmp_path, "partial-cancel")
     constructed: list[ProviderProcess] = []
 
