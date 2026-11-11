@@ -15,10 +15,12 @@ from websockets.http11 import Request, Response
 from speech_client.hearing import Refused
 from speech_client.wire import (
     DurationUsage,
+    HearingLanguage,
     RefusalCode,
     SessionUpdated,
     TranscriptCompleted,
     TranscriptionSession,
+    TranscriptLanguage,
     refusal,
 )
 from tests.support.identity_support import MINTING
@@ -119,13 +121,16 @@ def receive_turn(events: Sequence[ServerEvent]) -> LiveTurn | None:
 def test_a_valid_event_of_no_interest_is_ignored_until_the_turn_completes() -> None:
     updated = SessionUpdated(session=TranscriptionSession(type="transcription"))
     completed = TranscriptCompleted(
-        item_id="i", transcript="Hallo", usage=DurationUsage(seconds=1.0)
+        item_id="i",
+        transcript="Hallo",
+        usage=DurationUsage(seconds=1.0),
+        languages=(TranscriptLanguage(code=HearingLanguage.EN),),
     )
 
     turn = receive_turn([updated, completed])
 
     assert turn is not None
-    assert turn.transcript == "Hallo"
+    assert (turn.transcript, turn.language) == ("Hallo", HearingLanguage.EN)
 
 
 def test_a_session_that_ends_without_a_turn_gives_no_turn() -> None:

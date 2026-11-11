@@ -1,6 +1,7 @@
 """WS /v1/realtime?intent=transcription: who may upgrade, what is refused, a session."""
 
 import asyncio
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,6 +22,7 @@ from speech_client.wire import (
     AUTHENTICATE_HEADER,
     REALTIME_PATH,
     RETRY_AFTER_HEADER,
+    HearingLanguage,
     RefusalCode,
     token_headers,
 )
@@ -89,6 +91,28 @@ def test_a_session_hears_a_committed_turn_and_ends_when_the_client_leaves() -> N
         COMPLETED,
     ]
     assert events[-1]["transcript"] == HEARD_TEXT
+    assert events[-1]["languages"] == [{"code": "en"}]
+
+
+def test_a_session_with_a_set_echoes_it_and_names_the_language_of_each_item() -> None:
+    """WIRE-57, WIRE-75, WIRE-135, WIRE-136: the set is echoed, each item names one."""
+    engine = FakeHearing()
+    engine.heard_in = HearingLanguage.EN
+    with _client(engine).websocket_connect(URL, headers=valid_headers()) as socket:
+        socket.receive_json()
+        socket.send_text(update(None, languages=["de", "en"]))
+        updated = socket.receive_json()
+        socket.send_text(append(audio(0.5)))
+        socket.send_text(commit())
+        events = [socket.receive_json() for _ in range(4)]
+
+    transcription = updated["session"]["audio"]["input"]["transcription"]
+    assert transcription["languages"] == ["de", "en"]
+    assert "language" not in transcription
+    assert events[-1]["languages"] == [{"code": "en"}]
+    assert [languages for _, languages in engine.heard] == [
+        (HearingLanguage.DE, HearingLanguage.EN)
+    ]
 
 
 def test_a_registered_app_with_no_hearing_key_opens_a_live_session() -> None:
@@ -108,6 +132,25 @@ def test_a_registered_app_with_no_hearing_key_opens_a_live_session() -> None:
     ("setup", "param"),
     [
         pytest.param(update("fr"), "language", id="language-fr"),
+        pytest.param(update("de", languages=["de"]), "languages", id="both"),
+        pytest.param(update(None, languages=["de", "de"]), "languages", id="duplicate"),
+        pytest.param(update(None, languages=[]), "languages", id="empty"),
+        pytest.param(
+            update(None, languages=["de", "fr"]), "languages.1", id="fr-in-set"
+        ),
+        pytest.param(
+            json.dumps(
+                {
+                    "type": "session.update",
+                    "session": {
+                        "type": "transcription",
+                        "audio": {"input": {"transcription": {"languages": None}}},
+                    },
+                }
+            ),
+            "languages",
+            id="null-languages",
+        ),
         pytest.param(
             update(model="speech-runtime"), "model", id="model-speech-runtime"
         ),

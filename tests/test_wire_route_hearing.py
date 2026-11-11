@@ -108,7 +108,7 @@ def test_a_recording_without_a_language_is_heard_as_german() -> None:
 
     post_recording(_client(engine), _valid())
 
-    assert [language for _, language in engine.heard] == [HearingLanguage.DE]
+    assert [languages for _, languages in engine.heard] == [(HearingLanguage.DE,)]
 
 
 def test_a_recording_is_heard_in_the_language_asked_for() -> None:
@@ -117,7 +117,7 @@ def test_a_recording_is_heard_in_the_language_asked_for() -> None:
 
     post_recording(_client(engine), multipart_body(ENGLISH, recording()))
 
-    assert [language for _, language in engine.heard] == [HearingLanguage.EN]
+    assert [languages for _, languages in engine.heard] == [(HearingLanguage.EN,)]
 
 
 @pytest.mark.parametrize(

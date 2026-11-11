@@ -137,15 +137,15 @@ def realtime_url(base_url: str) -> str:
     )
 
 
-def session_update(language: HearingLanguage) -> str:
-    """The one `session.update` that sets the language of a session."""
+def session_update(languages: tuple[HearingLanguage, ...]) -> str:
+    """The one `session.update` that sets the languages of a session."""
     update = SessionUpdate(
         type="session.update",
         session=TranscriptionSession(
             type="transcription",
             audio=SessionAudio(
                 input=SessionInput(
-                    transcription=TranscriptionSetting(language=language)
+                    transcription=TranscriptionSetting(languages=languages)
                 )
             ),
         ),
@@ -245,7 +245,7 @@ class HearingSession:
         *,
         workload_token: str,
         person_token: str,
-        language: HearingLanguage,
+        languages: tuple[HearingLanguage, ...],
         deadline_seconds: float,
         held_limit_bytes: int,
         opening_seconds: float = OPENING_SECONDS,
@@ -259,7 +259,7 @@ class HearingSession:
         self._headers = token_headers(
             workload_token=workload_token, person_token=person_token
         )
-        self._update = session_update(language)
+        self._update = session_update(languages)
         self._deadline_seconds = deadline_seconds
         self._opening_seconds = opening_seconds
         self._held_limit_bytes = held_limit_bytes

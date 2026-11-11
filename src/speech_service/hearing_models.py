@@ -27,6 +27,8 @@ class _Artifacts:
     repository: str
     revision: str
     filenames: tuple[str, ...]
+    # Measured for these weights: below it a turn has too little speech to name one.
+    min_voiced_seconds: float
 
 
 _ARTIFACTS: dict[HearingModel, _Artifacts] = {
@@ -40,13 +42,20 @@ _ARTIFACTS: dict[HearingModel, _Artifacts] = {
             "tokenizer.json",
             "vocabulary.json",
         ),
+        1.5,
     ),
     HearingModel.SMALL: _Artifacts(
         "Systran/faster-whisper-small",
         "536b0662742c02347bc0e980a01041f333bce120",
         (_CONFIGURATION_FILE, "model.bin", "tokenizer.json", "vocabulary.txt"),
+        1.5,
     ),
 }
+
+
+def voiced_floor(model: HearingModel) -> float:
+    """The voiced seconds a turn needs before `model` names its language."""
+    return _ARTIFACTS[model].min_voiced_seconds
 
 
 class HearingModelMissingError(RuntimeError):

@@ -46,7 +46,7 @@ def session_to(
         f"http://{LOOPBACK}:{port}",
         workload_token=WORKLOAD_TOKEN,
         person_token=PERSON_TOKEN,
-        language=HearingLanguage.DE,
+        languages=(HearingLanguage.DE,),
         deadline_seconds=deadline_seconds,
         held_limit_bytes=held_limit_bytes,
         opening_seconds=opening_seconds,

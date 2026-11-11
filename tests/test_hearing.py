@@ -9,65 +9,37 @@ from speech_service import hearing
 from speech_service.clock import LoopClock
 from speech_service.hearing import (
     Hearing,
-    HearingLibraries,
     ResourceUnavailableError,
+    ScoreIdentifier,
     WhisperHearing,
 )
 from speech_service.hearing_models import HearingModel
+from tests.support.whisper_support import StandInWhisper
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-class _Segment:
-    def __init__(self, text: str) -> None:
-        self.text = text
-
-
-class _FakeWhisperModel:
-    """Stands in for faster-whisper's model: it records how it was built and used."""
-
-    built: list[dict[str, object]] = []  # noqa: RUF012 - reset by the fixture
-    transcribed: list[dict[str, object]] = []  # noqa: RUF012 - reset by the fixture
-    failure: RuntimeError | None = None
-
-    def __init__(self, path: str, **options: object) -> None:
-        if self.failure is not None:
-            raise self.failure
-        self.built.append({"path": path, **options})
-
-    def transcribe(
-        self, audio: object, **options: object
-    ) -> tuple[list[_Segment], None]:
-        self.transcribed.append({"audio": audio, **options})
-        return [_Segment(" Guten"), _Segment(" Tag ")], None
-
-
 @pytest.fixture
-def library() -> type[_FakeWhisperModel]:
-    _FakeWhisperModel.built = []
-    _FakeWhisperModel.transcribed = []
-    _FakeWhisperModel.failure = None
-    return _FakeWhisperModel
+def library() -> StandInWhisper:
+    return StandInWhisper()
 
 
 def _engine(
     directory: Path,
-    library: type[_FakeWhisperModel] | None = None,
+    library: StandInWhisper | None = None,
     device: str = "cpu",
     cuda_devices: int = 0,
     cuda_library_dirs: list[Path] | None = None,
 ) -> WhisperHearing:
-    libraries = HearingLibraries(
-        library or _FakeWhisperModel,
-        lambda: cuda_devices,
-        lambda: cuda_library_dirs or [],
+    libraries = (library or StandInWhisper()).libraries(cuda_devices, cuda_library_dirs)
+    return WhisperHearing(
+        HearingModel.SMALL, directory, device, ScoreIdentifier(0.0), lambda: libraries
     )
-    return WhisperHearing(HearingModel.SMALL, directory, device, lambda: libraries)
 
 
 def test_the_model_loads_from_the_local_directory_and_never_downloads(
-    library: type[_FakeWhisperModel], tmp_path: Path
+    library: StandInWhisper, tmp_path: Path
 ) -> None:
     _engine(tmp_path, library).load()
 
@@ -76,7 +48,7 @@ def test_the_model_loads_from_the_local_directory_and_never_downloads(
 
 
 def test_on_the_cpu_the_model_runs_int8_on_four_threads(
-    library: type[_FakeWhisperModel], tmp_path: Path
+    library: StandInWhisper, tmp_path: Path
 ) -> None:
     _engine(tmp_path, library, "cpu").load()
 
@@ -86,7 +58,7 @@ def test_on_the_cpu_the_model_runs_int8_on_four_threads(
 
 
 def test_a_cuda_device_that_is_not_there_is_a_missing_resource(
-    library: type[_FakeWhisperModel], tmp_path: Path
+    library: StandInWhisper, tmp_path: Path
 ) -> None:
     engine = _engine(tmp_path, library, "cuda")
 
@@ -97,7 +69,7 @@ def test_a_cuda_device_that_is_not_there_is_a_missing_resource(
 
 
 def test_a_cuda_device_without_the_gpu_extra_is_refused_naming_the_extra(
-    library: type[_FakeWhisperModel], tmp_path: Path
+    library: StandInWhisper, tmp_path: Path
 ) -> None:
     engine = _engine(tmp_path, library, "cuda", cuda_devices=1)
 
@@ -108,7 +80,7 @@ def test_a_cuda_device_without_the_gpu_extra_is_refused_naming_the_extra(
 
 
 def test_without_the_gpu_extra_hearing_is_not_ready(
-    library: type[_FakeWhisperModel], tmp_path: Path
+    library: StandInWhisper, tmp_path: Path
 ) -> None:
     engine = _engine(tmp_path, library, "cuda", cuda_devices=1)
     loading = Hearing(engine, LoopClock())
@@ -120,7 +92,7 @@ def test_without_the_gpu_extra_hearing_is_not_ready(
 
 
 def test_a_cuda_device_with_the_libraries_loads_on_the_card(
-    library: type[_FakeWhisperModel], tmp_path: Path
+    library: StandInWhisper, tmp_path: Path
 ) -> None:
     engine = _engine(
         tmp_path, library, "cuda", cuda_devices=1, cuda_library_dirs=[tmp_path]
@@ -132,7 +104,7 @@ def test_a_cuda_device_with_the_libraries_loads_on_the_card(
 
 
 def test_a_full_card_is_a_missing_resource(
-    library: type[_FakeWhisperModel], tmp_path: Path
+    library: StandInWhisper, tmp_path: Path
 ) -> None:
     library.failure = RuntimeError("CUDA failed with error out of memory")
 
@@ -143,7 +115,7 @@ def test_a_full_card_is_a_missing_resource(
 
 
 def test_any_other_runtime_error_of_the_load_is_not_hidden(
-    library: type[_FakeWhisperModel], tmp_path: Path
+    library: StandInWhisper, tmp_path: Path
 ) -> None:
     library.failure = RuntimeError("unsupported model format")
 
@@ -153,32 +125,15 @@ def test_any_other_runtime_error_of_the_load_is_not_hidden(
         engine.load()
 
 
-@pytest.mark.parametrize("language", list(HearingLanguage))
-def test_the_audio_is_heard_greedily_at_temperature_zero_in_the_asked_language(
-    library: type[_FakeWhisperModel], tmp_path: Path, language: HearingLanguage
-) -> None:
-    """WIRE-38: the audio is decoded greedily at temperature 0, so it reads the same."""
-    engine = _engine(tmp_path, library)
-    engine.load()
-
-    text = engine.transcribe(b"\x00\x00" * 160, language)
-
-    assert text == "Guten Tag"
-    heard = library.transcribed[0]
-    assert heard["language"] == language.value
-    assert heard["temperature"] == 0.0
-    assert heard["beam_size"] == 1
-
-
 def test_hearing_before_the_load_is_an_error(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
 
     with pytest.raises(RuntimeError, match="not loaded"):
-        engine.transcribe(b"", HearingLanguage.DE)
+        engine.transcribe(b"", (HearingLanguage.DE,))
 
 
 def test_a_closed_engine_no_longer_hears(
-    library: type[_FakeWhisperModel], tmp_path: Path
+    library: StandInWhisper, tmp_path: Path
 ) -> None:
     engine = _engine(tmp_path, library)
     engine.load()
@@ -186,7 +141,7 @@ def test_a_closed_engine_no_longer_hears(
     engine.close()
 
     with pytest.raises(RuntimeError, match="not loaded"):
-        engine.transcribe(b"", HearingLanguage.DE)
+        engine.transcribe(b"", (HearingLanguage.DE,))
 
 
 @pytest.mark.parametrize("device", ["gpu", "cuda-invalid", "cuda:0", "CPU", ""])

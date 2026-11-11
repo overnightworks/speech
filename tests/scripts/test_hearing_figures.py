@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 import hearing_figures as figures
-from speech_client.wire import RefusalCode
+from speech_client.wire import HearingLanguage, RefusalCode
 from speech_service.hearing_session import SILENCE_SECONDS
 
 RATE = 24000
@@ -23,14 +23,42 @@ def tone(seconds: float, amplitude: int = LOUD, rate: int = RATE) -> bytes:
     return wave_form.astype("<i2").tobytes()
 
 
-def turn(question: float, deltas: tuple[float, ...], final: float) -> figures.LiveTurn:
+def turn(
+    question: float,
+    deltas: tuple[float, ...],
+    final: float,
+    language: HearingLanguage = HearingLanguage.DE,
+) -> figures.LiveTurn:
     return figures.LiveTurn(
         question_seconds=question,
         delta_seconds=deltas,
         deltas=tuple("wort" for _ in deltas),
         completed_seconds=final,
         transcript="wort",
+        language=language,
     )
+
+
+@pytest.mark.parametrize(
+    ("added", "above_limit"),
+    [(0.1, False), (figures.LANGUAGE_STEP_LIMIT_SECONDS + 0.01, True)],
+    ids=["within-the-limit", "past-the-limit"],
+)
+def test_the_language_step_is_the_median_added_to_the_final_and_what_it_chose(
+    added: float, *, above_limit: bool
+) -> None:
+    single = [turn(2.0, (), 3.0), turn(2.0, (), 3.2), turn(2.0, (), 3.1)]
+    two = [
+        turn(2.0, (), 3.0 + added, HearingLanguage.EN),
+        turn(2.0, (), 3.2 + added, HearingLanguage.EN),
+        turn(2.0, (), 3.1 + added, HearingLanguage.DE),
+    ]
+
+    record = figures.language_step_record(single, two)
+
+    assert record["added_seconds"] == pytest.approx(added)
+    assert record["above_limit"] is above_limit
+    assert record["chosen"] == ["de", "en"]
 
 
 def test_a_turn_is_timed_from_its_start_and_from_its_end() -> None:

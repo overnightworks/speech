@@ -228,7 +228,7 @@ async def _service_taken(stage: Stage) -> AsyncIterator[None]:
         stage.service_url,
         workload_token=other.tokens[0],
         person_token=other.tokens[1],
-        language=HearingLanguage.EN,
+        languages=(HearingLanguage.EN,),
         deadline_seconds=WAIT_SECONDS,
         held_limit_bytes=HOP_FRAME_BYTES,
     )

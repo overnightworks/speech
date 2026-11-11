@@ -26,7 +26,7 @@ AUDIO = b"\0\0" * 160
 
 
 def _transcribe(engine: HearingEngine) -> str:
-    return engine.transcribe(AUDIO, HearingLanguage.DE)
+    return engine.transcribe(AUDIO, (HearingLanguage.DE,)).text
 
 
 class _CountedLease:

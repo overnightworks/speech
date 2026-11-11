@@ -43,6 +43,7 @@ from image_judgement import (
     require_final,
     require_heard,
     require_hearing_ready,
+    require_language,
     require_limit_answer,
     require_log_clean,
     require_marked_wav,
@@ -50,6 +51,7 @@ from image_judgement import (
     require_refusal,
     require_tmp_clean,
     require_transcript,
+    require_voiced_floor,
     without_mark,
 )
 from image_stack import (
@@ -93,11 +95,13 @@ from prove_speech import (
 )
 from speech_client.hearing import Refused
 from speech_client.wire import (
+    HearingLanguage,
     RefusalCode,
     refusal,
     speech_request_headers,
 )
 from speech_service.config import Settings, load_caller_config
+from speech_service.hearing_models import HearingModel
 from speech_service.piper_voices import PINS, PinnedVoice
 from speech_service.voices import DEFAULT_SPEAKING_MODEL
 
@@ -390,12 +394,23 @@ def cell_hearing_refusals(session: Session, wav: bytes) -> None:
         print(f"cell 16: held; {what} refused as {code}")
 
 
-def cell_live_turn(session: Session, wav: bytes) -> None:
-    """Cell 17: a live turn over the WebSocket ends in a final."""
-    outcome = session.hear_live(session.pair(), wav)
+def cell_live_turn(session: Session, wav: bytes, model: HearingModel) -> None:
+    """Cell 17: a live turn over the WebSocket ends in a final in its own language.
+
+    The session is `[en, de]` and the sentence German, so the final holds only when
+    the language step chose away from the main language.
+    """
+    require_voiced_floor(wav, model)
+    outcome = session.hear_live(
+        session.pair(), wav, (HearingLanguage.EN, HearingLanguage.DE)
+    )
     require_final(outcome, SENTENCE)
+    require_language(outcome, HearingLanguage.DE)
     session.heard.extend(live_texts(outcome))
-    print(f"cell 17: held; final arrived after {len(outcome.partials)} partials")
+    print(
+        f"cell 17: held; final arrived in {outcome.language} after"
+        f" {len(outcome.partials)} partials"
+    )
 
 
 def cell_recording_limit(session: Session, wav: bytes) -> None:
@@ -619,7 +634,11 @@ def hearing_cells(
     cell_hearing_ready(session, plain, started_after)
     cell_recording(session, wav)
     cell_hearing_refusals(session, wav)
-    cell_live_turn(session, wav)
+    cell_live_turn(
+        session,
+        wav,
+        HearingModel(service_config(plain)["environment"][HEARING_MODEL_SETTING]),
+    )
     cell_recording_limit(session, wav)
     cell_hearing_restart(session, wav, plain)
 

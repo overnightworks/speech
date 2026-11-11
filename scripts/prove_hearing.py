@@ -359,6 +359,7 @@ def _live_record(reference: str, turns: Sequence[LiveTurn]) -> dict[str, object]
         "timings": [figures.timing_record(timing) for timing in timings],
         "word_errors": figures.error_record(_errors_of(reference, heard)),
         "heard": sorted(set(heard)),
+        "languages": sorted({turn.language.value for turn in turns}),
     }
 
 
@@ -376,15 +377,23 @@ def _file_record(
     }
 
 
+def _both_languages(main: HearingLanguage) -> tuple[HearingLanguage, ...]:
+    """The proof's languages as one set, `main` first."""
+    return (main, *(code for code in (lang.code for lang in LANGUAGES) if code != main))
+
+
 def _long_turn_record(
     service: Service,
     language: Language,
     clip: Clip,
     ports: Ports,
 ) -> dict[str, object]:
-    turn = asyncio.run(ports.live(service, language.code, clip.long_turn))
+    turn = asyncio.run(ports.live(service, (language.code,), clip.long_turn))
+    both = _both_languages(language.code)
+    two = asyncio.run(ports.live(service, both, clip.long_turn))
     seconds, text = ports.hear(service, language.code, clip.long_turn)
     return {
+        "two_languages": figures.language_step_record([turn], [two]),
         "clip_seconds": turn.question_seconds,
         "live": {
             "growing_deltas": figures.count_growing_deltas(turn.deltas),
@@ -414,10 +423,12 @@ def measure_language(
 ) -> dict[str, object]:
     """One language's short question, live and from a file, and its long turn."""
     ports.hear(service, language.code, clip.question)
+    both = _both_languages(language.code)
     live = [
-        asyncio.run(ports.live(service, language.code, clip.question))
+        asyncio.run(ports.live(service, (language.code,), clip.question))
         for _ in range(runs)
     ]
+    two = [asyncio.run(ports.live(service, both, clip.question)) for _ in range(runs)]
     files = [ports.hear(service, language.code, clip.question) for _ in range(runs)]
     print("question", language.code.value, f"runs={runs}")
     return {
@@ -428,6 +439,7 @@ def measure_language(
         "question": {
             "reference": language.question,
             "live": _live_record(language.question, live),
+            "two_languages": figures.language_step_record(live, two),
             "file": _file_record(language.question, files),
         },
         "long_turn": _long_turn_record(service, language, clip, ports),

@@ -235,7 +235,8 @@ def _heard(
     """The job that decodes `recording` and transcribes it."""
 
     def job(engine: HearingEngine) -> str:
-        return engine.transcribe(decode_recording(recording, max_seconds), language)
+        pcm = decode_recording(recording, max_seconds)
+        return engine.transcribe(pcm, (language,)).text
 
     return job
 

@@ -29,6 +29,7 @@ from speech_client.wire import (
     HearingLanguage,
     SessionCreated,
     TranscriptCompleted,
+    TranscriptLanguage,
 )
 from tests.support.hear_support import HEARD_TEXT, FakeHearing, hear_runtime
 from tests.support.identity_support import valid_pair
@@ -73,7 +74,7 @@ def _session(service_url: str, tokens: tuple[str, str]) -> HearingSession:
         service_url,
         workload_token=tokens[0],
         person_token=tokens[1],
-        language=HearingLanguage.EN,
+        languages=(HearingLanguage.EN,),
         deadline_seconds=WAIT_SECONDS,
         held_limit_bytes=1024 * 1024,
     )
@@ -166,6 +167,7 @@ def test_frames_reach_the_service_and_its_events_reach_the_app_not_the_browser()
 
     assert isinstance(events[0], SessionCreated)
     assert events[-1].transcript == HEARD_TEXT
+    assert events[-1].languages == (TranscriptLanguage(code=HearingLanguage.EN),)
     assert received == []
     assert outcome == BrowserLeft()
 

@@ -7,6 +7,8 @@ import struct
 from array import array
 from typing import Final
 
+import numpy as np
+
 BITS_PER_SAMPLE: Final = 16
 BYTES_PER_SAMPLE: Final = BITS_PER_SAMPLE // 8
 CHANNELS: Final = 1
@@ -15,6 +17,10 @@ WAV_HEADER_BYTES: Final = 44
 # Streaming WAV: the length is not known when the first byte leaves.
 STREAMING_DATA_SIZE: Final = 0xFFFFFFFF
 SILENCE_RMS: Final = 0.015
+# The level from which audio is speech; the session's turn detection reads it.
+SPEECH_RMS: Final = 0.02
+VOICED_FRAME_SECONDS: Final = 0.03
+_INT16_SCALE: Final = 32768.0
 # The IPTC term id for synthetic audio; never fetched (AI Act Art. 50(2)).
 AI_MARK: Final = (
     "DigitalSourceType=http://cv.iptc.org/newscodes/"  # NOSONAR(S5332) id, not fetched
@@ -79,20 +85,34 @@ def pcm_from_wav(data: bytes) -> tuple[int, bytes]:
     raise ValueError(message)
 
 
+def _scaled_samples(pcm: bytes) -> np.ndarray:
+    """The whole samples of `pcm` as float64 in -1..1; an odd last byte is dropped."""
+    count = len(pcm) // BYTES_PER_SAMPLE
+    return (
+        np.frombuffer(pcm, dtype="<i2", count=count).astype(np.float64) / _INT16_SCALE
+    )
+
+
 def rms(pcm: bytes) -> float:
     """Root-mean-square of 16-bit samples, scaled to 0..1."""
-    if len(pcm) < BYTES_PER_SAMPLE:
+    samples = _scaled_samples(pcm)
+    if not samples.size:
         return 0.0
-    count = len(pcm) // BYTES_PER_SAMPLE
-    total = 0.0
-    for index in range(count):
-        sample = int.from_bytes(
-            pcm[index * BYTES_PER_SAMPLE : (index + 1) * BYTES_PER_SAMPLE],
-            "little",
-            signed=True,
-        )
-        total += sample * sample
-    return math.sqrt(total / count) / 32768.0
+    return math.sqrt(float(np.mean(samples**2)))
+
+
+def frame_rms(pcm: bytes, frame_samples: int) -> np.ndarray:
+    """The root-mean-square of each whole frame of `frame_samples` samples, 0..1."""
+    samples = _scaled_samples(pcm)
+    count = samples.size // frame_samples
+    frames = samples[: count * frame_samples].reshape(count, frame_samples)
+    return np.sqrt(np.mean(frames**2, axis=1))
+
+
+def voiced_seconds(pcm: bytes, sample_rate: int) -> float:
+    """The seconds of `pcm` in frames that are speech, not silence, at `SPEECH_RMS`."""
+    levels = frame_rms(pcm, round(sample_rate * VOICED_FRAME_SECONDS))
+    return float(np.count_nonzero(levels >= SPEECH_RMS)) * VOICED_FRAME_SECONDS
 
 
 def is_silence(pcm: bytes, threshold: float = SILENCE_RMS) -> bool:

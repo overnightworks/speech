@@ -217,6 +217,7 @@ class LiveOutcome:
     final: str | None
     partials: tuple[str, ...]
     error: str | None
+    language: str | None = None
 
 
 @dataclass
@@ -292,8 +293,13 @@ class Session:
         """Post `wav` to the file route."""
         return self.post_recording(headers, recording_form(wav, language))
 
-    def hear_live(self, tokens: TokenPair | None, wav: bytes) -> LiveOutcome:
-        """One live turn through the client's session, from the caller container.
+    def hear_live(
+        self,
+        tokens: TokenPair | None,
+        wav: bytes,
+        languages: tuple[HearingLanguage, ...] = (HearingLanguage.DE,),
+    ) -> LiveOutcome:
+        """One live turn in a session of `languages`, from the caller container.
 
         Without `tokens` the session offers empty ones, as a caller with none would.
         """
@@ -302,14 +308,17 @@ class Session:
             "base_url": self.service_url,
             "workload_token": offered.workload,
             "person_token": offered.person,
-            "language": HearingLanguage.DE.value,
+            "languages": [language.value for language in languages],
             "frames": live_frames(wav),
             "pace_seconds": LIVE_PACE_SECONDS,
             "wait_seconds": LIVE_WAIT_SECONDS,
         }
         answer = json.loads(run_in(self.compose, self.caller, "live.py", specification))
         return LiveOutcome(
-            answer.get("final"), tuple(answer.get("partials", ())), answer.get("error")
+            answer.get("final"),
+            tuple(answer.get("partials", ())),
+            answer.get("error"),
+            answer.get("language"),
         )
 
     def tmp_usage(self) -> TmpUsage:

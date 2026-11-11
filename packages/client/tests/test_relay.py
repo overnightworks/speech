@@ -335,7 +335,7 @@ def _stalled_hop(
         service_url,
         workload_token="workload",  # noqa: S106 - a scenario value
         person_token="person",  # noqa: S106 - a scenario value
-        language=HearingLanguage.EN,
+        languages=(HearingLanguage.EN,),
         deadline_seconds=30,
         held_limit_bytes=1,
         opening_seconds=opening_seconds,
