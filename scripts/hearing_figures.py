@@ -6,6 +6,7 @@ service and hands the observations to these functions.
 
 from __future__ import annotations
 
+import functools
 import io
 import math
 import re
@@ -37,7 +38,9 @@ FRAME_BYTES: Final = int(LIVE_INPUT_RATE * FRAME_SECONDS) * BYTES_PER_SAMPLE
 TRAILING_SILENCE_SECONDS: Final = 2.0
 # Above it, the two-language session adds more latency to a final than a turn may bear.
 LANGUAGE_STEP_LIMIT_SECONDS: Final = 0.3
-PARTIAL_FIGURES: Final = frozenset({"first_partial_from_start", "first_partial_after_end"})
+PARTIAL_FIGURES: Final = frozenset(
+    {"first_partial_from_start", "first_partial_after_end"}
+)
 
 
 @dataclass(frozen=True)
@@ -423,4 +426,71 @@ def error_record(errors: WordErrors) -> dict[str, float | int]:
         "errors": errors.errors,
         "reference_words_total": errors.reference_words_total,
         "rate": errors.rate,
+    }
+
+
+def errors_of(reference: str, heard: Sequence[str]) -> WordErrors:
+    """The word errors of each heard text against the reference, added up."""
+    return functools.reduce(
+        WordErrors.plus, (word_errors(reference, text) for text in heard)
+    )
+
+
+def live_record(reference: str, turns: Sequence[LiveTurn]) -> dict[str, object]:
+    """The figures of one question's live runs: medians, partials and words."""
+    timings = [timing_of(turn) for turn in turns]
+    heard = [turn.transcript for turn in turns]
+    return {
+        "runs": len(turns),
+        "median": timing_record(median_timing(timings)),
+        "runs_with_partial": partial_runs(timings),
+        "timings": [timing_record(timing) for timing in timings],
+        "word_errors": error_record(errors_of(reference, heard)),
+        "heard": sorted(set(heard)),
+        "languages": sorted({turn.language.value for turn in turns}),
+    }
+
+
+def file_record(
+    reference: str, results: Sequence[tuple[float, str]]
+) -> dict[str, object]:
+    """The figures of the file route's runs: seconds and words."""
+    seconds = [elapsed for elapsed, _ in results]
+    heard = [text for _, text in results]
+    return {
+        "runs": len(results),
+        "median_seconds": statistics.median(seconds),
+        "seconds": seconds,
+        "word_errors": error_record(errors_of(reference, heard)),
+        "heard": sorted(set(heard)),
+    }
+
+
+def long_turn_record(
+    reference: str,
+    single: Sequence[LiveTurn],
+    two: Sequence[LiveTurn],
+    file_result: tuple[float, str],
+) -> dict[str, object]:
+    """A long turn over interleaved runs: its live figures are medians of the runs.
+
+    `single` and `two` are the one-language and two-language runs, taken in turn;
+    the language step is set against them. `file_result` is the one file run.
+    """
+    timings = [timing_of(turn) for turn in single]
+    heard = [turn.transcript for turn in single]
+    return {
+        "runs": len(single),
+        "clip_seconds": statistics.median(turn.question_seconds for turn in single),
+        "two_languages": language_step_record(single, two),
+        "live": {
+            "growing_deltas": statistics.median(
+                count_growing_deltas(turn.deltas) for turn in single
+            ),
+            "timing": timing_record(median_timing(timings)),
+            "timings": [timing_record(timing) for timing in timings],
+            "word_errors": error_record(errors_of(reference, heard)),
+            "heard": sorted(set(heard)),
+        },
+        "file": file_record(reference, [file_result]),
     }

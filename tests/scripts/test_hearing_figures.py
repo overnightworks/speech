@@ -391,6 +391,26 @@ def test_a_long_turn_without_growing_deltas_or_timing_is_not_measured() -> None:
     ]
 
 
+def test_the_long_turn_takes_the_medians_of_its_interleaved_runs() -> None:
+    deltas = (1.0, 2.0)
+    single = [
+        turn(question=3.0, deltas=deltas, final=final)
+        for final in (5.0, 6.0, 7.0, 8.0, 9.0)
+    ]
+    two = [
+        turn(question=3.0, deltas=deltas, final=final + 0.5)
+        for final in (5.0, 6.0, 7.0, 8.0, 9.0)
+    ]
+
+    record = figures.long_turn_record("wort", single, two, (0.5, "wort"))
+
+    assert record["two_languages"]["added_seconds"] == pytest.approx(0.5)
+    assert record["two_languages"]["above_limit"] is True
+    assert record["live"]["timing"]["final_after_end"] == pytest.approx(4.0)
+    assert record["live"]["growing_deltas"] == len(deltas)
+    assert record["live"]["word_errors"]["errors"] == 0
+
+
 def test_an_empty_heard_text_is_not_measured() -> None:
     def model(question: list[str], long_turn: str) -> dict[str, object]:
         return {
