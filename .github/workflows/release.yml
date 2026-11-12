@@ -19,7 +19,7 @@ permissions: {}
 jobs:
   gate:
     name: Gate
-    uses: overnightworks/quality/.github/workflows/release-gate.yml@2d2b68bf3916b34f6f2c72a540c1e3d8a947b750 # v0.10.0
+    uses: overnightworks/quality/.github/workflows/release-gate.yml@be32abeb120d29f75ee7ea456d6e510ae001de04 # v0.12.0
     permissions:
       actions: read
       checks: read
@@ -32,7 +32,7 @@ jobs:
   image:
     name: Image
     needs: gate
-    uses: overnightworks/quality/.github/workflows/image.yml@2d2b68bf3916b34f6f2c72a540c1e3d8a947b750 # v0.10.0
+    uses: overnightworks/quality/.github/workflows/image.yml@be32abeb120d29f75ee7ea456d6e510ae001de04 # v0.12.0
     permissions:
       attestations: write
       contents: read
@@ -47,7 +47,7 @@ jobs:
     needs:
       - gate
       - image
-    uses: overnightworks/quality/.github/workflows/release-tag.yml@2d2b68bf3916b34f6f2c72a540c1e3d8a947b750 # v0.10.0
+    uses: overnightworks/quality/.github/workflows/release-tag.yml@be32abeb120d29f75ee7ea456d6e510ae001de04 # v0.12.0
     permissions:
       contents: write
     with:
