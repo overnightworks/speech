@@ -677,7 +677,7 @@ def test_a_file_route_that_answers_ok_on_a_taken_card_is_a_failure(
 @pytest.mark.parametrize(
     "offered", [frozenset(), frozenset(HEARING.ON_DEMAND_VOICES)], ids=["piper", "all"]
 )
-def test_only_offered_gpu_voices_are_measured_and_the_rest_are_named(
+def test_only_offered_on_demand_voices_are_measured_and_the_rest_are_named(
     monkeypatch: pytest.MonkeyPatch, offered: frozenset[VoiceId]
 ) -> None:
     monkeypatch.setattr(HEARING, "measure_peak", lambda *_: {})
