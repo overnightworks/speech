@@ -19,7 +19,6 @@ import os
 import shutil
 import signal
 import socket
-import statistics
 import subprocess
 import sys
 import tempfile
@@ -30,6 +29,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final
 from urllib.parse import urlsplit
 
+import speaking_figures as figures
+from hearing_client import Service, hear_file
+from hearing_figures import speech_only, to_wire_rate
 from proof_identity import (
     Minting,
     ProofIdentity,
@@ -42,27 +44,34 @@ from speech_client.wire import (
     SPEECH_PATH,
     VOICES,
     Health,
+    Language,
     ResponseFormat,
     VoiceId,
     speech_request_body,
     speech_request_headers,
 )
 from speech_service.config import load_settings
-from speech_service.pcm import BYTES_PER_SAMPLE, pcm_from_wav, rms
+from speech_service.pcm import pcm_from_wav
 from speech_service.voices import PIPER_VOICES, loads_at_start
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Mapping
+    from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
     from types import FrameType
     from typing import IO
 
     from speech_client.health import HealthOutcome
+    from speech_service.hearing_models import HearingModel
 
 SENTENCE = (
     "Die Kamera zeigt den Vortragenden, während im Hintergrund "
     "die nächste Folie automatisch vorbereitet wird."
 )
 SECOND = "Die nächste Folie bitte."
+ENGLISH_SENTENCE = (
+    "The camera shows the speaker, while in the background "
+    "the next slide is being prepared automatically."
+)
+SENTENCES: Final = {Language.DE: SENTENCE, Language.EN: ENGLISH_SENTENCE}
 THIS_SCRIPT = Path(__file__).resolve()
 SETPRIV = "setpriv"
 LOCK_PATH = Path("/tmp/probe-stack.lock")  # noqa: S108 - the one machine-wide probe lock must keep this exact path whatever TMPDIR says
@@ -82,14 +91,10 @@ FLOCK_COMMAND_UNAVAILABLE_STATUS = 69
 # server exits within the grace after the proof body ends.
 CAP_SECONDS = 1800
 KILL_GRACE_SECONDS = 30
-MEASURE_REPETITIONS = 5
 SPEAK_TIMEOUT_SECONDS = 120
 CONCURRENT_EXTRA_WAIT_SECONDS = 8.0
-type Speak = Callable[[str, VoiceId], tuple[bytes, float, float]]
 CONTRACT_MARKERS = ("contract_health", "contract_speak")
 LOGGER = logging.getLogger(__name__)
-SILENCE_RMS = 0.01
-MIN_SPEECH_SECONDS = 0.4
 LOAD_CEILING = 18.0
 READY_TIMEOUT_SECONDS = 300.0
 HEALTH_DEADLINE_SECONDS = 5.0
@@ -269,7 +274,9 @@ def speak_measured(
         connection.request(
             "POST",
             SPEECH_PATH,
-            speech_request_body(text, voice, ResponseFormat.WAV),
+            speech_request_body(
+                text, voice, ResponseFormat.WAV, VOICES[voice].languages[0]
+            ),
             speech_request_headers(
                 workload_token=pair.workload, person_token=pair.person
             ),
@@ -478,91 +485,20 @@ def _require_speaking(health: Health, voice: VoiceId) -> None:
         raise SystemExit(message)
 
 
-def _prove_one_speak(
-    speak: Speak,
-    text: str,
-    voice: VoiceId,
-    *,
-    limit: float,
-    label: str,
-) -> tuple[bytes, float, float]:
-    wav, ttfa, total = speak(text, voice)
-    rate, pcm = pcm_from_wav(wav)
-    duration = (len(pcm) / BYTES_PER_SAMPLE) / rate
-    rtf = duration / total if total else 0.0
-    print(
-        label,
-        f"first_byte_s={ttfa:.3f}",
-        f"total_s={total:.3f}",
-        f"limit_s={limit:.1f}",
-        f"duration_s={duration:.3f}",
-        f"rtf={rtf:.2f}",
-        f"rms={rms(pcm):.4f}",
-        f"rate={rate}",
-        f"bytes={len(wav)}",
-    )
-    if rms(pcm) < SILENCE_RMS:
-        message = f"{label} produced silence"
-        raise SystemExit(message)
-    if duration < 1.0:
-        message = f"{label} produced too little audio to be a sentence"
-        raise SystemExit(message)
-    if ttfa > limit:
-        message = f"{label} first byte {ttfa:.3f}s exceeded the {limit:.1f}s limit"
-        raise SystemExit(message)
-    return wav, ttfa, rtf
-
-
-def _prove_speak_medians(
-    speak: Speak,
-    text: str,
-    voice: VoiceId,
-    *,
-    limit: float,
-    label: str,
-) -> tuple[bytes, float, float]:
-    """Speak the same sentence MEASURE_REPETITIONS times; print and return medians."""
-    wavs: list[bytes] = []
-    ttfas: list[float] = []
-    rtfs: list[float] = []
-    for rep in range(1, MEASURE_REPETITIONS + 1):
-        wav, ttfa, rtf = _prove_one_speak(
-            speak,
-            text,
-            voice,
-            limit=limit,
-            label=f"{label}_rep{rep}",
-        )
-        wavs.append(wav)
-        ttfas.append(ttfa)
-        rtfs.append(rtf)
-    median_ttfa = statistics.median(ttfas)
-    median_rtf = statistics.median(rtfs)
-    print(
-        f"{label}_median",
-        f"first_byte_s={median_ttfa:.3f}",
-        f"rtf={median_rtf:.2f}",
-        f"limit_s={limit:.1f}",
-        f"n={MEASURE_REPETITIONS}",
-    )
-    return wavs[-1], median_ttfa, median_rtf
-
-
 def _prove_speak(base_url: str, voice: VoiceId, minting: Minting) -> bytes:
-    """Speak German MEASURE_REPETITIONS times.
+    """Speak German figures.MEASURE_REPETITIONS times.
 
-    `_prove_one_speak` fails the run the moment any single repetition misses
+    `prove_one_speak` fails the run the moment any single repetition misses
     the first-byte limit; a passing run is the proof that every
     repetition held, not just the median.
     """
-    german, _ttfa, _rtf = _prove_speak_medians(
+    return figures.prove_speak_medians(
         functools.partial(speak_measured, base_url, minting=minting),
         SENTENCE,
         voice,
         limit=PIPER_FIRST_BYTE_LIMIT_S,
         label="speak_wire_de",
-    )
-    return german
+    ).wav
 
 
 def _prove_concurrent_speak(base_url: str, voice: VoiceId, minting: Minting) -> None:
@@ -588,21 +524,21 @@ def _prove_concurrent_speak(base_url: str, voice: VoiceId, minting: Minting) -> 
     if set(results) != {"first", "second"}:
         message = f"concurrent speak missing a response: {sorted(results)}"
         raise SystemExit(message)
-    for key, (wav, ttfa, total) in results.items():
-        rate, pcm = pcm_from_wav(wav)
-        duration = (len(pcm) / BYTES_PER_SAMPLE) / rate
+    for key, answer in results.items():
+        spoken = figures.spoken_of(answer)
+        ttfa = spoken.first_audio_seconds
         print(
             f"speak_concurrent_{key}",
             f"first_byte_s={ttfa:.3f}",
-            f"total_s={total:.3f}",
-            f"duration_s={duration:.3f}",
-            f"rms={rms(pcm):.4f}",
-            f"rate={rate}",
+            f"total_s={spoken.total_seconds:.3f}",
+            f"duration_s={spoken.audio_seconds:.3f}",
+            f"rms={spoken.level:.4f}",
+            f"rate={spoken.rate}",
         )
-        if rms(pcm) < SILENCE_RMS:
+        if spoken.level < figures.SILENCE_RMS:
             message = f"concurrent {key} produced silence"
             raise SystemExit(message)
-        if duration < MIN_SPEECH_SECONDS:
+        if spoken.audio_seconds < figures.MIN_SPEECH_SECONDS:
             message = f"concurrent {key} produced too little audio"
             raise SystemExit(message)
         if ttfa > limit + CONCURRENT_EXTRA_WAIT_SECONDS:
@@ -615,6 +551,59 @@ def _prove_concurrent_speak(base_url: str, voice: VoiceId, minting: Minting) -> 
     if results["first"][0] == results["second"][0]:
         message = "concurrent speak returned identical bodies"
         raise SystemExit(message)
+
+
+def _prove_beside(
+    service: Service,
+    singles: Mapping[VoiceId, figures.VoiceFigures],
+    hearing_model: HearingModel | None,
+) -> tuple[dict[str, object], dict[str, object] | None]:
+    """Two voices at once, then the hearing of one recording while they speak."""
+    speak = functools.partial(speak_measured, service.base_url, minting=service.minting)
+    pair = figures.voice_pair(PIPER_VOICES)
+    together = figures.prove_two_voices(speak, pair, SENTENCES, singles)
+    if hearing_model is None:
+        print("hear_beside_speaking skipped: no hearing model named")
+        return together, None
+    if not service.running.health.hearing.ready:
+        message = f"hearing model {hearing_model.value} did not load"
+        raise SystemExit(message)
+    wav, _first, _total = speak(SENTENCE, PIPER_PROOF_VOICE)
+    rate, pcm = pcm_from_wav(wav)
+    recording = speech_only(to_wire_rate(pcm, rate))
+    hearing = figures.prove_hearing_beside_speaking(
+        functools.partial(hear_file, service, Language.DE, recording),
+        figures.speaking_tasks(speak, pair, SENTENCES),
+        SENTENCE,
+    )
+    return together, hearing
+
+
+def _prove_speaking(
+    service: Service,
+    voice: VoiceId,
+    hearing_model: HearingModel | None,
+    device: str,
+) -> None:
+    """Speak every Piper voice and the named one, then the steps that overlap them."""
+    singles = figures.prove_each_voice(
+        functools.partial(speak_measured, service.base_url, minting=service.minting),
+        PIPER_VOICES,
+        SENTENCES,
+        limit=PIPER_FIRST_BYTE_LIMIT_S,
+    )
+    german = (
+        singles[voice].wav
+        if voice in singles
+        else _prove_speak(service.base_url, voice, service.minting)
+    )
+    german_wav = Path(tempfile.mkdtemp(prefix="speech-proof-")) / "german.wav"
+    german_wav.write_bytes(german)
+    print("german_wav", german_wav)
+    _prove_concurrent_speak(service.base_url, voice, service.minting)
+    together, hearing = _prove_beside(service, singles, hearing_model)
+    record = figures.speaking_record(device, singles, together, hearing)
+    print("speaking_record", json.dumps(record, sort_keys=True))
 
 
 def contract_client_command(base_url: str, voice: str, minting_path: Path) -> list[str]:
@@ -664,6 +653,11 @@ def free_local_port() -> int:
         return probe.getsockname()[1]
 
 
+def offer_setting(offered: Collection[VoiceId]) -> str:
+    """The `SPEECH_VOICES` value that offers `offered`, in catalogue order."""
+    return ",".join(name.value for name in VoiceId if name in offered)
+
+
 def speech_environment(
     port: int,
     voice: VoiceId,
@@ -685,9 +679,7 @@ def speech_environment(
     env["SPEECH_DEVICE"] = device or os.environ.get("SPEECH_DEVICE", "cuda")
     if env["SPEECH_DEVICE"] == "cpu":
         env["CUDA_VISIBLE_DEVICES"] = ""
-    env["SPEECH_VOICES"] = ",".join(
-        offered.value for offered in VoiceId if offered in {PIPER_PROOF_VOICE, voice}
-    )
+    env["SPEECH_VOICES"] = offer_setting({PIPER_PROOF_VOICE, voice})
     if hearing_model is not None:
         env["SPEECH_HEARING_MODEL"] = hearing_model
     env["SPEECH_BUSY_WAIT_SECONDS"] = str(
@@ -713,11 +705,13 @@ def _prove() -> None:
     work_directory = Path(tempfile.mkdtemp(prefix="speech-"))
     port = free_local_port()
     base_url = f"http://{LOOPBACK_HOST}:{port}"
-    voice = proof_voice(load_settings().voices)
+    settings = load_settings()
+    voice = proof_voice(settings.voices)
     try:
         with proof_identity(work_directory) as identity:
             minting = load_minting(identity.minting_path)
             env = speech_environment(port, voice, identity)
+            env["SPEECH_VOICES"] = offer_setting({*PIPER_VOICES, voice})
             with speech_server(base_url, env, work_directory) as running:
                 print(
                     "health_ready",
@@ -729,16 +723,16 @@ def _prove() -> None:
                     _nvidia_compute_pids(),
                     f"speech_pid={running.process.pid}",
                 )
+                running.spoken_texts.append(ENGLISH_SENTENCE)
                 _require_speaking(running.health, voice)
                 print("gpu_resident", nvidia_memory())
                 print("piper_cache", PIPER_CACHE)
-                german = _prove_speak(base_url, voice, minting)
-                german_wav = (
-                    Path(tempfile.mkdtemp(prefix="speech-proof-")) / "german.wav"
+                _prove_speaking(
+                    Service(base_url, minting, running),
+                    voice,
+                    settings.hearing_model,
+                    env["SPEECH_DEVICE"],
                 )
-                german_wav.write_bytes(german)
-                print("german_wav", german_wav)
-                _prove_concurrent_speak(base_url, voice, minting)
                 _prove_contract(
                     base_url, env, voice, identity.minting_path, work_directory
                 )
