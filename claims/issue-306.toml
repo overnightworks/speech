@@ -1,8 +1,0 @@
-claim_id = "5c2bcc84caee48fa942a78e5d5487083"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "d9a24da55a79cfcc7d101393df8516f771e7aff0"
-branch = "claude/issue-306-personas-caller"
-scope = ["deploy/speech.toml", "docs/ARCHITECTURE.md", "docs/VISION.md", "tests/fixtures/image/compose.proof.yaml"]
-opened_commit = "30750d28ad21c0f5363cf40eb1d6bd9f099cdf37"
-whole_reason = "One entry and the three files that must name it in the same change: the proof fixture that models every baked app and two document sentences."
