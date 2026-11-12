@@ -48,7 +48,10 @@ def refusing_port() -> Iterator[int]:
         with connection:
             received = b""
             while b"\r\n\r\n" not in received:
-                received += connection.recv(4096)
+                chunk = connection.recv(4096)
+                if not chunk:
+                    return
+                received += chunk
             connection.sendall(
                 b"HTTP/1.1 401 Unauthorized\r\n"
                 b"Content-Length: "
@@ -76,12 +79,13 @@ def specification(port: int, body: bytes) -> dict[str, str]:
 
 
 def test_the_refusal_is_read_when_it_arrives_before_the_upload_ends(
-    refusing_port: int, monkeypatch: pytest.MonkeyPatch
+    refusing_port: int,
 ) -> None:
     caller = load_caller()
-    monkeypatch.setattr(caller, "TIMEOUT_SECONDS", _ANSWER_TIMEOUT_SECONDS)
 
-    answer = caller.reply(specification(refusing_port, bytes(_UPLOAD_BYTES)))
+    answer = caller.reply(
+        specification(refusing_port, bytes(_UPLOAD_BYTES)), _ANSWER_TIMEOUT_SECONDS
+    )
 
     assert answer["status"] == HTTPStatus.UNAUTHORIZED
     assert base64.b64decode(str(answer["body"])) == _REFUSAL

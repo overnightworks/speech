@@ -17,12 +17,14 @@ import urllib.parse
 TIMEOUT_SECONDS = 120
 
 
-def reply(specification: dict[str, str]) -> dict[str, object]:
+def reply(
+    specification: dict[str, str], timeout_seconds: float = TIMEOUT_SECONDS
+) -> dict[str, object]:
     """The status, headers and body answered, or the error that stopped the request."""
     url = urllib.parse.urlsplit(specification["url"])
     target = urllib.parse.urlunsplit(("", "", url.path or "/", url.query, ""))
     connection = http.client.HTTPConnection(
-        url.hostname, url.port, timeout=TIMEOUT_SECONDS
+        url.hostname, url.port, timeout=timeout_seconds
     )
     try:
         connection.connect()
