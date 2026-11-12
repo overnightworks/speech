@@ -85,11 +85,15 @@ async def _speak_then_fall_silent(browser: ClientConnection) -> None:
 
 async def _close_code(browser: ClientConnection) -> int:
     """The code the app closed the browser with; any message first fails the test."""
-    first_message = asyncio.wait_for(browser.recv(), WAIT_SECONDS)
-    with pytest.raises(ConnectionClosed) as closed:
-        await first_message
-    assert closed.value.rcvd is not None
-    return closed.value.rcvd.code
+    try:
+        await asyncio.wait_for(browser.recv(), WAIT_SECONDS)
+    except ConnectionClosed as closed:
+        close_frame = closed.rcvd
+    else:
+        message = "the app sent a message instead of closing the browser"
+        raise AssertionError(message)
+    assert close_frame is not None
+    return close_frame.code
 
 
 async def _service_takes_a_session(service_url: str) -> bool:
