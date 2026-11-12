@@ -15,7 +15,9 @@ from unittest.mock import Mock
 import pytest
 
 from speech_client.outcomes import Unreachable
-from speech_client.wire import Health
+from speech_client.wire import VOICES, Health, VoiceId
+from speech_service.config import Settings
+from speech_service.voices import PIPER_VOICES
 from tests.support.clock_support import FakeClock
 from tests.support.script_support import script_module
 
@@ -363,3 +365,20 @@ def test_a_child_whose_parent_is_not_its_starter_never_runs(
 
     assert child.wait(timeout=30) == 1
     assert not marker.exists()
+
+
+def test_every_piper_voice_has_a_proof_sentence_in_its_language() -> None:
+    assert all(VOICES[voice].languages[0] in PROVE.SENTENCES for voice in PIPER_VOICES)
+
+
+@pytest.mark.parametrize(
+    "offered",
+    [{*PIPER_VOICES}, {*PIPER_VOICES, VoiceId.RYAN}, {VoiceId.RYAN}],
+    ids=["the Piper voices", "with the GPU voice", "the GPU voice alone"],
+)
+def test_the_offer_the_proof_sets_is_the_offer_the_service_reads(
+    offered: set[VoiceId], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SPEECH_VOICES", PROVE.offer_setting(offered))
+
+    assert Settings().voices == offered
