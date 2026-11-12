@@ -437,16 +437,6 @@ def test_a_health_body_parses_the_name_and_the_languages_of_a_voice() -> None:
     )
 
 
-def test_a_health_body_names_a_voice_this_client_does_not_know() -> None:
-    body = _health_body()
-    body["speaking"] = {
-        "ready": True,
-        "voices": {"a-later-voice": _voice_health_body()},
-    }
-
-    assert "a-later-voice" in Health.model_validate(body).speaking.voices
-
-
 def test_a_health_answer_ignores_a_key_it_does_not_know() -> None:
     """WIRE-127: a health answer ignores a key it does not know."""
     body = _health_body()

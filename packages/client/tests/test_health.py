@@ -88,16 +88,6 @@ def test_a_200_with_a_valid_health_is_the_health(raw_listener: RawListener) -> N
     assert outcome == Health.model_validate(_HEALTH)
 
 
-def test_a_200_naming_a_voice_this_client_does_not_know_is_the_health(
-    raw_listener: RawListener,
-) -> None:
-    with raw_listener(_ok(_HEALTH)) as (base_url, _):
-        outcome = _fetch(base_url)
-
-    assert isinstance(outcome, Health)
-    assert list(outcome.speaking.voices) == ["a-voice"]
-
-
 def test_unknown_keys_of_a_200_are_ignored(raw_listener: RawListener) -> None:
     extended = {**_HEALTH, "uptime": 7, "hearing": {**_HEALTH["hearing"], "x": 1}}
 

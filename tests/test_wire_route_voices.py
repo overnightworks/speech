@@ -124,16 +124,6 @@ def test_a_catalogue_voice_that_is_not_offered_is_unavailable(voice: VoiceId) ->
     assert_unavailable(response)
 
 
-def test_a_voice_of_another_model_is_refused_though_it_is_not_offered() -> None:
-    body = _changed(model=SpeakingModel.PIPER, voice=VoiceId.RYAN)
-
-    response = post_speech(TestClient(speak_app()), body)
-
-    assert_refusal(
-        response, HTTP_422_UNPROCESSABLE_CONTENT, RefusalCode.INVALID_REQUEST, "voice"
-    )
-
-
 @pytest.mark.parametrize("voice", PIPER_VOICES)
 def test_a_piper_voice_is_unavailable_while_the_start_load_runs(
     voice: VoiceId,

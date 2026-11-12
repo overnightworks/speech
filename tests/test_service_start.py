@@ -11,7 +11,6 @@ from speech_client.wire import VoiceId
 from speech_service.clock import LoopClock
 from speech_service.hearing import Hearing
 from speech_service.service import Runtime, RuntimeDependencies, SpeakingEngine
-from speech_service.voices import loads_at_start
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.hear_support import FakeHearing
 from tests.support.speak_support import app_over, post_speech, speak_body
@@ -198,19 +197,22 @@ def test_a_voice_that_stops_being_ready_is_closed_once_and_not_replaced(
 
 
 class _RecordedSpeaking(_ClosableSpeaking):
-    """Speaking that writes its load and its close into the shared `events`."""
+    """Speaking of `voice` that writes its load and its close into `events`."""
 
-    def __init__(self, events: list[str], *, fail_close: bool = False) -> None:
+    def __init__(
+        self, events: list[str], voice: VoiceId, *, fail_close: bool = False
+    ) -> None:
         super().__init__(ready=False)
         self._events = events
+        self._voice = voice
         self._fail_close = fail_close
 
     def load(self) -> None:
         super().load()
-        self._events.append("speaking loaded")
+        self._events.append(f"{self._voice.value} loaded")
 
     def close(self) -> None:
-        self._events.append("speaking closed")
+        self._events.append(f"{self._voice.value} closed")
         if self._fail_close:
             raise OSError
 
@@ -244,21 +246,23 @@ def _offering(
     )
 
 
-@pytest.mark.parametrize(
-    "offer", [[VoiceId.THORSTEN], list(VoiceId)], ids=["one-voice", "whole-catalogue"]
-)
-def test_hearing_loads_after_every_start_voice_has_loaded(
-    offer: list[VoiceId],
-) -> None:
+def test_the_start_loads_the_piper_voices_in_catalogue_order_then_hearing() -> None:
     events: list[str] = []
     runtime = _offering(
-        dict.fromkeys(offer), events, lambda _voice: _RecordedSpeaking(events)
+        dict.fromkeys(reversed(VoiceId)),
+        events,
+        lambda voice: _RecordedSpeaking(events, voice),
     )
 
     runtime.load()
 
-    start_voices = [voice for voice in offer if loads_at_start(voice)]
-    assert events == ["speaking loaded"] * len(start_voices) + ["hearing loaded"]
+    assert events == [
+        "de_DE-thorsten-medium loaded",
+        "en_US-norman-medium loaded",
+        "en_US-ljspeech-medium loaded",
+        "en_GB-cori-medium loaded",
+        "hearing loaded",
+    ]
 
 
 def test_shutdown_during_the_start_load_leaves_later_voices_and_hearing_unloaded() -> (
@@ -277,7 +281,7 @@ def test_shutdown_during_the_start_load_leaves_later_voices_and_hearing_unloaded
 
     def build(voice: VoiceId) -> SpeakingEngine:
         built.append(voice)
-        return SlowSpeaking(events)
+        return SlowSpeaking(events, voice)
 
     runtime = _offering({VoiceId.THORSTEN: None, VoiceId.NORMAN: None}, events, build)
     starting = threading.Thread(target=runtime.load)
@@ -323,7 +327,7 @@ def test_shutdown_before_the_start_load_leaves_the_start_voice_unbuilt() -> None
 
     def build(voice: VoiceId) -> SpeakingEngine:
         built.append(voice)
-        return _RecordedSpeaking(events)
+        return _RecordedSpeaking(events, voice)
 
     runtime = _offering({VoiceId.THORSTEN: None}, events, build)
     runtime.begin_shutdown()
@@ -358,7 +362,11 @@ def test_a_runtime_without_a_start_voice_is_ready_once_started_until_shutdown() 
 def test_close_closes_hearing_after_the_slots_even_when_a_slot_fails_to_close() -> None:
     events: list[str] = []
     runtime = Runtime(
-        {VoiceId.THORSTEN: _RecordedSpeaking(events, fail_close=True)},
+        {
+            VoiceId.THORSTEN: _RecordedSpeaking(
+                events, VoiceId.THORSTEN, fail_close=True
+            )
+        },
         memory_probe=lambda: 0,
         hearing=Hearing(_RecordedHearing(events), LoopClock()),
     )
@@ -366,4 +374,4 @@ def test_close_closes_hearing_after_the_slots_even_when_a_slot_fails_to_close() 
     with pytest.raises(RuntimeError, match="cleanup failed"):
         runtime.close()
 
-    assert events == ["speaking closed", "hearing closed"]
+    assert events == [f"{VoiceId.THORSTEN.value} closed", "hearing closed"]
