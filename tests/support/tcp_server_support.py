@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import uvicorn
+from websockets.exceptions import ConnectionClosed
 
 from speech_service.config import Settings
 from speech_service.control import create_control_app
@@ -20,11 +21,13 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from starlette.types import ASGIApp, Message, Receive, Scope, Send
+    from websockets.asyncio.client import ClientConnection
 
     from speech_service.callers import SpeechCallers
     from speech_service.service import Runtime
 
 _LOOPBACK = "127.0.0.1"
+CLOSE_WAIT_SECONDS = 10
 
 
 def free_loopback_port() -> int:
@@ -85,6 +88,19 @@ async def serving_asgi(app: ASGIApp) -> AsyncIterator[str]:
         finally:
             server.should_exit = True
             await asyncio.wait_for(serving, timeout=GATE_TIMEOUT_SECONDS)
+
+
+async def close_code(browser: ClientConnection) -> int:
+    """The code the app closed the browser with; any message first fails the test."""
+    try:
+        await asyncio.wait_for(browser.recv(), CLOSE_WAIT_SECONDS)
+    except ConnectionClosed as closed:
+        close_frame = closed.rcvd
+    else:
+        message = "the app sent a message instead of closing the browser"
+        raise AssertionError(message)
+    assert close_frame is not None
+    return close_frame.code
 
 
 @asynccontextmanager
