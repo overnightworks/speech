@@ -7,10 +7,13 @@ import contextlib
 import functools
 import logging
 from dataclasses import dataclass, field
+from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 import pytest
 from websockets.asyncio.server import serve
+from websockets.datastructures import Headers
+from websockets.http11 import Response
 
 from packages.client.tests.support.hearing_support import (
     HEARD_TEXT,
@@ -61,6 +64,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 
     from websockets.asyncio.server import ServerConnection
+    from websockets.http11 import Request
 
     from speech_client.utterances import UtteranceOutcome
     from speech_client.wire import ServerEvent
@@ -200,14 +204,13 @@ async def _service_saying(
 
 
 @contextlib.asynccontextmanager
-async def _service_answering(answer: bytes) -> AsyncIterator[int]:
-    async def peer(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        await reader.readuntil(b"\r\n\r\n")
-        writer.write(answer)
-        await writer.drain()
-        writer.close()
+async def _service_refusing(
+    status: HTTPStatus, *headers: tuple[str, str]
+) -> AsyncIterator[int]:
+    def refuse(_: ServerConnection, __: Request) -> Response:
+        return Response(status.value, status.phrase, Headers(headers), b"")
 
-    async with await asyncio.start_server(peer, LOOPBACK, 0) as server:
+    async with serve(_says(), LOOPBACK, 0, process_request=refuse) as server:
         yield server.sockets[0].getsockname()[1]
 
 
@@ -215,11 +218,6 @@ async def _service_answering(answer: bytes) -> AsyncIterator[int]:
 async def _service_not_answering() -> AsyncIterator[int]:
     async with await asyncio.start_server(silent_peer, LOOPBACK, 0) as server:
         yield server.sockets[0].getsockname()[1]
-
-
-def _http_answer(status_line: str, *headers: str) -> bytes:
-    head = [status_line, *headers, "Content-Length: 0", "Connection: close"]
-    return ("\r\n".join(head) + "\r\n\r\n").encode()
 
 
 async def _hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
@@ -475,9 +473,7 @@ def test_a_failure_of_the_apps_callback_is_raised_unchanged(
     [
         pytest.param(_hearing(), (), _Bounds(), Closed(), HopClose.NORMAL, id="closed"),
         pytest.param(
-            functools.partial(
-                _service_answering, _http_answer("HTTP/1.1 403 Forbidden")
-            ),
+            functools.partial(_service_refusing, HTTPStatus.FORBIDDEN),
             (),
             _Bounds(),
             Refused(403, None),
@@ -486,8 +482,7 @@ def test_a_failure_of_the_apps_callback_is_raised_unchanged(
         ),
         pytest.param(
             functools.partial(
-                _service_answering,
-                _http_answer("HTTP/1.1 429 Too Many Requests", "Retry-After: 7"),
+                _service_refusing, HTTPStatus.TOO_MANY_REQUESTS, ("Retry-After", "7")
             ),
             (),
             _Bounds(),

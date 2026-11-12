@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import struct
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -10,18 +11,16 @@ from typing import TYPE_CHECKING
 import pytest
 from fastapi import FastAPI, WebSocket
 from websockets.asyncio.client import connect
+from websockets.exceptions import ConnectionClosed
 
+from speech_client.hearing import HearingSession
 from speech_client.relay import HOP_FRAME_BYTES, AppEnded, HopClose, RuleBroken
 from speech_client.utterances import Utterance, hear_utterances
-from speech_client.wire import Language
+from speech_client.wire import Language, SessionCreated
 from tests.support.hear_support import FakeHearing, hear_runtime
+from tests.support.identity_support import valid_pair
+from tests.support.live_support import INPUT_RATE, SPEECH_LEVEL
 from tests.support.tcp_server_support import serving_asgi, serving_over_tcp
-from tests.test_wire_route_client_relay import (
-    _a_new_session_opens,
-    _close_code,
-    _tokens,
-    _tone,
-)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -54,7 +53,7 @@ def _app_host(service_url: str, hop: _Hop) -> FastAPI:
     @host.websocket("/hear")
     async def hear(browser: WebSocket) -> None:
         await browser.accept()
-        workload_token, person_token = _tokens()
+        pair = valid_pair()
 
         async def take(utterance: Utterance) -> None:
             hop.utterances.append(utterance)
@@ -64,8 +63,8 @@ def _app_host(service_url: str, hop: _Hop) -> FastAPI:
             await hear_utterances(
                 browser,
                 service_url,
-                workload_token=workload_token,
-                person_token=person_token,
+                workload_token=pair.workload,
+                person_token=pair.person,
                 languages=tuple(Language),
                 deadline_seconds=WAIT_SECONDS,
                 held_limit_bytes=HELD_LIMIT_BYTES,
@@ -79,9 +78,32 @@ def _app_host(service_url: str, hop: _Hop) -> FastAPI:
 
 async def _speak_then_fall_silent(browser: ClientConnection) -> None:
     """Send half a second of speech and a second of silence in hop frames."""
-    audio = _tone(0.5) + _tone(1.0, level=0)
+    audio = struct.pack("<h", SPEECH_LEVEL) * (INPUT_RATE // 2) + bytes(INPUT_RATE * 2)
     for start in range(0, len(audio), HOP_FRAME_BYTES):
         await browser.send(audio[start : start + HOP_FRAME_BYTES])
+
+
+async def _close_code(browser: ClientConnection) -> int:
+    """The code the app closed the browser with; any message first fails the test."""
+    with pytest.raises(ConnectionClosed) as closed:
+        await asyncio.wait_for(browser.recv(), WAIT_SECONDS)
+    assert closed.value.rcvd is not None
+    return closed.value.rcvd.code
+
+
+async def _service_takes_a_session(service_url: str) -> bool:
+    """Whether the service's one place is free: a new session is opened."""
+    pair = valid_pair()
+    async with HearingSession(
+        service_url,
+        workload_token=pair.workload,
+        person_token=pair.person,
+        languages=(Language.EN,),
+        deadline_seconds=WAIT_SECONDS,
+        held_limit_bytes=1,
+    ) as session:
+        first = await asyncio.wait_for(anext(session.events()), WAIT_SECONDS)
+    return isinstance(first, SessionCreated)
 
 
 @asynccontextmanager
@@ -134,11 +156,11 @@ def test_the_apps_end_signal_ends_the_hearing_and_frees_the_service() -> None:
     async def scenario() -> tuple[list[Utterance], UtteranceOutcome, int, bool]:
         async with _browser_at_service(FakeHearing()) as (hop, url, service_url):
             async with connect(url) as browser:
-                await browser.send(_tone(0.1))
+                await browser.send(bytes(HOP_FRAME_BYTES))
                 hop.ended.set()
                 outcome = await asyncio.wait_for(hop.outcome, END_BOUND_SECONDS)
                 code = await asyncio.wait_for(_close_code(browser), END_BOUND_SECONDS)
-            freed = await _a_new_session_opens(service_url)
+            freed = await _service_takes_a_session(service_url)
             return hop.utterances, outcome, code, freed
 
     utterances, outcome, code, freed = asyncio.run(scenario())

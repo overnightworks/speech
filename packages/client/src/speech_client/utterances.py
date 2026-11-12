@@ -95,6 +95,41 @@ class _Items:
         return self.started.pop(item_id, None), self.stopped.pop(item_id, None)
 
 
+@dataclass(slots=True)
+class _Mapping:
+    """Turns the service's events into what the app's callbacks take."""
+
+    on_utterance: Callable[[Utterance], Awaitable[None]]
+    on_partial: Callable[[Partial], Awaitable[None]] | None
+    items: _Items = field(default_factory=_Items)
+
+    async def on_event(self, event: ServerEvent) -> None:
+        match event:
+            case SpeechStarted():
+                self.items.started[event.item_id] = event.audio_start_ms
+            case SpeechStopped():
+                self.items.stopped[event.item_id] = event.audio_end_ms
+            case TranscriptDelta() if self.on_partial is not None:
+                text = self.items.text.get(event.item_id, "") + event.delta
+                self.items.text[event.item_id] = text
+                await self.on_partial(Partial(text))
+            case TranscriptCompleted():
+                start, end = self.items.finish(event.item_id)
+                if event.transcript:
+                    await self.on_utterance(
+                        Utterance(
+                            event.transcript,
+                            event.languages[0].code,
+                            audio_start_ms=start,
+                            audio_end_ms=end,
+                        )
+                    )
+            case TranscriptFailed() | ErrorEvent():
+                raise _ServiceFailedError(event.error.code)
+            case _:
+                return
+
+
 async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
     browser: BrowserSocket,
     origin: str,
@@ -119,40 +154,12 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
         held_limit_bytes=held_limit_bytes,
         opening_seconds=opening_seconds,
     )
-    items = _Items()
-
-    async def on_event(event: ServerEvent) -> None:
-        match event:
-            case SpeechStarted():
-                items.started[event.item_id] = event.audio_start_ms
-            case SpeechStopped():
-                items.stopped[event.item_id] = event.audio_end_ms
-            case TranscriptDelta() if on_partial is not None:
-                text = items.text.get(event.item_id, "") + event.delta
-                items.text[event.item_id] = text
-                await on_partial(Partial(text))
-            case TranscriptCompleted():
-                start, end = items.finish(event.item_id)
-                if event.transcript:
-                    await on_utterance(
-                        Utterance(
-                            event.transcript,
-                            event.languages[0].code,
-                            audio_start_ms=start,
-                            audio_end_ms=end,
-                        )
-                    )
-            case TranscriptFailed() | ErrorEvent():
-                raise _ServiceFailedError(event.error.code)
-            case _:
-                return
-
     try:
         return await relay(
             browser,
             session,
             app_ended=ended,
-            on_event=on_event,
+            on_event=_Mapping(on_utterance, on_partial).on_event,
             frame_limit_bytes=HOP_FRAME_BYTES,
         )
     except _ServiceFailedError as failure:
