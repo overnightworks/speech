@@ -13,6 +13,7 @@ from speech_client.wire import (
     MODEL,
     REFUSAL_STATUS,
     RETRY_AFTER_HEADER,
+    VOICES,
     WORKLOAD_TOKEN_HEADER,
     AudioAppend,
     AudioCommit,
@@ -25,6 +26,7 @@ from speech_client.wire import (
     ItemCreated,
     Language,
     RefusalCode,
+    ResponseFormat,
     RetryAfterError,
     ServerEvent,
     ServerEventError,
@@ -32,6 +34,8 @@ from speech_client.wire import (
     SessionUpdate,
     SessionUpdated,
     SpeakingHealth,
+    SpeakingModel,
+    SpeechRequest,
     SpeechStarted,
     SpeechStopped,
     TranscriptCompleted,
@@ -41,12 +45,14 @@ from speech_client.wire import (
     TranscriptionSession,
     TranscriptLanguage,
     VoiceHealth,
+    VoiceId,
     busy_wait,
     error_event,
     item_failure,
     parse_client_event,
     parse_server_event,
     refusal,
+    speech_request_body,
     speech_request_headers,
     token_headers,
 )
@@ -395,12 +401,19 @@ SAMPLE_RATE = 22050
 CARD_MEMORY_MB = 7
 
 
+def _voice_health_body() -> dict[str, object]:
+    return {
+        "model": SpeakingModel.PIPER.value,
+        "name": "A name",
+        "languages": [Language.DE.value],
+        "ready": True,
+        "sample_rate": SAMPLE_RATE,
+    }
+
+
 def _health_body() -> dict[str, object]:
     return {
-        "speaking": {
-            "ready": True,
-            "voices": {"v": {"model": "m", "ready": True, "sample_rate": SAMPLE_RATE}},
-        },
+        "speaking": {"ready": True, "voices": {"v": _voice_health_body()}},
         "hearing": {"model": "h", "ready": False},
         "card_memory_mb": CARD_MEMORY_MB,
     }
@@ -412,6 +425,16 @@ def test_a_health_body_parses_into_the_typed_answer() -> None:
     assert health.speaking.voices["v"].sample_rate == SAMPLE_RATE
     assert health.hearing.ready is False
     assert health.card_memory_mb == CARD_MEMORY_MB
+
+
+def test_a_health_body_parses_the_name_and_the_languages_of_a_voice() -> None:
+    voice = Health.model_validate(_health_body()).speaking.voices["v"]
+
+    assert (voice.model, voice.name, voice.languages) == (
+        SpeakingModel.PIPER,
+        "A name",
+        (Language.DE,),
+    )
 
 
 def test_a_health_answer_ignores_a_key_it_does_not_know() -> None:
@@ -463,7 +486,15 @@ def test_a_health_body_built_through_the_models_still_parses() -> None:
     built = Health(
         speaking=SpeakingHealth(
             ready=True,
-            voices={"v": VoiceHealth(model="m", ready=True, sample_rate=SAMPLE_RATE)},
+            voices={
+                "v": VoiceHealth(
+                    model=SpeakingModel.PIPER,
+                    name="A name",
+                    languages=(Language.DE,),
+                    ready=True,
+                    sample_rate=SAMPLE_RATE,
+                )
+            },
         ),
         hearing=HearingHealth(model="h", ready=False),
         card_memory_mb=CARD_MEMORY_MB,
@@ -638,3 +669,87 @@ def test_a_refused_server_event_leaks_none_of_its_content() -> None:
     assert error.__context__ is None
     assert words not in str(error)
     assert words not in "".join(traceback.format_exception(error))
+
+
+def test_the_catalogue_covers_every_voice() -> None:
+    assert set(VOICES) == set(VoiceId)
+
+
+@pytest.mark.parametrize("voice", list(VoiceId))
+def test_a_request_pairs_each_voice_with_its_model(voice: VoiceId) -> None:
+    body = speech_request_body("Hallo", voice, ResponseFormat.WAV)
+
+    request = SpeechRequest.model_validate_json(body)
+
+    assert (request.model, request.voice) == (VOICES[voice].model, voice)
+
+
+@pytest.mark.parametrize(
+    ("voice", "model"),
+    [(v, m) for v in VoiceId for m in SpeakingModel if m is not VOICES[v].model],
+)
+def test_a_request_pairing_a_voice_with_another_model_is_refused_on_voice(
+    voice: VoiceId, model: SpeakingModel
+) -> None:
+    with pytest.raises(ValidationError) as refused:
+        SpeechRequest(
+            model=model, input="Hallo", voice=voice, response_format=ResponseFormat.WAV
+        )
+
+    assert [error["loc"] for error in refused.value.errors()] == [("voice",)]
+
+
+@pytest.mark.parametrize("model", ["speech", "tts-1", ""])
+def test_a_request_naming_another_model_is_refused_on_model(model: str) -> None:
+    body = json.dumps(
+        {
+            "model": model,
+            "input": "Hallo",
+            "voice": next(iter(VOICES)),
+            "response_format": "wav",
+        }
+    )
+
+    with pytest.raises(ValidationError) as refused:
+        SpeechRequest.model_validate_json(body)
+
+    assert [error["loc"] for error in refused.value.errors()] == [("model",)]
+
+
+@pytest.mark.parametrize("voice", ["piper", "qwen3-tts-0.6b", "alloy", "", {"id": "x"}])
+def test_a_request_naming_a_voice_outside_the_catalogue_is_refused_on_voice(
+    voice: object,
+) -> None:
+    body = json.dumps(
+        {
+            "model": SpeakingModel.PIPER,
+            "input": "Hallo",
+            "voice": voice,
+            "response_format": "wav",
+        }
+    )
+
+    with pytest.raises(ValidationError) as refused:
+        SpeechRequest.model_validate_json(body)
+
+    assert [error["loc"] for error in refused.value.errors()] == [("voice",)]
+
+
+@pytest.mark.parametrize(
+    ("voice", "language"),
+    [
+        (VoiceId.THORSTEN, Language.DE),
+        (VoiceId.NORMAN, Language.EN),
+        (VoiceId.LJSPEECH, Language.EN),
+        (VoiceId.CORI, Language.EN),
+        (VoiceId.RYAN, Language.DE),
+    ],
+)
+def test_a_request_speaks_the_first_language_of_its_voice(
+    voice: VoiceId, language: Language
+) -> None:
+    request = SpeechRequest.model_validate_json(
+        speech_request_body("Hallo", voice, ResponseFormat.WAV)
+    )
+
+    assert request.spoken_language is language

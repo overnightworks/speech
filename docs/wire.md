@@ -33,15 +33,15 @@ it with `Unreachable`.
 
 | ID | Field | Accepted value |
 |---|---|---|
-| WIRE-05 | `model` | `speech`. Any other value is refused, so a request naming another model is never answered by this one. |
+| WIRE-05 | `model` | `piper` or `qwen3-tts-0.6b`, the engine of `voice`. Any other value is refused, so a request naming another model is never answered by this one. |
 | WIRE-06 | `input` | Text with at least one letter or digit, at most `SPEECH_MAX_INPUT_CHARACTERS` characters (default 4096; the operator may raise it above OpenAI's 4096). |
-| WIRE-07 | `voice` | The id of an offered voice: `piper`, always offered, or `qwen3-tts-0.6b` when `SPEECH_GPU_VOICES` names it. |
+| WIRE-07 | `voice` | A catalogue voice of `model` as a string: `de_DE-thorsten-medium`, `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` under `piper`; `ryan` under `qwen3-tts-0.6b`. `speaking.voices` in health lists those offered. OpenAI's object form is refused. |
 | WIRE-09 | `voice` | A GPU voice that is not loaded yet loads for this request, which waits for the load. |
 | WIRE-10 | `response_format` | `wav` or `opus`. OpenAI defaults an absent field to `mp3`, so it is required here. |
 
-The service speaks German only. **WIRE-11** There is no `language` field, and any field
-not listed here (`speed`, `instructions`, `stream_format`, `language`, ...) is
-refused.
+**WIRE-11** Each voice speaks its language; `ryan` speaks German until a request can name
+the language. There is no `language` field, and any field not listed here (`speed`,
+`instructions`, `stream_format`, `language`, ...) is refused.
 
 ## Headers
 
@@ -66,8 +66,10 @@ person's token above.
 
 **WIRE-16** The service checks the headers before it reads the body, and **WIRE-17** the wait of
 `busy` starts only after the tokens are accepted, or, for a request that
-waited for its voice to load, when that load ends. **WIRE-19** An unknown voice is
-`invalid_request` with `param` `voice`. **WIRE-20** Calls an app makes as itself,
+waited for its voice to load, when that load ends. **WIRE-19** An unknown voice, or a voice of another model, is
+`invalid_request` with `param` `voice`; a catalogue voice that is not offered is
+`unavailable` (WIRE-103). **WIRE-137** An unknown model is `invalid_request` with
+`param` `model`; `speech` names hearing's model and is refused here. **WIRE-20** Calls an app makes as itself,
 without a person, are not offered in version 1.
 
 ## Admission
@@ -278,8 +280,10 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
 
 ## Settings that shape the wire
 
-- **WIRE-107** `SPEECH_GPU_VOICES` (voice ids separated by commas, none when absent): the
-  GPU voices offered beside Piper.
+- **WIRE-107** `SPEECH_VOICES` (catalogue voice ids separated by commas; every Piper voice
+  when absent, none when set empty): the voices offered. A Piper voice loads at start, a
+  GPU voice on its first request (WIRE-09). An unknown or repeated id, or a named Piper
+  voice whose files are missing or fail to load, ends the start.
 - **WIRE-108** `SPEECH_BUSY_WAIT_SECONDS` (default `5.0`, at least 0): how long a request
   waits for its voice's synthesis before `busy`.
 - **WIRE-109** `SPEECH_MAX_WAITING_REQUESTS` (default `3`, at least 0, where 0 allows no
@@ -313,12 +317,16 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
 ## Health
 
 **WIRE-122** `GET /health` answers without a token, so a supervisor can poll it:
-`{"speaking": {"ready", "voices": {"<id>": {"model", "ready", "sample_rate"}}}, "hearing": {"model", "ready"}, "card_memory_mb"}`.
+`{"speaking": {"ready", "voices": {"<voice id>": {"model", "name", "languages", "ready", "sample_rate"}}}, "hearing": {"model", "ready"}, "card_memory_mb"}`.
 **WIRE-123** It answers while the models are still loading, with `ready` false.
-**WIRE-124** `speaking.ready` is the speaking service's own readiness: whether Piper can
-speak. **WIRE-125** `speaking.voices` lists the offered voices by id; a voice reports its
-catalogue `model` whether it is loaded or not, and its WAV `sample_rate` (Piper's
-0 until it is loaded). **WIRE-126** A voice's `ready` is true exactly when a request for it
+**WIRE-124** `speaking.ready` is the speaking service's own readiness: the start load has
+ended, shutdown has not begun, and every offered Piper voice can speak. With no Piper
+voice offered, it is true once the start load ends. **WIRE-125** `speaking.voices` lists
+the offered voices by id. Each reports, loaded or not, its `model` (the request's
+`model`), its `name`, its `languages` (the codes it speaks) and its WAV `sample_rate` (a
+Piper voice's is 0 until it is loaded). A client reads each id as a string, so a voice id it
+does not know, under a model and in languages it knows, does not break its reading of
+health. **WIRE-126** A voice's `ready` is true exactly when a request for it
 would be spoken now: never during the start load or once shutdown began, and
 never for a GPU voice that is not loaded, failed, or whose worker died.
 **WIRE-127** The service builds the answer through `Health` in `speech_client.wire`,

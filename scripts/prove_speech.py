@@ -27,7 +27,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 from urllib.parse import urlsplit
 
 from proof_identity import (
@@ -40,14 +40,16 @@ from proof_identity import (
 from speech_client.health import fetch_health
 from speech_client.wire import (
     SPEECH_PATH,
+    VOICES,
     Health,
     ResponseFormat,
+    VoiceId,
     speech_request_body,
     speech_request_headers,
 )
 from speech_service.config import load_settings
 from speech_service.pcm import BYTES_PER_SAMPLE, pcm_from_wav, rms
-from speech_service.voices import RESIDENT_VOICE, VoiceId, model_for_voice
+from speech_service.voices import PIPER_VOICES, loads_at_start
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -75,15 +77,15 @@ FLOCK_COMMAND_UNAVAILABLE_STATUS = 69
 # up to 5 s, so 15 s at worst, with the providers stopped through the server.
 # The hearing proof adds the card holder it stops after its server: up to 10 s
 # more, so 25 s at worst.
-# The proof speaks the GPU voice SPEECH_GPU_VOICES names, else Piper. A CPU
-# Piper run needs only a small fraction of the cap, and the
+# The proof speaks the GPU voice SPEECH_VOICES names, else the first Piper voice.
+# A CPU Piper run needs only a small fraction of the cap, and the
 # server exits within the grace after the proof body ends.
 CAP_SECONDS = 1800
 KILL_GRACE_SECONDS = 30
 MEASURE_REPETITIONS = 5
 SPEAK_TIMEOUT_SECONDS = 120
 CONCURRENT_EXTRA_WAIT_SECONDS = 8.0
-type Speak = Callable[[str, str], tuple[bytes, float, float]]
+type Speak = Callable[[str, VoiceId], tuple[bytes, float, float]]
 CONTRACT_MARKERS = ("contract_health", "contract_speak")
 LOGGER = logging.getLogger(__name__)
 SILENCE_RMS = 0.01
@@ -93,6 +95,7 @@ READY_TIMEOUT_SECONDS = 300.0
 HEALTH_DEADLINE_SECONDS = 5.0
 HEALTH_CAP_BYTES = 64 * 1024
 PIPER_FIRST_BYTE_LIMIT_S = 0.5
+PIPER_PROOF_VOICE: Final = PIPER_VOICES[0]
 PIPER_CACHE = Path.home() / ".cache" / "piper"
 LOOPBACK_HOST = "127.0.0.1"
 PROVIDER_ROOT = Path(__file__).resolve().parents[1] / "providers"
@@ -247,7 +250,7 @@ def wait_for_speaking_ready(
 def speak_measured(
     base_url: str,
     text: str,
-    voice: str,
+    voice: VoiceId,
     minting: Minting,
 ) -> tuple[bytes, float, float]:
     """Speak one request; return the whole WAV, time to first audio and total time.
@@ -290,9 +293,12 @@ def speak_measured(
     return body, first_byte_at - start, end - start
 
 
-def proof_voice(gpu_voices: frozenset[VoiceId]) -> VoiceId:
-    """The voice a proof speaks: the GPU voice the offer names, else Piper."""
-    return min(gpu_voices, default=RESIDENT_VOICE)
+def proof_voice(offered: frozenset[VoiceId]) -> VoiceId:
+    """The voice a proof speaks: the GPU voice the offer names, else a Piper voice."""
+    return min(
+        (voice for voice in offered if not loads_at_start(voice)),
+        default=PIPER_PROOF_VOICE,
+    )
 
 
 def query_nvidia(*arguments: str) -> str:
@@ -467,7 +473,7 @@ def _require_log_without_text(log: str, texts: Iterable[str]) -> None:
 
 def _require_speaking(health: Health, voice: VoiceId) -> None:
     offered = health.speaking.voices.get(voice.value)
-    if offered is None or offered.model != model_for_voice(voice):
+    if offered is None or offered.model is not VOICES[voice].model:
         message = f"speaking.voices does not offer {voice.value!r}: {health.speaking!r}"
         raise SystemExit(message)
 
@@ -475,7 +481,7 @@ def _require_speaking(health: Health, voice: VoiceId) -> None:
 def _prove_one_speak(
     speak: Speak,
     text: str,
-    voice: str,
+    voice: VoiceId,
     *,
     limit: float,
     label: str,
@@ -510,7 +516,7 @@ def _prove_one_speak(
 def _prove_speak_medians(
     speak: Speak,
     text: str,
-    voice: str,
+    voice: VoiceId,
     *,
     limit: float,
     label: str,
@@ -552,7 +558,7 @@ def _prove_speak(base_url: str, voice: VoiceId, minting: Minting) -> bytes:
     german, _ttfa, _rtf = _prove_speak_medians(
         functools.partial(speak_measured, base_url, minting=minting),
         SENTENCE,
-        voice.value,
+        voice,
         limit=PIPER_FIRST_BYTE_LIMIT_S,
         label="speak_wire_de",
     )
@@ -566,7 +572,7 @@ def _prove_concurrent_speak(base_url: str, voice: VoiceId, minting: Minting) -> 
 
     def run(key: str, text: str) -> None:
         try:
-            results[key] = speak_measured(base_url, text, voice.value, minting)
+            results[key] = speak_measured(base_url, text, voice, minting)
         except Exception as error:
             LOGGER.exception("concurrent speak %s failed", key)
             errors.append(f"{key}: {error}")
@@ -679,7 +685,9 @@ def speech_environment(
     env["SPEECH_DEVICE"] = device or os.environ.get("SPEECH_DEVICE", "cuda")
     if env["SPEECH_DEVICE"] == "cpu":
         env["CUDA_VISIBLE_DEVICES"] = ""
-    env["SPEECH_GPU_VOICES"] = "" if voice is RESIDENT_VOICE else voice.value
+    env["SPEECH_VOICES"] = ",".join(
+        offered.value for offered in VoiceId if offered in {PIPER_PROOF_VOICE, voice}
+    )
     if hearing_model is not None:
         env["SPEECH_HEARING_MODEL"] = hearing_model
     env["SPEECH_BUSY_WAIT_SECONDS"] = str(
@@ -705,7 +713,7 @@ def _prove() -> None:
     work_directory = Path(tempfile.mkdtemp(prefix="speech-"))
     port = free_local_port()
     base_url = f"http://{LOOPBACK_HOST}:{port}"
-    voice = proof_voice(load_settings().gpu_voices)
+    voice = proof_voice(load_settings().voices)
     try:
         with proof_identity(work_directory) as identity:
             minting = load_minting(identity.minting_path)

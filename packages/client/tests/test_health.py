@@ -22,6 +22,8 @@ from speech_client.wire import (
     HEALTH_PATH,
     WORKLOAD_TOKEN_HEADER,
     Health,
+    Language,
+    SpeakingModel,
 )
 
 if TYPE_CHECKING:
@@ -39,7 +41,15 @@ CAP_BYTES = 64 * 1024
 _HEALTH = {
     "speaking": {
         "ready": True,
-        "voices": {"piper": {"model": "piper-de", "ready": True, "sample_rate": 22050}},
+        "voices": {
+            "voice-id-unknown-to-this-client": {
+                "model": SpeakingModel.PIPER.value,
+                "name": "A name",
+                "languages": [Language.DE.value],
+                "ready": True,
+                "sample_rate": 22050,
+            }
+        },
     },
     "hearing": {"model": "whisper", "ready": False},
     "card_memory_mb": 4096,
@@ -71,7 +81,9 @@ def _ok(document: object) -> bytes:
     return _response("200 OK", json.dumps(document).encode())
 
 
-def test_a_200_with_a_valid_health_is_the_health(raw_listener: RawListener) -> None:
+def test_a_200_health_with_a_voice_id_unknown_to_this_client_is_the_health(
+    raw_listener: RawListener,
+) -> None:
     with raw_listener(_ok(_HEALTH)) as (base_url, _):
         outcome = _fetch(base_url)
 

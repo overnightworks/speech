@@ -5,13 +5,13 @@ from __future__ import annotations
 import hashlib
 import tempfile
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from huggingface_hub import hf_hub_download
 
-from speech_service.voices import DEFAULT_SPEAKING_MODEL, piper_voice_paths
+from speech_client.wire import VoiceId
+from speech_service.voices import piper_voice_paths
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -19,15 +19,6 @@ if TYPE_CHECKING:
 _CHUNK_BYTES = 1 << 20
 _REPOSITORY = "rhasspy/piper-voices"
 _REVISION = "b4e358ffcb232591bf73a540e70f7de528e4174a"
-
-
-class PinnedVoice(StrEnum):
-    """The closed catalogue of Piper voices: the default and the English ones."""
-
-    THORSTEN = DEFAULT_SPEAKING_MODEL
-    NORMAN = "en_US-norman-medium"
-    LJSPEECH = "en_US-ljspeech-medium"
-    CORI = "en_GB-cori-medium"
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,8 +39,8 @@ class VoicePin:
     metadata: PinnedFile
 
 
-PINS: dict[PinnedVoice, VoicePin] = {
-    PinnedVoice.THORSTEN: VoicePin(
+PINS: dict[VoiceId, VoicePin] = {
+    VoiceId.THORSTEN: VoicePin(
         _REPOSITORY,
         _REVISION,
         PinnedFile(
@@ -63,7 +54,7 @@ PINS: dict[PinnedVoice, VoicePin] = {
     ),
     # Licence: "public domain" on the model card at the pinned revision
     # (en/en_US/norman/medium/MODEL_CARD); dataset LibriVox.
-    PinnedVoice.NORMAN: VoicePin(
+    VoiceId.NORMAN: VoicePin(
         _REPOSITORY,
         _REVISION,
         PinnedFile(
@@ -77,7 +68,7 @@ PINS: dict[PinnedVoice, VoicePin] = {
     ),
     # Licence: "public domain" on the model card at the pinned revision
     # (en/en_US/ljspeech/medium/MODEL_CARD); dataset LJ Speech.
-    PinnedVoice.LJSPEECH: VoicePin(
+    VoiceId.LJSPEECH: VoicePin(
         _REPOSITORY,
         _REVISION,
         PinnedFile(
@@ -91,7 +82,7 @@ PINS: dict[PinnedVoice, VoicePin] = {
     ),
     # Licence: "public domain" on the model card at the pinned revision
     # (en/en_GB/cori/medium/MODEL_CARD); dataset LibriVox.
-    PinnedVoice.CORI: VoicePin(
+    VoiceId.CORI: VoicePin(
         _REPOSITORY,
         _REVISION,
         PinnedFile(
@@ -123,7 +114,7 @@ def _is_present(path: Path, pinned: PinnedFile) -> bool:
 
 
 def fetch_voice_files(
-    voice: PinnedVoice,
+    voice: VoiceId,
     directory: Path,
     download: Callable[..., str] = hf_hub_download,
 ) -> Path:

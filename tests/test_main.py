@@ -14,11 +14,11 @@ import pytest
 from fastapi.testclient import TestClient
 from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 
+from speech_client.wire import VOICES, VoiceId
 from speech_service import __main__
 from speech_service.config import Settings
 from speech_service.provider_process import ProviderLaunch, ProviderProcess
 from speech_service.service import Runtime, RuntimeDependencies
-from speech_service.voices import DEFAULT_SPEAKING_MODEL, VoiceId
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.identity_support import write_caller_configuration
 from tests.support.tcp_server_support import free_loopback_port, listens_on
@@ -112,38 +112,38 @@ class _HealthServer:
         self._release.set()
 
 
+class _ShutdownOnlyServer:
+    """A server that ends only when its orchestrator requests shutdown."""
+
+    def __init__(self) -> None:
+        self._stopped = asyncio.Event()
+
+    @property
+    def should_exit(self) -> bool:
+        return self._stopped.is_set()
+
+    @should_exit.setter
+    def should_exit(self, value: bool) -> None:
+        if value:
+            self._stopped.set()
+
+    async def serve(self, *, sockets: list[socket.socket] | None = None) -> None:
+        del sockets
+        await self._stopped.wait()
+
+
 def test_failed_loader_stops_the_server_and_closes_the_listener(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runtime = Runtime(
-        {VoiceId.PIPER: None},
+        {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: FakeSpeaking(fail=True),
             missing_artifacts=lambda _voice: (),
         ),
     )
-
-    class Server:
-        """A server that ends only when its orchestrator requests shutdown."""
-
-        def __init__(self) -> None:
-            self._stopped = asyncio.Event()
-
-        @property
-        def should_exit(self) -> bool:
-            return self._stopped.is_set()
-
-        @should_exit.setter
-        def should_exit(self, value: bool) -> None:
-            if value:
-                self._stopped.set()
-
-        async def serve(self, *, sockets: list[socket.socket] | None = None) -> None:
-            del sockets
-            await self._stopped.wait()
-
     monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
-    monkeypatch.setattr(__main__, "build_server", lambda _app: Server())
+    monkeypatch.setattr(__main__, "build_server", lambda _app: _ShutdownOnlyServer())
     monkeypatch.setattr(__main__, "_install_signal_handlers", lambda _stopping: None)
 
     settings = _serving_settings(tmp_path)
@@ -151,6 +151,25 @@ def test_failed_loader_stops_the_server_and_closes_the_listener(
     outcome = asyncio.run(__main__.serve(settings))
 
     assert outcome == 1
+    assert not listens_on(settings.port)
+
+
+def test_an_offered_piper_voice_without_its_files_ends_the_start_naming_the_voice(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(__main__, "build_server", lambda _app: _ShutdownOnlyServer())
+    monkeypatch.setattr(__main__, "_install_signal_handlers", lambda _stopping: None)
+    settings = _serving_settings(tmp_path).model_copy(
+        update={"voices": frozenset({VoiceId.NORMAN}), "voice_cache": tmp_path}
+    )
+
+    outcome = asyncio.run(__main__.serve(settings))
+
+    assert outcome == 1
+    assert VoiceId.NORMAN.value in caplog.text
+    assert "speech-fetch-voice" in caplog.text
     assert not listens_on(settings.port)
 
 
@@ -200,7 +219,7 @@ while True:
         )
     )
     runtime = Runtime(
-        {VoiceId.PIPER: None},
+        {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: engine,
             missing_artifacts=lambda _voice: (),
@@ -253,7 +272,7 @@ def test_owned_speaking_failure_stops_the_server_and_returns_failure(
 
     speaking = FatalSpeaking()
     runtime = Runtime(
-        {VoiceId.PIPER: speaking},
+        {VoiceId.THORSTEN: speaking},
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: speaking,
             missing_artifacts=lambda _voice: (),
@@ -302,7 +321,7 @@ def test_orchestrator_serves_health_from_its_loading_runtime(
     card_memory_mb = 42
 
     runtime = Runtime(
-        {VoiceId.PIPER: None},
+        {VoiceId.THORSTEN: None},
         memory_probe=lambda: card_memory_mb,
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: _BlockedSpeaking(started, release),
@@ -327,8 +346,10 @@ def test_orchestrator_serves_health_from_its_loading_runtime(
     assert observed["speaking"] == {
         "ready": False,
         "voices": {
-            VoiceId.PIPER.value: {
-                "model": DEFAULT_SPEAKING_MODEL,
+            VoiceId.THORSTEN.value: {
+                "model": VOICES[VoiceId.THORSTEN].model,
+                "name": VOICES[VoiceId.THORSTEN].name,
+                "languages": [*VOICES[VoiceId.THORSTEN].languages],
                 "ready": False,
                 "sample_rate": 0,
             }
@@ -366,7 +387,7 @@ def test_signal_handler_stops_the_async_orchestrator(
 def test_signal_exit_is_zero_and_closes_the_listener(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    runtime = Runtime({VoiceId.PIPER: FakeSpeaking()})
+    runtime = Runtime({VoiceId.THORSTEN: FakeSpeaking()})
 
     class Server:
         def __init__(self) -> None:
@@ -404,7 +425,7 @@ def test_signal_exit_is_zero_and_closes_the_listener(
 def test_server_ending_on_its_own_returns_failure_and_closes_the_listener(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    runtime = Runtime({VoiceId.PIPER: FakeSpeaking()})
+    runtime = Runtime({VoiceId.THORSTEN: FakeSpeaking()})
 
     class Server:
         should_exit = False

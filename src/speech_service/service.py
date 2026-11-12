@@ -13,6 +13,7 @@ from speech_client.wire import (
     HearingHealth,
     ResponseFormat,
     SpeakingHealth,
+    VoiceId,
 )
 from speech_service.card import card_memory_mb
 from speech_service.clock import LoopClock
@@ -22,7 +23,7 @@ from speech_service.ogg_opus import ogg_opus_chunks
 from speech_service.pcm import wav_header
 from speech_service.speaking import speaking_for_voice
 from speech_service.voice_slot import VoiceSlot
-from speech_service.voices import RESIDENT_VOICE, VoiceId, missing_artifacts
+from speech_service.voices import loads_at_start, missing_artifacts
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Iterator, Mapping
@@ -62,11 +63,6 @@ class RuntimeDependencies:
     missing_artifacts: Callable[[VoiceId], tuple[str, ...]] | None = None
 
 
-def _is_start_voice(voice: VoiceId) -> bool:
-    """Whether the start loads `voice` rather than its first request."""
-    return voice is RESIDENT_VOICE
-
-
 class Runtime:
     """The voice slots, hearing, the start phase, and the one readiness they share."""
 
@@ -78,7 +74,7 @@ class Runtime:
         hearing: Hearing | None = None,
         memory_probe: Callable[[], int] | None = None,
     ) -> None:
-        """Offer the keys of `voices`, a slot each, in the order of `VoiceId`.
+        """Offer the keys of `voices`, a slot each, in catalogue order.
 
         A value is an engine already loaded, `None` a voice to load. Nothing is
         loaded until `load`, and a voice that is not a start voice not until its
@@ -89,9 +85,10 @@ class Runtime:
         self.clock = _CLOCK
         self.slots: dict[VoiceId, VoiceSlot] = {
             voice: VoiceSlot(voice, dependencies, _CLOCK, voices[voice])
-            for voice in sorted(voices)
+            for voice in VoiceId
+            if voice in voices
         }
-        self._start_voices = tuple(filter(_is_start_voice, self.slots))
+        self._start_voices = tuple(filter(loads_at_start, self.slots))
         self._memory_probe = memory_probe or card_memory_mb
         self._phase_lock = threading.Lock()
         self._loading = False
@@ -99,9 +96,9 @@ class Runtime:
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Runtime:
-        """Compose the offer: Piper, and the GPU voices `SPEECH_GPU_VOICES` names."""
+        """Compose the offer `SPEECH_VOICES` names."""
         return cls(
-            {RESIDENT_VOICE: None} | dict.fromkeys(settings.gpu_voices),
+            dict.fromkeys(settings.voices),
             hearing=hearing_from_settings(settings, _CLOCK),
             dependencies=RuntimeDependencies(
                 engine_factory=lambda voice: speaking_for_voice(settings, voice),
@@ -151,7 +148,7 @@ class Runtime:
 
         A start voice never loads on demand, and no voice does during the start.
         """
-        if _is_start_voice(voice) or self.loading:
+        if loads_at_start(voice) or self.loading:
             return None
         return self.slots[voice].shared_load()
 

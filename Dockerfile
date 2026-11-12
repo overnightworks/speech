@@ -35,17 +35,13 @@ COPY src src
 RUN uv sync --locked --no-dev --no-editable
 
 # The voices and the hearing model are fetched here, each at its pinned
-# revision (Piper's voice also checked against its hashes). The Hub's own cache
+# revision (Piper's voices also checked against their hashes). The Hub's own cache
 # and logs stay in this stage.
 FROM dependencies AS weights
 ENV HF_HOME=/tmp/huggingface \
     SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing
-RUN speech-fetch-voice de_DE-thorsten-medium \
- && speech-fetch-voice en_US-norman-medium \
- && speech-fetch-voice en_US-ljspeech-medium \
- && speech-fetch-voice en_GB-cori-medium \
- && speech-fetch-hearing-model small
+RUN speech-fetch-voice && speech-fetch-hearing-model small
 
 FROM python-base
 COPY --from=dependencies /opt/venv /opt/venv

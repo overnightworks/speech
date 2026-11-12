@@ -20,8 +20,8 @@ from urllib.parse import urlencode
 import pytest
 from webauth.policies import default_content_security_policy
 
+from speech_client.wire import VoiceId
 from speech_service.service import Runtime
-from speech_service.voices import VoiceId
 from tests.support.browser_support import (
     CUT_PATH,
     HELD_PATH,
@@ -183,7 +183,7 @@ def _events(seen: dict[str, object]) -> list[tuple[str, int]]:
 async def _stage(tmp_path: Path) -> AsyncIterator[Stage]:
     for name, seconds in SOUND_SECONDS.items():
         write_sound(tmp_path / name, seconds)
-    runtime = Runtime({VoiceId.PIPER: FakeSpeaking()}, memory_probe=lambda: 0)
+    runtime = Runtime({VoiceId.THORSTEN: FakeSpeaking()}, memory_probe=lambda: 0)
     async with serving_over_tcp(runtime) as service:
         side = AppSide.new()
         app = stand_in_app(service.base_url, side, tmp_path)

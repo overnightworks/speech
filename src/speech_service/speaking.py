@@ -2,25 +2,23 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final, assert_never
 
 from speech_provider_contract import (
     QWEN_DEVICE,
     QWEN_MODEL_ID,
     QWEN_SAMPLE_RATE,
+    QwenSpeaker,
 )
 
+from speech_client.wire import VOICES, SpeakingModel, VoiceId
 from speech_service.provider_process import (
     ProviderId,
     ProviderLaunch,
     ProviderProcess,
     provider_entrypoint,
 )
-from speech_service.voices import (
-    DEFAULT_SPEAKING_MODEL,
-    VoiceId,
-    piper_voice_paths,
-)
+from speech_service.voices import piper_voice_paths
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -68,24 +66,31 @@ class PiperSpeaking:
 LocalSpeaking = PiperSpeaking | ProviderProcess
 
 
+_QWEN_SPEAKERS: Final = {VoiceId.RYAN: QwenSpeaker.RYAN}
+
+
 def speaking_for_voice(settings: Settings, voice: VoiceId) -> LocalSpeaking:
     """Construct one supported local engine from the closed catalogue id."""
-    if voice is VoiceId.PIPER:
-        return PiperSpeaking(DEFAULT_SPEAKING_MODEL, settings.voice_cache)
-    if voice is VoiceId.QWEN:
-        return ProviderProcess(
-            ProviderLaunch(
-                model_name=QWEN_MODEL_ID,
-                sample_rate=QWEN_SAMPLE_RATE,
-                executable=provider_entrypoint(settings.provider_root, ProviderId.QWEN),
-                arguments=(
-                    "--device",
-                    QWEN_DEVICE,
-                    "--cache",
-                    str(settings.huggingface_cache),
-                    "--speaker",
-                    settings.qwen_speaker.value,
+    match VOICES[voice].model:
+        case SpeakingModel.PIPER:
+            return PiperSpeaking(voice.value, settings.voice_cache)
+        case SpeakingModel.QWEN:
+            return ProviderProcess(
+                ProviderLaunch(
+                    model_name=QWEN_MODEL_ID,
+                    sample_rate=QWEN_SAMPLE_RATE,
+                    executable=provider_entrypoint(
+                        settings.provider_root, ProviderId.QWEN
+                    ),
+                    arguments=(
+                        "--device",
+                        QWEN_DEVICE,
+                        "--cache",
+                        str(settings.huggingface_cache),
+                        "--speaker",
+                        _QWEN_SPEAKERS[voice].value,
+                    ),
                 ),
-            ),
-        )
-    raise ValueError
+            )
+        case unreachable:
+            assert_never(unreachable)

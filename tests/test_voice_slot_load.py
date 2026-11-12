@@ -19,9 +19,8 @@ from speech_provider_contract import (
     QWEN_SAMPLE_RATE,
 )
 
-from speech_client.wire import REALTIME_PATH, Health, RefusalCode
+from speech_client.wire import REALTIME_PATH, Health, RefusalCode, VoiceId
 from speech_service.pcm import pcm_from_wav
-from speech_service.voices import VoiceId
 from tests.support.gpu_voice_support import (
     PIPER_SAMPLE_RATE,
     LoadWaits,
@@ -69,8 +68,6 @@ if TYPE_CHECKING:
 
     from tests.support.gpu_voice_support import GpuVoiceStage
 
-QWEN = VoiceId.QWEN.value
-PIPER = VoiceId.PIPER.value
 _SERVING = StageSetup("normal")
 
 
@@ -84,7 +81,9 @@ def _assert_spoken_at(response: ClientResponse, rate: int) -> None:
 
 
 def _assert_piper_and_hearing_serve(client: TestClient) -> None:
-    _assert_spoken_at(post_speech(client, speak_body(PIPER)), PIPER_SAMPLE_RATE)
+    _assert_spoken_at(
+        post_speech(client, speak_body(VoiceId.THORSTEN)), PIPER_SAMPLE_RATE
+    )
     heard = post_recording(client, multipart_body(file=recording()))
     assert heard.status_code == HTTPStatus.OK
 
@@ -104,7 +103,7 @@ def _assert_a_live_turn_is_heard(client: TestClient) -> None:
 
 
 def _speak_in_background(
-    pool: ThreadPoolExecutor, stage: GpuVoiceStage, voice: str = QWEN
+    pool: ThreadPoolExecutor, stage: GpuVoiceStage, voice: VoiceId = VoiceId.RYAN
 ) -> Callable[[], ClientResponse]:
     pending = pool.submit(post_speech, TestClient(stage.app()), speak_body(voice))
     return lambda: pending.result(timeout=WORKER_WAIT_SECONDS)
@@ -127,14 +126,14 @@ def test_an_offered_voice_loads_on_its_first_request_and_then_reports_ready(
         health = _health(client)
 
     assert stage.starts() == [pid]
-    assert health.speaking.voices[QWEN].ready is True
+    assert health.speaking.voices[VoiceId.RYAN].ready is True
 
 
 def test_a_gpu_voice_launches_on_its_providers_device_whatever_hearing_runs_on(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with gpu_voice_stage(tmp_path, monkeypatch, _SERVING) as stage:
-        spoken = post_speech(TestClient(stage.app()), speak_body(QWEN))
+        spoken = post_speech(TestClient(stage.app()), speak_body(VoiceId.RYAN))
         launched = observed(stage.cache)[3]
 
     _assert_spoken_at(spoken, QWEN_SAMPLE_RATE)
@@ -168,7 +167,7 @@ def test_a_cancelled_waiter_leaves_the_shared_load_running_for_the_others(
     async def scenario(stage: GpuVoiceStage) -> tuple[list[int], Health]:
         app = stage.app()
         waits = LoadWaits(stage.runtime)
-        calls = [SpeakCall(app, speak_body(QWEN)) for _ in range(3)]
+        calls = [SpeakCall(app, speak_body(VoiceId.RYAN)) for _ in range(3)]
         await asyncio.to_thread(waits.wait_for, 3)
         (pid,) = await asyncio.to_thread(wait_for_starts, stage.cache, 1)
         calls[0].task.cancel()
@@ -183,7 +182,7 @@ def test_a_cancelled_waiter_leaves_the_shared_load_running_for_the_others(
 
     assert statuses == [HTTPStatus.OK, HTTPStatus.OK]
     assert len(stage.starts()) == 1
-    assert health.speaking.voices[QWEN].ready is True
+    assert health.speaking.voices[VoiceId.RYAN].ready is True
 
 
 def test_the_busy_wait_of_a_request_that_waited_for_the_load_starts_at_its_end(
@@ -195,7 +194,7 @@ def test_the_busy_wait_of_a_request_that_waited_for_the_load_starts_at_its_end(
     async def scenario(stage: GpuVoiceStage) -> list[int]:
         app = stage.app()
         waits = LoadWaits(stage.runtime)
-        calls = [SpeakCall(app, speak_body(QWEN)) for _ in range(2)]
+        calls = [SpeakCall(app, speak_body(VoiceId.RYAN)) for _ in range(2)]
         await asyncio.to_thread(waits.wait_for, 2)
         # Both requests had their tokens accepted before they took hold of the load.
         passed = time.monotonic() + busy_wait_seconds
@@ -234,8 +233,8 @@ def test_piper_hearing_and_health_answer_while_a_gpu_voice_loads(
         _assert_spoken_at(spoken(), QWEN_SAMPLE_RATE)
 
     assert health.speaking.ready is True
-    assert health.speaking.voices[PIPER].ready is True
-    assert health.speaking.voices[QWEN].ready is False
+    assert health.speaking.voices[VoiceId.THORSTEN].ready is True
+    assert health.speaking.voices[VoiceId.RYAN].ready is False
     assert health.hearing.ready is True
 
 
@@ -275,7 +274,7 @@ def test_a_failed_load_refuses_every_waiter_and_leaves_piper_and_hearing(
         health = _health(client)
         _assert_piper_and_hearing_serve(client)
 
-    assert health.speaking.voices[QWEN].ready is False
+    assert health.speaking.voices[VoiceId.RYAN].ready is False
     assert health.speaking.ready is True
     assert fatal.is_set() is False
     assert_reaped(pid)
@@ -307,15 +306,15 @@ def test_a_waiter_of_a_failed_load_is_refused_though_a_retry_loaded_before_it_re
 
     async def scenario(stage: GpuVoiceStage) -> SpeakCall:
         waits = LoadWaits(stage.runtime)
-        call = SpeakCall(stage.app(), speak_body(QWEN))
+        call = SpeakCall(stage.app(), speak_body(VoiceId.RYAN))
         await asyncio.to_thread(waits.wait_for, 1)
         (first,) = await asyncio.to_thread(wait_for_starts, stage.cache, 1)
         # The loop stays blocked until the retry has loaded, so the waiter of the
         # failed load resumes only once a ready engine replaced it.
-        failed_load = stage.runtime.load_on_demand(VoiceId.QWEN)
+        failed_load = stage.runtime.load_on_demand(VoiceId.RYAN)
         release_load(stage.cache, first, LoadOutcome.FAILED)
         failed_load.result(timeout=WORKER_WAIT_SECONDS)
-        retry = stage.runtime.load_on_demand(VoiceId.QWEN)
+        retry = stage.runtime.load_on_demand(VoiceId.RYAN)
         _, second = wait_for_starts(stage.cache, 2)
         release_load(stage.cache, second, LoadOutcome.READY)
         retry.result(timeout=WORKER_WAIT_SECONDS)
@@ -356,7 +355,7 @@ def test_a_request_during_a_failed_loads_cleanup_shares_its_refusal_and_starts_n
         assert_unavailable(second())
 
     assert still_running is True
-    assert health.speaking.voices[QWEN].ready is False
+    assert health.speaking.voices[VoiceId.RYAN].ready is False
     assert stage.starts() == [pid]
     assert_reaped(pid)
 
@@ -370,18 +369,22 @@ def test_a_worker_that_dies_after_it_was_ready_turns_its_voice_unready_and_reloa
     with gpu_voice_stage(tmp_path, monkeypatch, _SERVING) as stage:
         stage.runtime.set_fatal_callback(fatal.set)
         client = TestClient(stage.app(), raise_server_exceptions=False)
-        _assert_spoken_at(post_speech(client, speak_body(QWEN)), QWEN_SAMPLE_RATE)
+        _assert_spoken_at(
+            post_speech(client, speak_body(VoiceId.RYAN)), QWEN_SAMPLE_RATE
+        )
         (first,) = stage.starts()
         if death == "killed while idle":
             os.kill(first, signal.SIGKILL)
         else:
-            post_speech(client, speak_body(QWEN, "failed"))
+            post_speech(client, speak_body(VoiceId.RYAN, "failed"))
         deadline = time.monotonic() + WORKER_WAIT_SECONDS
-        while _health(client).speaking.voices[QWEN].ready:
+        while _health(client).speaking.voices[VoiceId.RYAN].ready:
             assert time.monotonic() < deadline
             time.sleep(0.01)
 
-        _assert_spoken_at(post_speech(client, speak_body(QWEN)), QWEN_SAMPLE_RATE)
+        _assert_spoken_at(
+            post_speech(client, speak_body(VoiceId.RYAN)), QWEN_SAMPLE_RATE
+        )
 
     _, _reloaded = stage.starts()
     assert_reaped(first)
@@ -397,19 +400,22 @@ def test_a_crash_mid_synthesis_refuses_the_waiter_after_its_lease_and_the_next_r
         stage: GpuVoiceStage,
     ) -> tuple[object, SpeakCall, list[int], bool]:
         app = stage.app()
-        warm = SpeakCall(app, speak_body(QWEN))
+        warm = SpeakCall(app, speak_body(VoiceId.RYAN))
         await warm.finish()
         (pid,) = stage.starts()
-        streaming = SpeakCall(app, speak_body(QWEN, "wait-cancel"))
+        streaming = SpeakCall(app, speak_body(VoiceId.RYAN, "wait-cancel"))
         assert await streaming.status() == HTTPStatus.OK
-        queued = gate_acquisition_began(stage.runtime, VoiceId.QWEN)
-        waiting = SpeakCall(app, speak_body(QWEN))
+        queued = gate_acquisition_began(stage.runtime, VoiceId.RYAN)
+        waiting = SpeakCall(app, speak_body(VoiceId.RYAN))
         await queued.wait()
         os.kill(pid, signal.SIGKILL)
         (streamed,) = await asyncio.gather(streaming.task, return_exceptions=True)
         await waiting.finish()
-        free = gate_is_free(stage.runtime, VoiceId.QWEN)
-        later = [SpeakCall(app, speak_body(voice)) for voice in (PIPER, QWEN)]
+        free = gate_is_free(stage.runtime, VoiceId.RYAN)
+        later = [
+            SpeakCall(app, speak_body(voice))
+            for voice in (VoiceId.THORSTEN, VoiceId.RYAN)
+        ]
         for call in later:
             await call.finish()
         return streamed, waiting, [call.status_code for call in later], free
@@ -442,16 +448,18 @@ def test_an_offered_voice_whose_files_are_missing_is_refused_and_named_in_the_lo
         if missing == "entrypoint":
             worker.unlink()
         client = TestClient(stage.app())
-        refused = [post_speech(client, speak_body(QWEN)) for _ in range(2)]
+        refused = [post_speech(client, speak_body(VoiceId.RYAN)) for _ in range(2)]
         _assert_piper_and_hearing_serve(client)
         health = _health(client)
 
     for response in refused:
         assert_unavailable(response)
     assert stage.starts() == []
-    assert health.speaking.voices[QWEN].ready is False
+    assert health.speaking.voices[VoiceId.RYAN].ready is False
     named = QWEN_ARTIFACTS if missing == "weights" else (worker.name,)
-    refusal_log = [r.getMessage() for r in caplog.records if QWEN in r.getMessage()]
+    refusal_log = [
+        r.getMessage() for r in caplog.records if VoiceId.RYAN in r.getMessage()
+    ]
     assert all(any(name in line for line in refusal_log) for name in named)
 
 
@@ -470,7 +478,8 @@ def test_while_the_start_load_runs_no_voice_is_ready_and_every_voice_is_refused(
             client = TestClient(stage.app())
             health = _health(client)
             refused = [
-                post_speech(client, speak_body(voice)) for voice in (PIPER, QWEN)
+                post_speech(client, speak_body(voice))
+                for voice in (VoiceId.THORSTEN, VoiceId.RYAN)
             ]
         finally:
             ear.release_load.set()
@@ -502,10 +511,15 @@ def test_once_shutdown_begins_health_and_the_refusal_agree_that_no_voice_is_read
     """WIRE-103, WIRE-126: after shutdown began no voice is ready or served."""
     with gpu_voice_stage(tmp_path, monkeypatch, _SERVING) as stage:
         client = TestClient(stage.app())
-        _assert_spoken_at(post_speech(client, speak_body(QWEN)), QWEN_SAMPLE_RATE)
+        _assert_spoken_at(
+            post_speech(client, speak_body(VoiceId.RYAN)), QWEN_SAMPLE_RATE
+        )
         stage.runtime.begin_shutdown()
         health = _health(client)
-        refused = [post_speech(client, speak_body(voice)) for voice in (PIPER, QWEN)]
+        refused = [
+            post_speech(client, speak_body(voice))
+            for voice in (VoiceId.THORSTEN, VoiceId.RYAN)
+        ]
 
     assert health.speaking.ready is False
     assert not any(voice.ready for voice in health.speaking.voices.values())
@@ -519,13 +533,17 @@ def test_a_loaded_gpu_voice_stays_loaded_and_no_route_lists_voices(
     """WIRE-126, WIRE-130: a loaded GPU voice stays loaded and no route lists voices."""
     with gpu_voice_stage(tmp_path, monkeypatch, _SERVING) as stage:
         client = TestClient(stage.app())
-        _assert_spoken_at(post_speech(client, speak_body(QWEN)), QWEN_SAMPLE_RATE)
+        _assert_spoken_at(
+            post_speech(client, speak_body(VoiceId.RYAN)), QWEN_SAMPLE_RATE
+        )
         listed = client.get("/v1/voices", headers=valid_headers())
         health = _health(client)
-        _assert_spoken_at(post_speech(client, speak_body(QWEN)), QWEN_SAMPLE_RATE)
+        _assert_spoken_at(
+            post_speech(client, speak_body(VoiceId.RYAN)), QWEN_SAMPLE_RATE
+        )
         (pid,) = stage.starts()
         running = is_running(pid)
 
     assert_refusal(listed, HTTPStatus.NOT_FOUND, RefusalCode.NOT_FOUND, None)
-    assert health.speaking.voices[QWEN].ready is True
+    assert health.speaking.voices[VoiceId.RYAN].ready is True
     assert running is True

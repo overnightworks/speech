@@ -19,13 +19,13 @@ from speech_provider_contract import (
     QWEN_REVISION,
 )
 
-from speech_client.wire import HEALTH_PATH, Health
+from speech_client.wire import HEALTH_PATH, Health, VoiceId
 from speech_service import __main__
 from speech_service.config import Settings
 from speech_service.control import create_control_app
 from speech_service.hearing import Hearing
 from speech_service.service import Runtime
-from speech_service.voices import DEFAULT_SPEAKING_MODEL, VoiceId
+from speech_service.voices import PIPER_VOICES, piper_voice_paths
 from tests.support.hear_support import FakeHearing
 from tests.support.identity_support import valid_callers, valid_headers
 from tests.support.speak_support import ASGI_TIMEOUT_SECONDS, wav_body
@@ -84,8 +84,9 @@ def install_piper(monkeypatch: pytest.MonkeyPatch, voice_cache: Path) -> None:
         SimpleNamespace(PiperVoice=SimpleNamespace(load=lambda _path: LocalVoice())),
     )
     voice_cache.mkdir(exist_ok=True)
-    (voice_cache / f"{DEFAULT_SPEAKING_MODEL}.onnx").touch()
-    (voice_cache / f"{DEFAULT_SPEAKING_MODEL}.onnx.json").touch()
+    for voice in PIPER_VOICES:
+        for path in piper_voice_paths(voice_cache, voice.value):
+            path.touch()
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +116,7 @@ class StageSetup:
     """
 
     behavior: str = "held-ready"
-    gpu_voices: frozenset[VoiceId] = frozenset({VoiceId.QWEN})
+    voices: frozenset[VoiceId] = frozenset({VoiceId.THORSTEN, VoiceId.RYAN})
     qwen_installed: bool = True
     hearing: FakeHearing | None = None
     started: bool = True
@@ -143,7 +144,7 @@ def gpu_voice_stage(
     if setup.reaps_fail:
         fail_every_reap(monkeypatch)
     configured = Settings(
-        gpu_voices=setup.gpu_voices,
+        voices=setup.voices,
         provider_root=root,
         huggingface_cache=cache,
         voice_cache=tmp_path / "piper",

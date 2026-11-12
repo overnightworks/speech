@@ -6,13 +6,11 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from speech_service.config import (
-    QwenSpeaker,
-    Settings,
-)
+from speech_client.wire import VoiceId
+from speech_service.config import Settings
 from speech_service.hearing_models import HearingModel
 from speech_service.pcm import wav_header
-from speech_service.voices import RESIDENT_VOICE, VoiceId
+from speech_service.voices import PIPER_VOICES
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE
 
 if TYPE_CHECKING:
@@ -37,12 +35,12 @@ def test_a_stale_setting_in_the_environment_is_ignored(
 def test_settings_read_speech_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """WIRE-107: settings read speech environment."""
     monkeypatch.setenv("SPEECH_DEVICE", "cpu")
-    monkeypatch.setenv("SPEECH_GPU_VOICES", VoiceId.QWEN.value)
+    monkeypatch.setenv("SPEECH_VOICES", VoiceId.RYAN.value)
 
     settings = Settings()
 
     assert settings.device == "cpu"
-    assert settings.gpu_voices == {VoiceId.QWEN}
+    assert settings.voices == {VoiceId.RYAN}
 
 
 @pytest.mark.parametrize(
@@ -174,53 +172,59 @@ def test_settings_refuse_a_port_that_is_not_a_tcp_port(
         Settings()
 
 
-def test_no_gpu_voice_is_offered_by_default() -> None:
-    """WIRE-107: no gpu voice is offered by default."""
-    assert Settings().gpu_voices == frozenset()
+def test_every_piper_voice_is_offered_by_default() -> None:
+    """WIRE-107: every piper voice is offered by default."""
+    assert Settings().voices == set(PIPER_VOICES)
 
 
 @pytest.mark.parametrize("value", ["", " "])
-def test_an_empty_gpu_voice_setting_offers_none(
+def test_an_empty_voice_setting_offers_none(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """WIRE-107: an empty gpu voice setting offers none."""
-    monkeypatch.setenv("SPEECH_GPU_VOICES", value)
+    """WIRE-107: an empty voice setting offers none."""
+    monkeypatch.setenv("SPEECH_VOICES", value)
 
-    assert Settings().gpu_voices == frozenset()
+    assert Settings().voices == frozenset()
 
 
-@pytest.mark.parametrize(
-    "voice", [voice for voice in VoiceId if voice is not RESIDENT_VOICE]
-)
-def test_every_gpu_voice_of_the_catalogue_can_be_offered(
+@pytest.mark.parametrize("voice", list(VoiceId))
+def test_every_voice_of_the_catalogue_can_be_offered(
     monkeypatch: pytest.MonkeyPatch, voice: VoiceId
 ) -> None:
-    """WIRE-107: every gpu voice of the catalogue can be offered."""
-    monkeypatch.setenv("SPEECH_GPU_VOICES", f" {voice.value} ")
+    """WIRE-107: every voice of the catalogue can be offered."""
+    monkeypatch.setenv("SPEECH_VOICES", f" {voice.value} ")
 
-    assert Settings().gpu_voices == {voice}
+    assert Settings().voices == {voice}
 
 
 @pytest.mark.parametrize(
-    ("environment", "value", "reason"),
+    "value",
     [
-        ("SPEECH_PROVIDER_ROOT", "relative/providers", "provider root"),
-        ("SPEECH_GPU_VOICES", RESIDENT_VOICE.value, "SPEECH_GPU_VOICES"),
-        ("SPEECH_GPU_VOICES", "alloy", "SPEECH_GPU_VOICES"),
-        ("SPEECH_GPU_VOICES", f"{VoiceId.QWEN.value},", "SPEECH_GPU_VOICES"),
-        ("SPEECH_GPU_VOICES", f",{VoiceId.QWEN.value}", "SPEECH_GPU_VOICES"),
+        "alloy",
+        "piper",
+        "qwen3-tts-0.6b",
+        f"{VoiceId.RYAN.value},",
+        f",{VoiceId.RYAN.value}",
+        f"{VoiceId.RYAN.value},{VoiceId.RYAN.value}",
     ],
 )
-def test_settings_refuses_unsafe_voice_configuration(
-    monkeypatch: pytest.MonkeyPatch, environment: str, value: str, reason: str
+def test_an_unknown_empty_or_repeated_voice_id_fails_with_the_fixed_message(
+    monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """WIRE-107: settings refuses unsafe voice configuration."""
-    monkeypatch.setenv(environment, value)
+    """WIRE-107: an unknown, empty or repeated voice id fails with the fixed message."""
+    monkeypatch.setenv("SPEECH_VOICES", value)
 
-    with pytest.raises(ValueError, match=reason) as refused:
+    with pytest.raises(ValueError, match="SPEECH_VOICES") as refused:
         Settings()
 
     assert value not in str(refused.value)
+
+
+def test_a_relative_provider_root_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SPEECH_PROVIDER_ROOT", "relative/providers")
+
+    with pytest.raises(ValueError, match="provider root"):
+        Settings()
 
 
 def test_provider_root_is_optional_for_the_default_piper_process(
@@ -228,19 +232,6 @@ def test_provider_root_is_optional_for_the_default_piper_process(
 ) -> None:
     monkeypatch.delenv("SPEECH_PROVIDER_ROOT", raising=False)
     assert Settings().provider_root is None
-
-
-def test_qwen_speaker_is_a_closed_setting_with_ryan_as_its_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    assert Settings().qwen_speaker is QwenSpeaker.RYAN
-
-    monkeypatch.setenv("SPEECH_QWEN_SPEAKER", "Sohee")
-    assert Settings().qwen_speaker is QwenSpeaker.SOHEE
-
-    monkeypatch.setenv("SPEECH_QWEN_SPEAKER", "invented")
-    with pytest.raises(ValueError, match="qwen_speaker"):
-        Settings()
 
 
 def test_wav_header_is_sixteen_bit_mono() -> None:

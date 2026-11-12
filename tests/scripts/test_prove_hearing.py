@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
     from piper.config import SynthesisConfig
 
-    from speech_service.voices import VoiceId
+    from speech_client.wire import VoiceId
 
 HEARING = script_module("prove_hearing")
 VOICES = Path.home() / "voices"
@@ -127,7 +127,7 @@ def test_the_resident_memory_with_a_voice_includes_what_its_synthesis_took(
 
     ports = HEARING.Ports(serve=serve, speak=speak, hear=lambda *_: (0.0, ""))
 
-    peak = HEARING.measure_peak("cuda", "small", HEARING.RESIDENT_VOICE, b"", ports)
+    peak = HEARING.measure_peak("cuda", "small", HEARING.PIPER_PROOF_VOICE, b"", ports)
 
     assert peak["warmed_resident_over_baseline_mib"] == synthesis_mib
 
@@ -160,7 +160,7 @@ def test_the_peak_is_never_below_the_warmed_resident_reading(
         sample=sampled_before_and_after,
     )
 
-    peak = HEARING.measure_peak("cuda", "small", HEARING.RESIDENT_VOICE, b"", ports)
+    peak = HEARING.measure_peak("cuda", "small", HEARING.PIPER_PROOF_VOICE, b"", ports)
 
     assert peak["peak_over_baseline_mib"] == synthesis_mib
     assert peak["peak_sampled_every_seconds"] == HEARING.MEMORY_SAMPLE_SECONDS
@@ -675,9 +675,9 @@ def test_a_file_route_that_answers_ok_on_a_taken_card_is_a_failure(
 
 
 @pytest.mark.parametrize(
-    "offered", [frozenset(), frozenset(HEARING.GPU_VOICES)], ids=["piper", "all"]
+    "offered", [frozenset(), frozenset(HEARING.ON_DEMAND_VOICES)], ids=["piper", "all"]
 )
-def test_only_offered_gpu_voices_are_measured_and_the_rest_are_named(
+def test_only_offered_on_demand_voices_are_measured_and_the_rest_are_named(
     monkeypatch: pytest.MonkeyPatch, offered: frozenset[VoiceId]
 ) -> None:
     monkeypatch.setattr(HEARING, "measure_peak", lambda *_: {})
@@ -690,7 +690,7 @@ def test_only_offered_gpu_voices_are_measured_and_the_rest_are_named(
     assert measured == {voice.value for voice in offered}
     assert (
         set(memory["voices_not_offered"])
-        == {voice.value for voice in HEARING.GPU_VOICES} - measured
+        == {voice.value for voice in HEARING.ON_DEMAND_VOICES} - measured
     )
 
 

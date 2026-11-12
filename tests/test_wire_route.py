@@ -21,11 +21,11 @@ from speech_client.wire import (
     SPEECH_PATH,
     TRANSCRIPTIONS_PATH,
     RefusalCode,
+    VoiceId,
 )
 from speech_service.config import Settings
 from speech_service.failures import SpeakingFailedError
 from speech_service.pcm import AI_MARK, is_silence, pcm_from_wav
-from speech_service.voices import VoiceId
 from tests.support.fakes_support import (
     SPEAK_SAMPLE_RATE,
     FakeSpeaking,
@@ -60,7 +60,6 @@ if TYPE_CHECKING:
 
 SHORT_WAIT_SECONDS = 0.2
 SLACK_SECONDS = 0.5
-QWEN = VoiceId.QWEN.value
 ALIEN_SAMPLE_RATE = 24_000
 
 
@@ -369,19 +368,6 @@ def test_a_refusal_and_the_log_never_hold_the_input_or_a_key_the_request_chose(
     assert _SENTENCE not in caplog.text
 
 
-def test_a_voice_other_than_the_active_one_is_unavailable() -> None:
-    response = post_speech(TestClient(speak_app()), speak_body(QWEN))
-
-    assert_unavailable(response)
-
-
-def test_a_runtime_that_is_still_loading_is_unavailable() -> None:
-    runtime = fake_runtime()
-    runtime.begin_loading()
-
-    assert_unavailable(post_speech(TestClient(app_over(runtime)), speak_body()))
-
-
 def test_a_runtime_that_is_shutting_down_is_unavailable() -> None:
     runtime = fake_runtime()
     runtime.begin_shutdown()
@@ -541,13 +527,13 @@ def _runtime_closing_on_shutdown(
 ) -> tuple[Runtime, list[int]]:
     closed: list[int] = []
     speaking.close = lambda: closed.append(1)
-    return fake_runtime(speaking, VoiceId.QWEN), closed
+    return fake_runtime(speaking, VoiceId.RYAN), closed
 
 
 def _assert_gate_free_and_shutdown_closes_once(
     runtime: Runtime, closed: list[int]
 ) -> None:
-    assert gate_is_free(runtime, VoiceId.QWEN)
+    assert gate_is_free(runtime, VoiceId.RYAN)
     runtime.close()
     assert closed == [1]
 
@@ -562,7 +548,7 @@ def test_speak_response_construction_failure_frees_the_gate_for_shutdown(
 
     monkeypatch.setattr(StreamingResponse, "__init__", fail_response_construction)
     with pytest.raises(_ResponseBoundaryError):
-        speak_response(runtime, QWEN)
+        speak_response(runtime, VoiceId.RYAN)
 
     _assert_gate_free_and_shutdown_closes_once(runtime, closed)
 
@@ -579,7 +565,7 @@ def test_speak_close_paths_free_the_gate_for_shutdown(close_path: str) -> None:
             yield from super().pcm_chunks(text, language)
 
     runtime, closed = _runtime_closing_on_shutdown(ClosingPathVoice())
-    response = speak_response(runtime, QWEN)
+    response = speak_response(runtime, VoiceId.RYAN)
 
     if close_path == "normal":
         response_body(response)

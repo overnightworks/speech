@@ -81,6 +81,53 @@ _MEDIA_TYPES: Final = {
 }
 
 
+class Language(StrEnum):
+    """The languages the service hears and speaks."""
+
+    DE = "de"
+    EN = "en"
+
+
+class SpeakingModel(StrEnum):
+    """The engines the service speaks with: a request's `model`."""
+
+    PIPER = "piper"
+    QWEN = "qwen3-tts-0.6b"
+
+
+class VoiceId(StrEnum):
+    """The closed catalogue of voices: a request's `voice`."""
+
+    THORSTEN = "de_DE-thorsten-medium"
+    NORMAN = "en_US-norman-medium"
+    LJSPEECH = "en_US-ljspeech-medium"
+    CORI = "en_GB-cori-medium"
+    RYAN = "ryan"
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogueVoice:
+    """What the wire says of a voice: its engine, its name, the languages it speaks.
+
+    The first language is the one a request without a language gets.
+    """
+
+    model: SpeakingModel
+    name: str
+    languages: tuple[Language, ...]
+
+
+VOICES: Final[Mapping[VoiceId, CatalogueVoice]] = {
+    VoiceId.THORSTEN: CatalogueVoice(SpeakingModel.PIPER, "Thorsten", (Language.DE,)),
+    VoiceId.NORMAN: CatalogueVoice(SpeakingModel.PIPER, "Norman", (Language.EN,)),
+    VoiceId.LJSPEECH: CatalogueVoice(SpeakingModel.PIPER, "LJ Speech", (Language.EN,)),
+    VoiceId.CORI: CatalogueVoice(SpeakingModel.PIPER, "Cori", (Language.EN,)),
+    VoiceId.RYAN: CatalogueVoice(
+        SpeakingModel.QWEN, "Ryan", (Language.DE, Language.EN)
+    ),
+}
+
+
 class SpeechRequest(BaseModel):
     """The body of `POST /v1/audio/speech`: a strict subset of OpenAI's."""
 
@@ -88,9 +135,9 @@ class SpeechRequest(BaseModel):
         extra="forbid", frozen=True, hide_input_in_errors=True, strict=True
     )
 
-    model: Literal["speech"]
+    model: SpeakingModel
     input: str
-    voice: str
+    voice: VoiceId
     response_format: ResponseFormat
 
     @field_validator("input")
@@ -102,18 +149,19 @@ class SpeechRequest(BaseModel):
 
     @field_validator("voice")
     @classmethod
-    def _voice_is_named(cls, voice: str) -> str:
-        if not voice:
-            message = "voice must not be empty"
+    def _voice_belongs_to_the_model(
+        cls, voice: VoiceId, info: ValidationInfo
+    ) -> VoiceId:
+        model = info.data.get("model")
+        if model is not None and VOICES[voice].model is not model:
+            message = "voice must be a voice of model"
             raise ValueError(message)
         return voice
 
-
-class Language(StrEnum):
-    """The languages the service hears."""
-
-    DE = "de"
-    EN = "en"
+    @property
+    def spoken_language(self) -> Language:
+        """The language the voice speaks: the first of its catalogue entry."""
+        return VOICES[self.voice].languages[0]
 
 
 class TranscriptionRequest(BaseModel):
@@ -135,11 +183,13 @@ class Transcription(BaseModel):
 
 
 class VoiceHealth(BaseModel):
-    """One offered voice: its model, whether it can speak, its PCM sample rate."""
+    """One offered voice: its model, name, languages, whether it can speak, its rate."""
 
     model_config = ConfigDict(frozen=True)
 
-    model: str
+    model: SpeakingModel
+    name: str
+    languages: tuple[Language, ...]
     ready: StrictBool
     sample_rate: StrictInt
 
@@ -173,11 +223,14 @@ class Health(BaseModel):
 
 
 def speech_request_body(
-    text: str, voice: str, response_format: ResponseFormat
+    text: str, voice: VoiceId, response_format: ResponseFormat
 ) -> bytes:
     """The JSON a caller posts to speak `text` with `voice` in `response_format`."""
     request = SpeechRequest(
-        model=MODEL, input=text, voice=voice, response_format=response_format
+        model=VOICES[voice].model,
+        input=text,
+        voice=voice,
+        response_format=response_format,
     )
     return request.model_dump_json().encode()
 

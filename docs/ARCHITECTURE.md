@@ -5,7 +5,7 @@ what it trusts.
 
 ## Purpose
 
-One process keeps the German Piper voice, and optionally a hearing model,
+One process keeps the Piper voices, and optionally a hearing model,
 resident on the home server, loads each GPU voice the operator offers on its
 first request, and serves them to Presentator and to apps that speak or have a
 recording heard for a person. [`README.md`](../README.md) starts it,
@@ -36,22 +36,23 @@ flowchart LR
   uploaded recording; `clock.py` the monotonic clock every gate deadline is read
   and waited on.
 - `Dockerfile`, `compose.yaml`, `deploy/speech.toml`: the container the dated
-  tag brings, with the Piper voice, the `small` hearing model and the
+  tag brings, with the Piper voices, the `small` hearing model and the
   caller table baked in; the release builds, attests and pushes it to GHCR, see
   [Delivery](#delivery). `scripts/prove_image.py` proves it.
-- `packages/client`: the wire types an app and the service share, the bounded speaking call, the bounded health fetch, the live hearing session (`HearingSession`: the allowed languages, frames held up to a caller-set byte limit, typed server events that name each item's language, one closed outcome union) and the relay (`relay`) of a browser socket to that session an app makes.
+- `packages/client`: the wire types an app and the service share (the closed voice catalogue among them), the bounded speaking call, the bounded health fetch, the live hearing session (`HearingSession`: the allowed languages, frames held up to a caller-set byte limit, typed server events that name each item's language, one closed outcome union) and the relay (`relay`) of a browser socket to that session an app makes.
 - `packages/browser`: the framework-free browser package (`overnightworks-speech-browser`) an app's page streams its microphone and plays sounds with. `startCapture` takes the first audio track of the app's own stream, resamples it with a filter to the wire's PCM16 at 24 kHz in its own same-origin AudioWorklet file and main-thread resampler, and sends 100 ms frames to the app's relay route; it has no loudness gate, hands the app every message the app's own server sends down the hop (its optional `onMessage`, uninterpreted, in arrival order, until the capture ends), and its `ended` names how the hop ended. `createPlayer` plays the sounds an app hands it, each as bytes or the URL of the app's own route, in the order of the calls, as sources into the player's one GainNode, the only input of the output (the one node a per-frame reader can tap; the package builds none). It reports each sound's start and end once, with how it ended (played, stopped, muted, refused (no user activation, or `resume()` refused), or failed to load); `stop` and `setMuted(true)` end the playing and every waiting sound at once and abort their fetches, and `close` also closes the context. Both are exported from one entry, `index.ts`. Its `hop.ts` is generated from `PcmFormat` and `speech_client.relay` by `scripts/generate_browser_wire.py`.
 - `providers/*`: the voices that run in their own processes and environments. Each is its own uv project with its own lock; `providers/provider-contract` is the shared source the others install from. The client in `packages/client` is a uv workspace member of the root.
 
 ### Speaking
 
-- **The offer.** `voices.py` owns the closed catalogue and its residency fact:
-  Piper is resident, every other voice is a GPU voice. `Runtime.from_settings`
-  composes the offer, Piper's slot plus one slot per voice `SPEECH_GPU_VOICES`
-  names, so no state offers voices without Piper. The offer decides which voice
-  may take the card.
-- **Piper at start, a GPU voice on its first request.** The start loads Piper,
-  then hearing; a failed Piper load ends the process. A GPU slot stays idle,
+- **The offer.** `speech_client.wire` owns the closed catalogue: each voice's
+  model, name and languages. `voices.py` owns what the service adds: every
+  Piper voice loads at start, every other voice is a GPU voice. `Runtime.from_settings`
+  composes the offer, one slot per voice `SPEECH_VOICES` names, in catalogue
+  order. The offer decides which voice may take the card.
+- **Piper at start, a GPU voice on its first request.** The start loads each
+  offered Piper voice in order, then hearing; a failed Piper load ends the
+  process. A GPU slot stays idle,
   with no process and no CUDA context, until a request names it. Its first
   request starts the slot's one load job on a thread the slot owns, and every
   request for that voice awaits the same job. Nothing unloads a voice.
@@ -64,14 +65,14 @@ flowchart LR
   stop threads, or Starlette's threadpool.
 - **Failure isolation.** A failed load, missing files or a crashed worker make
   that voice refuse 503 `unavailable` with `param` `voice` and report itself
-  not ready, while Piper and hearing keep serving; the next request loads it
+  not ready, while the Piper voices and hearing keep serving; the next request loads it
   again. A worker that cannot be reaped ends the process.
 - **One readiness.** `/health` and the refusal read the same answer, so no voice
   is ready during the start load or once shutdown began, and `speaking.ready`
-  is Piper's. A request that held its voice's gate across a stop or a crash is
+  is every offered Piper voice's. A request that held its voice's gate across a stop or a crash is
   refused `unavailable`, never `busy`.
 - **One gate per voice.** Each voice's slot owns an `AdmissionGate` with the
-  speaking limits, so a long GPU synthesis never makes Piper `busy`.
+  speaking limits, so a long GPU synthesis never makes a Piper voice `busy`.
 
 ### Hearing
 
@@ -126,15 +127,15 @@ flowchart LR
 The release builds, attests and pushes the image to GHCR. hal builds its own
 from the dated tag, so the tag fixes the code, locked dependencies, voices,
 hearing model and caller table. Nothing is fetched at start or restart: Piper's
-voice and the `small` hearing model are in the image, each fetched by a shipped
+voices and the `small` hearing model are in the image, each fetched by a shipped
 command at its pinned revision, and the service has no route to a registry or a
 hub. The image carries no GPU voice, because no deployment has a card to run it. The healthcheck requires Piper and hearing
 to be ready, so a deployment that cannot hear is not recorded. Qwen is offered
 only when the start setting names it, and then launches on `cuda`, the provider
 contract's one device for it, whatever device hearing uses. Offered on the
 image, which lacks its environment and weights, it is not installed: its
-requests are refused `unavailable`, `/health` reports it not ready, and Piper
-and hearing keep serving.
+requests are refused `unavailable`, `/health` reports it not ready, and the
+Piper voices and hearing keep serving.
 
 The service sits on three external, internal networks and no default one: one
 shared with the gateway that carries the key set, and one per app, shared with
@@ -191,7 +192,7 @@ The root is read-only, the user is not root and no capability is kept.
 ## Constraints and reasons
 
 - **The operator owns the card.** The service knows nothing of another GPU user
-  and arbitrates nothing. `SPEECH_GPU_VOICES` is his switch, Piper alone by
+  and arbitrates nothing. `SPEECH_VOICES` is his switch, the Piper voices alone by
   default, and a loaded GPU voice keeps the card until the process ends.
 - **The service never downloads.** Shipped commands fetch voices and hearing
   models at a pinned revision, so the dated tag fixes what runs and the

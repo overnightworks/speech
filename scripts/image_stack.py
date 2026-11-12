@@ -42,8 +42,8 @@ if TYPE_CHECKING:
 
     from image_judgement import BakedCaller
     from proof_identity import Minting
+    from speech_client.wire import VoiceId
     from speech_service.config import CallerConfig
-    from speech_service.voices import VoiceId
 
 REPOSITORY: Final = Path(__file__).resolve().parents[1]
 FIXTURES: Final = REPOSITORY / "tests" / "fixtures" / "image"
@@ -263,7 +263,7 @@ class Session:
             self.caller,
             self.service_url + SPEECH_PATH,
             headers,
-            speech_request_body(SENTENCE, voice.value, ResponseFormat.WAV),
+            speech_request_body(SENTENCE, voice, ResponseFormat.WAV),
         )
 
     def admitted_headers(self) -> dict[str, str]:

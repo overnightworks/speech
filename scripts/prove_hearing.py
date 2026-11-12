@@ -57,6 +57,7 @@ from prove_speech import (
     LOCK_HELD_ENV,
     LOCK_PATH,
     LOOPBACK_HOST,
+    PIPER_PROOF_VOICE,
     READY_TIMEOUT_SECONDS,
     free_local_port,
     nvidia_memory,
@@ -75,6 +76,7 @@ from speech_client.wire import (
     Health,
     Language,
     ResponseFormat,
+    VoiceId,
     speech_request_body,
     speech_request_headers,
 )
@@ -85,8 +87,8 @@ from speech_service.hearing_models import (
     model_directory,
 )
 from speech_service.pcm import pcm_from_wav
-from speech_service.piper_voices import PinnedVoice, fetch_voice_files
-from speech_service.voices import GPU_VOICES, RESIDENT_VOICE, VoiceId
+from speech_service.piper_voices import fetch_voice_files
+from speech_service.voices import loads_at_start
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -124,6 +126,7 @@ ENGLISH_LONG_TURN = (
     "Finally we decide who greets the guests at the entrance and who shows "
     "them the way to the rooms."
 )
+ON_DEMAND_VOICES = tuple(voice for voice in VoiceId if not loads_at_start(voice))
 CARD_STAGES = ("gpu_memory", "taken_card")
 PROBE_TEXT = "Bereit."
 SPEAK_WAIT_SECONDS = 30.0
@@ -171,7 +174,7 @@ def spoken_texts() -> list[str]:
 # -- waiting for the service --------------------------------------------------
 
 
-def _speaks(base_url: str, minting: Minting, voice: str) -> bool:
+def _speaks(base_url: str, minting: Minting, voice: VoiceId) -> bool:
     """True once the speak route answers, which it does only after loading ends."""
     pair = mint_pair(minting)
     try:
@@ -247,7 +250,7 @@ def hearing_service(
             wait_ready = functools.partial(
                 wait_loaded,
                 wait=LoadWait(
-                    speaks=functools.partial(_speaks, base_url, minting, voice.value)
+                    speaks=functools.partial(_speaks, base_url, minting, voice)
                 ),
             )
             with speech_server(
@@ -294,7 +297,7 @@ def german_clip(service: Service, text: str) -> bytes:
         wav, _, _ = speak_measured(
             service.base_url,
             sentence,
-            RESIDENT_VOICE.value,
+            PIPER_PROOF_VOICE,
             service.minting,
         )
         rate, pcm = pcm_from_wav(wav)
@@ -304,7 +307,7 @@ def german_clip(service: Service, text: str) -> bytes:
 
 def english_voice_path(directory: Path) -> Path:
     """The English Piper voice in `directory`, fetched there once if absent."""
-    return fetch_voice_files(PinnedVoice.LJSPEECH, directory)
+    return fetch_voice_files(VoiceId.LJSPEECH, directory)
 
 
 def english_clip(voice: PiperVoice, text: str) -> bytes:
@@ -416,7 +419,7 @@ def measure_models(
     """
     clips: dict[Language, Clip] | None = None
     for model in arguments.hearing_models:
-        with hearing_service(arguments.device, model, RESIDENT_VOICE) as service:
+        with hearing_service(arguments.device, model, PIPER_PROOF_VOICE) as service:
             if clips is None:
                 clips = make_clips(service, arguments.english_voice_directory)
             print(
@@ -468,7 +471,7 @@ def measure_peak(
         ports.sample() as sampler,
         ports.serve(device, hearing_model, voice) as service,
     ):
-        ports.speak(service.base_url, GERMAN_QUESTION, voice.value, service.minting)
+        ports.speak(service.base_url, GERMAN_QUESTION, voice, service.minting)
         ports.hear(service, Language.DE, warm_clip)
         resident = used_mib()
     return {
@@ -489,17 +492,19 @@ def measure_memory(
     offered: Collection[VoiceId],
 ) -> None:
     """Fill `memory` with each model's peak, alone and with each `offered` GPU voice."""
-    measured = [voice for voice in GPU_VOICES if voice in offered]
+    measured = [voice for voice in ON_DEMAND_VOICES if voice in offered]
     warm_clip = clips[Language.DE].long_turn
     memory["voices_not_offered"] = [
-        voice.value for voice in GPU_VOICES if voice not in offered
+        voice.value for voice in ON_DEMAND_VOICES if voice not in offered
     ]
     models: dict[str, object] = {}
     memory["models"] = models
     for model in hearing_models:
         peaks: dict[str, object] = {}
         models[model] = peaks
-        peaks["hearing_alone"] = measure_peak(device, model, RESIDENT_VOICE, warm_clip)
+        peaks["hearing_alone"] = measure_peak(
+            device, model, PIPER_PROOF_VOICE, warm_clip
+        )
         with_voice: dict[str, object] = {}
         peaks["with_voice"] = with_voice
         for voice in measured:
@@ -517,14 +522,14 @@ def prove_taken_card(
     german = clips[Language.DE]
     with ports.hold() as held_mib:
         used_while_held = used_mib()
-        with ports.serve(device, hearing_model, RESIDENT_VOICE) as service:
+        with ports.serve(device, hearing_model, PIPER_PROOF_VOICE) as service:
             health = service.running.health
             file_answer = ports.post(service, Language.DE, german.question)
             live = asyncio.run(ports.upgrade(service))
             wav, _, _ = ports.speak(
                 service.base_url,
                 GERMAN_QUESTION,
-                RESIDENT_VOICE.value,
+                PIPER_PROOF_VOICE,
                 service.minting,
             )
     freed = ports.freed(baseline)
@@ -690,7 +695,7 @@ def prove(
         "runs": arguments.runs,
         "clips": (
             "synthetic: German from the service's speak route, English from the"
-            f" Piper voice {PinnedVoice.LJSPEECH.value}"
+            f" Piper voice {VoiceId.LJSPEECH.value}"
         ),
         "gpu_before": card_line(arguments.device),
         "models": models,
@@ -707,7 +712,7 @@ def prove(
                 arguments.hearing_models,
                 clips,
                 stage,
-                load_settings().gpu_voices,
+                load_settings().voices,
             ),
             save,
         )

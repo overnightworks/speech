@@ -36,9 +36,9 @@ from speech_client.wire import (
     ServerEvent,
     TranscriptCompleted,
     TranscriptDelta,
+    VoiceId,
 )
 from speech_service.pcm import wav_header
-from speech_service.voices import VoiceId
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE, sine_pcm
 from tests.support.identity_support import valid_pair
 from tests.support.page_coverage_support import PageCoverage
@@ -203,7 +203,7 @@ def _install_sounds(
             speak,
             service_url,
             SPOKEN_TEXT,
-            VoiceId.PIPER.value,
+            VoiceId.THORSTEN,
             response_format=ResponseFormat.WAV,
             workload_token=side.tokens[0],
             person_token=side.tokens[1],

@@ -24,6 +24,7 @@ from speech_client.wire import (
     SPEECH_PATH,
     RefusalCode,
     ResponseFormat,
+    VoiceId,
     refusal,
     speech_request_body,
     speech_request_headers,
@@ -35,7 +36,7 @@ if TYPE_CHECKING:
     from speech_client.speak import SpeakOutcome
     from support.listener_support import Answer, RawListener
 
-VOICE = "piper"
+VOICE = VoiceId.THORSTEN
 WORKLOAD_TOKEN = "workload-token"  # noqa: S105 - a stand-in the raw listener never checks
 PERSON_TOKEN = "person-token"  # noqa: S105 - a stand-in the raw listener never checks
 DEADLINE_SECONDS = 0.5
@@ -48,7 +49,7 @@ DRIP_SECONDS = 0.02
 def _speak(
     base_url: str,
     *,
-    voice: str = VOICE,
+    voice: VoiceId = VOICE,
     response_format: ResponseFormat = ResponseFormat.WAV,
     deadline_seconds: float = GENEROUS_DEADLINE_SECONDS,
     cap_bytes: int = CAP_BYTES,
@@ -76,10 +77,9 @@ def test_a_port_nothing_listens_on_is_unreachable(refused_url: str) -> None:
         {"deadline_seconds": -1},
         {"cap_bytes": 0},
         {"cap_bytes": -1},
-        {"voice": ""},
     ],
 )
-def test_a_defect_of_the_caller_raises(options: dict[str, float | str]) -> None:
+def test_a_defect_of_the_caller_raises(options: dict[str, float]) -> None:
     with pytest.raises(ValueError, match=r"."):
         _speak("http://127.0.0.1:1", **options)
 

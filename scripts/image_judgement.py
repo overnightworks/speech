@@ -23,11 +23,12 @@ from speech_client.wire import (
     RequestField,
     RetryAfterError,
     Transcription,
+    VoiceId,
     busy_wait,
 )
 from speech_service.hearing_models import HearingModel, voiced_floor
 from speech_service.pcm import AI_MARK, pcm_from_wav, voiced_seconds
-from speech_service.voices import GPU_VOICES, RESIDENT_VOICE, VoiceId
+from speech_service.voices import PIPER_VOICES, loads_at_start
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -83,15 +84,15 @@ class TmpUsage:
 
 
 def baked_caller(config: CallerConfig, app: str) -> BakedCaller:
-    """`app`, the resident voice and the key set's address.
+    """`app`, the voice the proof speaks and the key set's address.
 
-    Only the key set's address comes from the table; the resident voice is the constant.
+    Only the key set's address comes from the table; the voice is the first Piper voice.
     """
     key_set = urlsplit(config.identity.jwks_url)
     assert key_set.hostname is not None  # noqa: S101 - the owner validated an https URL
     return BakedCaller(
         app=app,
-        voice=RESIDENT_VOICE,
+        voice=PIPER_VOICES[0],
         key_set_host=key_set.hostname,
         key_set_port=key_set.port or 443,
         key_set_path=key_set.path,
@@ -99,8 +100,8 @@ def baked_caller(config: CallerConfig, app: str) -> BakedCaller:
 
 
 def first_gpu_voice() -> VoiceId:
-    """The first GPU voice the catalogue holds."""
-    return GPU_VOICES[0]
+    """The first voice of the catalogue that does not load at start."""
+    return next(voice for voice in VoiceId if not loads_at_start(voice))
 
 
 def minting_for(config: CallerConfig, baked: BakedCaller, signing: Minting) -> Minting:

@@ -13,12 +13,13 @@ from speech_client.wire import (
     SPEECH_PATH,
     RefusalCode,
     ResponseFormat,
+    VoiceId,
     speech_request_body,
 )
 from speech_service.config import Settings
 from speech_service.control import create_control_app
 from speech_service.service import Runtime, RuntimeDependencies
-from speech_service.voices import RESIDENT_VOICE, VoiceId
+from speech_service.voices import loads_at_start
 from tests.support.fakes_support import FakeSpeaking, sine_pcm
 from tests.support.identity_support import valid_callers, valid_headers
 
@@ -64,14 +65,14 @@ def speak_app(
 ) -> FastAPI:
     """The private app over a fake runtime; its callers accept `valid_headers()`."""
     runtime = Runtime(
-        {VoiceId.PIPER: speaking or FakeSpeaking()}, memory_probe=lambda: 0
+        {VoiceId.THORSTEN: speaking or FakeSpeaking()}, memory_probe=lambda: 0
     )
     return create_control_app(
         settings or Settings(), runtime, callers or valid_callers()
     )
 
 
-def speak_response(runtime: Runtime, voice: str = VoiceId.PIPER.value) -> Response:
+def speak_response(runtime: Runtime, voice: VoiceId = VoiceId.THORSTEN) -> Response:
     """Drive the wire route's endpoint with the default body for `voice`."""
     app = create_control_app(Settings(), runtime, valid_callers())
     route = next(
@@ -136,7 +137,7 @@ def speak_scope(
 
 
 def speak_body(
-    voice: str = VoiceId.PIPER.value,
+    voice: VoiceId = VoiceId.THORSTEN,
     text: str = "Hallo",
     response_format: ResponseFormat = ResponseFormat.WAV,
 ) -> bytes:
@@ -152,7 +153,7 @@ def wav_body(messages: list[dict[str, object]]) -> bytes:
 
 
 async def speak_once(
-    app: FastAPI, voice: str = VoiceId.PIPER.value
+    app: FastAPI, voice: VoiceId = VoiceId.THORSTEN
 ) -> list[dict[str, object]]:
     """One full, undisturbed request through the raw ASGI boundary."""
     messages: list[dict[str, object]] = []
@@ -236,18 +237,18 @@ class SpeakCall:
 
 
 def fake_runtime(
-    speaking: SpeakingEngine | None = None, voice: VoiceId = RESIDENT_VOICE
+    speaking: SpeakingEngine | None = None, voice: VoiceId = VoiceId.THORSTEN
 ) -> Runtime:
     """A runtime whose `voice` speaks with `speaking`, a fake by default.
 
-    Piper holds `speaking` at once; a GPU voice is offered and loads it on its
-    first request, beside a fake Piper.
+    A start voice holds `speaking` at once; any other voice is offered and loads
+    it on its first request, beside a fake start voice.
     """
     engine = speaking or FakeSpeaking()
-    if voice is RESIDENT_VOICE:
-        return Runtime({RESIDENT_VOICE: engine}, memory_probe=lambda: 0)
+    if loads_at_start(voice):
+        return Runtime({voice: engine}, memory_probe=lambda: 0)
     return Runtime(
-        {RESIDENT_VOICE: FakeSpeaking(), voice: None},
+        {VoiceId.THORSTEN: FakeSpeaking(), voice: None},
         memory_probe=lambda: 0,
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: engine,
@@ -261,13 +262,15 @@ def app_over(runtime: Runtime, **settings: float) -> FastAPI:
     return create_control_app(Settings(**settings), runtime, valid_callers())
 
 
-def synthesis_gate(runtime: Runtime, voice: VoiceId = RESIDENT_VOICE) -> AdmissionGate:
+def synthesis_gate(
+    runtime: Runtime, voice: VoiceId = VoiceId.THORSTEN
+) -> AdmissionGate:
     """The admission gate of `voice`'s slot."""
     return runtime.slots[voice].gate
 
 
 def gate_acquisition_began(
-    runtime: Runtime, voice: VoiceId = RESIDENT_VOICE
+    runtime: Runtime, voice: VoiceId = VoiceId.THORSTEN
 ) -> asyncio.Event:
     """An event set when a request calls the gate's `acquire`.
 
@@ -286,7 +289,7 @@ def gate_acquisition_began(
     return began
 
 
-def gate_is_free(runtime: Runtime, voice: VoiceId = RESIDENT_VOICE) -> bool:
+def gate_is_free(runtime: Runtime, voice: VoiceId = VoiceId.THORSTEN) -> bool:
     """Whether `voice`'s synthesis gate is free: no request left its lease behind."""
     lease = synthesis_gate(runtime, voice).try_acquire()
     if lease is None:

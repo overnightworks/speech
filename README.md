@@ -1,13 +1,13 @@
 # Speech
 
-The home server's speech service: it speaks German text and hears recordings and
-live audio for the apps that call it, Presentator among them. The operator
+The home server's speech service: it speaks text in the voices of a closed
+catalogue and hears recordings and live audio for the apps that call it, Presentator among them. The operator
 starts and configures it; an app developer reads the wire.
 
-One process holds the German Piper voice resident and offers `GET /health`, the
+One process holds the offered Piper voices resident and offers `GET /health`, the
 speak route, a route that hears a recording and a live hearing WebSocket, over
-HTTP on a TCP address. Beside Piper it offers each GPU voice the operator names
-(today Qwen3-TTS 0.6B), loaded on its first request. When a hearing model is
+HTTP on a TCP address. Beside them it offers each GPU voice the operator names
+(today Qwen3-TTS 0.6B's `ryan`), loaded on its first request. When a hearing model is
 named, it also holds a faster-whisper model resident. Speaking and hearing need
 the app's workload token and the person's token; `/health` needs none. The
 service stores no choice of its own.
@@ -21,12 +21,12 @@ From the repository root, with [uv](https://docs.astral.sh/uv/):
 
 ```sh
 uv sync --locked
-uv run speech-fetch-voice de_DE-thorsten-medium
+uv run speech-fetch-voice
 SPEECH_CONFIG_FILE=/absolute/path/to/speech.toml uv run speech-service
 ```
 
-The first command installs the CPU path (Piper). The second fetches the default
-voice at its pinned revision; the service never downloads. The third starts the
+The first command installs the CPU path (Piper). The second fetches the voices
+`SPEECH_VOICES` offers (the four Piper voices by default) at their pinned revisions; the service never downloads. The third starts the
 service on `127.0.0.1:8080`; it refuses to start without the caller file.
 [`deploy/speech.toml`](deploy/speech.toml) is the file the container image
 carries and shows its keys. `uv run speech-service --help` prints usage.
@@ -38,11 +38,12 @@ a card, run it as `SPEECH_DEVICE=cpu uv run python scripts/prove_speech.py`.
 - **Hearing.** Fetch a model, then name it: `uv run speech-fetch-hearing-model large-v3`,
   then `SPEECH_HEARING_MODEL=large-v3`. On the GPU, sync with
   `uv sync --locked --extra gpu` as well, or hearing stays unavailable.
-- **A GPU voice.** `uv run speech-fetch-voice qwen3-tts-0.6b`, `uv sync --locked`
-  inside `providers/qwen`, then `SPEECH_GPU_VOICES=qwen3-tts-0.6b`. It always
-  runs on `cuda`, so the card must be free.
+- **A GPU voice.** Name it beside the Piper voices in `SPEECH_VOICES`, for example
+  `SPEECH_VOICES=de_DE-thorsten-medium,en_US-norman-medium,en_US-ljspeech-medium,en_GB-cori-medium,ryan`,
+  fetch with `uv run speech-fetch-voice` and run `uv sync --locked` inside
+  `providers/qwen`. It always runs on `cuda`, so the card must be free.
 - **A container.** `Dockerfile` and `compose.yaml` build and run the service on
-  the CPU with Piper's German and English voices and the `small` hearing model,
+  the CPU with the four Piper voices and the `small` hearing model,
   fetched at build. The image carries no GPU voice; see
   [Delivery](docs/ARCHITECTURE.md#delivery).
 
@@ -50,10 +51,20 @@ a card, run it as `SPEECH_DEVICE=cpu uv run python scripts/prove_speech.py`.
 
 | Role | Model | Licence |
 | --- | --- | --- |
-| Speaking, default | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices), `de_DE-thorsten-medium` | Recordings CC0; ONNX weights under the piper-voices MIT repository; the `piper-tts` runtime is `GPL-3.0-or-later` |
-| Speaking, English in the image | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices), `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` | Public domain per each voice's model card (LibriVox for norman and cori, LJ Speech for ljspeech); the service speaks only the German voice |
-| Speaking, optional | [`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice), German and English, one built-in speaker | Apache-2.0 |
+| Speaking, Piper | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices), `de_DE-thorsten-medium` | Recordings CC0; ONNX weights under the piper-voices MIT repository; the `piper-tts` runtime is `GPL-3.0-or-later` |
+| Speaking, Piper, English | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices), `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` | Public domain per each voice's model card (LibriVox for norman and cori, LJ Speech for ljspeech) |
+| Speaking, optional | [`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice), German and English, the built-in speaker `ryan` | Apache-2.0 |
 | Hearing, optional | [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3) (recommended) and [`Systran/faster-whisper-small`](https://huggingface.co/Systran/faster-whisper-small), German and English | MIT |
+
+A speak request names a `model`, the engine, and a `voice` of it:
+
+| `voice` | `model` | Name | Language |
+| --- | --- | --- | --- |
+| `de_DE-thorsten-medium` | `piper` | Thorsten | German |
+| `en_US-norman-medium` | `piper` | Norman | English |
+| `en_US-ljspeech-medium` | `piper` | LJ Speech | English |
+| `en_GB-cori-medium` | `piper` | Cori | English |
+| `ryan` | `qwen3-tts-0.6b` | Ryan | German, until a request can name the language |
 
 Each model is pinned to a revision. `small` fits a CPU and the image, but can
 mishear a question, so `large-v3` is the model to use where the meaning counts.
@@ -61,7 +72,7 @@ mishear a question, so `large-v3` is the model to use where the meaning counts.
 ## Settings
 
 Every setting is read from `SPEECH_*` in the environment. The wire's settings
-(the GPU voices, the waits and limits, the hearing model and its limits, the
+(the offered voices, the waits and limits, the hearing model and its limits, the
 caller file) are in [`docs/wire.md`](docs/wire.md), Settings that shape the wire.
 The process's own:
 
@@ -73,7 +84,6 @@ The process's own:
 | `SPEECH_VOICE_CACHE` | `~/.cache/piper` | Where Piper's files are kept and fetched to |
 | `SPEECH_HUGGINGFACE_CACHE` | the Hugging Face Hub cache | Where hearing's and Qwen's files are kept and fetched to |
 | `SPEECH_PROVIDER_ROOT` | none | Directory of the provider environments, `providers` in a checkout; a GPU voice needs it |
-| `SPEECH_QWEN_SPEAKER` | `Ryan` | Qwen's speaker: Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Ono_Anna or Sohee |
 
 ## Install as a dependency
 

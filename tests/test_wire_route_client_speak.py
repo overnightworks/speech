@@ -21,16 +21,17 @@ from speech_client.speak import (
     speak,
 )
 from speech_client.wire import (
+    REFUSAL_STATUS,
     SPEECH_PATH,
     RefusalCode,
     ResponseFormat,
+    VoiceId,
     refusal,
     speech_request_body,
 )
 from speech_service.config import Settings
 from speech_service.pcm import WAV_HEADER_BYTES
 from speech_service.service import Runtime
-from speech_service.voices import VoiceId
 from tests.support.fakes_support import (
     GATE_TIMEOUT_SECONDS,
     FakeSpeaking,
@@ -46,7 +47,6 @@ if TYPE_CHECKING:
     from proof_identity import TokenPair
     from speech_client.speak import SpeakOutcome
 
-PIPER = VoiceId.PIPER.value
 DEADLINE_SECONDS = 0.5
 MARGIN_SECONDS = 3.0
 CAP_BYTES = 1024 * 1024
@@ -55,7 +55,7 @@ CAP_BYTES = 1024 * 1024
 def _speak(  # noqa: PLR0913 - one keyword per call-site option
     base_url: str,
     *,
-    voice: str = PIPER,
+    voice: VoiceId = VoiceId.THORSTEN,
     response_format: ResponseFormat = ResponseFormat.WAV,
     deadline_seconds: float = GATE_TIMEOUT_SECONDS,
     cap_bytes: int = CAP_BYTES,
@@ -75,7 +75,7 @@ def _speak(  # noqa: PLR0913 - one keyword per call-site option
 
 
 def _runtime(voice: FakeSpeaking | GatedSpeaking) -> Runtime:
-    return Runtime({VoiceId.PIPER: voice}, memory_probe=lambda: 0)
+    return Runtime({VoiceId.THORSTEN: voice}, memory_probe=lambda: 0)
 
 
 @asynccontextmanager
@@ -112,7 +112,9 @@ def test_the_call_returns_the_wav_the_service_sent() -> None:
             ) as client:
                 return outcome, await client.post(
                     SPEECH_PATH,
-                    content=speech_request_body("Hallo", PIPER, ResponseFormat.WAV),
+                    content=speech_request_body(
+                        "Hallo", VoiceId.THORSTEN, ResponseFormat.WAV
+                    ),
                 )
 
     outcome, sent = asyncio.run(scenario())
@@ -143,16 +145,18 @@ def test_a_cap_below_the_wav_is_over_the_cap() -> None:
     assert outcome == OverCap()
 
 
-def test_an_unknown_voice_is_refused_with_its_status_code_and_param() -> None:
+def test_a_voice_that_is_not_offered_is_refused_with_its_status_code_and_param() -> (
+    None
+):
     async def scenario() -> SpeakOutcome:
         async with _serving(FakeSpeaking()) as server:
-            return await asyncio.to_thread(_speak, server.base_url, voice="alloy")
+            return await asyncio.to_thread(_speak, server.base_url, voice=VoiceId.RYAN)
 
     outcome = asyncio.run(scenario())
 
     assert isinstance(outcome, Refused)
-    assert outcome.refusal == refusal(RefusalCode.INVALID_REQUEST, "voice")
-    assert outcome.status == 422  # noqa: PLR2004 - the wire's status for invalid_request
+    assert outcome.refusal == refusal(RefusalCode.UNAVAILABLE, "voice")
+    assert outcome.status == REFUSAL_STATUS[RefusalCode.UNAVAILABLE]
 
 
 @pytest.mark.parametrize("chunks_before_failing", [0, 1])

@@ -1,5 +1,5 @@
-# The proof's offer of the GPU voice, set as hal's override will set it.
+# The proof's offer of the GPU voice beside the Piper voices, set as hal's override will set it.
 services:
   speech:
     environment:
-      SPEECH_GPU_VOICES: qwen3-tts-0.6b
+      SPEECH_VOICES: de_DE-thorsten-medium,en_US-norman-medium,en_US-ljspeech-medium,en_GB-cori-medium,ryan
