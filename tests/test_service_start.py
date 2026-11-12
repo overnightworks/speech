@@ -11,6 +11,7 @@ from speech_client.wire import VoiceId
 from speech_service.clock import LoopClock
 from speech_service.hearing import Hearing
 from speech_service.service import Runtime, RuntimeDependencies, SpeakingEngine
+from speech_service.voices import PIPER_VOICES
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.hear_support import FakeHearing
 from tests.support.speak_support import app_over, post_speech, speak_body
@@ -257,10 +258,7 @@ def test_the_start_loads_the_piper_voices_in_catalogue_order_then_hearing() -> N
     runtime.load()
 
     assert events == [
-        "de_DE-thorsten-medium loaded",
-        "en_US-norman-medium loaded",
-        "en_US-ljspeech-medium loaded",
-        "en_GB-cori-medium loaded",
+        *(f"{voice.value} loaded" for voice in PIPER_VOICES),
         "hearing loaded",
     ]
 

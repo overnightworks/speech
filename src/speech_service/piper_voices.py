@@ -52,6 +52,22 @@ PINS: dict[VoiceId, VoicePin] = {
             "974adee790533adb273a1ac88f49027d2a1b8f0f2cf4905954a4791e79264e85",
         ),
     ),
+    # Licence: "CC0" on the model card at the pinned revision
+    # (de/de_DE/kerstin/medium/MODEL_CARD); dataset OHF-Voice voice-datasets. Its
+    # base model, Hi-Fi TTS, is CC BY 4.0. Not _REVISION: the voice's files exist
+    # from this revision on.
+    VoiceId.KERSTIN: VoicePin(
+        _REPOSITORY,
+        "cf910fb59f1d79ab3b625a63993a108751c6c25d",
+        PinnedFile(
+            "de/de_DE/kerstin/medium/de_DE-kerstin-medium.onnx",
+            "c56d70475fb99248a20e60dafbcd107475e60d7e01deec18ba65201d288d015d",
+        ),
+        PinnedFile(
+            "de/de_DE/kerstin/medium/de_DE-kerstin-medium.onnx.json",
+            "8e86846ab0c5c5403c25125e3a505841eec4a52eed7d2babf904990883f7e83d",
+        ),
+    ),
     # Licence: "public domain" on the model card at the pinned revision
     # (en/en_US/norman/medium/MODEL_CARD); dataset LibriVox.
     VoiceId.NORMAN: VoicePin(

@@ -2,4 +2,4 @@
 services:
   speech:
     environment:
-      SPEECH_VOICES: de_DE-thorsten-medium,en_US-norman-medium,en_US-ljspeech-medium,en_GB-cori-medium,ryan
+      SPEECH_VOICES: de_DE-thorsten-medium,de_DE-kerstin-medium,en_US-norman-medium,en_US-ljspeech-medium,en_GB-cori-medium,ryan

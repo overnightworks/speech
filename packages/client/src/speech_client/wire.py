@@ -99,6 +99,7 @@ class VoiceId(StrEnum):
     """The closed catalogue of voices: a request's `voice`."""
 
     THORSTEN = "de_DE-thorsten-medium"
+    KERSTIN = "de_DE-kerstin-medium"
     NORMAN = "en_US-norman-medium"
     LJSPEECH = "en_US-ljspeech-medium"
     CORI = "en_GB-cori-medium"
@@ -119,6 +120,7 @@ class CatalogueVoice:
 
 VOICES: Final[Mapping[VoiceId, CatalogueVoice]] = {
     VoiceId.THORSTEN: CatalogueVoice(SpeakingModel.PIPER, "Thorsten", (Language.DE,)),
+    VoiceId.KERSTIN: CatalogueVoice(SpeakingModel.PIPER, "Kerstin", (Language.DE,)),
     VoiceId.NORMAN: CatalogueVoice(SpeakingModel.PIPER, "Norman", (Language.EN,)),
     VoiceId.LJSPEECH: CatalogueVoice(SpeakingModel.PIPER, "LJ Speech", (Language.EN,)),
     VoiceId.CORI: CatalogueVoice(SpeakingModel.PIPER, "Cori", (Language.EN,)),
