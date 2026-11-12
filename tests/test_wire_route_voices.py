@@ -72,7 +72,7 @@ def test_a_voice_outside_the_catalogue_is_invalid(voice: str) -> None:
 def test_each_voice_is_spoken_by_its_own_engine_in_the_language_asked_for(
     voice: VoiceId, language: Language
 ) -> None:
-    """WIRE-07, WIRE-11: each voice is spoken by its engine in the named language."""
+    """WIRE-07, WIRE-11, WIRE-138: each voice is spoken in the named language."""
     engines = {offered: FakeSpeaking() for offered in VoiceId}
     app = app_over(Runtime(dict(engines), memory_probe=lambda: 0))
 
@@ -91,7 +91,7 @@ def test_each_voice_is_spoken_by_its_own_engine_in_the_language_asked_for(
 def test_a_voice_of_one_language_speaks_it_when_no_language_is_named(
     voice: VoiceId,
 ) -> None:
-    """WIRE-11: a voice of one language speaks it without a language."""
+    """WIRE-138: a voice of one language speaks it without a language."""
     engine = FakeSpeaking()
     app = app_over(_offering_every_voice(voice, engine))
 
@@ -200,7 +200,7 @@ def _assert_language_refused(response: ClientResponse) -> None:
 def test_a_language_the_voice_lacks_is_refused_naming_language(
     voice: VoiceId, language: Language
 ) -> None:
-    """WIRE-11: a language the voice does not speak is invalid_request on `language`."""
+    """WIRE-138: a language the voice does not speak is invalid_request."""
     engine = FakeSpeaking()
     app = app_over(_offering_every_voice(voice, engine))
 
@@ -214,7 +214,7 @@ def test_a_language_the_voice_lacks_is_refused_naming_language(
 def test_a_voice_of_several_languages_without_a_language_is_refused(
     voice: VoiceId,
 ) -> None:
-    """WIRE-11: a voice of several languages needs the language named."""
+    """WIRE-138: a voice of several languages needs the language named."""
     engine = FakeSpeaking()
     app = app_over(_offering_every_voice(voice, engine))
 
@@ -229,7 +229,7 @@ def test_a_voice_of_several_languages_without_a_language_is_refused(
 def test_a_language_outside_the_wire_is_refused_naming_language(
     voice: VoiceId, language: object
 ) -> None:
-    """WIRE-11: a language that is neither de nor en is invalid_request."""
+    """WIRE-138: a language that is neither de nor en is invalid_request."""
     response = post_speech(
         TestClient(speak_app()), _body_naming(voice, language=language)
     )
@@ -241,7 +241,7 @@ def test_a_language_outside_the_wire_is_refused_naming_language(
 def test_a_wrong_language_is_refused_before_the_voice_is_found_unavailable(
     voice: VoiceId,
 ) -> None:
-    """WIRE-11, WIRE-19: every 422 comes before any 503."""
+    """WIRE-139: every 422 comes before any 503."""
     response = post_speech(TestClient(speak_app()), _body_naming(voice, language="fr"))
 
     _assert_language_refused(response)
@@ -260,7 +260,7 @@ def test_a_wrong_language_is_refused_before_the_voice_is_found_unavailable(
 def test_a_wrong_model_or_voice_is_named_before_a_wrong_language(
     changes: dict[str, object], param: str
 ) -> None:
-    """WIRE-11: the language check follows the model and voice checks."""
+    """WIRE-139: the language check follows the model and voice checks."""
     response = post_speech(
         TestClient(speak_app()),
         _body_naming(VoiceId.THORSTEN, language="fr", **changes),

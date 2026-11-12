@@ -126,7 +126,7 @@ def test_every_registered_app_speaks_an_offered_gpu_voice_through_one_worker(
 def test_ryan_is_spoken_by_the_worker_in_the_language_asked_for(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, language: Language
 ) -> None:
-    """WIRE-11: ryan is spoken with the provider's language byte of the language."""
+    """WIRE-138: ryan is spoken with the provider's language byte of the language."""
     provider_language_byte = {Language.DE: 1, Language.EN: 2}[language]
     with gpu_voice_stage(tmp_path, monkeypatch, StageSetup("normal")) as stage:
         spoken = post_speech(
