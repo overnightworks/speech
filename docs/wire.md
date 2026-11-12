@@ -152,6 +152,8 @@ service is busy, a malformed form is answered `busy` like any other request, and
 events of OpenAI's Realtime transcription session that this service applies, and
 nothing else. **WIRE-50** Both tokens travel in the upgrade request's headers, as on the
 other routes; a client sends them from a server, never from a browser.
+**WIRE-140** The tokens are checked once, at the upgrade; a session runs on after either
+token expires until it ends, so the app ends a hearing when its right to hear ends.
 
 **Upgrade.** **WIRE-51** A refusal before the session is an HTTP answer in the refusal form
 below, in this order: the tokens, the
@@ -204,14 +206,23 @@ open turn, so at most 90 s of audio.
 |---|---|---|
 | WIRE-68 | `session.created` | first, on every session |
 | WIRE-69 | `session.updated` | after a valid `session.update` |
-| WIRE-70 | `input_audio_buffer.speech_started` (`item_id`, `audio_start_ms`) | speech first heard in the turn |
+| WIRE-70 | `input_audio_buffer.speech_started` (`item_id`, `audio_start_ms`) | speech first heard in the turn; the position counts as below |
 | WIRE-71 | `conversation.item.input_audio_transcription.delta` (`item_id`, `content_index` 0, `delta`) | zero or more, before the commit: the words two consecutive decodes agree on. Provisional; a delta names no language, and a partial may be heard in another language than its final. |
-| WIRE-72 | `input_audio_buffer.speech_stopped` (`item_id`, `audio_end_ms`) | silence or the cap ended the turn; not sent after a client commit |
+| WIRE-72 | `input_audio_buffer.speech_stopped` (`item_id`, `audio_end_ms`) | silence or the cap ended the turn, at the position counted as below; not sent after a client commit |
 | WIRE-73 | `input_audio_buffer.committed` (`item_id`, `previous_item_id`) | the turn is closed; `previous_item_id` is `null` for the first |
 | WIRE-74 | `conversation.item.created` (`item`, `previous_item_id`) | right after `committed`; the item is a user message with one `input_audio` part whose `transcript` is `null` |
 | WIRE-75 | `conversation.item.input_audio_transcription.completed` (`item_id`, `content_index` 0, `transcript`, `usage`, `languages`) | the authoritative text, possibly empty, with `usage` `{"type": "duration", "seconds": ...}` and `languages` (WIRE-136); it replaces the deltas |
 | WIRE-76 | `conversation.item.input_audio_transcription.failed` (`item_id`, `content_index` 0, `error`) | only as a session ends |
 | WIRE-77 | `error` (`error.type`, `error.code`, `error.message`, `error.param`, `error.event_id`) | the session ends after it |
+
+`audio_start_ms` and `audio_end_ms` (WIRE-70, WIRE-72) count milliseconds of the audio
+the service received in this session, from its first byte, in the service's 16 kHz time,
+rounded down. They depend on neither the wall clock nor when an event is sent. Turns are
+contiguous: each starts where the last ended. `audio_start_ms` is where the first
+appended audio of the turn that was not silence starts, with no pre-roll, so it lies at
+or before the first speech by at most one appended frame.
+`audio_end_ms` is the end of all audio in the turn: it includes the silence that ended it
+(WIRE-66), or lies at the turn's start plus the cap.
 
 **WIRE-136** `completed.languages` is `[{"code": "<code>"}]` with exactly one element, the
 language the turn was decoded in: also for a session of one language, for a turn heard in
