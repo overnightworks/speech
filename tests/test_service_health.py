@@ -64,7 +64,7 @@ def test_health_reports_ready_models() -> None:
 
 def test_a_voice_that_is_not_loaded_reports_its_catalogue_model_not_ready() -> None:
     """WIRE-125, WIRE-126: a voice that is not loaded reports its catalogue model."""
-    runtime = Runtime(None)
+    runtime = Runtime({VoiceId.PIPER: None})
 
     voice = runtime.health().speaking.voices[VoiceId.PIPER.value]
 

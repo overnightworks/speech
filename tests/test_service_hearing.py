@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 def _starting(hearing: FakeHearing | None) -> Runtime:
     return Runtime(
-        None,
+        {VoiceId.PIPER: None},
         memory_probe=lambda: 0,
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: FakeSpeaking(),

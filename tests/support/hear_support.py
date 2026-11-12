@@ -17,6 +17,7 @@ from speech_service.control import create_control_app
 from speech_service.hearing import Heard, Hearing
 from speech_service.pcm import wav_header
 from speech_service.service import Runtime
+from speech_service.voices import VoiceId
 from tests.support.fakes_support import FakeSpeaking, sine_pcm
 from tests.support.identity_support import valid_callers, valid_headers
 from tests.support.speak_support import SpeakCall, speak_scope
@@ -105,7 +106,9 @@ def loaded(engine: FakeHearing | None, clock: Clock | None = None) -> Hearing:
 
 def hear_runtime(engine: FakeHearing | None) -> Runtime:
     """A runtime whose voice speaks and whose hearing is `engine`, loaded."""
-    return Runtime(FakeSpeaking(), memory_probe=lambda: 0, hearing=loaded(engine))
+    return Runtime(
+        {VoiceId.PIPER: FakeSpeaking()}, memory_probe=lambda: 0, hearing=loaded(engine)
+    )
 
 
 def hear_app(runtime: Runtime, **settings: float) -> FastAPI:

@@ -54,7 +54,7 @@ def test_both_proof_scripts_reach_a_running_speech_over_tcp(
     minting: Minting, identity: ProofIdentity
 ) -> None:
     async def scenario() -> tuple[object, bytes, bytes]:
-        runtime = Runtime(FakeSpeaking(), memory_probe=lambda: 0)
+        runtime = Runtime({VoiceId.PIPER: FakeSpeaking()}, memory_probe=lambda: 0)
         callers = callers_trusting(identity.configuration_path, minting)
         async with serving_over_tcp(runtime, callers) as server:
             return (
@@ -169,7 +169,7 @@ def test_a_proof_client_rejects_a_body_the_service_aborted(
 ) -> None:
     async def scenario() -> None:
         voice = FailingSpeaking(chunks_before_failing=chunks_before_failing)
-        runtime = Runtime(voice, memory_probe=lambda: 0)
+        runtime = Runtime({VoiceId.PIPER: voice}, memory_probe=lambda: 0)
         async with serving_over_tcp(runtime) as server:
             with pytest.raises(SystemExit):
                 await asyncio.to_thread(speak, server.base_url, "Hallo", PIPER, minting)

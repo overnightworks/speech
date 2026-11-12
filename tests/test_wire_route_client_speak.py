@@ -75,7 +75,7 @@ def _speak(  # noqa: PLR0913 - one keyword per call-site option
 
 
 def _runtime(voice: FakeSpeaking | GatedSpeaking) -> Runtime:
-    return Runtime(voice, memory_probe=lambda: 0)
+    return Runtime({VoiceId.PIPER: voice}, memory_probe=lambda: 0)
 
 
 @asynccontextmanager

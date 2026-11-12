@@ -24,10 +24,6 @@ logger = logging.getLogger(__name__)
 _CLEANUP_FAILED = "speaking engine cleanup failed"
 
 
-def _nothing() -> None:
-    """Run nothing after a publication."""
-
-
 class VoiceSlot:
     """The engine one voice speaks with, from its build to its close."""
 
@@ -54,13 +50,8 @@ class VoiceSlot:
         self._cleanup_failed = False
         self._fatal_callback: Callable[[], None] = lambda: None
 
-    def begin_loading(self) -> None:
-        """Publish startup before its background task can be scheduled."""
-        with self._state_lock:
-            self.loading = True
-
-    def load(self, after_publish: Callable[[], None] = _nothing) -> None:
-        """Build and load the engine, publish it, then run `after_publish`."""
+    def load(self) -> None:
+        """Build and load the engine, then publish it."""
         engine: SpeakingEngine | None = None
         registered = False
         try:
@@ -69,7 +60,6 @@ class VoiceSlot:
             if registered:
                 _load_or_raise(engine)
                 self._publish(engine)
-                after_publish()
         finally:
             self._finish_loading(engine, registered=registered)
 
@@ -122,10 +112,9 @@ class VoiceSlot:
             if callable(setter):
                 setter(callback)
 
-    def close(self, while_released: Callable[[], None] = _nothing) -> None:
+    def close(self) -> None:
         """Close the pending and the active engine, then wait for a running load.
 
-        `while_released` runs once the slot refuses work and before its engines close.
         It raises once any cleanup of the slot failed, the running load's included.
         """
         with self._state_changed:
@@ -137,7 +126,6 @@ class VoiceSlot:
             self._pending_engine = None
             self.speaking = None
             self._ready_speaking = None
-        while_released()
         for engine in _unique_engines(engines):
             self._closed(engine, _CLEANUP_FAILED)
         with self._state_changed:
