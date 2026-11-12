@@ -49,6 +49,13 @@ def test_the_baked_caller_speaks_a_piper_voice(config: CallerConfig, app: str) -
     assert baked.voice in PIPER_VOICES
 
 
+def test_the_english_voice_of_the_offer_is_a_piper_voice_that_speaks_english() -> None:
+    voice = judged.first_english_voice()
+
+    assert voice in PIPER_VOICES
+    assert Language.EN in VOICES[voice].languages
+
+
 def test_tokens_minted_for_the_baked_caller_carry_its_identity(
     config: CallerConfig, minting: Minting, app: str
 ) -> None:
@@ -360,6 +367,7 @@ def test_an_nvidia_distribution_in_the_image_is_named_even_when_the_lock_lists_i
 
 
 SENTENCE = "Die Kamera zeigt den Vortragenden, während die Folie vorbereitet wird."
+ENGLISH_SENTENCE = "The camera shows the speaker while the next slide is prepared."
 
 
 def transcription(text: str, status: int = 200) -> Reply:
@@ -495,8 +503,22 @@ def test_a_live_turn_without_a_final_of_the_sentence_fails_the_proof(
         judged.require_final(outcome, SENTENCE)
 
 
-def test_a_live_turn_with_a_final_of_the_sentence_passes() -> None:
-    judged.require_final(LiveOutcome("die Kamera", (), None), SENTENCE)
+@pytest.mark.parametrize(
+    ("sentence", "final"),
+    [
+        pytest.param(SENTENCE, "die Kamera", id="german"),
+        pytest.param(ENGLISH_SENTENCE, "the camera", id="english"),
+    ],
+)
+def test_a_live_turn_with_a_final_of_the_sentence_passes(
+    sentence: str, final: str
+) -> None:
+    judged.require_final(LiveOutcome(final, (), None), sentence)
+
+
+def test_a_final_of_the_german_text_does_not_pass_for_the_english_sentence() -> None:
+    with pytest.raises(SystemExit, match="no word of the spoken sentence"):
+        judged.require_final(LiveOutcome("die Kamera", (), None), ENGLISH_SENTENCE)
 
 
 def test_a_final_in_another_language_than_expected_fails_the_proof() -> None:

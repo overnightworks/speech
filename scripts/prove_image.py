@@ -33,6 +33,7 @@ from image_judgement import (
     TmpUsage,
     baked_caller,
     external_networks,
+    first_english_voice,
     heard_words,
     image_faults,
     is_speaking_alone,
@@ -88,6 +89,7 @@ from prove_speech import (
     LOCK_HELD_ENV,
     LOCK_PATH,
     SENTENCE,
+    SENTENCES,
     parse_arguments,
     prove_under_lock,
     run_under_lock,
@@ -394,19 +396,42 @@ def cell_hearing_refusals(session: Session, wav: bytes) -> None:
         print(f"cell 16: held; {what} refused as {code}")
 
 
+def heard_live_turn(
+    session: Session, wav: bytes, model: HearingModel, spoken: Language
+) -> LiveOutcome:
+    """A live turn in the session `[en, de]` ends in the proof sentence of `spoken`.
+
+    The final must name `spoken` as its language.
+    """
+    require_voiced_floor(wav, model)
+    outcome = session.hear_live(session.pair(), wav, (Language.EN, Language.DE))
+    require_final(outcome, SENTENCES[spoken])
+    require_language(outcome, spoken)
+    session.heard.extend(live_texts(outcome))
+    return outcome
+
+
 def cell_live_turn(session: Session, wav: bytes, model: HearingModel) -> None:
     """Cell 17: a live turn over the WebSocket ends in a final in its own language.
 
     The session is `[en, de]` and the sentence German, so the final holds only when
     the language step chose away from the main language.
     """
-    require_voiced_floor(wav, model)
-    outcome = session.hear_live(session.pair(), wav, (Language.EN, Language.DE))
-    require_final(outcome, SENTENCE)
-    require_language(outcome, Language.DE)
-    session.heard.extend(live_texts(outcome))
+    outcome = heard_live_turn(session, wav, model, Language.DE)
     print(
         f"cell 17: held; final arrived in {outcome.language} after"
+        f" {len(outcome.partials)} partials"
+    )
+
+
+def cell_english_voice(session: Session, model: HearingModel) -> None:
+    """Cell 15: an English voice of the offer speaks; hearing names English for it."""
+    voice = first_english_voice()
+    wav = speak_marked(session, voice)
+    outcome = heard_live_turn(session, wav, model, Language.EN)
+    print(
+        f"cell 15: held; {voice} speaks the English sentence, status=200 mark=present,"
+        f" the final arrived in {outcome.language} after"
         f" {len(outcome.partials)} partials"
     )
 
@@ -582,17 +607,20 @@ def cell_negatives(session: Session, wav: bytes) -> None:
 def cell_log(session: Session) -> None:
     """Cell 11: the logs hold no spoken text and no token."""
     session.collect_log()
-    require_log_clean("\n".join(session.logs), [SENTENCE], [], session.tokens)
+    require_log_clean("\n".join(session.logs), SENTENCES.values(), [], session.tokens)
     print("cell 11: held; the log holds no spoken text and no token")
 
 
 def cell_hearing_log(session: Session) -> None:
     """Cell 21: the log after the hearing cells holds no heard text either."""
     log = "\n".join(session.logs)
-    require_log_clean(log, [SENTENCE], session.heard, session.tokens)
+    require_log_clean(log, SENTENCES.values(), session.heard, session.tokens)
     require_fails(
         lambda: require_log_clean(
-            f"{log}\n{session.heard[0]}", [SENTENCE], session.heard, session.tokens
+            f"{log}\n{session.heard[0]}",
+            SENTENCES.values(),
+            session.heard,
+            session.tokens,
         ),
         "a log with a heard text",
         naming="heard text",
@@ -602,7 +630,7 @@ def cell_hearing_log(session: Session) -> None:
     require_fails(
         lambda: require_log_clean(
             f"{log}\n{partial_turn.partials[0]}",
-            [SENTENCE],
+            SENTENCES.values(),
             live_texts(partial_turn),
             session.tokens,
         ),
@@ -629,14 +657,12 @@ def hearing_cells(
     session: Session, plain: Compose, wav: bytes, started_after: float
 ) -> None:
     """Cells 13 to 19: hearing in the image, after a start `started_after` long."""
+    model = HearingModel(service_config(plain)["environment"][HEARING_MODEL_SETTING])
     cell_hearing_ready(session, plain, started_after)
     cell_recording(session, wav)
+    cell_english_voice(session, model)
     cell_hearing_refusals(session, wav)
-    cell_live_turn(
-        session,
-        wav,
-        HearingModel(service_config(plain)["environment"][HEARING_MODEL_SETTING]),
-    )
+    cell_live_turn(session, wav, model)
     cell_recording_limit(session, wav)
     cell_hearing_restart(session, wav, plain)
 
