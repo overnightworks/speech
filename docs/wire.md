@@ -44,7 +44,7 @@ positions), optionally the text so far, or the code of a failed item or of an
 |---|---|---|
 | WIRE-05 | `model` | `piper` or `qwen3-tts-0.6b`, the engine of `voice`. Any other value is refused, so a request naming another model is never answered by this one. |
 | WIRE-06 | `input` | Text with at least one letter or digit, at most `SPEECH_MAX_INPUT_CHARACTERS` characters (default 4096; the operator may raise it above OpenAI's 4096). |
-| WIRE-07 | `voice` | A catalogue voice of `model` as a string: `de_DE-thorsten-medium`, `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` under `piper`; `ryan` under `qwen3-tts-0.6b`. `speaking.voices` in health lists those offered. OpenAI's object form is refused. |
+| WIRE-07 | `voice` | A catalogue voice of `model` as a string: `de_DE-thorsten-medium`, `de_DE-kerstin-medium`, `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` under `piper`; `ryan` under `qwen3-tts-0.6b`. `speaking.voices` in health lists those offered. OpenAI's object form is refused. |
 | WIRE-09 | `voice` | A GPU voice that is not loaded yet loads for this request, which waits for the load. |
 | WIRE-10 | `response_format` | `wav` or `opus`. OpenAI defaults an absent field to `mp3`, so it is required here. |
 | WIRE-138 | `language` | An extension to OpenAI's request, which has no such field. `de` or `en`, the codes of WIRE-34; `null` counts as not named. A voice of one language speaks it, and the field is optional but, when named, must be that language. A voice of several languages (`ryan`: `de`, `en`) speaks the language named, and the field is required. A value other than `de` or `en`, or a language the voice does not speak, or no language for a voice of several, is refused. |

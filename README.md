@@ -26,7 +26,7 @@ SPEECH_CONFIG_FILE=/absolute/path/to/speech.toml uv run speech-service
 ```
 
 The first command installs the CPU path (Piper). The second fetches the voices
-`SPEECH_VOICES` offers (the four Piper voices by default) at their pinned revisions; the service never downloads. The third starts the
+`SPEECH_VOICES` offers (the five Piper voices by default) at their pinned revisions; the service never downloads. The third starts the
 service on `127.0.0.1:8080`; it refuses to start without the caller file.
 [`deploy/speech.toml`](deploy/speech.toml) is the file the container image
 carries and shows its keys. `uv run speech-service --help` prints usage.
@@ -39,11 +39,11 @@ a card, run it as `SPEECH_DEVICE=cpu uv run python scripts/prove_speech.py`.
   then `SPEECH_HEARING_MODEL=large-v3`. On the GPU, sync with
   `uv sync --locked --extra gpu` as well, or hearing stays unavailable.
 - **A GPU voice.** Name it beside the Piper voices in `SPEECH_VOICES`, for example
-  `SPEECH_VOICES=de_DE-thorsten-medium,en_US-norman-medium,en_US-ljspeech-medium,en_GB-cori-medium,ryan`,
+  `SPEECH_VOICES=de_DE-thorsten-medium,de_DE-kerstin-medium,en_US-norman-medium,en_US-ljspeech-medium,en_GB-cori-medium,ryan`,
   fetch with `uv run speech-fetch-voice` and run `uv sync --locked` inside
   `providers/qwen`. It always runs on `cuda`, so the card must be free.
 - **A container.** `Dockerfile` and `compose.yaml` build and run the service on
-  the CPU with the four Piper voices and the `small` hearing model,
+  the CPU with the five Piper voices and the `small` hearing model,
   fetched at build. The image carries no GPU voice; see
   [Delivery](docs/ARCHITECTURE.md#delivery).
 
@@ -52,6 +52,7 @@ a card, run it as `SPEECH_DEVICE=cpu uv run python scripts/prove_speech.py`.
 | Role | Model | Licence |
 | --- | --- | --- |
 | Speaking, Piper | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices), `de_DE-thorsten-medium` | Recordings CC0; ONNX weights under the piper-voices MIT repository; the `piper-tts` runtime is `GPL-3.0-or-later` |
+| Speaking, Piper, German | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices), `de_DE-kerstin-medium` | CC0 for the dataset (OHF-Voice voice-datasets) per the model card; fine-tuned from the Hi-Fi TTS base model, CC BY 4.0 (NVIDIA), which needs credit |
 | Speaking, Piper, English | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices), `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` | Public domain per each voice's model card (LibriVox for norman and cori, LJ Speech for ljspeech) |
 | Speaking, optional | [`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice), German and English, the built-in speaker `ryan` | Apache-2.0 |
 | Hearing, optional | [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3) (recommended) and [`Systran/faster-whisper-small`](https://huggingface.co/Systran/faster-whisper-small), German and English | MIT |
@@ -61,6 +62,7 @@ A speak request names a `model`, the engine, and a `voice` of it, and a `languag
 | `voice` | `model` | Name | Language |
 | --- | --- | --- | --- |
 | `de_DE-thorsten-medium` | `piper` | Thorsten | German |
+| `de_DE-kerstin-medium` | `piper` | Kerstin | German |
 | `en_US-norman-medium` | `piper` | Norman | English |
 | `en_US-ljspeech-medium` | `piper` | LJ Speech | English |
 | `en_GB-cori-medium` | `piper` | Cori | English |
