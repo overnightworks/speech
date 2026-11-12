@@ -1,0 +1,8 @@
+claim_id = "970f22d79c1c403da14d0199b26bbd24"
+agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
+role = "builder"
+base = "7b6adb6586b90058c9ebf47f7ff1ddb280eead2c"
+branch = "claude/issue-316-bump-0-11-0"
+scope = ["packages/browser/package.json", "packages/client/pyproject.toml", "providers/provider-contract/pyproject.toml", "providers/qwen/uv.lock", "pyproject.toml", "uv.lock"]
+opened_commit = "24febea5ef25f3478bfd8cce77a60dcab4323ecb"
+whole_reason = "The version lines and the two locks must agree, which the release check enforces, so they change in one landing."
