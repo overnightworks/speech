@@ -28,6 +28,13 @@ cap and answers with a typed outcome; the outcomes the calls share live in
 session: audio in, typed events out, one closed outcome when it ends, within a total
 deadline and an opening bound; a service that does not open the session in time ends
 it with `Unreachable`.
+`speech_client.relay` relays a browser's binary audio frames to such a session for an
+app's server and hands the app the typed events, never the browser; it ends the hop
+when the browser leaves, breaks a frame rule or the app ends it, and closes the
+browser with a code of its own. `speech_client.utterances` builds the session on top
+of the relay and hands the app finished utterances (text, language and audio
+positions), optionally the text so far, or the code of a failed item or an error
+event.
 
 ## Request
 
