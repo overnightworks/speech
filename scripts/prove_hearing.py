@@ -304,7 +304,7 @@ def german_clip(service: Service, text: str) -> bytes:
 
 def english_voice_path(directory: Path) -> Path:
     """The English Piper voice in `directory`, fetched there once if absent."""
-    return fetch_voice_files(PinnedVoice.LESSAC, directory)
+    return fetch_voice_files(PinnedVoice.LJSPEECH, directory)
 
 
 def english_clip(voice: PiperVoice, text: str) -> bytes:
@@ -682,7 +682,7 @@ def prove(
         "runs": arguments.runs,
         "clips": (
             "synthetic: German from the service's speak route, English from the"
-            f" Piper voice {PinnedVoice.LESSAC.value}"
+            f" Piper voice {PinnedVoice.LJSPEECH.value}"
         ),
         "gpu_before": card_line(arguments.device),
         "models": models,
