@@ -18,7 +18,7 @@ from pathlib import Path
 from proof_identity import Minting, load_minting, mint_pair
 from speech_client import speak as speaking_call
 from speech_client.health import fetch_health
-from speech_client.wire import Health, ResponseFormat, VoiceId
+from speech_client.wire import VOICES, Health, ResponseFormat, VoiceId
 
 SENTENCE = (
     "Die Kamera zeigt den Vortragenden, während im Hintergrund "
@@ -56,7 +56,9 @@ def _pcm_from_wav(data: bytes) -> tuple[int, bytes]:
 
 
 def speak(base_url: str, text: str, voice: VoiceId, minting: Minting) -> bytes:
-    """POST German text to the speech service and return the whole WAV bytes.
+    """POST text to the speech service in the first language of `voice`.
+
+    Return the whole WAV bytes.
 
     Each call mints a fresh pair of tokens, so a long run never presents an
     expired one.
@@ -66,6 +68,7 @@ def speak(base_url: str, text: str, voice: VoiceId, minting: Minting) -> bytes:
         base_url,
         text,
         voice,
+        language=VOICES[voice].languages[0],
         response_format=ResponseFormat.WAV,
         workload_token=pair.workload,
         person_token=pair.person,

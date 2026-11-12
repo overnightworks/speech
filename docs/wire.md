@@ -19,7 +19,9 @@ under [Hearing live](#hearing-live).
 distribution) owns the paths, the request types, the transcription answer, the
 Realtime events and the refusal list; build the body and read the refusals through it.
 `speech_client.speak` makes the speaking call itself, within a total deadline and a
-byte cap, and answers with a typed outcome; its module documents them.
+byte cap, and answers with a typed outcome; its module documents them. `speak` and
+`speech_request_body` take `language`; one the voice lacks, or none for a voice of
+several languages, raises the request's validation error before the network.
 `speech_client.health` fetches `GET /health` (WIRE-122) within a deadline and a
 cap and answers with a typed outcome; the outcomes the calls share live in
 `speech_client.outcomes`. `speech_client.hearing` runs the live hearing
@@ -29,7 +31,7 @@ it with `Unreachable`.
 
 ## Request
 
-**WIRE-04** A JSON object with exactly these fields, all required, all strict JSON types:
+**WIRE-04** A JSON object with exactly these fields, all required but `language`, all strict JSON types:
 
 | ID | Field | Accepted value |
 |---|---|---|
@@ -38,10 +40,14 @@ it with `Unreachable`.
 | WIRE-07 | `voice` | A catalogue voice of `model` as a string: `de_DE-thorsten-medium`, `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` under `piper`; `ryan` under `qwen3-tts-0.6b`. `speaking.voices` in health lists those offered. OpenAI's object form is refused. |
 | WIRE-09 | `voice` | A GPU voice that is not loaded yet loads for this request, which waits for the load. |
 | WIRE-10 | `response_format` | `wav` or `opus`. OpenAI defaults an absent field to `mp3`, so it is required here. |
+| WIRE-138 | `language` | An extension to OpenAI's request, which has no such field. `de` or `en`, the codes of WIRE-34; `null` counts as not named. A voice of one language speaks it, and the field is optional but, when named, must be that language. A voice of several languages (`ryan`: `de`, `en`) speaks the language named, and the field is required. A value other than `de` or `en`, or a language the voice does not speak, or no language for a voice of several, is refused. |
 
-**WIRE-11** Each voice speaks its language; `ryan` speaks German until a request can name
-the language. There is no `language` field, and any field not listed here (`speed`,
-`instructions`, `stream_format`, `language`, ...) is refused.
+**WIRE-11** Each voice speaks the languages `speaking.voices` in health lists for it, and
+any field not listed here (`speed`, `instructions`, `stream_format`, ...) is refused.
+**WIRE-139** The request is checked in the order `model`, `voice`, `language`: a refused
+`language` is `invalid_request` with `param` `language` unless the `model` or the `voice`
+is refused first, which names that field, and it is answered before any `unavailable`
+(WIRE-103).
 
 ## Headers
 
@@ -257,7 +263,7 @@ sentence per code and never echoes the request. **WIRE-93** `type` is
 of `file`, `model`, `input`, `voice`, `language`, `response_format`, `intent`, or `null`
 when no request field is at fault (an unknown field, a body that is not a JSON
 object). Apps read `code`. With several faults in one request, which field `param`
-names is not part of the contract.
+names is not part of the contract, but for WIRE-139.
 
 | ID | `code` | Status | When | Header |
 |---|---|---|---|---|

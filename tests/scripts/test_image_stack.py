@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import subprocess
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import pytest
 
 import image_stack
+from image_judgement import baked_caller
 from image_stack import REPOSITORY
+from speech_client.wire import VOICES, SpeechRequest, VoiceId
+from speech_service.config import load_caller_config
+
+if TYPE_CHECKING:
+    from proof_identity import Minting
 
 
 class FakeDocker:
@@ -67,3 +77,42 @@ def test_a_recording_form_carries_the_language_it_is_given_even_a_foreign_one() 
 
     assert b'name="language"\r\n\r\nfr' in form.body
     assert b'name="file"; filename="recording.wav"' in form.body
+
+
+@dataclass(frozen=True)
+class RecordingCompose(image_stack.Compose):
+    """The process boundary of a caller container: it records what it was sent."""
+
+    specifications: list[dict[str, str]] = field(default_factory=list)
+
+    def run(
+        self, *_: str, stdin: str | None = None, **__: object
+    ) -> subprocess.CompletedProcess[str]:
+        """Keep the request specification and answer with an empty 200."""
+        assert stdin is not None
+        self.specifications.append(json.loads(stdin))
+        answer = {"status": 200, "body": "", "headers": {}}
+        return subprocess.CompletedProcess([], 0, json.dumps(answer), "")
+
+
+@pytest.mark.parametrize("voice", list(VoiceId))
+def test_the_session_speaks_each_voice_in_a_language_the_service_accepts(
+    minting: Minting, voice: VoiceId
+) -> None:
+    config = load_caller_config(REPOSITORY / "deploy" / "speech.toml")
+    compose = RecordingCompose((), {})
+    session = image_stack.Session(
+        compose,
+        config,
+        baked_caller(config, next(iter(config.apps))),
+        minting,
+        tokens=[],
+        heard=[],
+        logs=[],
+    )
+
+    session.speak({}, voice)
+
+    (specification,) = compose.specifications
+    spoken = SpeechRequest.model_validate_json(base64.b64decode(specification["body"]))
+    assert spoken.spoken_language == VOICES[voice].languages[0]
