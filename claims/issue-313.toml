@@ -1,0 +1,8 @@
+claim_id = "f175c0ab2eab48f7876b277bf29720c0"
+agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
+role = "builder"
+base = "22d278559470a163f889cc9ddb6ba8a477873cbe"
+branch = "claude/issue-313-wire-tokens-positions"
+scope = ["docs/ARCHITECTURE.md", "docs/wire.md", "tests/test_hearing_session.py", "tests/test_wire_route_realtime.py"]
+opened_commit = "ce7019ce1a9a2da131b83355bccb8f85d3683809"
+whole_reason = "Two documents and the two test modules that pin their new sentences, one ruled change."
