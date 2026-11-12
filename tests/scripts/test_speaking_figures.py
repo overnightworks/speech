@@ -141,10 +141,11 @@ def test_two_voices_report_their_times_beside_their_own_single_runs() -> None:
 def test_an_answer_beside_another_voice_that_is_silent_or_cut_short_fails(
     beside: tuple[bytes, float, float], failure: str
 ) -> None:
+    voices = german_and_english()
+    measured_alone = singles()
+
     with pytest.raises(SystemExit, match=failure):
-        figures.prove_two_voices(
-            lambda *_: beside, german_and_english(), SENTENCES, singles()
-        )
+        figures.prove_two_voices(lambda *_: beside, voices, SENTENCES, measured_alone)
 
 
 def test_tasks_run_together_when_each_waits_for_the_other() -> None:
