@@ -554,6 +554,14 @@ def test_a_failure_of_the_apps_callback_is_raised_unchanged(
             None,
             id="the-browser-leaves",
         ),
+        pytest.param(
+            _hearing(stays_open=True),
+            (_binary(HOP_FRAME_BYTES), DISCONNECT),
+            _Bounds(),
+            BrowserLeft(),
+            None,
+            id="a-frame-exactly-the-hop-frame-limit-is-forwarded",
+        ),
     ],
 )
 def test_every_other_end_is_the_relays_outcome_and_closes_the_browser_with_its_code(
@@ -569,15 +577,6 @@ def test_every_other_end_is_the_relays_outcome_and_closes_the_browser_with_its_c
 
     assert heard == outcome
     assert browser.closed_with == ([] if close is None else [close])
-
-
-def test_a_frame_exactly_the_hop_frame_limit_does_not_end_the_hop() -> None:
-    browser = _Browser((_binary(HOP_FRAME_BYTES), DISCONNECT))
-
-    outcome = asyncio.run(_hear(_hearing(stays_open=True), browser))
-
-    assert outcome == BrowserLeft()
-    assert browser.closed_with == []
 
 
 @pytest.mark.parametrize(
