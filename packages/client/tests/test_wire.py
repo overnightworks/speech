@@ -677,7 +677,9 @@ def test_the_catalogue_covers_every_voice() -> None:
 
 @pytest.mark.parametrize("voice", list(VoiceId))
 def test_a_request_pairs_each_voice_with_its_model(voice: VoiceId) -> None:
-    body = speech_request_body("Hallo", voice, ResponseFormat.WAV)
+    body = speech_request_body(
+        "Hallo", voice, ResponseFormat.WAV, VOICES[voice].languages[0]
+    )
 
     request = SpeechRequest.model_validate_json(body)
 
@@ -735,21 +737,26 @@ def test_a_request_naming_a_voice_outside_the_catalogue_is_refused_on_voice(
     assert [error["loc"] for error in refused.value.errors()] == [("voice",)]
 
 
-@pytest.mark.parametrize(
-    ("voice", "language"),
-    [
-        (VoiceId.THORSTEN, Language.DE),
-        (VoiceId.NORMAN, Language.EN),
-        (VoiceId.LJSPEECH, Language.EN),
-        (VoiceId.CORI, Language.EN),
-        (VoiceId.RYAN, Language.DE),
-    ],
-)
-def test_a_request_speaks_the_first_language_of_its_voice(
+_ONE_LANGUAGE = [v for v in VoiceId if len(VOICES[v].languages) == 1]
+_VOICE_AND_ITS_LANGUAGE = [(v, lang) for v in VoiceId for lang in VOICES[v].languages]
+
+
+@pytest.mark.parametrize(("voice", "language"), _VOICE_AND_ITS_LANGUAGE)
+def test_a_request_speaks_the_language_it_names_and_the_body_carries_it(
     voice: VoiceId, language: Language
 ) -> None:
-    request = SpeechRequest.model_validate_json(
-        speech_request_body("Hallo", voice, ResponseFormat.WAV)
-    )
+    body = speech_request_body("Hallo", voice, ResponseFormat.WAV, language)
 
-    assert request.spoken_language is language
+    assert SpeechRequest.model_validate_json(body).spoken_language is language
+    assert json.loads(body)["language"] == language
+
+
+@pytest.mark.parametrize("voice", _ONE_LANGUAGE)
+def test_a_voice_of_one_language_speaks_it_without_a_language_in_the_body(
+    voice: VoiceId,
+) -> None:
+    body = speech_request_body("Hallo", voice, ResponseFormat.WAV)
+
+    assert "language" not in json.loads(body)
+    request = SpeechRequest.model_validate_json(body)
+    assert request.spoken_language is VOICES[voice].languages[0]

@@ -11,6 +11,8 @@ from starlette.requests import Request
 
 from speech_client.wire import (
     SPEECH_PATH,
+    VOICES,
+    Language,
     RefusalCode,
     ResponseFormat,
     VoiceId,
@@ -140,8 +142,16 @@ def speak_body(
     voice: VoiceId = VoiceId.THORSTEN,
     text: str = "Hallo",
     response_format: ResponseFormat = ResponseFormat.WAV,
+    language: Language | None = None,
 ) -> bytes:
-    return speech_request_body(text, voice, response_format)
+    """The body of a speak request; a voice of several languages gets its first.
+
+    A voice of one language gets a `language` only when the caller names it.
+    """
+    languages = VOICES[voice].languages
+    if language is None and len(languages) > 1:
+        language = languages[0]
+    return speech_request_body(text, voice, response_format, language)
 
 
 def wav_body(messages: list[dict[str, object]]) -> bytes:

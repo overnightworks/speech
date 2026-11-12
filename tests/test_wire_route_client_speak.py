@@ -23,6 +23,8 @@ from speech_client.speak import (
 from speech_client.wire import (
     REFUSAL_STATUS,
     SPEECH_PATH,
+    VOICES,
+    Language,
     RefusalCode,
     ResponseFormat,
     VoiceId,
@@ -56,6 +58,7 @@ def _speak(  # noqa: PLR0913 - one keyword per call-site option
     base_url: str,
     *,
     voice: VoiceId = VoiceId.THORSTEN,
+    language: Language | None = None,
     response_format: ResponseFormat = ResponseFormat.WAV,
     deadline_seconds: float = GATE_TIMEOUT_SECONDS,
     cap_bytes: int = CAP_BYTES,
@@ -66,6 +69,7 @@ def _speak(  # noqa: PLR0913 - one keyword per call-site option
         base_url,
         "Hallo",
         voice,
+        language=language,
         response_format=response_format,
         workload_token=pair.workload,
         person_token=pair.person,
@@ -150,7 +154,12 @@ def test_a_voice_that_is_not_offered_is_refused_with_its_status_code_and_param()
 ):
     async def scenario() -> SpeakOutcome:
         async with _serving(FakeSpeaking()) as server:
-            return await asyncio.to_thread(_speak, server.base_url, voice=VoiceId.RYAN)
+            return await asyncio.to_thread(
+                _speak,
+                server.base_url,
+                voice=VoiceId.RYAN,
+                language=VOICES[VoiceId.RYAN].languages[0],
+            )
 
     outcome = asyncio.run(scenario())
 

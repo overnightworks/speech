@@ -56,7 +56,7 @@ a card, run it as `SPEECH_DEVICE=cpu uv run python scripts/prove_speech.py`.
 | Speaking, optional | [`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice), German and English, the built-in speaker `ryan` | Apache-2.0 |
 | Hearing, optional | [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3) (recommended) and [`Systran/faster-whisper-small`](https://huggingface.co/Systran/faster-whisper-small), German and English | MIT |
 
-A speak request names a `model`, the engine, and a `voice` of it:
+A speak request names a `model`, the engine, and a `voice` of it, and a `language` where the voice speaks several (`ryan`: `de` or `en`):
 
 | `voice` | `model` | Name | Language |
 | --- | --- | --- | --- |
@@ -64,7 +64,7 @@ A speak request names a `model`, the engine, and a `voice` of it:
 | `en_US-norman-medium` | `piper` | Norman | English |
 | `en_US-ljspeech-medium` | `piper` | LJ Speech | English |
 | `en_GB-cori-medium` | `piper` | Cori | English |
-| `ryan` | `qwen3-tts-0.6b` | Ryan | German, until a request can name the language |
+| `ryan` | `qwen3-tts-0.6b` | Ryan | German and English, named by the request's `language` |
 
 Each model is pinned to a revision. `small` fits a CPU and the image, but can
 mishear a question, so `large-v3` is the model to use where the meaning counts.

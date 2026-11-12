@@ -8,7 +8,7 @@ from speech_provider_contract import QWEN_SAMPLE_RATE
 from starlette.status import HTTP_200_OK, HTTP_404_NOT_FOUND
 from starlette.websockets import WebSocketDisconnect
 
-from speech_client.wire import VOICES, Health, VoiceId
+from speech_client.wire import VOICES, Health, Language, VoiceId
 from speech_service.config import Settings
 from speech_service.control import create_control_app
 from speech_service.pcm import pcm_from_wav
@@ -122,16 +122,19 @@ def test_every_registered_app_speaks_an_offered_gpu_voice_through_one_worker(
     assert len(stage.starts()) == 1
 
 
-def test_ryan_is_spoken_by_the_worker_in_german(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("language", VOICES[VoiceId.RYAN].languages)
+def test_ryan_is_spoken_by_the_worker_in_the_language_asked_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, language: Language
 ) -> None:
-    """WIRE-11: ryan speaks German; the provider's language byte for German is 1."""
-    german = 1
+    """WIRE-138: ryan is spoken with the provider's language byte of the language."""
+    provider_language_byte = {Language.DE: 1, Language.EN: 2}[language]
     with gpu_voice_stage(tmp_path, monkeypatch, StageSetup("normal")) as stage:
-        spoken = post_speech(TestClient(stage.app()), speak_body(VoiceId.RYAN))
+        spoken = post_speech(
+            TestClient(stage.app()), speak_body(VoiceId.RYAN, language=language)
+        )
 
     assert spoken.status_code == HTTP_200_OK
-    assert spoken_language_codes(stage.cache) == [german]
+    assert spoken_language_codes(stage.cache) == [provider_language_byte]
 
 
 @pytest.mark.parametrize("voice", [v for v in VoiceId if v is not VoiceId.THORSTEN])

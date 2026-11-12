@@ -28,6 +28,7 @@ from speech_client.wire import (
     MODEL,
     SPEECH_PATH,
     TRANSCRIPTIONS_PATH,
+    VOICES,
     Language,
     ResponseFormat,
     TranscriptionRequest,
@@ -263,7 +264,9 @@ class Session:
             self.caller,
             self.service_url + SPEECH_PATH,
             headers,
-            speech_request_body(SENTENCE, voice, ResponseFormat.WAV),
+            speech_request_body(
+                SENTENCE, voice, ResponseFormat.WAV, VOICES[voice].languages[0]
+            ),
         )
 
     def admitted_headers(self) -> dict[str, str]:
