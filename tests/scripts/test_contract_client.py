@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
 CLIENT = script_module("contract_client")
 PROVE = script_module("prove_speech")
+HEARING = script_module("prove_hearing")
 
 
 def test_no_credential_holder_shows_a_key_or_token_when_represented(
@@ -249,12 +250,25 @@ def test_each_speaking_script_sends_the_workload_token_and_the_persons_bearer(
     assert _unverified_subject(person) == minting.person_subject
 
 
+@pytest.mark.parametrize(
+    "speak",
+    [
+        pytest.param(
+            lambda url, voice, minting: CLIENT.speak(url, "Hallo", voice, minting),
+            id="contract client",
+        ),
+        pytest.param(
+            lambda url, voice, minting: HEARING._speaks(url, minting, voice),  # noqa: SLF001
+            id="hearing probe",
+        ),
+    ],
+)
 @pytest.mark.parametrize("voice", list(VoiceId))
-def test_the_contract_client_speaks_each_voice_in_a_language_the_service_accepts(
-    minting: Minting, voice: VoiceId
+def test_a_script_speaks_each_voice_in_a_language_the_service_accepts(
+    minting: Minting, voice: VoiceId, speak: Callable[[str, VoiceId, Minting], object]
 ) -> None:
     with _recording_speech_service() as (base_url, requests):
-        CLIENT.speak(base_url, "Hallo", voice, minting)
+        speak(base_url, voice, minting)
 
     (request,) = requests
     spoken = SpeechRequest.model_validate_json(request.body)

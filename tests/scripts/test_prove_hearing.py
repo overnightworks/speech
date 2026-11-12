@@ -17,16 +17,7 @@ import pytest
 
 from speech_client.hearing import Refused
 from speech_client.outcomes import Unreachable
-from speech_client.wire import (
-    VOICES as CATALOGUE,
-)
-from speech_client.wire import (
-    Health,
-    RefusalCode,
-    SpeechRequest,
-    VoiceId,
-    refusal,
-)
+from speech_client.wire import Health, RefusalCode, refusal
 from speech_service.hearing_models import HearingModel
 from tests.support.clock_support import FakeClock
 from tests.support.nvidia_support import FakeNvidiaSmi
@@ -39,8 +30,7 @@ if TYPE_CHECKING:
 
     from piper.config import SynthesisConfig
 
-    from proof_identity import Minting
-
+    from speech_client.wire import VoiceId
 
 HEARING = script_module("prove_hearing")
 VOICES = Path.home() / "voices"
@@ -514,30 +504,6 @@ def test_a_service_that_never_finishes_loading_fails_the_wait(
 ) -> None:
     with pytest.raises(SystemExit, match="did not finish loading"):
         wait_loaded_with(health, speaks=speaks)
-
-
-@pytest.mark.parametrize("voice", list(VoiceId))
-def test_the_serving_probe_speaks_each_voice_in_a_language_the_service_accepts(
-    monkeypatch: pytest.MonkeyPatch, minting: Minting, voice: VoiceId
-) -> None:
-    posted: list[bytes] = []
-
-    def answer(request: httpx2.Request) -> httpx2.Response:
-        posted.append(request.content)
-        return httpx2.Response(HTTPStatus.OK)
-
-    client = httpx2.Client
-    monkeypatch.setattr(
-        HEARING.httpx2,
-        "Client",
-        lambda **options: client(transport=httpx2.MockTransport(answer), **options),
-    )
-
-    assert HEARING._speaks("http://service", minting, voice)  # noqa: SLF001
-
-    (body,) = posted
-    spoken = SpeechRequest.model_validate_json(body)
-    assert spoken.spoken_language == CATALOGUE[voice].languages[0]
 
 
 def test_a_wait_with_slow_health_answers_still_ends_at_its_time_limit() -> None:
