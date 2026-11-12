@@ -143,8 +143,9 @@ Piper voices and hearing keep serving.
 
 The service sits on external, internal networks and no default one: one
 shared with the gateway that carries the key set, and one per app that reaches it
-on this path, shared with that app only. An absent network stops the start, so a run never has egress.
-The root is read-only, the user is not root and no capability is kept.
+on hal's Compose path, shared with that app only. An absent network stops the
+start, so a run never has egress. The root is read-only, the user is not root and
+no capability is kept.
 
 ## Crosscutting Concepts
 

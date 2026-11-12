@@ -33,8 +33,8 @@ app's server and hands the app the typed events, never the browser; it ends the 
 when the browser leaves, breaks a frame rule or the app ends it, and closes the
 browser with a code of its own. `speech_client.utterances` builds the session on top
 of the relay and hands the app finished utterances (text, language and audio
-positions), optionally the text so far, or the code of a failed item or an error
-event.
+positions), optionally the text so far, or the code of a failed item or of an
+`error` event (`ServiceFailed`).
 
 ## Request
 
@@ -223,9 +223,10 @@ open turn, so at most 90 s of audio.
 | WIRE-77 | `error` (`error.type`, `error.code`, `error.message`, `error.param`, `error.event_id`) | the session ends after it |
 
 `audio_start_ms` and `audio_end_ms` (WIRE-70, WIRE-72) count milliseconds of the audio
-the service received in this session, from its first byte, in the service's 16 kHz time,
-rounded down. They depend on neither the wall clock nor when an event is sent. Turns are
-contiguous: each starts where the last ended. `audio_start_ms` is where the first
+the service received in this session, from its first byte, in the service's 16 kHz time.
+They depend on neither the wall clock nor when an event is sent. Turns are contiguous: a
+turn's end is its start plus the turn's audio in whole milliseconds, rounded down once
+per turn, and the next turn starts at that end. `audio_start_ms` is where the first
 appended audio of the turn that was not silence starts, with no pre-roll, so it lies at
 or before the first speech by at most one appended frame.
 `audio_end_ms` is the end of all audio in the turn: it includes the silence that ended it

@@ -99,8 +99,10 @@ overnightworks-speech-service @ git+https://github.com/overnightworks/speech@vX.
 
 The client carries the wire's types, the bounded speaking call
 (`speech_client.speak`), the bounded health fetch
-(`speech_client.health`) and the live hearing session
-(`speech_client.hearing`). The service is an application: its pin
+(`speech_client.health`), the live hearing session
+(`speech_client.hearing`), the relay of a browser's audio frames to that session
+(`speech_client.relay`) and the finished utterances an app's server hears from
+a browser (`speech_client.utterances`). The service is an application: its pin
 installs the CPU path, and GPU hearing needs the pin with `[gpu]`.
 
 The browser package `overnightworks-speech-browser` is a release file of the
