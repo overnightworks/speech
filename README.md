@@ -42,14 +42,16 @@ a card, run it as `SPEECH_DEVICE=cpu uv run python scripts/prove_speech.py`.
   inside `providers/qwen`, then `SPEECH_GPU_VOICES=qwen3-tts-0.6b`. It always
   runs on `cuda`, so the card must be free.
 - **A container.** `Dockerfile` and `compose.yaml` build and run the service on
-  the CPU with Piper and the `small` hearing model, fetched at build. The image
-  carries no GPU voice; see [Delivery](docs/ARCHITECTURE.md#delivery).
+  the CPU with Piper's German and English voices and the `small` hearing model,
+  fetched at build. The image carries no GPU voice; see
+  [Delivery](docs/ARCHITECTURE.md#delivery).
 
 ## Models
 
 | Role | Model | Licence |
 | --- | --- | --- |
 | Speaking, default | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices), `de_DE-thorsten-medium` | Recordings CC0; ONNX weights under the piper-voices MIT repository; the `piper-tts` runtime is `GPL-3.0-or-later` |
+| Speaking, English in the image | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices), `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` | Public domain per each voice's model card (LibriVox for norman and cori, LJ Speech for ljspeech); the service speaks only the German voice |
 | Speaking, optional | [`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice), German and English, one built-in speaker | Apache-2.0 |
 | Hearing, optional | [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3) (recommended) and [`Systran/faster-whisper-small`](https://huggingface.co/Systran/faster-whisper-small), German and English | MIT |
 
