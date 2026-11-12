@@ -18,6 +18,8 @@ from speech_client.wire import VOICES, SpeechRequest, VoiceId
 from speech_service.config import load_caller_config
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from proof_identity import Minting
 
 
@@ -118,3 +120,28 @@ def test_the_session_speaks_each_voice_in_a_language_the_service_accepts(
     spoken = SpeechRequest.model_validate_json(base64.b64decode(specification["body"]))
     assert spoken.spoken_language == VOICES[voice].languages[0]
     assert spoken.input == SENTENCES[spoken.spoken_language]
+
+
+def test_every_baked_app_has_a_proof_caller_on_a_network_the_service_shares(
+    tmp_path: Path,
+) -> None:
+    config = load_caller_config(REPOSITORY / "deploy" / "speech.toml")
+    compose = image_stack.Compose(
+        (
+            REPOSITORY / "compose.yaml",
+            REPOSITORY / "tests/fixtures/image/compose.proof.yaml",
+        ),
+        {
+            "PROOF_KEY_SET_PATH": "key-set",
+            "PROOF_KEY_SET_HOST": "key-set.example",
+            "PROOF_DIRECTORY": str(tmp_path),
+        },
+    )
+
+    services = json.loads(compose.run("config", "--format", "json").stdout)["services"]
+
+    service_networks = set(services[image_stack.SERVICE]["networks"])
+    for app in config.apps:
+        caller_networks = set(services[image_stack.caller_service(app)]["networks"])
+        assert caller_networks
+        assert caller_networks <= service_networks

@@ -34,6 +34,13 @@ services:
     stop_grace_period: 1s
     networks:
       - hal_speech_presentator
+  caller-personas:
+    image: speech-proof
+    pull_policy: never
+    command: [python, -c, "import time; time.sleep(3600)"]
+    stop_grace_period: 1s
+    networks:
+      - hal_speech_personas
 
 secrets:
   step_ca_root:
@@ -49,6 +56,10 @@ networks:
     external: !reset null
     internal: true
   hal_speech_presentator:
+    name: !reset null
+    external: !reset null
+    internal: true
+  hal_speech_personas:
     name: !reset null
     external: !reset null
     internal: true
