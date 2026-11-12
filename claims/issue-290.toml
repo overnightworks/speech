@@ -1,8 +1,0 @@
-claim_id = "fe171f4bbd9c41ddbd1a93fc05b29c1e"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "b289272a569aa019115d75f783c5e5aae7090651"
-branch = "claude/issue-290-english-voice-pins"
-scope = ["Dockerfile", "README.md", "scripts/prove_hearing.py", "scripts/prove_image.py", "src/speech_service/fetch_voice.py", "src/speech_service/piper_voices.py", "tests/scripts/test_prove_hearing.py", "tests/test_fetch_voice.py"]
-opened_commit = "97fa630eca3b2d7fe8ea3e3a440e7941d7050539"
-whole_reason = "The pins, the image's fetch, the two proofs that read the pins and their tests change together: removing Lessac breaks each of them alone."
