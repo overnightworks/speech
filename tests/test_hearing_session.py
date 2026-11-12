@@ -5,6 +5,7 @@ import struct
 import pytest
 
 from speech_service.hearing_session import (
+    MAX_TURN_SECONDS,
     SILENCE_SECONDS,
     HearingSession,
     SpeechStart,
@@ -184,3 +185,47 @@ def test_a_turn_starts_where_the_last_one_ended() -> None:
 
     assert isinstance(ended, TurnEnd)
     assert (ended.start_ms, ended.end_ms) == (300, 500)
+
+
+def test_a_speech_start_is_the_start_of_the_appended_audio_that_holds_the_speech() -> (
+    None
+):
+    """WIRE-70: the start is that of the appended audio, not of the speech in it."""
+    session, _ = _session()
+    session.add(_level(0.5, 0))
+
+    started = session.add(_level(0.1, 0) + _level(0.1, 5000))
+
+    assert started == [SpeechStart(audio_ms=500)]
+
+
+def test_a_turn_ended_by_silence_ends_after_that_silence_in_session_time() -> None:
+    """WIRE-72: a turn ended by silence ends after the silence that ended it."""
+    session, _ = _session()
+    session.add(_level(0.3, 5000))
+    session.commit()
+    session.add(_level(0.2, 5000))
+    session.add(_level(SILENCE_SECONDS, 0))
+
+    ended = session.poll()
+
+    assert [(turn.start_ms, turn.end_ms) for turn in ended] == [
+        (300, 300 + round((0.2 + SILENCE_SECONDS) * 1000))
+    ]
+
+
+def test_a_turn_ended_by_the_cap_ends_at_its_start_plus_the_cap() -> None:
+    """WIRE-72: a turn ended by the cap ends at its start plus the cap."""
+    session, _ = _session()
+    session.add(_level(0.3, 5000))
+    session.commit()
+
+    ended = [
+        event
+        for event in session.add(_level(MAX_TURN_SECONDS, 5000))
+        if isinstance(event, TurnEnd)
+    ]
+
+    assert [(turn.start_ms, turn.end_ms) for turn in ended] == [
+        (300, 300 + round(MAX_TURN_SECONDS * 1000))
+    ]
