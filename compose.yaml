@@ -21,7 +21,6 @@ services:
       - hal_speech_issuer
       - hal_speech_hopin
       - hal_speech_presentator
-      - hal_speech_personas
     cap_drop:
       - ALL
     security_opt:
@@ -63,7 +62,4 @@ networks:
     external: true
   hal_speech_presentator:
     name: hal_speech_presentator
-    external: true
-  hal_speech_personas:
-    name: hal_speech_personas
     external: true
