@@ -1,8 +1,0 @@
-claim_id = "b39a1823d4bc47339f22cd0c12b1ce3b"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "5dc03f6f6fe338484891a04a361655f7aed2ac28"
-branch = "claude/issue-288-language-type-name"
-scope = ["packages/client/src/speech_client/hearing.py", "packages/client/src/speech_client/wire.py", "packages/client/tests/support/hearing_support.py", "packages/client/tests/test_hearing.py", "packages/client/tests/test_relay.py", "packages/client/tests/test_wire.py", "scripts/hearing_client.py", "scripts/hearing_figures.py", "scripts/image_judgement.py", "scripts/image_stack.py", "scripts/prove_hearing.py", "scripts/prove_image.py", "src/speech_service/hearing.py", "src/speech_service/live_session.py", "src/speech_service/wire_route.py", "tests/fixtures/image/live.py", "tests/scripts/test_hearing_client.py", "tests/scripts/test_hearing_figures.py", "tests/scripts/test_image_judgement.py", "tests/scripts/test_prove_hearing.py", "tests/support/browser_support.py", "tests/support/hear_support.py", "tests/test_hearing.py", "tests/test_hearing_language.py", "tests/test_hearing_submission.py", "tests/test_live_session.py", "tests/test_wire_route_browser_capture.py", "tests/test_wire_route_client_hearing.py", "tests/test_wire_route_client_relay.py", "tests/test_wire_route_early_leave.py", "tests/test_wire_route_hearing.py", "tests/test_wire_route_realtime.py"]
-opened_commit = "44a59b97f90252bf6d580082c5d172c67eafb3ac"
-whole_reason = "One type's name changes in every file that names it; a partial rename does not compile."
