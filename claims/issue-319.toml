@@ -1,0 +1,8 @@
+claim_id = "47abbeb6371f41f7bab8b63dbd59100c"
+agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
+role = "builder"
+base = "044468240275f5e17dbed8fd94ada5be57594931"
+branch = "claude/issue-319-proof-caller-early-answer"
+scope = ["scripts/image_stack.py", "tests/fixtures/image/caller.py", "tests/scripts/test_image_caller.py", "tests/scripts/test_image_stack.py"]
+opened_commit = "d7bd8f82b400631f69ad836545324532899c5845"
+whole_reason = "The proof's caller, its one user and their tests change together if the answer shape must move."
