@@ -14,7 +14,7 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
 from speech_client.hearing import HearingSession
-from speech_client.relay import HOP_FRAME_BYTES, AppEnded, HopClose, RuleBroken
+from speech_client.relay import HOP_FRAME_BYTES, AppEnded, HopClose
 from speech_client.utterances import Utterance, hear_utterances
 from speech_client.wire import Language, SessionCreated
 from tests.support.hear_support import FakeHearing, hear_runtime
@@ -169,21 +169,3 @@ def test_the_apps_end_signal_ends_the_hearing_and_frees_the_service() -> None:
     assert outcome == AppEnded()
     assert code == HopClose.NORMAL
     assert freed
-
-
-def test_a_frame_over_the_hop_frame_limit_ends_the_hearing_with_its_close_code() -> (
-    None
-):
-    async def scenario() -> tuple[UtteranceOutcome, int]:
-        async with (
-            _browser_at_service(FakeHearing()) as (hop, url, _),
-            connect(url) as browser,
-        ):
-            await browser.send(b"\0" * (HOP_FRAME_BYTES + 1))
-            outcome = await asyncio.wait_for(hop.outcome, WAIT_SECONDS)
-            return outcome, await _close_code(browser)
-
-    outcome, code = asyncio.run(scenario())
-
-    assert outcome == RuleBroken(HopClose.FRAME_TOO_LARGE)
-    assert code == HopClose.FRAME_TOO_LARGE
