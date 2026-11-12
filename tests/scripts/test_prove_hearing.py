@@ -254,6 +254,49 @@ def test_a_language_measured_with_one_delta_in_its_long_turn_is_not_measured() -
     ]
 
 
+def test_the_long_turn_runs_one_and_two_languages_interleaved_once_per_run() -> None:
+    german = HEARING.LANGUAGES[0]
+    runs = 5
+    long_turn = b"long turn"
+    handed: list[tuple[object, ...]] = []
+
+    async def live(
+        _: object, allowed: tuple[object, ...], pcm: bytes
+    ) -> HEARING.LiveTurn:
+        if pcm == long_turn:
+            handed.append(allowed)
+        return await _one_delta_turn(_, allowed, pcm)
+
+    record = HEARING.measure_language(
+        SimpleNamespace(),  # type: ignore[arg-type]
+        german,
+        HEARING.Clip(b"question", long_turn),
+        runs,
+        HEARING.Ports(live=live, hear=lambda *_: (0.5, "Wie")),
+    )
+
+    assert handed == [(german.code,), HEARING.BOTH_LANGUAGES] * runs
+    assert record["long_turn"]["two_languages"]["runs"] == runs
+
+
+def test_the_question_reports_its_language_step_without_a_limit() -> None:
+    german = HEARING.LANGUAGES[0]
+    runs = 5
+
+    record = HEARING.measure_language(
+        SimpleNamespace(),  # type: ignore[arg-type]
+        german,
+        HEARING.Clip(b"question", b"long turn"),
+        runs,
+        HEARING.Ports(live=_one_delta_turn, hear=lambda *_: (0.5, "Wie")),
+    )
+
+    step = record["question"]["two_languages"]
+    assert step["runs"] == runs
+    assert "added_seconds" in step
+    assert "above_limit" not in step
+
+
 class FakeCard:
     """Replaces everything of `prove` that needs a service or a card."""
 

@@ -24,7 +24,6 @@ import json
 import os
 import re
 import shutil
-import statistics
 import sys
 import tempfile
 import time
@@ -52,7 +51,7 @@ from hearing_client import (
     post_recording,
     refusal_code,
 )
-from hearing_figures import LiveTurn, WordErrors
+from hearing_figures import LiveTurn
 from proof_identity import Minting, load_minting, mint_pair, proof_identity
 from prove_speech import (
     LOCK_HELD_ENV,
@@ -346,69 +345,23 @@ def make_clips(
 # -- the figures of one language ----------------------------------------------
 
 
-def _errors_of(reference: str, heard: Sequence[str]) -> WordErrors:
-    return functools.reduce(
-        WordErrors.plus, (figures.word_errors(reference, text) for text in heard)
-    )
-
-
-def _live_record(reference: str, turns: Sequence[LiveTurn]) -> dict[str, object]:
-    timings = [figures.timing_of(turn) for turn in turns]
-    heard = [turn.transcript for turn in turns]
-    return {
-        "runs": len(turns),
-        "median": figures.timing_record(figures.median_timing(timings)),
-        "runs_with_partial": figures.partial_runs(timings),
-        "timings": [figures.timing_record(timing) for timing in timings],
-        "word_errors": figures.error_record(_errors_of(reference, heard)),
-        "heard": sorted(set(heard)),
-        "languages": sorted({turn.language.value for turn in turns}),
-    }
-
-
-def _file_record(
-    reference: str, results: Sequence[tuple[float, str]]
-) -> dict[str, object]:
-    seconds = [elapsed for elapsed, _ in results]
-    heard = [text for _, text in results]
-    return {
-        "runs": len(results),
-        "median_seconds": statistics.median(seconds),
-        "seconds": seconds,
-        "word_errors": figures.error_record(_errors_of(reference, heard)),
-        "heard": sorted(set(heard)),
-    }
-
-
 def _long_turn_record(
     service: Service,
     language: Language,
     clip: Clip,
     ports: Ports,
+    runs: int,
 ) -> dict[str, object]:
-    turn = asyncio.run(ports.live(service, (language.code,), clip.long_turn))
-    two = asyncio.run(ports.live(service, BOTH_LANGUAGES, clip.long_turn))
-    seconds, text = ports.hear(service, language.code, clip.long_turn)
-    return {
-        "two_languages": figures.language_step_record([turn], [two]),
-        "clip_seconds": turn.question_seconds,
-        "live": {
-            "growing_deltas": figures.count_growing_deltas(turn.deltas),
-            "delta_seconds": list(turn.delta_seconds),
-            "timing": figures.timing_record(figures.timing_of(turn)),
-            "word_errors": figures.error_record(
-                figures.word_errors(language.long_turn, turn.transcript)
-            ),
-            "heard": turn.transcript,
-        },
-        "file": {
-            "seconds": seconds,
-            "word_errors": figures.error_record(
-                figures.word_errors(language.long_turn, text)
-            ),
-            "heard": text,
-        },
-    }
+    """The long turn's one- and two-language runs, taken in turn, and one file run."""
+    single: list[LiveTurn] = []
+    two: list[LiveTurn] = []
+    for _ in range(runs):
+        single.append(
+            asyncio.run(ports.live(service, (language.code,), clip.long_turn))
+        )
+        two.append(asyncio.run(ports.live(service, BOTH_LANGUAGES, clip.long_turn)))
+    file_result = ports.hear(service, language.code, clip.long_turn)
+    return figures.long_turn_record(language.long_turn, single, two, file_result)
 
 
 def measure_language(
@@ -437,11 +390,11 @@ def measure_language(
         },
         "question": {
             "reference": language.question,
-            "live": _live_record(language.question, live),
+            "live": figures.live_record(language.question, live),
             "two_languages": figures.language_step_record(live, two),
-            "file": _file_record(language.question, files),
+            "file": figures.file_record(language.question, files),
         },
-        "long_turn": _long_turn_record(service, language, clip, ports),
+        "long_turn": _long_turn_record(service, language, clip, ports, runs),
     }
 
 

@@ -39,25 +39,18 @@ def turn(
     )
 
 
-@pytest.mark.parametrize(
-    ("added", "above_limit"),
-    [(0.1, False), (figures.LANGUAGE_STEP_LIMIT_SECONDS + 0.01, True)],
-    ids=["within-the-limit", "past-the-limit"],
-)
-def test_the_language_step_is_the_median_added_to_the_final_and_what_it_chose(
-    added: float, *, above_limit: bool
-) -> None:
+def test_the_language_step_is_the_median_added_to_the_final_and_what_it_chose() -> None:
     single = [turn(2.0, (), 3.0), turn(2.0, (), 3.2), turn(2.0, (), 3.1)]
     two = [
-        turn(2.0, (), 3.0 + added, HearingLanguage.EN),
-        turn(2.0, (), 3.2 + added, HearingLanguage.EN),
-        turn(2.0, (), 3.1 + added, HearingLanguage.DE),
+        turn(2.0, (), 3.4, HearingLanguage.EN),
+        turn(2.0, (), 3.6, HearingLanguage.EN),
+        turn(2.0, (), 3.5, HearingLanguage.DE),
     ]
 
     record = figures.language_step_record(single, two)
 
-    assert record["added_seconds"] == pytest.approx(added)
-    assert record["above_limit"] is above_limit
+    assert record["added_seconds"] == pytest.approx(0.4)
+    assert "above_limit" not in record
     assert record["chosen"] == ["de", "en"]
 
 
@@ -333,23 +326,36 @@ def test_only_unfinished_or_missing_models_and_stages_are_not_measured() -> None
     ]
 
 
-def test_a_figure_that_is_null_in_every_run_is_named_not_measured() -> None:
-    silent = figures.timing_record(figures.Timing(None, None, 4.0, 3.5))
-    heard = figures.timing_record(figures.Timing(1.0, 0.5, 4.0, 3.5))
+@pytest.mark.parametrize(
+    ("median", "unmeasured"),
+    [
+        (
+            figures.timing_record(figures.Timing(None, None, 4.0, 3.5)),
+            [],
+        ),
+        (
+            {
+                "first_partial_from_start": None,
+                "first_partial_after_end": None,
+                "final_from_start": 4.0,
+                "final_after_end": None,
+            },
+            ["small languages de question live final_after_end"],
+        ),
+    ],
+    ids=["no-partial-in-the-question", "no-final-in-the-question"],
+)
+def test_a_question_figure_that_is_null_is_named_only_when_it_is_not_a_partial(
+    median: dict[str, float | None], unmeasured: list[str]
+) -> None:
     models = {
         "small": {
             "status": figures.StageStatus.MEASURED,
-            "languages": {
-                "de": {"question": {"live": {"median": silent}}},
-                "en": {"question": {"live": {"median": heard}}},
-            },
+            "languages": {"de": {"question": {"live": {"median": median}}}},
         }
     }
 
-    assert figures.not_measured(["small"], models, {}) == [
-        "small languages de question live first_partial_from_start",
-        "small languages de question live first_partial_after_end",
-    ]
+    assert figures.not_measured(["small"], models, {}) == unmeasured
 
 
 def test_a_long_turn_without_growing_deltas_or_timing_is_not_measured() -> None:
@@ -376,6 +382,31 @@ def test_a_long_turn_without_growing_deltas_or_timing_is_not_measured() -> None:
         "tiny languages de long_turn live first_partial_from_start",
         "tiny languages de long_turn live first_partial_after_end",
     ]
+
+
+def test_the_long_turn_takes_medians_and_reports_its_step_with_spread() -> None:
+    deltas = (1.0, 2.0)
+    single = [
+        turn(question=3.0, deltas=deltas, final=final)
+        for final in (5.0, 6.0, 7.0, 8.0, 9.0)
+    ]
+    two = [
+        turn(question=3.0, deltas=deltas, final=final + 0.5)
+        for final in (5.0, 6.0, 7.0, 8.0, 9.0)
+    ]
+
+    record = figures.long_turn_record("wort", single, two, (0.5, "wort"))
+
+    step = record["two_languages"]
+    assert step["added_seconds"] == pytest.approx(0.5)
+    assert "above_limit" not in step
+    assert step["single_final_lowest_after_end"] == pytest.approx(2.0)
+    assert step["single_final_highest_after_end"] == pytest.approx(6.0)
+    assert step["two_final_lowest_after_end"] == pytest.approx(2.5)
+    assert step["two_final_highest_after_end"] == pytest.approx(6.5)
+    assert record["live"]["timing"]["final_after_end"] == pytest.approx(4.0)
+    assert record["live"]["growing_deltas"] == len(deltas)
+    assert record["live"]["word_errors"]["errors"] == 0
 
 
 def test_an_empty_heard_text_is_not_measured() -> None:

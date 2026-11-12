@@ -6,6 +6,7 @@ service and hands the observations to these functions.
 
 from __future__ import annotations
 
+import functools
 import io
 import math
 import re
@@ -35,8 +36,9 @@ MIN_GROWING_DELTAS: Final = 2
 FRAME_SECONDS: Final = 0.1
 FRAME_BYTES: Final = int(LIVE_INPUT_RATE * FRAME_SECONDS) * BYTES_PER_SAMPLE
 TRAILING_SILENCE_SECONDS: Final = 2.0
-# Above it, the two-language session adds more latency to a final than a turn may bear.
-LANGUAGE_STEP_LIMIT_SECONDS: Final = 0.3
+PARTIAL_FIGURES: Final = frozenset(
+    {"first_partial_from_start", "first_partial_after_end"}
+)
 
 
 @dataclass(frozen=True)
@@ -78,23 +80,34 @@ def timing_of(turn: LiveTurn) -> Timing:
     )
 
 
+def _median_final_after_end(turns: Sequence[LiveTurn]) -> float:
+    return statistics.median(timing_of(turn).final_after_end for turn in turns)
+
+
+def _added_seconds(single: Sequence[LiveTurn], two: Sequence[LiveTurn]) -> float:
+    return _median_final_after_end(two) - _median_final_after_end(single)
+
+
 def language_step_record(
     single: Sequence[LiveTurn], two: Sequence[LiveTurn]
 ) -> dict[str, object]:
     """The final's median time after the turn's end in a two-language session.
 
-    Set against the same turns in a one-language session; the language step's
-    added seconds, whether they pass the limit, and what the step chose and heard.
+    Set against the same turns in a one-language session. Reported, not judged:
+    each series also carries its lowest and highest final after the end, since
+    one run's final moves by about a second and a median alone hides that.
     """
-    single_after_end = statistics.median(timing_of(t).final_after_end for t in single)
-    two_after_end = statistics.median(timing_of(t).final_after_end for t in two)
-    added = two_after_end - single_after_end
+    single_finals = [timing_of(turn).final_after_end for turn in single]
+    two_finals = [timing_of(turn).final_after_end for turn in two]
     return {
         "runs": len(two),
-        "single_final_after_end": single_after_end,
-        "two_final_after_end": two_after_end,
-        "added_seconds": added,
-        "above_limit": added > LANGUAGE_STEP_LIMIT_SECONDS,
+        "single_final_after_end": statistics.median(single_finals),
+        "single_final_lowest_after_end": min(single_finals),
+        "single_final_highest_after_end": max(single_finals),
+        "two_final_after_end": statistics.median(two_finals),
+        "two_final_lowest_after_end": min(two_finals),
+        "two_final_highest_after_end": max(two_finals),
+        "added_seconds": _added_seconds(single, two),
         "chosen": sorted({turn.language.value for turn in two}),
         "heard": sorted({turn.transcript for turn in two}),
     }
@@ -357,23 +370,32 @@ def _heard_nothing(heard: object) -> bool:
     return isinstance(texts, list) and any(not text.strip() for text in texts)
 
 
+def _null_figures(
+    timing_figures: dict[str, object], path: tuple[str, ...], optional: frozenset[str]
+) -> Iterator[str]:
+    """The paths of a timing's null figures, except those the record may lack."""
+    yield from (
+        " ".join((*path, figure))
+        for figure, number in timing_figures.items()
+        if number is None and figure not in optional
+    )
+
+
 def _unmeasured_figures(entry: object, path: tuple[str, ...] = ()) -> Iterator[str]:
     """The paths of the figures of the record that measure nothing.
 
-    A null `median` (fewer than `MIN_RUNS` runs had it) or long-turn `timing`
-    figure, a long turn with fewer than `MIN_GROWING_DELTAS` growing deltas, and
-    a `heard` text that is empty, which would score a word error rate of 1.0 yet
-    prove no hearing.
+    A null figure of a question's `median`, except a first partial: a clip may
+    draw no partial, which `runs_with_partial` records. A null figure of a long
+    turn's `timing`, including its first partial, a long turn with fewer than
+    `MIN_GROWING_DELTAS` growing deltas, and a `heard` text that is empty, which
+    would score a word error rate of 1.0 yet prove no hearing.
     """
     if not isinstance(entry, dict):
         return
     for key, value in entry.items():
         if key in ("median", "timing") and isinstance(value, dict):
-            yield from (
-                " ".join((*path, figure))
-                for figure, number in value.items()
-                if number is None
-            )
+            optional = PARTIAL_FIGURES if key == "median" else frozenset()
+            yield from _null_figures(value, path, optional)
         elif key == "growing_deltas":
             if value < MIN_GROWING_DELTAS:
                 yield " ".join((*path, key))
@@ -415,4 +437,71 @@ def error_record(errors: WordErrors) -> dict[str, float | int]:
         "errors": errors.errors,
         "reference_words_total": errors.reference_words_total,
         "rate": errors.rate,
+    }
+
+
+def errors_of(reference: str, heard: Sequence[str]) -> WordErrors:
+    """The word errors of each heard text against the reference, added up."""
+    return functools.reduce(
+        WordErrors.plus, (word_errors(reference, text) for text in heard)
+    )
+
+
+def live_record(reference: str, turns: Sequence[LiveTurn]) -> dict[str, object]:
+    """The figures of one question's live runs: medians, partials and words."""
+    timings = [timing_of(turn) for turn in turns]
+    heard = [turn.transcript for turn in turns]
+    return {
+        "runs": len(turns),
+        "median": timing_record(median_timing(timings)),
+        "runs_with_partial": partial_runs(timings),
+        "timings": [timing_record(timing) for timing in timings],
+        "word_errors": error_record(errors_of(reference, heard)),
+        "heard": sorted(set(heard)),
+        "languages": sorted({turn.language.value for turn in turns}),
+    }
+
+
+def file_record(
+    reference: str, results: Sequence[tuple[float, str]]
+) -> dict[str, object]:
+    """The figures of the file route's runs: seconds and words."""
+    seconds = [elapsed for elapsed, _ in results]
+    heard = [text for _, text in results]
+    return {
+        "runs": len(results),
+        "median_seconds": statistics.median(seconds),
+        "seconds": seconds,
+        "word_errors": error_record(errors_of(reference, heard)),
+        "heard": sorted(set(heard)),
+    }
+
+
+def long_turn_record(
+    reference: str,
+    single: Sequence[LiveTurn],
+    two: Sequence[LiveTurn],
+    file_result: tuple[float, str],
+) -> dict[str, object]:
+    """A long turn over interleaved runs: its live figures are medians of the runs.
+
+    `single` and `two` are the one-language and two-language runs, taken in turn;
+    the language step is set against them. `file_result` is the one file run.
+    """
+    timings = [timing_of(turn) for turn in single]
+    heard = [turn.transcript for turn in single]
+    return {
+        "runs": len(single),
+        "clip_seconds": statistics.median(turn.question_seconds for turn in single),
+        "two_languages": language_step_record(single, two),
+        "live": {
+            "growing_deltas": statistics.median(
+                count_growing_deltas(turn.deltas) for turn in single
+            ),
+            "timing": timing_record(median_timing(timings)),
+            "timings": [timing_record(timing) for timing in timings],
+            "word_errors": error_record(errors_of(reference, heard)),
+            "heard": sorted(set(heard)),
+        },
+        "file": file_record(reference, [file_result]),
     }
