@@ -39,7 +39,7 @@ flowchart LR
   tag brings, with the Piper voices, the `small` hearing model and the
   caller table baked in; the release builds, attests and pushes it to GHCR, see
   [Delivery](#delivery). `scripts/prove_image.py` proves it.
-- `packages/client`: the wire types an app and the service share (the closed voice catalogue among them), the bounded speaking call, the bounded health fetch, the live hearing session (`HearingSession`: the allowed languages, frames held up to a caller-set byte limit, typed server events that name each item's language, one closed outcome union) and the relay (`relay`) of a browser socket to that session an app makes.
+- `packages/client`: the wire types an app and the service share (the closed voice catalogue among them), the bounded speaking call, the bounded health fetch, the live hearing session (`HearingSession`: the allowed languages, frames held up to a caller-set byte limit, typed server events that name each item's language, one closed outcome union) the relay (`relay`) of a browser socket to that session an app makes, and `hear_utterances`, which builds that session and hands an app finished utterances.
 - `packages/browser`: the framework-free browser package (`overnightworks-speech-browser`) an app's page streams its microphone and plays sounds with. `startCapture` takes the first audio track of the app's own stream, resamples it with a filter to the wire's PCM16 at 24 kHz in its own same-origin AudioWorklet file and main-thread resampler, and sends 100 ms frames to the app's relay route; it has no loudness gate, hands the app every message the app's own server sends down the hop (its optional `onMessage`, uninterpreted, in arrival order, until the capture ends), and its `ended` names how the hop ended. `createPlayer` plays the sounds an app hands it, each as bytes or the URL of the app's own route, in the order of the calls, as sources into the player's one GainNode, the only input of the output (the one node a per-frame reader can tap; the package builds none). It reports each sound's start and end once, with how it ended (played, stopped, muted, refused (no user activation, or `resume()` refused), or failed to load); `stop` and `setMuted(true)` end the playing and every waiting sound at once and abort their fetches, and `close` also closes the context. Both are exported from one entry, `index.ts`. Its `hop.ts` is generated from `PcmFormat` and `speech_client.relay` by `scripts/generate_browser_wire.py`.
 - `providers/*`: the voices that run in their own processes and environments. Each is its own uv project with its own lock; `providers/provider-contract` is the shared source the others install from. The client in `packages/client` is a uv workspace member of the root.
 
@@ -94,6 +94,9 @@ flowchart LR
   mounts behind its own login check: it forwards a browser's binary audio
   frames to a hearing session and hands the typed events to the app, never to
   the browser. The tokens stay on the app's server.
+  `speech_client.utterances` builds on it: `hear_utterances` builds the session
+  and maps the events to finished utterances, optional partials and a service
+  failure, so an app keeps only its route, its login check and when a hearing ends.
 - **Load isolation.** A load that fails for want of the resource (no CUDA
   device, a card too full) frees what it allocated and leaves the process up:
   `/health` names hearing not ready, the route answers 503 `unavailable`, and
