@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import subprocess
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pytest
 
 import image_stack
 from image_stack import REPOSITORY
+from speech_client.wire import VOICES, SpeechRequest, VoiceId
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class FakeDocker:
@@ -67,3 +73,30 @@ def test_a_recording_form_carries_the_language_it_is_given_even_a_foreign_one() 
 
     assert b'name="language"\r\n\r\nfr' in form.body
     assert b'name="file"; filename="recording.wav"' in form.body
+
+
+@pytest.mark.parametrize("voice", list(VoiceId))
+def test_the_session_speaks_each_voice_in_a_language_the_service_accepts(
+    monkeypatch: pytest.MonkeyPatch, voice: VoiceId
+) -> None:
+    posted: list[bytes] = []
+
+    def send(
+        _compose: object,
+        _caller: str,
+        _url: str,
+        _headers: Mapping[str, str],
+        body: bytes | None,
+    ) -> None:
+        posted.append(body or b"")
+
+    monkeypatch.setattr(image_stack, "send", send)
+    session = SimpleNamespace(
+        compose=None, caller="caller", service_url="http://service"
+    )
+
+    image_stack.Session.speak(session, {}, voice)  # type: ignore[arg-type]
+
+    (body,) = posted
+    spoken = SpeechRequest.model_validate_json(body)
+    assert spoken.spoken_language == VOICES[voice].languages[0]
