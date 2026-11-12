@@ -1,0 +1,8 @@
+claim_id = "6357b796ca9c41928e0e193e36842e53"
+agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
+role = "builder"
+base = "e1f3b1f8ae4b5193f4b889465af6267d2d4a7c09"
+branch = "claude/issue-282-quality-v0-12"
+scope = [".github/workflows/ci.yml", ".github/workflows/code-scanning.yml", ".github/workflows/release-distributions.yml", ".github/workflows/release.yml"]
+opened_commit = "49c3a276ddac334f33815c1e7bcc8d89cade5e54"
+whole_reason = "One bump of the quality pins and the sites the release names, which lie in the workflow files that hold them."
