@@ -126,7 +126,7 @@ ENGLISH_LONG_TURN = (
     "Finally we decide who greets the guests at the entrance and who shows "
     "them the way to the rooms."
 )
-GPU_VOICES = tuple(voice for voice in VoiceId if not loads_at_start(voice))
+ON_DEMAND_VOICES = tuple(voice for voice in VoiceId if not loads_at_start(voice))
 CARD_STAGES = ("gpu_memory", "taken_card")
 PROBE_TEXT = "Bereit."
 SPEAK_WAIT_SECONDS = 30.0
@@ -492,10 +492,10 @@ def measure_memory(
     offered: Collection[VoiceId],
 ) -> None:
     """Fill `memory` with each model's peak, alone and with each `offered` GPU voice."""
-    measured = [voice for voice in GPU_VOICES if voice in offered]
+    measured = [voice for voice in ON_DEMAND_VOICES if voice in offered]
     warm_clip = clips[Language.DE].long_turn
     memory["voices_not_offered"] = [
-        voice.value for voice in GPU_VOICES if voice not in offered
+        voice.value for voice in ON_DEMAND_VOICES if voice not in offered
     ]
     models: dict[str, object] = {}
     memory["models"] = models

@@ -102,9 +102,9 @@ def test_prove_points_the_service_at_the_repository_provider_environments(
 def test_prove_speaks_the_gpu_voice_the_offer_names_else_piper(
     offered: frozenset[VoiceId],
 ) -> None:
-    gpu_voices = offered - set(PIPER_VOICES)
+    on_demand = offered - set(PIPER_VOICES)
 
-    assert PROVE.proof_voice(offered) is next(iter(gpu_voices), PROVE.PIPER_PROOF_VOICE)
+    assert PROVE.proof_voice(offered) is next(iter(on_demand), PROVE.PIPER_PROOF_VOICE)
 
 
 @pytest.mark.parametrize("voice", list(VoiceId))

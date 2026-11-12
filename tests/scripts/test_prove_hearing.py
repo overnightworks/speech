@@ -675,7 +675,7 @@ def test_a_file_route_that_answers_ok_on_a_taken_card_is_a_failure(
 
 
 @pytest.mark.parametrize(
-    "offered", [frozenset(), frozenset(HEARING.GPU_VOICES)], ids=["piper", "all"]
+    "offered", [frozenset(), frozenset(HEARING.ON_DEMAND_VOICES)], ids=["piper", "all"]
 )
 def test_only_offered_gpu_voices_are_measured_and_the_rest_are_named(
     monkeypatch: pytest.MonkeyPatch, offered: frozenset[VoiceId]
@@ -690,7 +690,7 @@ def test_only_offered_gpu_voices_are_measured_and_the_rest_are_named(
     assert measured == {voice.value for voice in offered}
     assert (
         set(memory["voices_not_offered"])
-        == {voice.value for voice in HEARING.GPU_VOICES} - measured
+        == {voice.value for voice in HEARING.ON_DEMAND_VOICES} - measured
     )
 
 

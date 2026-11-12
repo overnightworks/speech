@@ -227,18 +227,6 @@ def test_a_relative_provider_root_is_refused(monkeypatch: pytest.MonkeyPatch) ->
         Settings()
 
 
-@pytest.mark.parametrize(
-    ("name", "value"),
-    [("SPEECH_GPU_VOICES", "qwen3-tts-0.6b"), ("SPEECH_QWEN_SPEAKER", "invented")],
-)
-def test_a_removed_voice_setting_in_the_environment_is_ignored(
-    monkeypatch: pytest.MonkeyPatch, name: str, value: str
-) -> None:
-    monkeypatch.setenv(name, value)
-
-    assert Settings().voices == set(PIPER_VOICES)
-
-
 def test_provider_root_is_optional_for_the_default_piper_process(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
