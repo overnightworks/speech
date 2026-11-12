@@ -8,41 +8,44 @@ a reply with an `error`.
 # ruff: noqa: T201 - this script's output is the reply the proof reads
 
 import base64
+import contextlib
+import http.client
 import json
 import sys
-import urllib.error
-import urllib.request
+import urllib.parse
 
 TIMEOUT_SECONDS = 120
 
 
-def reply(request: urllib.request.Request) -> dict[str, object]:
+def reply(specification: dict[str, str]) -> dict[str, object]:
     """The status, headers and body answered, or the error that stopped the request."""
-    try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310 - the proof's own http URL
-            status, body, headers = response.status, response.read(), response.headers
-    except urllib.error.HTTPError as refusal:
-        status, body, headers = refusal.code, refusal.read(), refusal.headers
-    except OSError as error:
-        # urlopen wraps a refused connection in a URLError that holds the cause.
-        return {"error": type(getattr(error, "reason", error)).__name__}
-    return {
-        "status": status,
-        "headers": dict(headers.items()),
-        "body": base64.b64encode(body).decode("ascii"),
-    }
-
-
-specification = json.load(sys.stdin)
-print(
-    json.dumps(
-        reply(
-            urllib.request.Request(  # noqa: S310 - the proof's own http URL
-                specification["url"],
-                data=base64.b64decode(specification["body"]) or None,
-                headers=specification["headers"],
-                method=specification["method"],
-            )
-        )
+    url = urllib.parse.urlsplit(specification["url"])
+    target = urllib.parse.urlunsplit(("", "", url.path or "/", url.query, ""))
+    connection = http.client.HTTPConnection(
+        url.hostname, url.port, timeout=TIMEOUT_SECONDS
     )
-)
+    try:
+        connection.connect()
+        # A service may refuse by the headers and drop the rest of the upload; its
+        # answer is already on the way.
+        with contextlib.suppress(OSError):
+            connection.request(
+                specification["method"],
+                target,
+                body=base64.b64decode(specification["body"]) or None,
+                headers=specification["headers"],
+            )
+        response = connection.getresponse()
+        return {
+            "status": response.status,
+            "headers": dict(response.getheaders()),
+            "body": base64.b64encode(response.read()).decode("ascii"),
+        }
+    except (OSError, http.client.HTTPException) as error:
+        return {"error": type(error).__name__}
+    finally:
+        connection.close()
+
+
+if __name__ == "__main__":
+    print(json.dumps(reply(json.load(sys.stdin))))
