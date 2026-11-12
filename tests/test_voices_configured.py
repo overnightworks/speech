@@ -34,6 +34,7 @@ from tests.support.speak_support import (
     post_speech,
     speak_body,
 )
+from tests.support.worker_support import spoken_language_codes
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -119,6 +120,18 @@ def test_every_registered_app_speaks_an_offered_gpu_voice_through_one_worker(
         QWEN_SAMPLE_RATE
     ] * 2
     assert len(stage.starts()) == 1
+
+
+def test_ryan_is_spoken_by_the_worker_in_german(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WIRE-11: ryan speaks German; the provider's language byte for German is 1."""
+    german = 1
+    with gpu_voice_stage(tmp_path, monkeypatch, StageSetup("normal")) as stage:
+        spoken = post_speech(TestClient(stage.app()), speak_body(VoiceId.RYAN))
+
+    assert spoken.status_code == HTTP_200_OK
+    assert spoken_language_codes(stage.cache) == [german]
 
 
 @pytest.mark.parametrize("voice", [v for v in VoiceId if v is not VoiceId.THORSTEN])

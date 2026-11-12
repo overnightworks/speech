@@ -111,6 +111,8 @@ while True:
     os.write(1, b"synthesis native noise\n")
     with (cache / "request-ids").open("a", encoding="utf-8") as ids:
         ids.write(f"{{request_id}}\n")
+    with (cache / "language-codes").open("a", encoding="utf-8") as codes:
+        codes.write(f"{{frame.payload[0]}}\n")
     if text == "stale":
         write_frame(stream, Frame(FrameKind.PCM, request_id + 1, b"\x00\x01"))
         continue
@@ -181,6 +183,14 @@ class LoadOutcome(StrEnum):
 def worker_starts(cache: Path) -> list[int]:
     """The pids of every worker started over `cache`, in start order."""
     log = cache / "worker-starts"
+    if not log.exists():
+        return []
+    return [int(line) for line in log.read_text(encoding="utf-8").splitlines()]
+
+
+def spoken_language_codes(cache: Path) -> list[int]:
+    """The language byte of every synthesis the worker over `cache` received."""
+    log = cache / "language-codes"
     if not log.exists():
         return []
     return [int(line) for line in log.read_text(encoding="utf-8").splitlines()]

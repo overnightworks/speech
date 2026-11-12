@@ -51,9 +51,18 @@ def test_a_voice_outside_the_catalogue_is_invalid(voice: str) -> None:
     )
 
 
-@pytest.mark.parametrize("voice", list(VoiceId))
+@pytest.mark.parametrize(
+    ("voice", "language"),
+    [
+        (VoiceId.THORSTEN, "de"),
+        (VoiceId.NORMAN, "en"),
+        (VoiceId.LJSPEECH, "en"),
+        (VoiceId.CORI, "en"),
+        (VoiceId.RYAN, "de"),
+    ],
+)
 def test_each_voice_is_spoken_by_its_own_engine_in_its_first_language(
-    voice: VoiceId,
+    voice: VoiceId, language: str
 ) -> None:
     """WIRE-07, WIRE-11: each voice is spoken by its own engine."""
     engines = {offered: FakeSpeaking() for offered in VoiceId}
@@ -65,7 +74,7 @@ def test_each_voice_is_spoken_by_its_own_engine_in_its_first_language(
     assert {offered: engine.heard_text for offered, engine in engines.items()} == {
         offered: "Guten Morgen" if offered is voice else "" for offered in engines
     }
-    assert engines[voice].heard_language == VOICES[voice].languages[0].value
+    assert engines[voice].heard_language == language
 
 
 def _changed(**changes: object) -> bytes:

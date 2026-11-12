@@ -745,10 +745,21 @@ def test_a_request_naming_a_voice_outside_the_catalogue_is_refused_on_voice(
     assert [error["loc"] for error in refused.value.errors()] == [("voice",)]
 
 
-@pytest.mark.parametrize("voice", list(VoiceId))
-def test_a_request_speaks_the_first_language_of_its_voice(voice: VoiceId) -> None:
+@pytest.mark.parametrize(
+    ("voice", "language"),
+    [
+        (VoiceId.THORSTEN, Language.DE),
+        (VoiceId.NORMAN, Language.EN),
+        (VoiceId.LJSPEECH, Language.EN),
+        (VoiceId.CORI, Language.EN),
+        (VoiceId.RYAN, Language.DE),
+    ],
+)
+def test_a_request_speaks_the_first_language_of_its_voice(
+    voice: VoiceId, language: Language
+) -> None:
     request = SpeechRequest.model_validate_json(
         speech_request_body("Hallo", voice, ResponseFormat.WAV)
     )
 
-    assert request.spoken_language is VOICES[voice].languages[0]
+    assert request.spoken_language is language
