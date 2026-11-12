@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from speech_client.wire import HearingLanguage
+from speech_client.wire import Language
 from speech_service.admission_gate import Lease
 from tests.support.hear_support import (
     WAIT_SECONDS,
@@ -26,7 +26,7 @@ AUDIO = b"\0\0" * 160
 
 
 def _transcribe(engine: HearingEngine) -> str:
-    return engine.transcribe(AUDIO, (HearingLanguage.DE,)).text
+    return engine.transcribe(AUDIO, (Language.DE,)).text
 
 
 class _CountedLease:

@@ -22,8 +22,8 @@ from speech_client.wire import (
     DurationUsage,
     Health,
     HearingHealth,
-    HearingLanguage,
     ItemCreated,
+    Language,
     RefusalCode,
     RetryAfterError,
     ServerEvent,
@@ -95,8 +95,8 @@ def test_refusal_names_a_hearing_request_field(field: str) -> None:
     assert refusal(RefusalCode.INVALID_REQUEST, field).error.param == field
 
 
-@pytest.mark.parametrize("language", list(HearingLanguage))
-def test_hearing_accepts_each_language_of_the_wire(language: HearingLanguage) -> None:
+@pytest.mark.parametrize("language", list(Language))
+def test_hearing_accepts_each_language_of_the_wire(language: Language) -> None:
     request = TranscriptionRequest.model_validate(
         {"model": MODEL, "language": language}
     )
@@ -140,7 +140,7 @@ def test_a_session_update_names_the_language_it_applies() -> None:
     event = parse_client_event(_session_update({"type": "transcription", **update}))
 
     assert isinstance(event, SessionUpdate)
-    assert event.session.audio.input.transcription.language is HearingLanguage.EN
+    assert event.session.audio.input.transcription.language is Language.EN
 
 
 @pytest.mark.parametrize(
@@ -205,20 +205,20 @@ def test_a_session_update_names_the_ordered_set_of_languages_it_applies() -> Non
 
     assert isinstance(event, SessionUpdate)
     setting = event.session.audio.input.transcription
-    assert setting.allowed == (HearingLanguage.EN, HearingLanguage.DE)
+    assert setting.allowed == (Language.EN, Language.DE)
 
 
 @pytest.mark.parametrize(
     ("setting", "allowed"),
     [
-        ({}, (HearingLanguage.DE,)),
-        ({"language": "en"}, (HearingLanguage.EN,)),
-        ({"languages": ["en"]}, (HearingLanguage.EN,)),
+        ({}, (Language.DE,)),
+        ({"language": "en"}, (Language.EN,)),
+        ({"languages": ["en"]}, (Language.EN,)),
     ],
     ids=["neither", "language", "one-language-in-the-set"],
 )
 def test_a_session_that_names_one_language_hears_exactly_that_one(
-    setting: dict[str, object], allowed: tuple[HearingLanguage, ...]
+    setting: dict[str, object], allowed: tuple[Language, ...]
 ) -> None:
     event = parse_client_event(_transcription(setting))
 
@@ -511,7 +511,7 @@ def _each_server_event() -> list[ServerEvent]:
             item_id="item",
             transcript="Wie spät",
             usage=DurationUsage(seconds=1.5),
-            languages=(TranscriptLanguage(code=HearingLanguage.DE),),
+            languages=(TranscriptLanguage(code=Language.DE),),
         ),
         TranscriptFailed(
             item_id="item", error=item_failure(RefusalCode.BUSY, param="audio")
@@ -586,7 +586,7 @@ def test_a_completed_item_names_exactly_the_one_language_it_was_heard_in() -> No
         item_id="item",
         transcript="",
         usage=DurationUsage(seconds=1.0),
-        languages=(TranscriptLanguage(code=HearingLanguage.EN),),
+        languages=(TranscriptLanguage(code=Language.EN),),
     )
 
     sent = json.loads(event.model_dump_json())
@@ -606,7 +606,7 @@ def test_a_completed_item_without_exactly_one_known_language_is_not_an_event(
         item_id="item",
         transcript="Wie",
         usage=DurationUsage(seconds=1.0),
-        languages=(TranscriptLanguage(code=HearingLanguage.DE),),
+        languages=(TranscriptLanguage(code=Language.DE),),
     ).model_dump(mode="json")
 
     with pytest.raises(ServerEventError):
@@ -626,7 +626,7 @@ def test_a_refused_server_event_leaks_none_of_its_content() -> None:
         item_id="item",
         transcript=words,
         usage=DurationUsage(seconds=1.0),
-        languages=(TranscriptLanguage(code=HearingLanguage.DE),),
+        languages=(TranscriptLanguage(code=Language.DE),),
     ).model_dump()
     del event["usage"]
 

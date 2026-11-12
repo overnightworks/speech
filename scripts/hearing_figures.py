@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Final
 
 import numpy as np
 
-from speech_client.wire import HearingLanguage, RefusalCode
+from speech_client.wire import Language, RefusalCode
 from speech_service.hearing_session import MAX_TURN_SECONDS, SILENCE_SECONDS
 from speech_service.pcm import (
     BYTES_PER_SAMPLE,
@@ -50,7 +50,7 @@ class LiveTurn:
     deltas: tuple[str, ...]
     completed_seconds: float
     transcript: str
-    language: HearingLanguage
+    language: Language
 
 
 @dataclass(frozen=True)

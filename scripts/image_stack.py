@@ -28,7 +28,7 @@ from speech_client.wire import (
     MODEL,
     SPEECH_PATH,
     TRANSCRIPTIONS_PATH,
-    HearingLanguage,
+    Language,
     ResponseFormat,
     TranscriptionRequest,
     speech_request_body,
@@ -56,7 +56,7 @@ LIVE_WAIT_SECONDS: Final = 120
 MEMORY_PEAK_FILE: Final = "/sys/fs/cgroup/memory.peak"
 HEALTHY_TIMEOUT_SECONDS: Final = 120
 STOP_TIMEOUT_SECONDS: Final = 5
-HEARING_LANGUAGE: Final = HearingLanguage.DE.value
+HEARING_LANGUAGE: Final = Language.DE.value
 
 
 def caller_service(app: str) -> str:
@@ -297,7 +297,7 @@ class Session:
         self,
         tokens: TokenPair | None,
         wav: bytes,
-        languages: tuple[HearingLanguage, ...] = (HearingLanguage.DE,),
+        languages: tuple[Language, ...] = (Language.DE,),
     ) -> LiveOutcome:
         """One live turn in a session of `languages`, from the caller container.
 

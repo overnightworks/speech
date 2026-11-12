@@ -24,7 +24,7 @@ from speech_client.wire import (
     MODEL,
     RETRY_AFTER_HEADER,
     TRANSCRIPTIONS_PATH,
-    HearingLanguage,
+    Language,
     RefusalCode,
     token_headers,
 )
@@ -70,7 +70,7 @@ if TYPE_CHECKING:
 SHORT_WAIT_SECONDS = 0.2
 SLACK_SECONDS = 0.5
 UNREADABLE_FORM = "the form cannot be read"
-ENGLISH = {"model": MODEL, "language": HearingLanguage.EN.value}
+ENGLISH = {"model": MODEL, "language": Language.EN.value}
 
 
 def _client(engine: FakeHearing | None = None, **settings: float) -> TestClient:
@@ -108,7 +108,7 @@ def test_a_recording_without_a_language_is_heard_as_german() -> None:
 
     post_recording(_client(engine), _valid())
 
-    assert [languages for _, languages in engine.heard] == [(HearingLanguage.DE,)]
+    assert [languages for _, languages in engine.heard] == [(Language.DE,)]
 
 
 def test_a_recording_is_heard_in_the_language_asked_for() -> None:
@@ -117,7 +117,7 @@ def test_a_recording_is_heard_in_the_language_asked_for() -> None:
 
     post_recording(_client(engine), multipart_body(ENGLISH, recording()))
 
-    assert [languages for _, languages in engine.heard] == [(HearingLanguage.EN,)]
+    assert [languages for _, languages in engine.heard] == [(Language.EN,)]
 
 
 @pytest.mark.parametrize(

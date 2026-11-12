@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from speech_client.wire import (
     MODEL,
     TRANSCRIPTIONS_PATH,
-    HearingLanguage,
+    Language,
 )
 from speech_service.clock import LoopClock
 from speech_service.config import Settings
@@ -57,8 +57,8 @@ class FakeHearing:
         self.text = text
         self._load_error = load_error
         self.closed = 0
-        self.heard: list[tuple[int, tuple[HearingLanguage, ...]]] = []
-        self.heard_in: HearingLanguage | None = None
+        self.heard: list[tuple[int, tuple[Language, ...]]] = []
+        self.heard_in: Language | None = None
         self.entered = threading.Event()
         self.release = threading.Event()
         if not hold:
@@ -73,7 +73,7 @@ class FakeHearing:
         if self._load_error is not None:
             raise self._load_error
 
-    def transcribe(self, pcm: bytes, languages: tuple[HearingLanguage, ...]) -> Heard:
+    def transcribe(self, pcm: bytes, languages: tuple[Language, ...]) -> Heard:
         """Record the audio and the set, wait for the test's release, answer."""
         with self._guard:
             self.heard.append((len(pcm), languages))

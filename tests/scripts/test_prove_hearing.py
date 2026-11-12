@@ -204,15 +204,11 @@ def test_both_languages_run_in_one_fixed_order_for_every_clip() -> None:
 
     two_languages = [allowed for allowed in handed if len(allowed) > 1]
     assert two_languages
-    assert set(two_languages) == {
-        (HEARING.HearingLanguage.DE, HEARING.HearingLanguage.EN)
-    }
+    assert set(two_languages) == {(HEARING.Language.DE, HEARING.Language.EN)}
 
 
 async def _one_delta_turn(_: object, __: object, ___: bytes) -> HEARING.LiveTurn:
-    return HEARING.LiveTurn(
-        2.0, (2.5,), ("Wie",), 6.0, "Wie", HEARING.HearingLanguage.DE
-    )
+    return HEARING.LiveTurn(2.0, (2.5,), ("Wie",), 6.0, "Wie", HEARING.Language.DE)
 
 
 def test_a_language_measured_with_one_delta_in_its_long_turn_is_not_measured() -> None:
@@ -228,7 +224,7 @@ def test_a_language_measured_with_one_delta_in_its_long_turn_is_not_measured() -
             deltas,
             6.0,
             "Wie spät",
-            HEARING.HearingLanguage.DE,
+            HEARING.Language.DE,
         )
 
     def hear_recording(_: object, __: object, ___: bytes) -> tuple[float, str]:
@@ -305,9 +301,7 @@ class FakeCard:
     ) -> None:
         """Patch the proof to start no service; `fails_in` names a failing model."""
         self.fails_in = fails_in
-        clips = {
-            language: HEARING.Clip(b"", b"") for language in HEARING.HearingLanguage
-        }
+        clips = {language: HEARING.Clip(b"", b"") for language in HEARING.Language}
         monkeypatch.setenv("SPEECH_HUGGINGFACE_CACHE", str(cache))
         monkeypatch.setattr(HEARING, "require_cached_models", lambda *_: None)
         monkeypatch.setattr(HEARING, "card_line", lambda _: "card")
@@ -567,7 +561,7 @@ def taken_card(
         speak=lambda *_: (b"wav", 0.0, 0.0),
         freed=lambda _: freed,
     )
-    clips = {HEARING.HearingLanguage.DE: HEARING.Clip(b"", b"")}
+    clips = {HEARING.Language.DE: HEARING.Clip(b"", b"")}
     return HEARING.prove_taken_card("cuda", "small", clips, ports)
 
 
@@ -658,7 +652,7 @@ def test_only_offered_gpu_voices_are_measured_and_the_rest_are_named(
 ) -> None:
     monkeypatch.setattr(HEARING, "measure_peak", lambda *_: {})
     memory: dict[str, object] = {}
-    clips = {HEARING.HearingLanguage.DE: HEARING.Clip(b"", b"")}
+    clips = {HEARING.Language.DE: HEARING.Clip(b"", b"")}
 
     HEARING.measure_memory("cuda", ["small"], clips, memory, offered)
 
@@ -718,7 +712,7 @@ def test_a_language_that_fails_keeps_the_other_and_leaves_its_model_unfinished(
     FakeCard(monkeypatch, tmp_path)
 
     def hear(_service: object, language: object, *_: object) -> dict[str, object]:
-        if language.code == HEARING.HearingLanguage.EN:
+        if language.code == HEARING.Language.EN:
             message = "english failed"
             raise RuntimeError(message)
         return {"figures": 1}

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from speech_client.wire import HearingLanguage
+from speech_client.wire import Language
 from speech_service import hearing
 from speech_service.clock import LoopClock
 from speech_service.hearing import (
@@ -129,7 +129,7 @@ def test_hearing_before_the_load_is_an_error(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
 
     with pytest.raises(RuntimeError, match="not loaded"):
-        engine.transcribe(b"", (HearingLanguage.DE,))
+        engine.transcribe(b"", (Language.DE,))
 
 
 def test_a_closed_engine_no_longer_hears(
@@ -141,7 +141,7 @@ def test_a_closed_engine_no_longer_hears(
     engine.close()
 
     with pytest.raises(RuntimeError, match="not loaded"):
-        engine.transcribe(b"", (HearingLanguage.DE,))
+        engine.transcribe(b"", (Language.DE,))
 
 
 @pytest.mark.parametrize("device", ["gpu", "cuda-invalid", "cuda:0", "CPU", ""])

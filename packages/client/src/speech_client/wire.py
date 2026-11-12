@@ -109,7 +109,7 @@ class SpeechRequest(BaseModel):
         return voice
 
 
-class HearingLanguage(StrEnum):
+class Language(StrEnum):
     """The languages the service hears."""
 
     DE = "de"
@@ -122,7 +122,7 @@ class TranscriptionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
     model: Literal["speech"]
-    language: HearingLanguage = HearingLanguage.DE
+    language: Language = Language.DE
     response_format: Literal["json"] = "json"
 
 
@@ -331,7 +331,7 @@ def _absent(value: object) -> bool:
     return value is None
 
 
-def _distinct(codes: tuple[HearingLanguage, ...]) -> tuple[HearingLanguage, ...]:
+def _distinct(codes: tuple[Language, ...]) -> tuple[Language, ...]:
     if len(set(codes)) != len(codes):
         message = "languages must not repeat a code"
         raise ValueError(message)
@@ -339,7 +339,7 @@ def _distinct(codes: tuple[HearingLanguage, ...]) -> tuple[HearingLanguage, ...]
 
 
 AllowedLanguages = Annotated[
-    tuple[HearingLanguage, ...], Field(min_length=1), AfterValidator(_distinct)
+    tuple[Language, ...], Field(min_length=1), AfterValidator(_distinct)
 ]
 
 
@@ -352,7 +352,7 @@ class TranscriptionSetting(_SessionPart):
     """
 
     model: Literal["speech"] = MODEL
-    language: HearingLanguage | None = Field(None, exclude_if=_absent)
+    language: Language | None = Field(None, exclude_if=_absent)
     languages: AllowedLanguages | None = Field(None, exclude_if=_absent)
 
     @field_validator("language", "languages")
@@ -375,11 +375,11 @@ class TranscriptionSetting(_SessionPart):
     def _names_german_when_neither_is_named(self) -> TranscriptionSetting:
         if self.language is None and self.languages is None:
             # The model is frozen, and a validator may not return another instance.
-            object.__setattr__(self, "language", HearingLanguage.DE)
+            object.__setattr__(self, "language", Language.DE)
         return self
 
     @property
-    def allowed(self) -> tuple[HearingLanguage, ...]:
+    def allowed(self) -> tuple[Language, ...]:
         """The languages the session hears; the first is the main one."""
         if self.languages is not None:
             return self.languages
@@ -594,7 +594,7 @@ class TranscriptLanguage(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    code: HearingLanguage
+    code: Language
 
 
 class TranscriptCompleted(_ServerEvent):

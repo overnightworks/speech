@@ -73,7 +73,7 @@ from speech_client.hearing import Refused
 from speech_client.wire import (
     SPEECH_PATH,
     Health,
-    HearingLanguage,
+    Language,
     ResponseFormat,
     speech_request_body,
     speech_request_headers,
@@ -131,17 +131,17 @@ POLL_SECONDS = 0.5
 
 
 @dataclass(frozen=True)
-class Language:
+class LanguageScenario:
     """A language the proof hears, with the sentences it is heard against."""
 
-    code: HearingLanguage
+    code: Language
     question: str
     long_turn: str
 
 
 LANGUAGES = (
-    Language(HearingLanguage.DE, GERMAN_QUESTION, GERMAN_LONG_TURN),
-    Language(HearingLanguage.EN, ENGLISH_QUESTION, ENGLISH_LONG_TURN),
+    LanguageScenario(Language.DE, GERMAN_QUESTION, GERMAN_LONG_TURN),
+    LanguageScenario(Language.EN, ENGLISH_QUESTION, ENGLISH_LONG_TURN),
 )
 
 
@@ -319,19 +319,17 @@ def english_clip(voice: PiperVoice, text: str) -> bytes:
         )
 
 
-def make_clips(
-    service: Service, english_directory: Path
-) -> dict[HearingLanguage, Clip]:
+def make_clips(service: Service, english_directory: Path) -> dict[Language, Clip]:
     """Both languages' clips; a long turn must be one turn the service hears whole."""
     from piper import PiperVoice
 
     voice = PiperVoice.load(english_voice_path(english_directory))
     clips = {
-        HearingLanguage.DE: Clip(
+        Language.DE: Clip(
             german_clip(service, GERMAN_QUESTION),
             german_clip(service, GERMAN_LONG_TURN),
         ),
-        HearingLanguage.EN: Clip(
+        Language.EN: Clip(
             english_clip(voice, ENGLISH_QUESTION),
             english_clip(voice, ENGLISH_LONG_TURN),
         ),
@@ -347,7 +345,7 @@ def make_clips(
 
 def _long_turn_record(
     service: Service,
-    language: Language,
+    language: LanguageScenario,
     clip: Clip,
     ports: Ports,
     runs: int,
@@ -366,7 +364,7 @@ def _long_turn_record(
 
 def measure_language(
     service: Service,
-    language: Language,
+    language: LanguageScenario,
     clip: Clip,
     runs: int,
     ports: Ports = PORTS,
@@ -402,13 +400,13 @@ def measure_models(
     arguments: argparse.Namespace,
     models: dict[str, object],
     save: Callable[[], None],
-) -> dict[HearingLanguage, Clip]:
+) -> dict[Language, Clip]:
     """Fill `models` with each hearing model's figures as each language ends.
 
     `save` writes the record after each language and each model, so a proof killed
     outright keeps what it measured. Returns the clips.
     """
-    clips: dict[HearingLanguage, Clip] | None = None
+    clips: dict[Language, Clip] | None = None
     for model in arguments.hearing_models:
         with hearing_service(arguments.device, model, RESIDENT_VOICE) as service:
             if clips is None:
@@ -463,7 +461,7 @@ def measure_peak(
         ports.serve(device, hearing_model, voice) as service,
     ):
         ports.speak(service.base_url, GERMAN_QUESTION, voice.value, service.minting)
-        ports.hear(service, HearingLanguage.DE, warm_clip)
+        ports.hear(service, Language.DE, warm_clip)
         resident = used_mib()
     return {
         "baseline_mib": baseline,
@@ -478,13 +476,13 @@ def measure_peak(
 def measure_memory(
     device: str,
     hearing_models: Sequence[str],
-    clips: dict[HearingLanguage, Clip],
+    clips: dict[Language, Clip],
     memory: dict[str, object],
     offered: Collection[VoiceId],
 ) -> None:
     """Fill `memory` with each model's peak, alone and with each `offered` GPU voice."""
     measured = [voice for voice in GPU_VOICES if voice in offered]
-    warm_clip = clips[HearingLanguage.DE].long_turn
+    warm_clip = clips[Language.DE].long_turn
     memory["voices_not_offered"] = [
         voice.value for voice in GPU_VOICES if voice not in offered
     ]
@@ -503,17 +501,17 @@ def measure_memory(
 def prove_taken_card(
     device: str,
     hearing_model: str,
-    clips: dict[HearingLanguage, Clip],
+    clips: dict[Language, Clip],
     ports: Ports = PORTS,
 ) -> dict[str, object]:
     """Start the service on a card a second process holds; cell 30 says what follows."""
     baseline = used_mib()
-    german = clips[HearingLanguage.DE]
+    german = clips[Language.DE]
     with ports.hold() as held_mib:
         used_while_held = used_mib()
         with ports.serve(device, hearing_model, RESIDENT_VOICE) as service:
             health = service.running.health
-            file_answer = ports.post(service, HearingLanguage.DE, german.question)
+            file_answer = ports.post(service, Language.DE, german.question)
             live = asyncio.run(ports.upgrade(service))
             wav, _, _ = ports.speak(
                 service.base_url,

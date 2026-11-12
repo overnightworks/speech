@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from websockets.asyncio.server import serve
 
 from speech_client.hearing import OPENING_SECONDS, HearingSession
-from speech_client.wire import HearingLanguage, TranscriptDelta
+from speech_client.wire import Language, TranscriptDelta
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -46,7 +46,7 @@ def session_to(
         f"http://{LOOPBACK}:{port}",
         workload_token=WORKLOAD_TOKEN,
         person_token=PERSON_TOKEN,
-        languages=(HearingLanguage.DE,),
+        languages=(Language.DE,),
         deadline_seconds=deadline_seconds,
         held_limit_bytes=held_limit_bytes,
         opening_seconds=opening_seconds,

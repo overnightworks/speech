@@ -20,7 +20,7 @@ from speech_client.wire import (
     MODEL,
     TRANSCRIPTIONS_PATH,
     ErrorEvent,
-    HearingLanguage,
+    Language,
     Refusal,
     TranscriptCompleted,
     TranscriptDelta,
@@ -69,9 +69,7 @@ def refusal_code(status: int, body: bytes) -> str | None:
         return None
 
 
-def post_recording(
-    service: Service, language: HearingLanguage, pcm: bytes
-) -> httpx2.Response:
+def post_recording(service: Service, language: Language, pcm: bytes) -> httpx2.Response:
     """Post one recording to the file route and return the answer, whatever it is."""
     form = TranscriptionRequest(model=MODEL, language=language)
     with httpx2.Client(base_url=service.base_url, timeout=FILE_WAIT_SECONDS) as client:
@@ -83,9 +81,7 @@ def post_recording(
         )
 
 
-def hear_file(
-    service: Service, language: HearingLanguage, pcm: bytes
-) -> tuple[float, str]:
+def hear_file(service: Service, language: Language, pcm: bytes) -> tuple[float, str]:
     """Hear a recording from a file: seconds until the answer, and its text."""
     start = time.perf_counter()
     response = post_recording(service, language, pcm)
@@ -132,7 +128,7 @@ async def _send_paced(session: HearingSession, frames: Sequence[bytes]) -> None:
 
 
 async def hear_live(
-    service: Service, languages: tuple[HearingLanguage, ...], pcm: bytes
+    service: Service, languages: tuple[Language, ...], pcm: bytes
 ) -> LiveTurn:
     """Stream one turn at speaking pace in a session of `languages`.
 
@@ -172,7 +168,7 @@ async def hear_upgrade(service: Service) -> HearingOutcome | None:
         service.base_url,
         workload_token=pair.workload,
         person_token=pair.person,
-        languages=(HearingLanguage.DE,),
+        languages=(Language.DE,),
         deadline_seconds=LIVE_WAIT_SECONDS,
         held_limit_bytes=0,
     ) as session:

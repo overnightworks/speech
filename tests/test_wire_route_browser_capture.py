@@ -22,7 +22,7 @@ from playwright.async_api import async_playwright
 from speech_client.hearing import HearingSession
 from speech_client.relay import HOP_FRAME_BYTES, HopClose
 from speech_client.wire import (
-    HearingLanguage,
+    Language,
     PcmFormat,
     SessionInput,
     TranscriptCompleted,
@@ -228,7 +228,7 @@ async def _service_taken(stage: Stage) -> AsyncIterator[None]:
         stage.service_url,
         workload_token=other.tokens[0],
         person_token=other.tokens[1],
-        languages=(HearingLanguage.EN,),
+        languages=(Language.EN,),
         deadline_seconds=WAIT_SECONDS,
         held_limit_bytes=HOP_FRAME_BYTES,
     )

@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from faster_whisper import WhisperModel
 
-from speech_client.wire import HearingLanguage
+from speech_client.wire import Language
 from speech_service.hearing import (
     HEARING_SAMPLE_RATE,
     Heard,
@@ -22,8 +22,8 @@ from speech_service.hearing_models import HearingModel, voiced_floor
 from speech_service.pcm import VOICED_FRAME_SECONDS
 from tests.support.whisper_support import StandInWhisper
 
-DE = HearingLanguage.DE
-EN = HearingLanguage.EN
+DE = Language.DE
+EN = Language.EN
 FLOOR = voiced_floor(HearingModel.SMALL)
 FRAME_SAMPLES = round(HEARING_SAMPLE_RATE * VOICED_FRAME_SECONDS)
 # The tolerance keeps a floor that is an exact frame multiple from rounding up a frame.
@@ -34,13 +34,13 @@ LOUD = 5000
 class _ReadsOnlyThePcm:
     """A standalone identifier: it answers from the audio and ignores the scores."""
 
-    def __init__(self, *answers: HearingLanguage | None) -> None:
+    def __init__(self, *answers: Language | None) -> None:
         self._answers = iter(answers)
-        self.asked: list[tuple[Utterance, tuple[HearingLanguage, ...]]] = []
+        self.asked: list[tuple[Utterance, tuple[Language, ...]]] = []
 
     def identify(
-        self, utterance: Utterance, allowed: tuple[HearingLanguage, ...]
-    ) -> HearingLanguage | None:
+        self, utterance: Utterance, allowed: tuple[Language, ...]
+    ) -> Language | None:
         self.asked.append((utterance, allowed))
         return next(self._answers)
 
@@ -92,9 +92,9 @@ def stand_in() -> StandInWhisper:
 
 
 @pytest.mark.parametrize("seconds", [1.0, 40.0], ids=["one-window", "over-30-seconds"])
-@pytest.mark.parametrize("language", list(HearingLanguage))
+@pytest.mark.parametrize("language", list(Language))
 def test_a_one_element_set_decodes_as_faster_whispers_own_transcribe_does(
-    stand_in: StandInWhisper, language: HearingLanguage, seconds: float
+    stand_in: StandInWhisper, language: Language, seconds: float
 ) -> None:
     """WIRE-38: greedy at temperature 0, with the options of faster-whisper's call."""
     pcm = _speech(round(seconds / VOICED_FRAME_SECONDS))
@@ -207,8 +207,8 @@ def test_the_identifier_is_given_the_pcm_and_the_probabilities_of_the_set_only(
 )
 def test_when_the_identifier_does_not_know_the_first_language_of_the_set_holds(
     stand_in: StandInWhisper,
-    allowed: tuple[HearingLanguage, ...],
-    language: HearingLanguage,
+    allowed: tuple[Language, ...],
+    language: Language,
 ) -> None:
     """WIRE-135: not knowing means the main language."""
     heard = _engine(stand_in, _ReadsOnlyThePcm(None)).transcribe(_speech(100), allowed)
@@ -275,7 +275,7 @@ def test_a_language_outside_the_set_is_never_chosen() -> None:
     ids=["german-leads", "english-leads"],
 )
 def test_above_the_floor_the_higher_score_is_named_either_way(
-    de: float, en: float, named: HearingLanguage
+    de: float, en: float, named: Language
 ) -> None:
     identifier = ScoreIdentifier(FLOOR)
     utterance = _utterance(_speech(FLOOR_FRAMES + 20), de=de, en=en)
@@ -299,7 +299,7 @@ def test_a_tie_or_scores_of_zero_are_not_known(de: float, en: float) -> None:
     ids=["at-the-floor", "one-frame-below"],
 )
 def test_the_floor_is_met_at_exactly_its_voiced_seconds_and_not_one_frame_below(
-    frames: int, named: HearingLanguage | None
+    frames: int, named: Language | None
 ) -> None:
     utterance = _utterance(_speech(frames), de=0.1, en=0.9)
 
