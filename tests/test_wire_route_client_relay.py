@@ -198,7 +198,7 @@ def test_the_apps_end_signal_ends_the_session_and_the_hop_within_its_bound() -> 
     assert freed
 
 
-def test_a_text_frame_ends_the_hop_with_itsclose_code() -> None:
+def test_a_text_frame_ends_the_hop_with_its_close_code() -> None:
     async def scenario() -> tuple[RelayOutcome, int]:
         async with _browser_at_service() as (hop, url, _), connect(url) as browser:
             await browser.send("not audio")
@@ -212,7 +212,7 @@ def test_a_text_frame_ends_the_hop_with_itsclose_code() -> None:
     assert code == HopClose.TEXT_FRAME
 
 
-def test_an_oversized_frame_ends_the_hop_with_itsclose_code() -> None:
+def test_an_oversized_frame_ends_the_hop_with_its_close_code() -> None:
     async def scenario() -> tuple[RelayOutcome, int]:
         async with _browser_at_service() as (hop, url, _), connect(url) as browser:
             await browser.send(b"\0" * (FRAME_LIMIT_BYTES + 1))
