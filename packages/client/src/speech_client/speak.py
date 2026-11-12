@@ -50,6 +50,7 @@ from speech_client.wire import (
     RequestField,
     ResponseFormat,
     RetryAfterError,
+    VoiceId,
     busy_wait,
     refusal,
     speech_request_body,
@@ -159,7 +160,7 @@ def _answer(
 def speak(  # noqa: PLR0913
     base_url: str,
     text: str,
-    voice: str,
+    voice: VoiceId,
     *,
     response_format: ResponseFormat,
     workload_token: str,
