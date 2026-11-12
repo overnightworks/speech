@@ -18,14 +18,18 @@ from starlette.status import (
 )
 
 from speech_client.wire import (
+    MODEL,
     SPEECH_PATH,
     TRANSCRIPTIONS_PATH,
+    VOICES,
     RefusalCode,
+    SpeakingModel,
+    VoiceId,
 )
 from speech_service.config import Settings
 from speech_service.failures import SpeakingFailedError
 from speech_service.pcm import AI_MARK, is_silence, pcm_from_wav
-from speech_service.voices import VoiceId
+from speech_service.voices import PIPER_VOICES
 from tests.support.fakes_support import (
     SPEAK_SAMPLE_RATE,
     FakeSpeaking,
@@ -60,7 +64,6 @@ if TYPE_CHECKING:
 
 SHORT_WAIT_SECONDS = 0.2
 SLACK_SECONDS = 0.5
-QWEN = VoiceId.QWEN.value
 ALIEN_SAMPLE_RATE = 24_000
 
 
@@ -187,12 +190,29 @@ _REFUSED_BODIES = [
     pytest.param(b"{}", "model", id="empty-object"),
     pytest.param(_without("model"), "model", id="model-missing"),
     pytest.param(_changed(model="tts-1"), "model", id="model-other"),
+    pytest.param(_changed(model=MODEL), "model", id="model-of-hearing"),
     pytest.param(_changed(model="speech-runtime"), "model", id="model-speech-runtime"),
     pytest.param(_changed(model=1), "model", id="model-number"),
+    pytest.param(
+        _changed(model=MODEL, voice="alloy"), "model", id="model-and-voice-wrong"
+    ),
     pytest.param(_without("voice"), "voice", id="voice-missing"),
     pytest.param(_changed(voice=""), "voice", id="voice-empty"),
     pytest.param(_changed(voice="alloy"), "voice", id="voice-outside-the-catalogue"),
+    pytest.param(_changed(voice=SpeakingModel.PIPER), "voice", id="voice-is-a-model"),
+    pytest.param(_changed(voice=SpeakingModel.QWEN), "voice", id="voice-is-qwen"),
+    pytest.param(_changed(voice={"id": "alloy"}), "voice", id="voice-object"),
     pytest.param(_changed(voice=5), "voice", id="voice-number"),
+    *(
+        pytest.param(
+            _changed(model=model, voice=voice),
+            "voice",
+            id=f"{voice.name.lower()}-under-{model.name.lower()}",
+        )
+        for voice in VoiceId
+        for model in SpeakingModel
+        if model is not VOICES[voice].model
+    ),
     pytest.param(_without("input"), "input", id="input-missing"),
     pytest.param(_changed(input=""), "input", id="input-empty"),
     pytest.param(_changed(input=" ... "), "input", id="input-without-content"),
@@ -369,17 +389,30 @@ def test_a_refusal_and_the_log_never_hold_the_input_or_a_key_the_request_chose(
     assert _SENTENCE not in caplog.text
 
 
-def test_a_voice_other_than_the_active_one_is_unavailable() -> None:
-    response = post_speech(TestClient(speak_app()), speak_body(QWEN))
+@pytest.mark.parametrize("voice", [v for v in VoiceId if v is not VoiceId.THORSTEN])
+def test_a_catalogue_voice_that_is_not_offered_is_unavailable(voice: VoiceId) -> None:
+    """WIRE-19: a catalogue voice that is not offered is unavailable."""
+    response = post_speech(TestClient(speak_app()), speak_body(voice))
 
     assert_unavailable(response)
 
 
-def test_a_runtime_that_is_still_loading_is_unavailable() -> None:
-    runtime = fake_runtime()
+def test_a_wrong_model_is_refused_before_the_voice_is_found_unavailable() -> None:
+    body = _changed(model=SpeakingModel.PIPER, voice=VoiceId.RYAN)
+
+    response = post_speech(TestClient(speak_app()), body)
+
+    assert_refusal(
+        response, HTTP_422_UNPROCESSABLE_CONTENT, RefusalCode.INVALID_REQUEST, "voice"
+    )
+
+
+@pytest.mark.parametrize("voice", PIPER_VOICES)
+def test_a_runtime_that_is_still_loading_is_unavailable(voice: VoiceId) -> None:
+    runtime = fake_runtime(voice=voice)
     runtime.begin_loading()
 
-    assert_unavailable(post_speech(TestClient(app_over(runtime)), speak_body()))
+    assert_unavailable(post_speech(TestClient(app_over(runtime)), speak_body(voice)))
 
 
 def test_a_runtime_that_is_shutting_down_is_unavailable() -> None:
@@ -541,13 +574,13 @@ def _runtime_closing_on_shutdown(
 ) -> tuple[Runtime, list[int]]:
     closed: list[int] = []
     speaking.close = lambda: closed.append(1)
-    return fake_runtime(speaking, VoiceId.QWEN), closed
+    return fake_runtime(speaking, VoiceId.RYAN), closed
 
 
 def _assert_gate_free_and_shutdown_closes_once(
     runtime: Runtime, closed: list[int]
 ) -> None:
-    assert gate_is_free(runtime, VoiceId.QWEN)
+    assert gate_is_free(runtime, VoiceId.RYAN)
     runtime.close()
     assert closed == [1]
 
@@ -562,7 +595,7 @@ def test_speak_response_construction_failure_frees_the_gate_for_shutdown(
 
     monkeypatch.setattr(StreamingResponse, "__init__", fail_response_construction)
     with pytest.raises(_ResponseBoundaryError):
-        speak_response(runtime, QWEN)
+        speak_response(runtime, VoiceId.RYAN)
 
     _assert_gate_free_and_shutdown_closes_once(runtime, closed)
 
@@ -579,7 +612,7 @@ def test_speak_close_paths_free_the_gate_for_shutdown(close_path: str) -> None:
             yield from super().pcm_chunks(text, language)
 
     runtime, closed = _runtime_closing_on_shutdown(ClosingPathVoice())
-    response = speak_response(runtime, QWEN)
+    response = speak_response(runtime, VoiceId.RYAN)
 
     if close_path == "normal":
         response_body(response)

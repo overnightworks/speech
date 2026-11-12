@@ -305,7 +305,7 @@ def test_an_offer_passes_only_as_exactly_the_voices_health_lists() -> None:
 
     judged.require_offer(health, [RESIDENT_VOICE])
     with pytest.raises(SystemExit, match="offers"):
-        judged.require_offer(health, [RESIDENT_VOICE, VoiceId.QWEN])
+        judged.require_offer(health, [RESIDENT_VOICE, VoiceId.RYAN])
 
 
 @pytest.mark.parametrize(
@@ -316,16 +316,16 @@ def test_an_offer_passes_only_as_exactly_the_voices_health_lists() -> None:
 def test_a_gpu_voice_down_needs_it_not_ready_beside_ready_speaking_and_hearing(
     *, speaking: bool, hearing: bool, gpu_voice_ready: bool
 ) -> None:
-    voices = {RESIDENT_VOICE: True, VoiceId.QWEN: gpu_voice_ready}
+    voices = {RESIDENT_VOICE: True, VoiceId.RYAN: gpu_voice_ready}
     down = health_of(
-        speaking=True, hearing=True, voices={**voices, VoiceId.QWEN: False}
+        speaking=True, hearing=True, voices={**voices, VoiceId.RYAN: False}
     )
 
-    judged.require_gpu_voice_down(down, VoiceId.QWEN)
+    judged.require_gpu_voice_down(down, VoiceId.RYAN)
     health = health_of(speaking=speaking, hearing=hearing, voices=voices)
 
     with pytest.raises(SystemExit, match="down beside a ready service"):
-        judged.require_gpu_voice_down(health, VoiceId.QWEN)
+        judged.require_gpu_voice_down(health, VoiceId.RYAN)
 
 
 def test_only_the_external_networks_of_a_rendered_compose_file_are_named() -> None:

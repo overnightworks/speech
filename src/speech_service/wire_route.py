@@ -27,10 +27,10 @@ from speech_client.wire import (
     Language,
     RefusalCode,
     RequestField,
-    ResponseFormat,
     SpeechRequest,
     Transcription,
     TranscriptionRequest,
+    VoiceId,
     refusal,
 )
 from speech_service.audio_response import ClosingAudioResponse
@@ -42,7 +42,6 @@ from speech_service.recording import (
     decode_recording,
 )
 from speech_service.service import audio_chunks
-from speech_service.voices import VoiceId
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -61,7 +60,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-SPEAKING_LANGUAGE: Final = "de"
 _VERSION_PREFIX: Final = "/v{version:int}"
 _BEARER_CHALLENGE: Final = "Bearer"
 _LEAVE_NOTICE_SECONDS: Final = 1.0
@@ -132,12 +130,11 @@ class _SpeechRoute:
         parsed = await self._checked(request)
         if isinstance(parsed, JSONResponse):
             return parsed
-        text, voice, response_format = parsed
-        engine = await self._engine(voice, accepted)
+        engine = await self._engine(parsed.voice, accepted)
         if isinstance(engine, JSONResponse):
             return engine
         speaking, deadline = engine
-        return await self._spoken(voice, speaking, deadline, text, response_format)
+        return await self._spoken(parsed, speaking, deadline)
 
     async def _engine(
         self, voice: VoiceId, accepted: float
@@ -159,13 +156,12 @@ class _SpeechRoute:
 
     async def _spoken(
         self,
-        voice: VoiceId,
+        request: SpeechRequest,
         speaking: SpeakingEngine,
         deadline: float,
-        text: str,
-        response_format: ResponseFormat,
     ) -> Response:
-        """The audio of `text` once `voice`'s gate is held and `speaking` speaks."""
+        """The audio of `request` once its voice's gate is held."""
+        voice = request.voice
         lease = await self._runtime.slots[voice].gate.acquire(
             deadline, self._settings.max_waiting_requests
         )
@@ -175,8 +171,13 @@ class _SpeechRoute:
             return self._unavailable()
         if lease is None:
             return self._busy()
-        chunks = audio_chunks(speaking, text, SPEAKING_LANGUAGE, response_format)
-        return ClosingAudioResponse(chunks, lease, response_format.media_type)
+        chunks = audio_chunks(
+            speaking,
+            request.input,
+            request.spoken_language,
+            request.response_format,
+        )
+        return ClosingAudioResponse(chunks, lease, request.response_format.media_type)
 
     async def _loaded(self, voice: VoiceId) -> SpeakingEngine | None:
         """The engine of `voice` once its shared load ends; `None` if none may run."""
@@ -191,9 +192,7 @@ class _SpeechRoute:
             return None
         return loaded
 
-    async def _checked(
-        self, request: Request
-    ) -> tuple[str, VoiceId, ResponseFormat] | JSONResponse:
+    async def _checked(self, request: Request) -> SpeechRequest | JSONResponse:
         raw = await _read_within(request, self._settings.max_body_bytes)
         if raw is None:
             return _refused(RefusalCode.TOO_LARGE)
@@ -202,10 +201,7 @@ class _SpeechRoute:
             return parsed
         if len(parsed.input) > self._settings.max_input_characters:
             return _refused(RefusalCode.INVALID_REQUEST, "input")
-        try:
-            return parsed.input, VoiceId(parsed.voice), parsed.response_format
-        except ValueError:
-            return _refused(RefusalCode.INVALID_REQUEST, "voice")
+        return parsed
 
     def _unavailable(self) -> JSONResponse:
         return _refused(

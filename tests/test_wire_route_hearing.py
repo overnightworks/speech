@@ -26,11 +26,11 @@ from speech_client.wire import (
     TRANSCRIPTIONS_PATH,
     Language,
     RefusalCode,
+    VoiceId,
     token_headers,
 )
 from speech_service.config import Settings
 from speech_service.control import create_control_app
-from speech_service.voices import VoiceId
 from tests.support.hear_support import (
     HEARD_TEXT,
     MULTIPART,
@@ -302,7 +302,7 @@ def test_without_a_hearing_model_hearing_is_unavailable_and_speaking_works() -> 
     client = TestClient(hear_app(runtime))
 
     transcription = post_recording(client, _valid())
-    speech = post_speech(client, speak_body(VoiceId.PIPER.value))
+    speech = post_speech(client, speak_body(VoiceId.THORSTEN))
 
     assert_refusal(
         transcription, HTTP_503_SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE, None
@@ -409,7 +409,7 @@ def test_speaking_and_hearing_run_side_by_side_each_under_its_own_bound() -> Non
         hearing = hear_call(app)
         await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
         speaking = await asyncio.to_thread(
-            post_speech, TestClient(app), speak_body(VoiceId.PIPER.value)
+            post_speech, TestClient(app), speak_body(VoiceId.THORSTEN)
         )
         engine.release.set()
         await hearing.finish()
@@ -438,7 +438,7 @@ def test_a_held_decode_does_not_refuse_speaking() -> None:
     _hold_the_decode(runtime)
     client = TestClient(hear_app(runtime, hearing_max_waiting_requests=0))
 
-    response = post_speech(client, speak_body(VoiceId.PIPER.value))
+    response = post_speech(client, speak_body(VoiceId.THORSTEN))
 
     assert response.status_code == HTTP_200_OK
 

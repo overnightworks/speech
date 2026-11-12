@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.status import HTTP_200_OK, HTTP_503_SERVICE_UNAVAILABLE
 
-from speech_client.wire import HearingHealth, RefusalCode
+from speech_client.wire import HearingHealth, RefusalCode, VoiceId
 from speech_service import hearing_models
 from speech_service.clock import LoopClock
 from speech_service.config import Settings
@@ -16,7 +16,6 @@ from speech_service.hearing_models import (
     HearingModelMissingError,
 )
 from speech_service.service import Runtime, RuntimeDependencies
-from speech_service.voices import VoiceId
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.hear_support import (
     FakeHearing,
@@ -34,7 +33,7 @@ if TYPE_CHECKING:
 
 def _starting(hearing: FakeHearing | None) -> Runtime:
     return Runtime(
-        {VoiceId.PIPER: None},
+        {VoiceId.THORSTEN: None},
         memory_probe=lambda: 0,
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: FakeSpeaking(),
@@ -56,7 +55,7 @@ def test_a_load_that_lacks_the_resource_leaves_speaking_up_hearing_unavailable()
 
     health = client.get("/health").json()
     transcription = post_recording(client, multipart_body(file=recording()))
-    speech = post_speech(client, speak_body(VoiceId.PIPER.value))
+    speech = post_speech(client, speak_body(VoiceId.THORSTEN))
     assert health["hearing"]["ready"] is False
     assert health["speaking"]["ready"] is True
     assert_refusal(

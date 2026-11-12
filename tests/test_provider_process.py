@@ -30,6 +30,7 @@ from speech_provider_contract import (
     write_frame,
 )
 
+from speech_client.wire import VoiceId
 from speech_service.provider_process import (
     SYNTHESIS_FAILED,
     ProviderCleanupFailedError,
@@ -41,7 +42,6 @@ from speech_service.provider_process import (
     UnsupportedLanguageError,
 )
 from speech_service.service import Runtime, RuntimeDependencies
-from speech_service.voices import VoiceId
 from tests.support.worker_support import (
     assert_reaped,
     closed_provider,
@@ -424,7 +424,7 @@ def test_qwen_cancel_beyond_drain_reaps_then_runtime_loads_a_fresh_worker(
         return engine
 
     runtime = Runtime(
-        {VoiceId.PIPER: None},
+        {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
             engine_factory=factory,
             missing_artifacts=lambda _voice: (),
@@ -439,7 +439,7 @@ def test_qwen_cancel_beyond_drain_reaps_then_runtime_loads_a_fresh_worker(
 
     runtime.health()
 
-    assert runtime.capture(VoiceId.PIPER) is None
+    assert runtime.capture(VoiceId.THORSTEN) is None
     assert_reaped(first_pid)
     runtime.close()
 
@@ -516,7 +516,7 @@ def test_shutdown_during_handshake_closes_pending_without_publication(
 ) -> None:
     root, cache = closed_provider(tmp_path, "held-ready")
     runtime = Runtime(
-        {VoiceId.PIPER: None},
+        {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: _provider_process(root, cache),
             missing_artifacts=lambda _voice: (),
@@ -536,7 +536,7 @@ def test_shutdown_during_handshake_closes_pending_without_publication(
     activation.join(timeout=5)
 
     assert not activation.is_alive()
-    assert runtime.capture(VoiceId.PIPER) is None
+    assert runtime.capture(VoiceId.THORSTEN) is None
     assert_reaped(pid)
 
 
@@ -545,7 +545,7 @@ def test_missing_entrypoint_failed_exec_leaves_no_retained_engine(
 ) -> None:
     fatal = threading.Event()
     runtime = Runtime(
-        {VoiceId.PIPER: None},
+        {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: ProviderProcess(
                 ProviderLaunch(
@@ -561,7 +561,7 @@ def test_missing_entrypoint_failed_exec_leaves_no_retained_engine(
     runtime.set_fatal_callback(fatal.set)
     with pytest.raises(RuntimeError, match="failed to load"):
         runtime.load()
-    assert runtime.capture(VoiceId.PIPER) is None
+    assert runtime.capture(VoiceId.THORSTEN) is None
     assert not any(
         thread.name == "speech-provider-owner" and thread.is_alive()
         for thread in threading.enumerate()

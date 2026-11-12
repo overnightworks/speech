@@ -12,19 +12,18 @@ from speech_provider_contract import (
     QWEN_REVISION,
 )
 
+from speech_client.wire import VoiceId
 from speech_service import fetch_voice
 from speech_service.config import Settings
 from speech_service.piper_voices import (
     PINS,
     PinnedFile,
-    PinnedVoice,
     VoiceHashMismatchError,
     VoicePin,
     fetch_voice_files,
 )
 from speech_service.voices import (
-    DEFAULT_SPEAKING_MODEL,
-    VoiceId,
+    PIPER_VOICES,
     missing_artifacts,
     piper_voice_paths,
 )
@@ -37,9 +36,9 @@ def sha256(content: bytes) -> str:
 
 @dataclass
 class Scenario:
-    """A pinned voice of scenario bytes, and a downloader that serves them."""
+    """The pinned Piper voices of scenario bytes, and a downloader that serves them."""
 
-    voice: PinnedVoice
+    voices: tuple[VoiceId, ...]
     revision: str
     model_bytes: bytes
     metadata_bytes: bytes
@@ -47,11 +46,15 @@ class Scenario:
     served: dict[str, bytes] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Serve both files of the voice."""
-        self.served = {
-            f"a/b/{self.voice}.onnx": self.model_bytes,
-            f"a/b/{self.voice}.onnx.json": self.metadata_bytes,
-        }
+        """Serve both files of every voice."""
+        for voice in self.voices:
+            self.served[f"a/b/{voice}.onnx"] = self.model_bytes
+            self.served[f"a/b/{voice}.onnx.json"] = self.metadata_bytes
+
+    @property
+    def voice(self) -> VoiceId:
+        """The first of the voices."""
+        return self.voices[0]
 
     def tamper(self, filename: str, content: bytes) -> None:
         """Serve `content` for the voice file `filename` instead."""
@@ -68,18 +71,20 @@ class Scenario:
 
 @pytest.fixture
 def scenario(monkeypatch: pytest.MonkeyPatch) -> Scenario:
-    voice = PinnedVoice.THORSTEN
-    made = Scenario(voice, "1" * 40, b"scenario model", b'{"scenario": "metadata"}')
-    monkeypatch.setitem(
-        PINS,
-        voice,
-        VoicePin(
-            "scenario/voices",
-            made.revision,
-            PinnedFile(f"a/b/{voice}.onnx", sha256(made.model_bytes)),
-            PinnedFile(f"a/b/{voice}.onnx.json", sha256(made.metadata_bytes)),
-        ),
+    made = Scenario(
+        PIPER_VOICES, "1" * 40, b"scenario model", b'{"scenario": "metadata"}'
     )
+    for voice in made.voices:
+        monkeypatch.setitem(
+            PINS,
+            voice,
+            VoicePin(
+                "scenario/voices",
+                made.revision,
+                PinnedFile(f"a/b/{voice}.onnx", sha256(made.model_bytes)),
+                PinnedFile(f"a/b/{voice}.onnx.json", sha256(made.metadata_bytes)),
+            ),
+        )
     return made
 
 
@@ -103,7 +108,7 @@ def test_a_fetched_voice_is_found_by_the_service_under_the_names_it_reads(
     onnx, metadata = piper_voice_paths(tmp_path, scenario.voice.value)
     assert onnx.read_bytes() == scenario.model_bytes
     assert metadata.read_bytes() == scenario.metadata_bytes
-    assert missing_artifacts(Settings(voice_cache=tmp_path), VoiceId.PIPER) == ()
+    assert missing_artifacts(Settings(voice_cache=tmp_path), scenario.voice) == ()
     assert sorted(path.name for path in tmp_path.iterdir()) == sorted(
         [onnx.name, metadata.name]
     )
@@ -154,7 +159,7 @@ def test_a_damaged_file_whose_refetch_fails_is_gone_from_the_final_path(
     assert not onnx.exists()
 
 
-def test_the_command_prints_where_the_voice_went_in_the_configured_cache(
+def test_the_command_without_an_argument_fetches_every_offered_piper_voice(
     scenario: Scenario,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -162,11 +167,45 @@ def test_the_command_prints_where_the_voice_went_in_the_configured_cache(
 ) -> None:
     monkeypatch.setenv("SPEECH_VOICE_CACHE", str(tmp_path))
 
-    fetch_voice.main([scenario.voice.value], scenario)
+    fetch_voice.main([], scenario)
 
-    assert capsys.readouterr().out.strip() == str(
-        piper_voice_paths(tmp_path, scenario.voice.value)[0]
+    assert capsys.readouterr().out.split() == [
+        str(piper_voice_paths(tmp_path, voice.value)[0]) for voice in PIPER_VOICES
+    ]
+    settings = Settings(voice_cache=tmp_path)
+    assert [missing_artifacts(settings, voice) for voice in PIPER_VOICES] == [()] * len(
+        PIPER_VOICES
     )
+
+
+def test_the_command_fetches_only_the_voices_the_setting_offers(
+    scenario: Scenario,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SPEECH_VOICE_CACHE", str(tmp_path))
+    monkeypatch.setenv("SPEECH_VOICES", scenario.voices[1].value)
+
+    fetch_voice.main([], scenario)
+
+    assert {call["filename"] for call in scenario.calls} == {
+        f"a/b/{scenario.voices[1]}.onnx",
+        f"a/b/{scenario.voices[1]}.onnx.json",
+    }
+
+
+def test_an_empty_offer_fetches_nothing_and_says_nothing(
+    scenario: Scenario,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("SPEECH_VOICE_CACHE", str(tmp_path))
+    monkeypatch.setenv("SPEECH_VOICES", "")
+
+    fetch_voice.main([], scenario)
+
+    assert (capsys.readouterr().out, scenario.calls) == ("", [])
 
 
 @dataclass
@@ -186,40 +225,39 @@ class SnapshotScenario:
         )
 
 
-def test_the_command_fetches_a_gpu_voice_by_its_id_into_the_configured_hub_cache(
+def test_an_offered_gpu_voice_is_fetched_once_into_the_configured_hub_cache(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setenv("SPEECH_HUGGINGFACE_CACHE", str(tmp_path))
+    monkeypatch.setenv("SPEECH_VOICES", VoiceId.RYAN.value)
     snapshot = SnapshotScenario()
 
-    fetch_voice.main([VoiceId.QWEN.value], download_snapshot=snapshot)
+    fetch_voice.main([], download_snapshot=snapshot)
 
     printed = Path(capsys.readouterr().out.strip())
     assert sorted(path.name for path in printed.iterdir()) == sorted(
         {name.split("/", 1)[0] for name in QWEN_ARTIFACTS}
     )
-    missing = missing_artifacts(Settings(huggingface_cache=tmp_path), VoiceId.QWEN)
+    missing = missing_artifacts(Settings(huggingface_cache=tmp_path), VoiceId.RYAN)
     assert not set(missing) & set(QWEN_ARTIFACTS)
     assert [
         (call["repo_id"], call["revision"], call["token"]) for call in snapshot.calls
     ] == [(QWEN_MODEL_ID, QWEN_REVISION, False)]
 
 
-def test_the_command_refuses_a_voice_it_does_not_know() -> None:
+def test_the_command_takes_no_argument() -> None:
     with pytest.raises(SystemExit) as stopped:
-        fetch_voice.main(["nobody-medium"])
+        fetch_voice.main([VoiceId.THORSTEN.value])
 
     assert stopped.value.code != 0
 
 
-def test_the_services_default_voice_is_pinned() -> None:
-    assert DEFAULT_SPEAKING_MODEL in {voice.value for voice in PINS}
-
-
-def test_every_voice_is_pinned_in_full_under_the_names_the_service_reads() -> None:
-    assert set(PINS) == set(PinnedVoice)
+def test_every_piper_voice_is_pinned_in_full_under_the_names_the_service_reads() -> (
+    None
+):
+    assert set(PINS) == set(PIPER_VOICES)
     for voice, pin in PINS.items():
         assert re.fullmatch(r"[0-9a-f]{40}", pin.revision)
         assert re.fullmatch(r"[0-9a-f]{64}", pin.model.sha256)

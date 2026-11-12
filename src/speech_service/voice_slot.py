@@ -7,17 +7,17 @@ import threading
 from concurrent.futures import Future
 from typing import TYPE_CHECKING
 
-from speech_client.wire import VoiceHealth
+from speech_client.wire import VOICES, VoiceHealth
 from speech_service.admission_gate import AdmissionGate
 from speech_service.failures import log_failure
-from speech_service.voices import model_for_voice, sample_rate_before_load
+from speech_service.voices import sample_rate_before_load
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from speech_client.wire import VoiceId
     from speech_service.clock import LoopClock
     from speech_service.service import RuntimeDependencies, SpeakingEngine
-    from speech_service.voices import VoiceId
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class VoiceSlot:
             engine = self._construct_engine()
             registered = self._register_pending_engine(engine)
             if registered:
-                _load_or_raise(engine)
+                _load_or_raise(self.voice, engine)
                 self._publish(engine)
         finally:
             self._finish_loading(engine, registered=registered)
@@ -160,14 +160,18 @@ class VoiceSlot:
         """The voice's part of GET /health: its catalogue facts, and `ready`."""
         with self._state_lock:
             speaking = self.speaking
-        if speaking is None:
-            return VoiceHealth(
-                model=model_for_voice(self.voice),
-                ready=False,
-                sample_rate=sample_rate_before_load(self.voice),
-            )
+        catalogued = VOICES[self.voice]
+        loaded = speaking is not None
         return VoiceHealth(
-            model=speaking.model_name, ready=ready, sample_rate=speaking.sample_rate
+            model=catalogued.model,
+            name=catalogued.name,
+            languages=catalogued.languages,
+            ready=loaded and ready,
+            sample_rate=(
+                speaking.sample_rate
+                if speaking is not None
+                else sample_rate_before_load(self.voice)
+            ),
         )
 
     def _run_load_job(self, job: Future[SpeakingEngine | None]) -> None:
@@ -223,7 +227,11 @@ class VoiceSlot:
             raise RuntimeError(message)
         missing = missing_artifacts(self.voice)
         if missing:
-            logger.error("voice %s is missing %s", self.voice.value, ", ".join(missing))
+            logger.error(
+                "voice %s is missing %s; fetch it with speech-fetch-voice",
+                self.voice.value,
+                ", ".join(missing),
+            )
             message = f"voice {self.voice.value} is not installed"
             raise RuntimeError(message)
         engine = engine_factory(self.voice)
@@ -271,10 +279,10 @@ def _unique_engines(
     return unique
 
 
-def _load_or_raise(engine: SpeakingEngine) -> None:
+def _load_or_raise(voice: VoiceId, engine: SpeakingEngine) -> None:
     try:
         engine.load()
     except Exception:
-        message = f"speaking model {engine.model_name} failed to load"
+        message = f"voice {voice.value} failed to load"
         logger.exception("%s", message)
         raise RuntimeError(message) from None

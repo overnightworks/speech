@@ -1,10 +1,9 @@
-"""The closed voice catalogue, its side-effect-free artifact check and Qwen's fetch."""
+"""What the service knows of a catalogue voice: its start, its files, Qwen's fetch."""
 
 from __future__ import annotations
 
-from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, assert_never
 
 from huggingface_hub import snapshot_download, try_to_load_from_cache
 from speech_provider_contract import (
@@ -14,6 +13,7 @@ from speech_provider_contract import (
     QWEN_SAMPLE_RATE,
 )
 
+from speech_client.wire import VOICES, SpeakingModel, VoiceId
 from speech_service.provider_process import (
     ProviderId,
     is_executable_file,
@@ -25,37 +25,24 @@ if TYPE_CHECKING:
 
     from speech_service.config import Settings
 
-DEFAULT_SPEAKING_MODEL = "de_DE-thorsten-medium"
+PIPER_VOICES: Final = tuple(
+    voice for voice in VoiceId if VOICES[voice].model is SpeakingModel.PIPER
+)
+"""The catalogue's Piper voices, in catalogue order."""
 
-
-class VoiceId(StrEnum):
-    """The closed catalogue of voices the service can speak with."""
-
-    PIPER = "piper"
-    QWEN = "qwen3-tts-0.6b"
-
-
-RESIDENT_VOICE: Final = VoiceId.PIPER
-"""The voice loaded at start and always offered; every other voice is a GPU voice."""
-
-GPU_VOICES: Final = tuple(voice for voice in VoiceId if voice is not RESIDENT_VOICE)
-"""Every catalogue voice other than the resident one."""
-
-_MODELS: Final[dict[VoiceId, str]] = {
-    VoiceId.PIPER: DEFAULT_SPEAKING_MODEL,
-    VoiceId.QWEN: QWEN_MODEL_ID,
+_SAMPLE_RATES_BEFORE_LOAD: Final[dict[SpeakingModel, int]] = {
+    SpeakingModel.QWEN: QWEN_SAMPLE_RATE
 }
-_SAMPLE_RATES_BEFORE_LOAD: Final[dict[VoiceId, int]] = {VoiceId.QWEN: QWEN_SAMPLE_RATE}
 
 
-def model_for_voice(voice: VoiceId) -> str:
-    """The speaking model `voice` speaks with."""
-    return _MODELS[voice]
+def loads_at_start(voice: VoiceId) -> bool:
+    """Whether the start loads `voice` rather than its first request."""
+    return VOICES[voice].model is SpeakingModel.PIPER
 
 
 def sample_rate_before_load(voice: VoiceId) -> int:
     """The rate `voice` reports before it loads; 0 where its loaded model sets it."""
-    return _SAMPLE_RATES_BEFORE_LOAD.get(voice, 0)
+    return _SAMPLE_RATES_BEFORE_LOAD.get(VOICES[voice].model, 0)
 
 
 def missing_artifacts(settings: Settings, voice: VoiceId) -> tuple[str, ...]:
@@ -63,12 +50,20 @@ def missing_artifacts(settings: Settings, voice: VoiceId) -> tuple[str, ...]:
 
     Inspect only exact artifacts; this does not read credentials or the network.
     """
-    if voice is VoiceId.PIPER:
-        return tuple(
-            path.name
-            for path in piper_voice_paths(settings.voice_cache, DEFAULT_SPEAKING_MODEL)
-            if not path.is_file()
-        )
+    match VOICES[voice].model:
+        case SpeakingModel.PIPER:
+            return tuple(
+                path.name
+                for path in piper_voice_paths(settings.voice_cache, voice.value)
+                if not path.is_file()
+            )
+        case SpeakingModel.QWEN:
+            return _missing_qwen_artifacts(settings)
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _missing_qwen_artifacts(settings: Settings) -> tuple[str, ...]:
     missing = [
         filename
         for filename in QWEN_ARTIFACTS

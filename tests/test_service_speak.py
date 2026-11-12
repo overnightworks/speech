@@ -7,26 +7,30 @@ from typing import TYPE_CHECKING
 import pytest
 from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 
+from speech_client.wire import VOICES, SpeakingModel, VoiceId
 from speech_service.config import Settings
 from speech_service.speaking import PiperSpeaking, speaking_for_voice
-from speech_service.voices import VoiceId
+from speech_service.voices import PIPER_VOICES
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-def test_piper_voice_id_constructs_the_local_piper_engine() -> None:
-    engine = speaking_for_voice(Settings(), VoiceId.PIPER)
+@pytest.mark.parametrize("voice", PIPER_VOICES)
+def test_every_piper_voice_constructs_its_own_local_engine(voice: VoiceId) -> None:
+    engine = speaking_for_voice(Settings(), voice)
 
     assert isinstance(engine, PiperSpeaking)
-    assert engine.model_name == "de_DE-thorsten-medium"
+    assert engine.model_name == voice.value
 
 
-def test_qwen_voice_id_constructs_the_complete_waveform_voice() -> None:
-    engine = speaking_for_voice(
-        Settings(device="cuda"),
-        VoiceId.QWEN,
-    )
+@pytest.mark.parametrize(
+    "voice", [v for v in VoiceId if VOICES[v].model is SpeakingModel.QWEN]
+)
+def test_every_qwen_voice_constructs_the_complete_waveform_voice(
+    voice: VoiceId,
+) -> None:
+    engine = speaking_for_voice(Settings(device="cuda"), voice)
 
     assert engine.model_name == QWEN_MODEL_ID
     assert engine.sample_rate == QWEN_SAMPLE_RATE

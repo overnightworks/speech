@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
     from piper.config import SynthesisConfig
 
-    from speech_service.voices import VoiceId
+    from speech_client.wire import VoiceId
 
 HEARING = script_module("prove_hearing")
 VOICES = Path.home() / "voices"

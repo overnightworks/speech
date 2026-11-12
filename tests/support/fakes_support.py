@@ -7,11 +7,11 @@ import struct
 import threading
 from typing import TYPE_CHECKING
 
+from speech_client.wire import VoiceId
 from speech_service.config import Settings
 from speech_service.control import create_control_app
 from speech_service.pcm import BYTES_PER_SAMPLE
 from speech_service.service import Runtime
-from speech_service.voices import VoiceId
 from tests.support.identity_support import valid_callers
 
 if TYPE_CHECKING:
@@ -135,7 +135,7 @@ def an_app(
     memory_probe: Callable[[], int] | None = None,
 ) -> FastAPI:
     runtime = Runtime(
-        {VoiceId.PIPER: speaking or FakeSpeaking()},
+        {VoiceId.THORSTEN: speaking or FakeSpeaking()},
         memory_probe=memory_probe if memory_probe is not None else (lambda: 0),
     )
     return create_control_app(Settings(), runtime, valid_callers())

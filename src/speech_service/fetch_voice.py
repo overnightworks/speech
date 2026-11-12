@@ -1,20 +1,18 @@
-"""Fetch a voice at its pin: a Piper voice by its name, a GPU voice by its id."""
+"""Fetch the voices `SPEECH_VOICES` offers, each at its pin."""
 
-# ruff: noqa: T201 - this command prints where the voice went
+# ruff: noqa: T201 - this command prints where each voice went
 
 from __future__ import annotations
 
 import argparse
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 from huggingface_hub import hf_hub_download, snapshot_download
 
+from speech_client.wire import VOICES, SpeakingModel, VoiceId
 from speech_service.config import load_settings
-from speech_service.piper_voices import (
-    PinnedVoice,
-    fetch_voice_files,
-)
-from speech_service.voices import VoiceId, fetch_qwen
+from speech_service.piper_voices import fetch_voice_files
+from speech_service.voices import fetch_qwen
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -25,21 +23,24 @@ def main(
     download: Callable[..., str] = hf_hub_download,
     download_snapshot: Callable[..., str] = snapshot_download,
 ) -> None:
-    """Download the voice named in `argv`, once.
+    """Download every offered voice, once, and print where each went.
 
     A Piper voice goes to `SPEECH_VOICE_CACHE`, Qwen to `SPEECH_HUGGINGFACE_CACHE`.
-    `argv` defaults to the command line.
+    `argv` defaults to the command line and takes no argument.
     """
     parser = argparse.ArgumentParser(
         prog="speech-fetch-voice",
         allow_abbrev=False,
-        description="Fetch a Piper voice by its name, or a GPU voice by its id, at "
-        "its pinned revision so the service can load it from local files.",
+        description="Fetch the voices SPEECH_VOICES offers at their pinned "
+        "revisions so the service can load them from local files.",
     )
-    parser.add_argument("voice", choices=[*PinnedVoice, VoiceId.QWEN])
-    voice = parser.parse_args(argv).voice
+    parser.parse_args(argv)
     settings = load_settings()
-    if voice == VoiceId.QWEN:
-        print(fetch_qwen(settings.huggingface_cache, download_snapshot))
-    else:
-        print(fetch_voice_files(PinnedVoice(voice), settings.voice_cache, download))
+    for voice in (voice for voice in VoiceId if voice in settings.voices):
+        match VOICES[voice].model:
+            case SpeakingModel.PIPER:
+                print(fetch_voice_files(voice, settings.voice_cache, download))
+            case SpeakingModel.QWEN:
+                print(fetch_qwen(settings.huggingface_cache, download_snapshot))
+            case unreachable:
+                assert_never(unreachable)

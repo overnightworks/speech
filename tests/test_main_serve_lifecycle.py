@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from speech_client.wire import VoiceId
 from speech_service import __main__
 from speech_service.config import Settings
 from speech_service.service import Runtime, RuntimeDependencies
-from speech_service.voices import VoiceId
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.identity_support import (
     caller_configuration_text,
@@ -37,11 +37,11 @@ if TYPE_CHECKING:
 
 _LOADABLE_RUNTIME = """
 from speech_service.service import Runtime, RuntimeDependencies
-from speech_service.voices import VoiceId
+from speech_client.wire import VoiceId
 from tests.support.fakes_support import FakeSpeaking
 
 Runtime.from_settings = lambda _settings: Runtime(
-    {VoiceId.PIPER: None},
+    {VoiceId.THORSTEN: None},
     dependencies=RuntimeDependencies(
         engine_factory=lambda _voice: FakeSpeaking(),
         missing_artifacts=lambda _voice: (),
@@ -235,7 +235,7 @@ def test_serve_listens_only_on_one_tcp_socket_of_the_configured_address(
 
 def _loadable_runtime() -> Runtime:
     return Runtime(
-        {VoiceId.PIPER: None},
+        {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: FakeSpeaking(),
             missing_artifacts=lambda _voice: (),

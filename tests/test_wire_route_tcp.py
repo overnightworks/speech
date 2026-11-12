@@ -28,6 +28,7 @@ from speech_client.wire import (
     SPEECH_PATH,
     RefusalCode,
     ResponseFormat,
+    VoiceId,
 )
 from speech_service.pcm import (
     AI_MARK,
@@ -36,7 +37,6 @@ from speech_service.pcm import (
     pcm_from_wav,
 )
 from speech_service.service import Runtime
-from speech_service.voices import VoiceId
 from tests.support.fakes_support import (
     GATE_TIMEOUT_SECONDS,
     SPEAK_SAMPLE_RATE,
@@ -162,7 +162,7 @@ def _address(server: TcpServer) -> tuple[str, int]:
 
 
 def _gated_runtime(voice: FakeSpeaking | GatedSpeaking) -> Runtime:
-    return Runtime({VoiceId.PIPER: voice}, memory_probe=lambda: 0)
+    return Runtime({VoiceId.THORSTEN: voice}, memory_probe=lambda: 0)
 
 
 async def _first_chunk(chunks: AsyncIterator[bytes]) -> bytes:

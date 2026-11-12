@@ -12,8 +12,7 @@ from typing import TYPE_CHECKING
 import httpx2
 import pytest
 
-from speech_client.wire import SPEECH_PATH, RefusalCode
-from speech_service.voices import VoiceId
+from speech_client.wire import SPEECH_PATH, RefusalCode, VoiceId
 from tests.support.fakes_support import GatedSpeaking
 from tests.support.gpu_voice_support import (
     LOOPBACK,
@@ -52,7 +51,6 @@ if TYPE_CHECKING:
 
     from tests.support.gpu_voice_support import GpuVoiceStage
 
-QWEN = VoiceId.QWEN.value
 _LOADING = StageSetup(started=False)
 _SERVING = StageSetup("normal", started=False)
 
@@ -64,7 +62,9 @@ def test_sigterm_during_a_load_refuses_its_waiters_reaps_the_worker_and_exits_ze
         async with await serving.start() as client:
             waits = LoadWaits(stage.runtime)
             waiters = [
-                asyncio.create_task(client.post(SPEECH_PATH, content=speak_body(QWEN)))
+                asyncio.create_task(
+                    client.post(SPEECH_PATH, content=speak_body(VoiceId.RYAN))
+                )
                 for _ in range(2)
             ]
             await asyncio.to_thread(waits.wait_for, 2)
@@ -101,7 +101,7 @@ def test_sigterm_during_a_failed_loads_cleanup_waits_for_it_and_exits_by_its_rea
     async def scenario(serving: Serving, stage: GpuVoiceStage) -> tuple[bool, int]:
         async with await serving.start() as client:
             refused = asyncio.create_task(
-                client.post(SPEECH_PATH, content=speak_body(QWEN))
+                client.post(SPEECH_PATH, content=speak_body(VoiceId.RYAN))
             )
             (pid,) = await asyncio.to_thread(wait_for_starts, stage.cache, 1)
             release_load(stage.cache, pid, LoadOutcome.FAILED)
@@ -136,7 +136,7 @@ def test_a_failed_load_whose_worker_cannot_be_reaped_ends_the_service_nonzero(
     async def scenario(serving: Serving, stage: GpuVoiceStage) -> int:
         async with await serving.start() as client:
             asked = asyncio.create_task(
-                client.post(SPEECH_PATH, content=speak_body(QWEN))
+                client.post(SPEECH_PATH, content=speak_body(VoiceId.RYAN))
             )
             (pid,) = await asyncio.to_thread(wait_for_starts, stage.cache, 1)
             release_load(stage.cache, pid, LoadOutcome.FAILED)
@@ -156,10 +156,10 @@ def test_a_failed_load_whose_worker_cannot_be_reaped_ends_the_service_nonzero(
 
 async def _load_and_stream(client: httpx2.AsyncClient) -> httpx2.Response:
     """Load Qwen, then open a stream that holds its gate until the stop ends it."""
-    loaded = await client.post(SPEECH_PATH, content=speak_body(QWEN))
+    loaded = await client.post(SPEECH_PATH, content=speak_body(VoiceId.RYAN))
     assert loaded.status_code == HTTPStatus.OK
     request = client.build_request(
-        "POST", SPEECH_PATH, content=speak_body(QWEN, "wait-cancel")
+        "POST", SPEECH_PATH, content=speak_body(VoiceId.RYAN, "wait-cancel")
     )
     streaming = await client.send(request, stream=True)
     assert streaming.status_code == HTTPStatus.OK
@@ -204,7 +204,7 @@ def _kept_alive(port: int) -> http.client.HTTPConnection:
 
 
 def _send_qwen_request(connection: http.client.HTTPConnection) -> None:
-    connection.request("POST", SPEECH_PATH, speak_body(QWEN), speak_headers())
+    connection.request("POST", SPEECH_PATH, speak_body(VoiceId.RYAN), speak_headers())
 
 
 def _answer(connection: http.client.HTTPConnection) -> tuple[int, dict[str, object]]:
@@ -216,7 +216,7 @@ async def _queued_before_the_stop(
     serving: Serving, stage: GpuVoiceStage, connection: http.client.HTTPConnection
 ) -> None:
     """The server reads the request before it handles SIGTERM, as a race lets it."""
-    queued = gate_acquisition_began(stage.runtime, VoiceId.QWEN)
+    queued = gate_acquisition_began(stage.runtime, VoiceId.RYAN)
     _send_qwen_request(connection)
     await asyncio.wait_for(queued.wait(), WORKER_WAIT_SECONDS)
     serving.sigterm()
