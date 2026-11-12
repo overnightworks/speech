@@ -1,0 +1,8 @@
+claim_id = "3607ce671f0c4343b3dd5ea83a70a02c"
+agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
+role = "builder"
+base = "134b4dd1cb5032f34183648ac80d04767654dc37"
+branch = "claude/issue-297-stage-proof-voices"
+scope = ["scripts/prove_speech.py", "scripts/speaking_figures.py", "tests/scripts/test_prove_speech.py", "tests/scripts/test_speaking_figures.py"]
+opened_commit = "f10ec7f61910aace90777352c19ba330e35a89d3"
+whole_reason = "The proof script, its new figures module and their two test modules change together; the script alone would pass the size ratchet's limit."
