@@ -96,7 +96,8 @@ flowchart LR
   the browser. The tokens stay on the app's server.
   `speech_client.utterances` builds on it: `hear_utterances` builds the session
   and maps the events to finished utterances, optional partials and a service
-  failure, so an app keeps only its route, its login check and when a hearing ends.
+  failure, so an app keeps its route, its login check, its token choice, its rule
+  and when a hearing ends.
 - **Load isolation.** A load that fails for want of the resource (no CUDA
   device, a card too full) frees what it allocated and leaves the process up:
   `/health` names hearing not ready, the route answers 503 `unavailable`, and

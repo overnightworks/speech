@@ -33,7 +33,8 @@ app's server and hands the app the typed events, never the browser; it ends the 
 when the browser leaves, breaks a frame rule or the app ends it, and closes the
 browser with a code of its own. `speech_client.utterances` builds the session on top
 of the relay and hands the app finished utterances (text, language and audio
-positions), optionally the text so far, or the code of a failed item.
+positions), optionally the text so far, or the code of a failed item or an error
+event.
 
 ## Request
 
