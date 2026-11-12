@@ -17,7 +17,7 @@ from prove_speech import spoken_in_log
 from speech_client.wire import (
     REFUSAL_STATUS,
     Health,
-    HearingLanguage,
+    Language,
     Refusal,
     RefusalCode,
     RequestField,
@@ -398,7 +398,7 @@ def require_final(outcome: LiveOutcome, sentence: str) -> None:
     require_heard(outcome.final, sentence)
 
 
-def require_language(outcome: LiveOutcome, expected: HearingLanguage) -> None:
+def require_language(outcome: LiveOutcome, expected: Language) -> None:
     """Fail unless the live turn's final names `expected` as its language."""
     if outcome.language != expected.value:
         message = f"the final names {outcome.language}, expected {expected.value}"

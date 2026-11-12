@@ -15,7 +15,7 @@ from speech_client.wire import (
     REALTIME_INTENT,
     REALTIME_INTENT_PARAM,
     REALTIME_PATH,
-    HearingLanguage,
+    Language,
     SessionCreated,
 )
 from speech_service.config import Settings
@@ -144,7 +144,7 @@ async def _second_hearing_first_event(base_url: str) -> object:
         base_url,
         workload_token=pair.workload,
         person_token=pair.person,
-        languages=(HearingLanguage.EN,),
+        languages=(Language.EN,),
         deadline_seconds=WAIT_SECONDS,
         held_limit_bytes=1024 * 1024,
     ) as session:

@@ -31,7 +31,7 @@ from speech_client.hearing import HearingSession
 from speech_client.relay import HOP_FRAME_BYTES, relay
 from speech_client.speak import Spoken, speak
 from speech_client.wire import (
-    HearingLanguage,
+    Language,
     ResponseFormat,
     ServerEvent,
     TranscriptCompleted,
@@ -302,7 +302,7 @@ def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
             service_url,
             workload_token=side.tokens[0],
             person_token=side.tokens[1],
-            languages=(HearingLanguage.EN,),
+            languages=(Language.EN,),
             deadline_seconds=SESSION_SECONDS,
             held_limit_bytes=HELD_LIMIT_BYTES,
         )

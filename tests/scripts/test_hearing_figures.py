@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 import hearing_figures as figures
-from speech_client.wire import HearingLanguage, RefusalCode
+from speech_client.wire import Language, RefusalCode
 from speech_service.hearing_session import SILENCE_SECONDS
 
 RATE = 24000
@@ -27,7 +27,7 @@ def turn(
     question: float,
     deltas: tuple[float, ...],
     final: float,
-    language: HearingLanguage = HearingLanguage.DE,
+    language: Language = Language.DE,
 ) -> figures.LiveTurn:
     return figures.LiveTurn(
         question_seconds=question,
@@ -42,9 +42,9 @@ def turn(
 def test_the_language_step_is_the_median_added_to_the_final_and_what_it_chose() -> None:
     single = [turn(2.0, (), 3.0), turn(2.0, (), 3.2), turn(2.0, (), 3.1)]
     two = [
-        turn(2.0, (), 3.4, HearingLanguage.EN),
-        turn(2.0, (), 3.6, HearingLanguage.EN),
-        turn(2.0, (), 3.5, HearingLanguage.DE),
+        turn(2.0, (), 3.4, Language.EN),
+        turn(2.0, (), 3.6, Language.EN),
+        turn(2.0, (), 3.5, Language.DE),
     ]
 
     record = figures.language_step_record(single, two)

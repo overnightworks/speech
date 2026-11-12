@@ -16,7 +16,7 @@ import json
 import sys
 
 from speech_client.hearing import HearingSession
-from speech_client.wire import HearingLanguage, TranscriptCompleted, TranscriptDelta
+from speech_client.wire import Language, TranscriptCompleted, TranscriptDelta
 
 
 async def send_frames(
@@ -36,7 +36,7 @@ async def turn(specification: dict[str, object]) -> dict[str, object]:
         specification["base_url"],
         workload_token=specification["workload_token"],
         person_token=specification["person_token"],
-        languages=tuple(map(HearingLanguage, specification["languages"])),
+        languages=tuple(map(Language, specification["languages"])),
         deadline_seconds=specification["wait_seconds"],
         held_limit_bytes=sum(map(len, frames)),
     ) as session:

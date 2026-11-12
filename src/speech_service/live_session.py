@@ -21,8 +21,8 @@ from speech_client.wire import (
     AudioCommitted,
     ClientEventError,
     DurationUsage,
-    HearingLanguage,
     ItemCreated,
+    Language,
     RefusalCode,
     SessionCreated,
     SessionUpdate,
@@ -141,7 +141,7 @@ class LiveSession:
         self._resampler = Resampler()
         self._lock = asyncio.Lock()
         self._tasks: set[asyncio.Task[None]] = set()
-        self._languages = (HearingLanguage.DE,)
+        self._languages = (Language.DE,)
         self._configured = False
         self._audio_seen = False
         self._ended = False

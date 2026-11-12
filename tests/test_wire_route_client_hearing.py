@@ -14,7 +14,7 @@ from speech_client.hearing import (
 )
 from speech_client.outcomes import OverCap, PastDeadline, Unreachable
 from speech_client.wire import (
-    HearingLanguage,
+    Language,
     RefusalCode,
     SessionCreated,
     SessionUpdated,
@@ -53,7 +53,7 @@ def _session(
         base_url,
         workload_token=workload_token or pair.workload,
         person_token=pair.person,
-        languages=(HearingLanguage.EN,),
+        languages=(Language.EN,),
         deadline_seconds=deadline_seconds,
         held_limit_bytes=held_limit_bytes,
     )
@@ -112,9 +112,9 @@ def test_a_session_of_one_language_sends_the_set_and_hears_that_language() -> No
 
     (updated,) = [event for event in events if isinstance(event, SessionUpdated)]
     setting = updated.session.audio.input.transcription
-    assert (setting.language, setting.languages) == (None, (HearingLanguage.EN,))
+    assert (setting.language, setting.languages) == (None, (Language.EN,))
     assert isinstance(events[-1], TranscriptCompleted)
-    assert events[-1].languages == (TranscriptLanguage(code=HearingLanguage.EN),)
+    assert events[-1].languages == (TranscriptLanguage(code=Language.EN),)
 
 
 def test_leaving_the_context_ends_the_session_closed() -> None:

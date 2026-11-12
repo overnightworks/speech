@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from speech_client.wire import HearingLanguage
+from speech_client.wire import Language
 from speech_service.admission_gate import Lease
 from speech_service.live_session import POLL_WAIT_SECONDS, poll_forever
 from tests.support.clock_support import FakeClock
@@ -37,7 +37,7 @@ DELTA = "conversation.item.input_audio_transcription.delta"
 
 
 def _transcribe_silence(engine: HearingEngine) -> str:
-    return engine.transcribe(b"\0\0", (HearingLanguage.DE,)).text
+    return engine.transcribe(b"\0\0", (Language.DE,)).text
 
 
 async def _one_question(session: LiveSession) -> None:
@@ -105,7 +105,7 @@ def test_a_session_hears_in_its_language(messages: list[str], language: str) -> 
 
     engine = asyncio.run(scenario())
 
-    assert [heard for _, heard in engine.heard] == [(HearingLanguage(language),)]
+    assert [heard for _, heard in engine.heard] == [(Language(language),)]
 
 
 def test_a_valid_update_is_answered_with_the_applied_session() -> None:
@@ -128,12 +128,12 @@ def test_a_valid_update_is_answered_with_the_applied_session() -> None:
         ([], None),
         ([update("en")], None),
         ([update(None, languages=["en"])], None),
-        ([update(None, languages=["en", "de"])], HearingLanguage.DE),
+        ([update(None, languages=["en", "de"])], Language.DE),
     ],
     ids=["default", "language", "one-element-set", "set-of-two"],
 )
 def test_every_completed_item_names_exactly_the_language_it_was_heard_in(
-    messages: list[str], heard_in: HearingLanguage | None
+    messages: list[str], heard_in: Language | None
 ) -> None:
     """WIRE-75, WIRE-136: a completed item names one language, the engine's."""
 
@@ -163,13 +163,13 @@ def test_the_final_names_its_own_language_and_the_deltas_name_none() -> None:
         session, socket = await started(loaded(engine, clock))
         await session.on_message(update(None, languages=["de", "en"]))
         await session.on_message(append(audio(0.5)))
-        engine.heard_in = HearingLanguage.DE
+        engine.heard_in = Language.DE
         for _ in range(2):
             await session.on_tick()
             await session.settled()
             clock.advance(0.4)
             await session.on_message(append(audio(0.1)))
-        engine.heard_in = HearingLanguage.EN
+        engine.heard_in = Language.EN
         engine.text = "Good morning"
         await session.on_message(commit())
         await session.settled()

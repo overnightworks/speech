@@ -73,7 +73,7 @@ from speech_client.wire import (
     REALTIME_INTENT_PARAM,
     REALTIME_PATH,
     AudioAppend,
-    HearingLanguage,
+    Language,
     Refusal,
     RefusalCode,
     RetryAfterError,
@@ -137,7 +137,7 @@ def realtime_url(base_url: str) -> str:
     )
 
 
-def session_update(languages: tuple[HearingLanguage, ...]) -> str:
+def session_update(languages: tuple[Language, ...]) -> str:
     """The one `session.update` that sets the languages of a session."""
     update = SessionUpdate(
         type="session.update",
@@ -245,7 +245,7 @@ class HearingSession:
         *,
         workload_token: str,
         person_token: str,
-        languages: tuple[HearingLanguage, ...],
+        languages: tuple[Language, ...],
         deadline_seconds: float,
         held_limit_bytes: int,
         opening_seconds: float = OPENING_SECONDS,

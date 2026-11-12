@@ -95,7 +95,7 @@ from prove_speech import (
 )
 from speech_client.hearing import Refused
 from speech_client.wire import (
-    HearingLanguage,
+    Language,
     RefusalCode,
     refusal,
     speech_request_headers,
@@ -401,11 +401,9 @@ def cell_live_turn(session: Session, wav: bytes, model: HearingModel) -> None:
     the language step chose away from the main language.
     """
     require_voiced_floor(wav, model)
-    outcome = session.hear_live(
-        session.pair(), wav, (HearingLanguage.EN, HearingLanguage.DE)
-    )
+    outcome = session.hear_live(session.pair(), wav, (Language.EN, Language.DE))
     require_final(outcome, SENTENCE)
-    require_language(outcome, HearingLanguage.DE)
+    require_language(outcome, Language.DE)
     session.heard.extend(live_texts(outcome))
     print(
         f"cell 17: held; final arrived in {outcome.language} after"

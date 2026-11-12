@@ -15,7 +15,7 @@ from websockets.http11 import Request, Response
 from speech_client.hearing import Refused
 from speech_client.wire import (
     DurationUsage,
-    HearingLanguage,
+    Language,
     RefusalCode,
     SessionUpdated,
     TranscriptCompleted,
@@ -124,13 +124,13 @@ def test_a_valid_event_of_no_interest_is_ignored_until_the_turn_completes() -> N
         item_id="i",
         transcript="Hallo",
         usage=DurationUsage(seconds=1.0),
-        languages=(TranscriptLanguage(code=HearingLanguage.EN),),
+        languages=(TranscriptLanguage(code=Language.EN),),
     )
 
     turn = receive_turn([updated, completed])
 
     assert turn is not None
-    assert (turn.transcript, turn.language) == ("Hallo", HearingLanguage.EN)
+    assert (turn.transcript, turn.language) == ("Hallo", Language.EN)
 
 
 def test_a_session_that_ends_without_a_turn_gives_no_turn() -> None:

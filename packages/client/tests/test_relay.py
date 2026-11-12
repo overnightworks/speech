@@ -31,7 +31,7 @@ from speech_client.relay import (
 )
 from speech_client.wire import (
     BusyWait,
-    HearingLanguage,
+    Language,
     RefusalCode,
     TranscriptDelta,
 )
@@ -335,7 +335,7 @@ def _stalled_hop(
         service_url,
         workload_token="workload",  # noqa: S106 - a scenario value
         person_token="person",  # noqa: S106 - a scenario value
-        languages=(HearingLanguage.EN,),
+        languages=(Language.EN,),
         deadline_seconds=30,
         held_limit_bytes=1,
         opening_seconds=opening_seconds,

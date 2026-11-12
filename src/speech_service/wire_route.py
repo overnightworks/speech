@@ -24,7 +24,7 @@ from speech_client.wire import (
     RETRY_AFTER_HEADER,
     SPEECH_PATH,
     TRANSCRIPTIONS_PATH,
-    HearingLanguage,
+    Language,
     RefusalCode,
     RequestField,
     ResponseFormat,
@@ -230,7 +230,7 @@ def _replayed(request: Request, body: bytes) -> Request:
 
 
 def _heard(
-    recording: bytes, language: HearingLanguage, max_seconds: float
+    recording: bytes, language: Language, max_seconds: float
 ) -> Callable[[HearingEngine], str]:
     """The job that decodes `recording` and transcribes it."""
 
@@ -312,7 +312,7 @@ class _TranscriptionRoute:
             return _refused(RefusalCode.INVALID_REQUEST, "file")
 
     async def _answer(
-        self, lease: Lease, recording: bytes, language: HearingLanguage
+        self, lease: Lease, recording: bytes, language: Language
     ) -> Response:
         try:
             job = _heard(recording, language, self._settings.max_recording_seconds)

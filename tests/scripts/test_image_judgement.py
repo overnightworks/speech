@@ -13,7 +13,7 @@ from image_stack import REPOSITORY, LiveOutcome, Reply
 from proof_identity import mint_pair
 from speech_client.wire import (
     Health,
-    HearingLanguage,
+    Language,
     RefusalCode,
     Transcription,
     refusal,
@@ -497,8 +497,8 @@ def test_a_final_in_another_language_than_expected_fails_the_proof() -> None:
     turn = LiveOutcome("die Kamera", (), None, language="en")
 
     with pytest.raises(SystemExit, match="names en, expected de"):
-        judged.require_language(turn, HearingLanguage.DE)
-    judged.require_language(turn, HearingLanguage.EN)
+        judged.require_language(turn, Language.DE)
+    judged.require_language(turn, Language.EN)
 
 
 def _clip(voiced_seconds: float) -> bytes:

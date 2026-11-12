@@ -22,7 +22,7 @@ from speech_client.wire import (
     AUTHENTICATE_HEADER,
     REALTIME_PATH,
     RETRY_AFTER_HEADER,
-    HearingLanguage,
+    Language,
     RefusalCode,
     token_headers,
 )
@@ -98,7 +98,7 @@ def test_a_session_hears_a_committed_turn_and_ends_when_the_client_leaves() -> N
 def test_a_session_with_a_set_echoes_it_and_names_the_language_of_each_item() -> None:
     """WIRE-57, WIRE-75, WIRE-135, WIRE-136: the set is echoed, each item names one."""
     engine = FakeHearing()
-    engine.heard_in = HearingLanguage.EN
+    engine.heard_in = Language.EN
     with _client(engine).websocket_connect(URL, headers=valid_headers()) as socket:
         socket.receive_json()
         socket.send_text(update(None, languages=["de", "en"]))
@@ -111,13 +111,11 @@ def test_a_session_with_a_set_echoes_it_and_names_the_language_of_each_item() ->
     assert transcription["languages"] == ["de", "en"]
     assert "language" not in transcription
     assert events[-1]["languages"] == [{"code": "en"}]
-    assert [languages for _, languages in engine.heard] == [
-        (HearingLanguage.DE, HearingLanguage.EN)
-    ]
+    assert [languages for _, languages in engine.heard] == [(Language.DE, Language.EN)]
 
 
 def _completed_per_turn(
-    engine: FakeHearing, setup: str, *heard_in: HearingLanguage | None
+    engine: FakeHearing, setup: str, *heard_in: Language | None
 ) -> list[dict[str, object]]:
     """The `completed` event of one committed turn for each entry of `heard_in`."""
     completed = []
@@ -137,9 +135,7 @@ def test_two_turns_of_a_set_are_each_heard_in_their_own_language() -> None:
     """WIRE-135: each ended turn is heard in one language of the set."""
     setup = update(None, languages=["de", "en"])
 
-    completed = _completed_per_turn(
-        FakeHearing(), setup, HearingLanguage.DE, HearingLanguage.EN
-    )
+    completed = _completed_per_turn(FakeHearing(), setup, Language.DE, Language.EN)
 
     assert [event["languages"] for event in completed] == [
         [{"code": "de"}],

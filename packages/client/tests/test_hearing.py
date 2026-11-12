@@ -39,7 +39,7 @@ from speech_client.outcomes import (
 )
 from speech_client.wire import (
     BusyWait,
-    HearingLanguage,
+    Language,
     RefusalCode,
     TranscriptDelta,
 )
@@ -627,7 +627,7 @@ def test_a_base_url_that_is_not_an_origin_raises_value_error(base_url: str) -> N
             base_url,
             workload_token=WORKLOAD_TOKEN,
             person_token=PERSON_TOKEN,
-            languages=(HearingLanguage.DE,),
+            languages=(Language.DE,),
             deadline_seconds=1,
             held_limit_bytes=1,
         )

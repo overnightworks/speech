@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
     from faster_whisper.transcribe import TranscriptionOptions
 
-    from speech_client.wire import HearingLanguage
+    from speech_client.wire import Language
     from speech_service.clock import Clock
     from speech_service.config import Settings
     from speech_service.hearing_models import HearingModel
@@ -43,14 +43,14 @@ class Heard:
     """The words of one decode and the language it was decoded in."""
 
     text: str
-    language: HearingLanguage
+    language: Language
 
 
 @dataclass(frozen=True, slots=True)
 class LanguageScores:
     """The probability of each language of the allowed set, from one encoder pass."""
 
-    allowed: Mapping[HearingLanguage, float]
+    allowed: Mapping[Language, float]
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,8 +65,8 @@ class LanguageIdentifier(Protocol):
     """The step that names the language of a turn, before the recogniser decodes it."""
 
     def identify(
-        self, utterance: Utterance, allowed: tuple[HearingLanguage, ...]
-    ) -> HearingLanguage | None:
+        self, utterance: Utterance, allowed: tuple[Language, ...]
+    ) -> Language | None:
         """A language of `allowed`, or `None` when the identifier does not know.
 
         Called for a set of two or more.
@@ -80,8 +80,8 @@ class ScoreIdentifier:
     min_voiced_seconds: float
 
     def identify(
-        self, utterance: Utterance, allowed: tuple[HearingLanguage, ...]
-    ) -> HearingLanguage | None:
+        self, utterance: Utterance, allowed: tuple[Language, ...]
+    ) -> Language | None:
         """The language of `allowed` with the highest score, else `None`.
 
         `None` below `min_voiced_seconds` of voiced speech, and on a tie.
@@ -102,7 +102,7 @@ class HearingEngine(Protocol):
     def load(self) -> None:
         """Load the weights, or raise `ResourceUnavailableError` or another error."""
 
-    def transcribe(self, pcm: bytes, languages: tuple[HearingLanguage, ...]) -> Heard:
+    def transcribe(self, pcm: bytes, languages: tuple[Language, ...]) -> Heard:
         """The words in 16 kHz mono 16-bit PCM, and the language they were heard in.
 
         `languages` is ordered, non-empty and unique; its first element is the main
@@ -139,7 +139,7 @@ def installed_libraries() -> HearingLibraries:
 
 
 def _scores(
-    ranked: list[tuple[str, float]], languages: tuple[HearingLanguage, ...]
+    ranked: list[tuple[str, float]], languages: tuple[Language, ...]
 ) -> LanguageScores:
     """The probabilities of `languages` out of CTranslate2's `("<|xx|>", p)` ranking."""
     probabilities = dict(ranked)
@@ -239,7 +239,7 @@ class WhisperHearing:
                 raise ResourceUnavailableError(message) from None
             raise
 
-    def transcribe(self, pcm: bytes, languages: tuple[HearingLanguage, ...]) -> Heard:
+    def transcribe(self, pcm: bytes, languages: tuple[Language, ...]) -> Heard:
         """The recognised words and their language; the same audio gives the same text.
 
         A set of two or more encodes the first window once; the identifier chooses
