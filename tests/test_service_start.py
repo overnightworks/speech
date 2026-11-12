@@ -254,11 +254,8 @@ def test_hearing_loads_after_the_start_voice_has_loaded() -> None:
     assert events == ["speaking loaded", "hearing loaded"]
 
 
-def test_shutdown_during_the_start_load_leaves_hearing_and_other_voices_unloaded() -> (
-    None
-):
+def test_shutdown_during_the_start_load_leaves_hearing_unloaded() -> None:
     events: list[str] = []
-    built: list[VoiceId] = []
     loading = threading.Event()
     release = threading.Event()
 
@@ -268,11 +265,9 @@ def test_shutdown_during_the_start_load_leaves_hearing_and_other_voices_unloaded
             assert release.wait(timeout=WAIT_SECONDS)
             super().load()
 
-    def build(voice: VoiceId) -> SpeakingEngine:
-        built.append(voice)
-        return SlowSpeaking(events)
-
-    runtime = _offering({VoiceId.PIPER: None, VoiceId.QWEN: None}, events, build)
+    runtime = _offering(
+        {VoiceId.PIPER: None}, events, lambda _voice: SlowSpeaking(events)
+    )
     starting = threading.Thread(target=runtime.load)
     starting.start()
     assert loading.wait(timeout=WAIT_SECONDS)
@@ -283,7 +278,24 @@ def test_shutdown_during_the_start_load_leaves_hearing_and_other_voices_unloaded
 
     assert not starting.is_alive()
     assert "hearing loaded" not in events
-    assert built == [VoiceId.PIPER]
+
+
+def test_shutdown_before_the_start_load_leaves_the_start_voice_unbuilt() -> None:
+    events: list[str] = []
+    built: list[VoiceId] = []
+
+    def build(voice: VoiceId) -> SpeakingEngine:
+        built.append(voice)
+        return _RecordedSpeaking(events)
+
+    runtime = _offering({VoiceId.PIPER: None}, events, build)
+    runtime.begin_shutdown()
+
+    runtime.load()
+
+    assert built == []
+    assert events == []
+    assert runtime.loading is False
 
 
 def test_a_runtime_without_a_start_voice_is_ready_once_started_until_shutdown() -> None:
