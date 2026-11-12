@@ -1,0 +1,8 @@
+claim_id = "4f22934c8b794551b4c173bedd285641"
+agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
+role = "builder"
+base = "9cd2b82cf56919e78504ab2364ec978a2be8f203"
+branch = "claude/issue-311-finished-utterances"
+scope = ["docs/ARCHITECTURE.md", "docs/wire.md", "packages/client/src/speech_client/utterances.py", "packages/client/tests/test_utterances.py", "tests/test_wire_route_client_utterances.py"]
+opened_commit = "4e6e138f89500f198f9afe9c19cd327059603f17"
+whole_reason = "One new module with its two test modules and the two documents that must name it in the same change."
