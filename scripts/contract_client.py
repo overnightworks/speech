@@ -18,7 +18,7 @@ from pathlib import Path
 from proof_identity import Minting, load_minting, mint_pair
 from speech_client import speak as speaking_call
 from speech_client.health import fetch_health
-from speech_client.wire import Health, ResponseFormat
+from speech_client.wire import Health, ResponseFormat, VoiceId
 
 SENTENCE = (
     "Die Kamera zeigt den Vortragenden, während im Hintergrund "
@@ -55,7 +55,7 @@ def _pcm_from_wav(data: bytes) -> tuple[int, bytes]:
     raise SystemExit(message)
 
 
-def speak(base_url: str, text: str, voice: str, minting: Minting) -> bytes:
+def speak(base_url: str, text: str, voice: VoiceId, minting: Minting) -> bytes:
     """POST German text to the speech service and return the whole WAV bytes.
 
     Each call mints a fresh pair of tokens, so a long run never presents an
@@ -87,7 +87,7 @@ def _rms(pcm: bytes) -> float:
     return (total / len(samples)) ** 0.5 / 32768.0
 
 
-def _run(base_url: str, voice: str, minting: Minting) -> None:
+def _run(base_url: str, voice: VoiceId, minting: Minting) -> None:
     health = fetch_health(
         base_url,
         deadline_seconds=HEALTH_DEADLINE_SECONDS,
@@ -117,7 +117,7 @@ def parse_arguments(arguments: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.add_argument("--minting-file", type=Path, required=True)
     parser.add_argument("base_url")
-    parser.add_argument("voice")
+    parser.add_argument("voice", type=VoiceId)
     return parser.parse_args(arguments)
 
 

@@ -32,11 +32,11 @@ from image_stack import (
 )
 from prove_speech import SENTENCE
 from speech_client.wire import Health, RefusalCode, RequestField
-from speech_service.voices import RESIDENT_VOICE
+from speech_service.voices import PIPER_VOICES
 
 if TYPE_CHECKING:
     from image_stack import Compose, Session
-    from speech_service.voices import VoiceId
+    from speech_client.wire import VoiceId
 
 GPU_VOICE_OVERRIDE: Final = FIXTURES / "compose.gpu-voice.yaml"
 VOICE_PARAM: Final[RequestField] = "voice"
@@ -61,11 +61,11 @@ def cell_gpu_voice_not_offered(session: Session) -> None:
         voice = first_gpu_voice()
         require_refused_unavailable(caller, voice)
         refused.append(f"{app} naming {voice}")
-    require_offer(health_of(session), [RESIDENT_VOICE])
+    require_offer(health_of(session), PIPER_VOICES)
     print(
         f"cell 22: held; {' and '.join(refused)} refused as"
         f" {RefusalCode.UNAVAILABLE} param={VOICE_PARAM}, /health offers"
-        f" {RESIDENT_VOICE} alone"
+        " the Piper voices alone"
     )
 
 
@@ -83,7 +83,7 @@ def cell_gpu_voice_offered(session: Session, wav: bytes) -> None:
     offered = replace(session, compose=stack)
     voice = first_gpu_voice()
     health = health_of(offered)
-    require_offer(health, [RESIDENT_VOICE, voice])
+    require_offer(health, [*PIPER_VOICES, voice])
     require_gpu_voice_down(health, voice)
     print(f"cell 23: held; healthy, {voice} offered and not ready")
     started = container_start(stack)
@@ -101,7 +101,7 @@ def cell_gpu_voice_offered(session: Session, wav: bytes) -> None:
     )
     print(
         f"cell 23: held; then {voice} not ready, speaking and hearing ready,"
-        f" {RESIDENT_VOICE} speaks and {offered.baked.app}'s recording is heard"
+        f" {offered.baked.voice} speaks and {offered.baked.app}'s recording is heard"
     )
     if container_start(stack) != started:
         message = f"the service container restarted: {started}"

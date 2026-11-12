@@ -12,16 +12,18 @@ import image_judgement as judged
 from image_stack import REPOSITORY, LiveOutcome, Reply
 from proof_identity import mint_pair
 from speech_client.wire import (
+    VOICES,
     Health,
     Language,
     RefusalCode,
     Transcription,
+    VoiceId,
     refusal,
 )
 from speech_service.config import CallerConfig, load_caller_config
 from speech_service.hearing_models import HearingModel, voiced_floor
 from speech_service.pcm import VOICED_FRAME_SECONDS, wav_header
-from speech_service.voices import RESIDENT_VOICE, VoiceId
+from speech_service.voices import PIPER_VOICES
 
 if TYPE_CHECKING:
     from proof_identity import Minting
@@ -41,12 +43,10 @@ def app(request: pytest.FixtureRequest) -> str:
     return str(request.param)
 
 
-def test_the_baked_caller_speaks_the_resident_voice(
-    config: CallerConfig, app: str
-) -> None:
+def test_the_baked_caller_speaks_a_piper_voice(config: CallerConfig, app: str) -> None:
     baked = judged.baked_caller(config, app)
 
-    assert baked.voice is RESIDENT_VOICE
+    assert baked.voice in PIPER_VOICES
 
 
 def test_tokens_minted_for_the_baked_caller_carry_its_identity(
@@ -290,7 +290,13 @@ def health_of(*, speaking: bool, hearing: bool, voices: dict[VoiceId, bool]) -> 
             "speaking": {
                 "ready": speaking,
                 "voices": {
-                    voice.value: {"model": "m", "ready": ready, "sample_rate": 1}
+                    voice.value: {
+                        "model": VOICES[voice].model,
+                        "name": VOICES[voice].name,
+                        "languages": VOICES[voice].languages,
+                        "ready": ready,
+                        "sample_rate": 1,
+                    }
                     for voice, ready in voices.items()
                 },
             },
@@ -301,11 +307,11 @@ def health_of(*, speaking: bool, hearing: bool, voices: dict[VoiceId, bool]) -> 
 
 
 def test_an_offer_passes_only_as_exactly_the_voices_health_lists() -> None:
-    health = health_of(speaking=True, hearing=True, voices={RESIDENT_VOICE: True})
+    health = health_of(speaking=True, hearing=True, voices={PIPER_VOICES[0]: True})
 
-    judged.require_offer(health, [RESIDENT_VOICE])
+    judged.require_offer(health, [PIPER_VOICES[0]])
     with pytest.raises(SystemExit, match="offers"):
-        judged.require_offer(health, [RESIDENT_VOICE, VoiceId.RYAN])
+        judged.require_offer(health, [PIPER_VOICES[0], VoiceId.RYAN])
 
 
 @pytest.mark.parametrize(
@@ -316,7 +322,7 @@ def test_an_offer_passes_only_as_exactly_the_voices_health_lists() -> None:
 def test_a_gpu_voice_down_needs_it_not_ready_beside_ready_speaking_and_hearing(
     *, speaking: bool, hearing: bool, gpu_voice_ready: bool
 ) -> None:
-    voices = {RESIDENT_VOICE: True, VoiceId.RYAN: gpu_voice_ready}
+    voices = {PIPER_VOICES[0]: True, VoiceId.RYAN: gpu_voice_ready}
     down = health_of(
         speaking=True, hearing=True, voices={**voices, VoiceId.RYAN: False}
     )

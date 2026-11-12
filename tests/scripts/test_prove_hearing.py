@@ -127,7 +127,7 @@ def test_the_resident_memory_with_a_voice_includes_what_its_synthesis_took(
 
     ports = HEARING.Ports(serve=serve, speak=speak, hear=lambda *_: (0.0, ""))
 
-    peak = HEARING.measure_peak("cuda", "small", HEARING.RESIDENT_VOICE, b"", ports)
+    peak = HEARING.measure_peak("cuda", "small", HEARING.PIPER_PROOF_VOICE, b"", ports)
 
     assert peak["warmed_resident_over_baseline_mib"] == synthesis_mib
 
@@ -160,7 +160,7 @@ def test_the_peak_is_never_below_the_warmed_resident_reading(
         sample=sampled_before_and_after,
     )
 
-    peak = HEARING.measure_peak("cuda", "small", HEARING.RESIDENT_VOICE, b"", ports)
+    peak = HEARING.measure_peak("cuda", "small", HEARING.PIPER_PROOF_VOICE, b"", ports)
 
     assert peak["peak_over_baseline_mib"] == synthesis_mib
     assert peak["peak_sampled_every_seconds"] == HEARING.MEMORY_SAMPLE_SECONDS

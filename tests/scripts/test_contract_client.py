@@ -22,6 +22,7 @@ from speech_client.wire import (
 from speech_service.config import Settings
 from speech_service.pcm import pcm_from_wav
 from speech_service.service import Runtime
+from speech_service.voices import PIPER_VOICES
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE, FakeSpeaking
 from tests.support.identity_support import callers_trusting
 from tests.support.script_support import script_module
@@ -89,23 +90,33 @@ def test_prove_points_the_service_at_the_repository_provider_environments(
     assert (provider_root / "qwen" / "pyproject.toml").is_file()
 
 
-@pytest.mark.parametrize("named", [frozenset(), frozenset({VoiceId.RYAN})])
+@pytest.mark.parametrize(
+    "offered",
+    [
+        frozenset(PIPER_VOICES),
+        frozenset({VoiceId.RYAN}),
+        frozenset({*PIPER_VOICES, VoiceId.RYAN}),
+    ],
+    ids=["piper", "gpu", "both"],
+)
 def test_prove_speaks_the_gpu_voice_the_offer_names_else_piper(
-    named: frozenset[VoiceId],
+    offered: frozenset[VoiceId],
 ) -> None:
-    assert PROVE.proof_voice(named) is next(iter(named), VoiceId.THORSTEN)
+    gpu_voices = offered - set(PIPER_VOICES)
+
+    assert PROVE.proof_voice(offered) is next(iter(gpu_voices), PROVE.PIPER_PROOF_VOICE)
 
 
 @pytest.mark.parametrize("voice", list(VoiceId))
-def test_prove_offers_the_service_exactly_the_voice_it_speaks(
+def test_prove_offers_the_service_the_voice_it_speaks_beside_a_piper_voice(
     monkeypatch: pytest.MonkeyPatch, identity: ProofIdentity, voice: VoiceId
 ) -> None:
-    monkeypatch.setenv("SPEECH_GPU_VOICES", VoiceId.RYAN.value)
+    monkeypatch.setenv("SPEECH_VOICES", VoiceId.RYAN.value)
 
     environment = PROVE.speech_environment(8080, voice, identity)
 
-    monkeypatch.setenv("SPEECH_GPU_VOICES", environment["SPEECH_GPU_VOICES"])
-    assert Settings().gpu_voices == ({voice} - {VoiceId.THORSTEN})
+    monkeypatch.setenv("SPEECH_VOICES", environment["SPEECH_VOICES"])
+    assert Settings().voices == {PROVE.PIPER_PROOF_VOICE, voice}
 
 
 def test_prove_keeps_a_provider_root_the_caller_set(
