@@ -31,9 +31,12 @@ from speech_client.relay import (
 )
 from speech_client.wire import (
     BusyWait,
+    DurationUsage,
     Language,
     RefusalCode,
+    TranscriptCompleted,
     TranscriptDelta,
+    TranscriptLanguage,
 )
 
 if TYPE_CHECKING:
@@ -63,14 +66,25 @@ def _text(text: str = "hello") -> dict[str, object]:
 
 
 class _Browser:
-    """A browser socket that plays its messages, then waits for its peer."""
+    """A browser socket that plays its messages, then waits for its peer.
 
-    def __init__(self, messages: list[Mapping[str, object]]) -> None:
+    `ends_app` is set as the last message arrives: the app ends the hearing in
+    the very pass the browser's frame is received.
+    """
+
+    def __init__(
+        self,
+        messages: list[Mapping[str, object]],
+        ends_app: asyncio.Event | None = None,
+    ) -> None:
         self._messages = list(messages)
+        self._ends_app = ends_app
         self.closed_with: list[int] = []
 
     async def receive(self) -> Mapping[str, object]:
         if self._messages:
+            if self._ends_app is not None and len(self._messages) == 1:
+                self._ends_app.set()
             return self._messages.pop(0)
         await asyncio.Event().wait()
         raise AssertionError
@@ -80,15 +94,21 @@ class _Browser:
 
 
 class _Session:
-    """A hearing session that gives its events, then its outcome, or never ends."""
+    """A hearing session that gives its events, then its outcome, or never ends.
+
+    `ends_app` is set as the last event is yielded: the app ends the hearing in
+    the very pass the session's event arrives.
+    """
 
     def __init__(
         self,
         events: list[ServerEvent] | None = None,
         ends: HearingOutcome | None = None,
+        ends_app: asyncio.Event | None = None,
     ) -> None:
         self._events = events or []
         self._ends = ends
+        self._ends_app = ends_app
         self.outcome: HearingOutcome | None = None
         self.sent: list[bytes] = []
         self.left = False
@@ -103,7 +123,9 @@ class _Session:
         self.sent.append(pcm)
 
     async def events(self) -> AsyncIterator[ServerEvent]:
-        for event in self._events:
+        for index, event in enumerate(self._events):
+            if self._ends_app is not None and index == len(self._events) - 1:
+                self._ends_app.set()
             yield event
         if self._ends is None:
             await asyncio.Event().wait()
@@ -225,6 +247,120 @@ def test_the_apps_end_signal_ends_the_hop_and_leaves_the_session() -> None:
     assert ended == AppEnded()
     assert session.left
     assert browser.closed_with == [HopClose.NORMAL]
+
+
+def _app_ended(*, before_the_call: bool) -> asyncio.Event:
+    app_ended = asyncio.Event()
+    if before_the_call:
+        app_ended.set()
+    return app_ended
+
+
+@pytest.mark.parametrize(
+    "before_the_call",
+    [
+        pytest.param(True, id="set-before-the-call"),
+        pytest.param(False, id="set-as-the-frame-arrives"),
+    ],
+)
+@pytest.mark.parametrize(
+    "frame",
+    [
+        pytest.param(_binary(1), id="a-frame"),
+        pytest.param(_text(), id="a-text-frame"),
+        pytest.param(_binary(FRAME_LIMIT + 1), id="a-frame-over-the-limit"),
+    ],
+)
+def test_a_frame_received_after_the_apps_end_is_not_handed_to_the_session(
+    frame: Mapping[str, object], *, before_the_call: bool
+) -> None:
+    app_ended = _app_ended(before_the_call=before_the_call)
+    browser = _Browser([frame], None if before_the_call else app_ended)
+    session = _Session()
+
+    ended = asyncio.run(_hop(browser, session, app_ended=app_ended))
+
+    assert ended == AppEnded()
+    assert session.sent == []
+    assert browser.closed_with == [HopClose.NORMAL]
+
+
+def test_a_frame_received_before_the_apps_end_is_still_handed_to_the_session() -> None:
+    app_ended = asyncio.Event()
+    browser = _Browser([_binary(1), _binary(2)], app_ended)
+    session = _Session()
+
+    ended = asyncio.run(_hop(browser, session, app_ended=app_ended))
+
+    assert ended == AppEnded()
+    assert session.sent == [b"\0"]
+
+
+@pytest.mark.parametrize(
+    "before_the_call",
+    [
+        pytest.param(True, id="set-before-the-call"),
+        pytest.param(False, id="set-as-the-event-arrives"),
+    ],
+)
+@pytest.mark.parametrize(
+    "event",
+    [
+        pytest.param(TranscriptDelta(item_id="i", delta="a"), id="a-delta"),
+        pytest.param(
+            TranscriptCompleted(
+                item_id="i",
+                transcript=SECRET_WORDS,
+                usage=DurationUsage(seconds=1),
+                languages=(TranscriptLanguage(code=Language.EN),),
+            ),
+            id="a-transcript-finishing-late",
+        ),
+    ],
+)
+def test_an_event_yielded_after_the_apps_end_is_not_handed_to_the_app(
+    event: ServerEvent, *, before_the_call: bool
+) -> None:
+    app_ended = _app_ended(before_the_call=before_the_call)
+    session = _Session([event], ends_app=None if before_the_call else app_ended)
+    browser = _Browser([])
+    seen: list[ServerEvent] = []
+
+    async def take(event: ServerEvent) -> None:
+        seen.append(event)
+
+    ended = asyncio.run(_hop(browser, session, app_ended=app_ended, on_event=take))
+
+    assert ended == AppEnded()
+    assert seen == []
+    assert browser.closed_with == [HopClose.NORMAL]
+
+
+def test_an_event_yielded_before_the_apps_end_is_still_handed_to_the_app() -> None:
+    first = TranscriptDelta(item_id="i", delta="a")
+    app_ended = asyncio.Event()
+    session = _Session(
+        [first, TranscriptDelta(item_id="i", delta="b")], ends_app=app_ended
+    )
+    seen: list[ServerEvent] = []
+
+    async def take(event: ServerEvent) -> None:
+        seen.append(event)
+
+    ended = asyncio.run(_hop(_Browser([]), session, app_ended=app_ended, on_event=take))
+
+    assert ended == AppEnded()
+    assert seen == [first]
+
+
+def test_a_disconnect_in_the_pass_of_the_apps_end_is_the_browser_leaving() -> None:
+    app_ended = asyncio.Event()
+    browser = _Browser([DISCONNECT], app_ended)
+
+    ended = asyncio.run(_hop(browser, _Session(), app_ended=app_ended))
+
+    assert ended == BrowserLeft()
+    assert browser.closed_with == []
 
 
 def test_the_session_events_go_to_the_app_in_order() -> None:
