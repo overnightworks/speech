@@ -1,8 +1,0 @@
-claim_id = "8725792d23d24c8c924d052c2db4e89c"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "7b6adb6586b90058c9ebf47f7ff1ddb280eead2c"
-branch = "claude/issue-315-helper-docs-tidy"
-scope = ["README.md", "docs/ARCHITECTURE.md", "docs/wire.md", "packages/client/tests/test_relay.py", "packages/client/tests/test_utterances.py", "tests/fixtures/image/compose.proof.yaml", "tests/support", "tests/test_wire_route_client_relay.py", "tests/test_wire_route_client_utterances.py"]
-opened_commit = "dc3bfb1509aa9791f24c4994904331ab143dfe53"
-whole_reason = "Small truth fixes in three documents and tidyings in the tests of one feature, gathered from its reviews into one landing before the release."
