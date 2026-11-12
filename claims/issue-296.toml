@@ -3,6 +3,6 @@ agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
 role = "builder"
 base = "134b4dd1cb5032f34183648ac80d04767654dc37"
 branch = "claude/issue-296-speak-language"
-scope = ["README.md", "docs/wire.md", "packages/client/src/speech_client/speak.py", "packages/client/src/speech_client/wire.py", "packages/client/tests/test_speak.py", "packages/client/tests/test_wire.py", "src/speech_service/wire_route.py", "tests/support/speak_support.py", "tests/test_voices_configured.py", "tests/test_wire_route.py", "tests/test_wire_route_client_speak.py", "tests/test_wire_route_voices.py"]
+scope = ["README.md", "docs/wire.md", "packages/client/src/speech_client/speak.py", "packages/client/src/speech_client/wire.py", "packages/client/tests/test_speak.py", "packages/client/tests/test_wire.py", "scripts/image_stack.py", "src/speech_service/wire_route.py", "tests/support/speak_support.py", "tests/test_voices_configured.py", "tests/test_wire_route.py", "tests/test_wire_route_client_speak.py", "tests/test_wire_route_voices.py"]
 opened_commit = "18498fc0ab568f48dbd1271848b08e55af6cc3ab"
 whole_reason = "The request type, the client's call, the route's hand-over to the engine and the wire document state one field and change together with their tests."
