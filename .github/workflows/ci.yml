@@ -191,23 +191,11 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ms-playwright-${{ runner.os }}-${{ hashFiles('uv.lock') }}
 
-      # apt on the runner can stall on a slow mirror; each attempt is bounded so
-      # a stall costs one retry instead of the test budget.
+      # The build is the one the locked playwright downloads, so it matches the
+      # driver; no operating-system package is installed, so apt is not on this path.
       - name: Install Chromium
-        id: install-chromium
-        continue-on-error: true
         timeout-minutes: 5
-        run: uv run --locked playwright install --with-deps chromium
-
-      - name: Install Chromium again
-        if: steps.install-chromium.outcome == 'failure'
-        timeout-minutes: 3
-        run: |
-          # The timed-out attempt leaves its apt-get running and holding the dpkg lock.
-          sudo pkill -x apt-get || true
-          sudo pkill -x apt || true
-          while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done
-          uv run --locked playwright install --with-deps chromium
+        run: uv run --locked playwright install chromium
 
       - name: Run the browser flows
         timeout-minutes: 8
@@ -346,7 +334,7 @@ jobs:
       - browser-unit
       - browser-flow
     if: always()
-    uses: overnightworks/quality/.github/workflows/gate.yml@2d2b68bf3916b34f6f2c72a540c1e3d8a947b750 # v0.10.0
+    uses: overnightworks/quality/.github/workflows/gate.yml@be32abeb120d29f75ee7ea456d6e510ae001de04 # v0.12.0
     with:
       coverage-artifact: coverage
     permissions:
