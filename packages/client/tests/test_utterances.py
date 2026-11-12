@@ -562,7 +562,7 @@ def test_a_failure_of_the_apps_callback_is_raised_unchanged(
             _Bounds(),
             BrowserLeft(),
             None,
-            id="a-frame-exactly-the-hop-frame-limit-is-forwarded",
+            id="a-frame-exactly-the-hop-frame-limit-does-not-end-the-hop",
         ),
     ],
 )
