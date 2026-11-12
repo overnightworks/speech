@@ -22,10 +22,12 @@ _REVISION = "b4e358ffcb232591bf73a540e70f7de528e4174a"
 
 
 class PinnedVoice(StrEnum):
-    """The closed catalogue of Piper voices: the service's default and the proof's."""
+    """The closed catalogue of Piper voices: the default and the English ones."""
 
     THORSTEN = DEFAULT_SPEAKING_MODEL
-    LESSAC = "en_US-lessac-medium"
+    NORMAN = "en_US-norman-medium"
+    LJSPEECH = "en_US-ljspeech-medium"
+    CORI = "en_GB-cori-medium"
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,16 +61,46 @@ PINS: dict[PinnedVoice, VoicePin] = {
             "974adee790533adb273a1ac88f49027d2a1b8f0f2cf4905954a4791e79264e85",
         ),
     ),
-    PinnedVoice.LESSAC: VoicePin(
+    # Licence: "public domain" on the model card at the pinned revision
+    # (en/en_US/norman/medium/MODEL_CARD); dataset LibriVox.
+    PinnedVoice.NORMAN: VoicePin(
         _REPOSITORY,
         _REVISION,
         PinnedFile(
-            "en/en_US/lessac/medium/en_US-lessac-medium.onnx",
-            "5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f",
+            "en/en_US/norman/medium/en_US-norman-medium.onnx",
+            "b9739443232a80a59c7d18810dd856899bf16a7964725f5ab81ea49b1351cb71",
         ),
         PinnedFile(
-            "en/en_US/lessac/medium/en_US-lessac-medium.onnx.json",
-            "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0",
+            "en/en_US/norman/medium/en_US-norman-medium.onnx.json",
+            "6c2db7f558a4a8deb9fe822583c1c5105f6c4e834dd0f9de8ad17a888ee9fe1d",
+        ),
+    ),
+    # Licence: "public domain" on the model card at the pinned revision
+    # (en/en_US/ljspeech/medium/MODEL_CARD); dataset LJ Speech.
+    PinnedVoice.LJSPEECH: VoicePin(
+        _REPOSITORY,
+        _REVISION,
+        PinnedFile(
+            "en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx",
+            "6f52a751e2349abe7a76735eb09dc1875298c77ea2342ffd2fef79ff81b87f22",
+        ),
+        PinnedFile(
+            "en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx.json",
+            "141d612cc0a95ed7efc1ca936b845c2364967f2e9217c5dbfcf69fc4d6c65860",
+        ),
+    ),
+    # Licence: "public domain" on the model card at the pinned revision
+    # (en/en_GB/cori/medium/MODEL_CARD); dataset LibriVox.
+    PinnedVoice.CORI: VoicePin(
+        _REPOSITORY,
+        _REVISION,
+        PinnedFile(
+            "en/en_GB/cori/medium/en_GB-cori-medium.onnx",
+            "1899f98e5fb8310154f3c2973f4b8a929ba7245e722b3d3a85680b833d95f10d",
+        ),
+        PinnedFile(
+            "en/en_GB/cori/medium/en_GB-cori-medium.onnx.json",
+            "e262c16d7f192f69d4edd6b4ef8a5915379e67495fcc402f1ab15eeb33da3d36",
         ),
     ),
 }

@@ -102,8 +102,7 @@ from speech_client.wire import (
 )
 from speech_service.config import Settings, load_caller_config
 from speech_service.hearing_models import HearingModel
-from speech_service.piper_voices import PINS, PinnedVoice
-from speech_service.voices import DEFAULT_SPEAKING_MODEL
+from speech_service.piper_voices import PINS
 
 THIS_SCRIPT: Final = Path(__file__).resolve()
 COMPOSE_FILE: Final = REPOSITORY / "compose.yaml"
@@ -165,11 +164,12 @@ def _locked_set() -> set[str]:
 
 
 def cell_contents(plain: Compose) -> None:
-    """Cell 2: the image holds the locked set, the pinned voice and hearing model."""
+    """Cell 2: the image holds the locked set, the pinned voices and hearing model."""
     environment = service_config(plain)["environment"]
-    pin = PINS[PinnedVoice(DEFAULT_SPEAKING_MODEL)]
     voice_hashes = {
-        Path(file.path).name: file.sha256 for file in (pin.model, pin.metadata)
+        Path(file.path).name: file.sha256
+        for pin in PINS.values()
+        for file in (pin.model, pin.metadata)
     }
     script = (FIXTURES / "inspect_image.py").read_text()
     output = docker(

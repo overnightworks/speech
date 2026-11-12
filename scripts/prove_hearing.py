@@ -304,14 +304,22 @@ def german_clip(service: Service, text: str) -> bytes:
 
 def english_voice_path(directory: Path) -> Path:
     """The English Piper voice in `directory`, fetched there once if absent."""
-    return fetch_voice_files(PinnedVoice.LESSAC, directory)
+    return fetch_voice_files(PinnedVoice.LJSPEECH, directory)
 
 
 def english_clip(voice: PiperVoice, text: str) -> bytes:
-    """English speech from a Piper voice as 24 kHz PCM16."""
+    """English speech from a Piper voice as 24 kHz PCM16.
+
+    The voice's duration noise is off: with it on, a sentence pauses inside
+    for longer than a turn may, and the proof's clip would end its turn early.
+    """
+    from piper.config import SynthesisConfig
+
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as writer:
-        voice.synthesize_wav(text, writer)
+        voice.synthesize_wav(
+            text, writer, syn_config=SynthesisConfig(noise_w_scale=0.0)
+        )
     buffer.seek(0)
     with wave.open(buffer) as reader:
         return figures.to_wire_rate(
@@ -682,7 +690,7 @@ def prove(
         "runs": arguments.runs,
         "clips": (
             "synthetic: German from the service's speak route, English from the"
-            f" Piper voice {PinnedVoice.LESSAC.value}"
+            f" Piper voice {PinnedVoice.LJSPEECH.value}"
         ),
         "gpu_before": card_line(arguments.device),
         "models": models,
