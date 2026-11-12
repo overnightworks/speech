@@ -16,6 +16,7 @@ from hearing_figures import words
 from prove_speech import spoken_in_log
 from speech_client.wire import (
     REFUSAL_STATUS,
+    VOICES,
     Health,
     Language,
     Refusal,
@@ -102,6 +103,13 @@ def baked_caller(config: CallerConfig, app: str) -> BakedCaller:
 def first_gpu_voice() -> VoiceId:
     """The first voice of the catalogue that does not load at start."""
     return next(voice for voice in VoiceId if not loads_at_start(voice))
+
+
+def first_english_voice() -> VoiceId:
+    """The first Piper voice of the baked offer that speaks English."""
+    return next(
+        voice for voice in PIPER_VOICES if Language.EN in VOICES[voice].languages
+    )
 
 
 def minting_for(config: CallerConfig, baked: BakedCaller, signing: Minting) -> Minting:

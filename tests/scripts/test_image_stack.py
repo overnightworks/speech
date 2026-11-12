@@ -13,6 +13,7 @@ import pytest
 import image_stack
 from image_judgement import baked_caller
 from image_stack import REPOSITORY
+from prove_speech import SENTENCES
 from speech_client.wire import VOICES, SpeechRequest, VoiceId
 from speech_service.config import load_caller_config
 
@@ -116,3 +117,4 @@ def test_the_session_speaks_each_voice_in_a_language_the_service_accepts(
     (specification,) = compose.specifications
     spoken = SpeechRequest.model_validate_json(base64.b64decode(specification["body"]))
     assert spoken.spoken_language == VOICES[voice].languages[0]
+    assert spoken.input == SENTENCES[spoken.spoken_language]

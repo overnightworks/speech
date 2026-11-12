@@ -22,7 +22,7 @@ from image_judgement import (
     seconds_to_healthy,
 )
 from proof_identity import TokenPair, mint_pair
-from prove_speech import SENTENCE
+from prove_speech import SENTENCES
 from speech_client.wire import (
     CONTENT_TYPE_HEADER,
     MODEL,
@@ -258,14 +258,15 @@ class Session:
         return pair
 
     def speak(self, headers: Mapping[str, str], voice: VoiceId) -> Reply:
-        """Post one sentence from the caller container."""
+        """Post the proof sentence of the voice's language from the caller container."""
+        language = VOICES[voice].languages[0]
         return send(
             self.compose,
             self.caller,
             self.service_url + SPEECH_PATH,
             headers,
             speech_request_body(
-                SENTENCE, voice, ResponseFormat.WAV, VOICES[voice].languages[0]
+                SENTENCES[language], voice, ResponseFormat.WAV, language
             ),
         )
 
@@ -345,9 +346,9 @@ def service_config(compose: Compose) -> dict[str, Any]:
     return rendered["services"][SERVICE]
 
 
-def speak_marked(session: Session) -> bytes:
-    """One admitted speak; the WAV it returns, which must carry the AI mark."""
-    reply = session.speak(session.admitted_headers(), session.baked.voice)
+def speak_marked(session: Session, voice: VoiceId | None = None) -> bytes:
+    """One admitted speak of `voice` or the baked one; the WAV carries the AI mark."""
+    reply = session.speak(session.admitted_headers(), voice or session.baked.voice)
     if reply.status != HTTPStatus.OK:
         message = f"the admitted speak answered {reply.status}"
         raise SystemExit(message)
