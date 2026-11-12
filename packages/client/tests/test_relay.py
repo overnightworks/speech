@@ -40,7 +40,7 @@ from speech_client.wire import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Mapping
+    from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 
     from websockets.asyncio.server import ServerConnection
 
@@ -134,6 +134,16 @@ class _Session:
 
 async def _no_events(_: ServerEvent) -> None:
     return None
+
+
+def _collector() -> tuple[list[ServerEvent], Callable[[ServerEvent], Awaitable[None]]]:
+    """The events an app handler took, and the handler that takes them."""
+    seen: list[ServerEvent] = []
+
+    async def take(event: ServerEvent) -> None:
+        seen.append(event)
+
+    return seen, take
 
 
 async def _hop(
@@ -324,16 +334,18 @@ def test_an_event_yielded_after_the_apps_end_is_not_handed_to_the_app(
     app_ended = _app_ended(before_the_call=before_the_call)
     session = _Session([event], ends_app=None if before_the_call else app_ended)
     browser = _Browser([])
-    seen: list[ServerEvent] = []
+    seen, take = _collector()
 
-    async def take(event: ServerEvent) -> None:
-        seen.append(event)
+    async def scenario() -> tuple[RelayOutcome, set[asyncio.Task[object]]]:
+        ended = await _hop(browser, session, app_ended=app_ended, on_event=take)
+        return ended, asyncio.all_tasks() - {asyncio.current_task()}
 
-    ended = asyncio.run(_hop(browser, session, app_ended=app_ended, on_event=take))
+    ended, tasks_left = asyncio.run(scenario())
 
     assert ended == AppEnded()
     assert seen == []
     assert browser.closed_with == [HopClose.NORMAL]
+    assert not tasks_left
 
 
 def test_an_event_yielded_before_the_apps_end_is_still_handed_to_the_app() -> None:
@@ -342,11 +354,7 @@ def test_an_event_yielded_before_the_apps_end_is_still_handed_to_the_app() -> No
     session = _Session(
         [first, TranscriptDelta(item_id="i", delta="b")], ends_app=app_ended
     )
-    seen: list[ServerEvent] = []
-
-    async def take(event: ServerEvent) -> None:
-        seen.append(event)
-
+    seen, take = _collector()
     ended = asyncio.run(_hop(_Browser([]), session, app_ended=app_ended, on_event=take))
 
     assert ended == AppEnded()
@@ -368,11 +376,7 @@ def test_the_session_events_go_to_the_app_in_order() -> None:
         TranscriptDelta(item_id="i", delta="a"),
         TranscriptDelta(item_id="i", delta="b"),
     ]
-    seen: list[ServerEvent] = []
-
-    async def take(event: ServerEvent) -> None:
-        seen.append(event)
-
+    seen, take = _collector()
     asyncio.run(_hop(_Browser([]), _Session(events, ends=Closed()), on_event=take))
 
     assert seen == events

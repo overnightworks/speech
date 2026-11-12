@@ -10,7 +10,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-import pytest
 from fastapi import FastAPI, WebSocket
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed
@@ -34,10 +33,12 @@ from speech_client.wire import (
 from tests.support.hear_support import HEARD_TEXT, FakeHearing, hear_runtime
 from tests.support.identity_support import valid_pair
 from tests.support.live_support import INPUT_RATE, SPEECH_LEVEL
-from tests.support.tcp_server_support import serving_asgi, serving_over_tcp
+from tests.support.tcp_server_support import close_code, serving_asgi, serving_over_tcp
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+    import pytest
 
     from speech_client.wire import ServerEvent
 
@@ -132,14 +133,6 @@ async def _received(browser: ClientConnection) -> list[str | bytes]:
     return received
 
 
-async def _close_code(browser: ClientConnection) -> int:
-    receiving = asyncio.wait_for(browser.recv(), WAIT_SECONDS)
-    with pytest.raises(ConnectionClosed) as closed:
-        await receiving
-    assert closed.value.rcvd is not None
-    return closed.value.rcvd.code
-
-
 async def _a_new_session_opens(service_url: str) -> bool:
     """Whether the service takes a session now: its one place is free."""
     async with _session(service_url, _tokens()) as session:
@@ -195,7 +188,7 @@ def test_the_apps_end_signal_ends_the_session_and_the_hop_within_its_bound() -> 
                 await asyncio.wait_for(hop.first_event.wait(), WAIT_SECONDS)
                 hop.app_ended.set()
                 outcome = await asyncio.wait_for(hop.outcome, END_BOUND_SECONDS)
-                code = await asyncio.wait_for(_close_code(browser), END_BOUND_SECONDS)
+                code = await asyncio.wait_for(close_code(browser), END_BOUND_SECONDS)
             return outcome, code, await _a_new_session_opens(service_url)
 
     outcome, code, freed = asyncio.run(scenario())
@@ -209,7 +202,7 @@ def test_a_text_frame_ends_the_hop_with_its_close_code() -> None:
     async def scenario() -> tuple[RelayOutcome, int]:
         async with _browser_at_service() as (hop, url, _), connect(url) as browser:
             await browser.send("not audio")
-            return await asyncio.wait_for(hop.outcome, WAIT_SECONDS), await _close_code(
+            return await asyncio.wait_for(hop.outcome, WAIT_SECONDS), await close_code(
                 browser
             )
 
@@ -223,7 +216,7 @@ def test_an_oversized_frame_ends_the_hop_with_its_close_code() -> None:
     async def scenario() -> tuple[RelayOutcome, int]:
         async with _browser_at_service() as (hop, url, _), connect(url) as browser:
             await browser.send(b"\0" * (FRAME_LIMIT_BYTES + 1))
-            return await asyncio.wait_for(hop.outcome, WAIT_SECONDS), await _close_code(
+            return await asyncio.wait_for(hop.outcome, WAIT_SECONDS), await close_code(
                 browser
             )
 
@@ -243,7 +236,7 @@ def test_a_busy_service_reaches_the_app_as_busy_and_the_browser_as_its_code() ->
             async with connect(url) as browser:
                 return (
                     await asyncio.wait_for(hop.outcome, WAIT_SECONDS),
-                    await _close_code(browser),
+                    await close_code(browser),
                 )
 
     outcome, code = asyncio.run(scenario())

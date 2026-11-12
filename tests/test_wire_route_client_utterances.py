@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 import pytest
 from fastapi import FastAPI, WebSocket
 from websockets.asyncio.client import connect
-from websockets.exceptions import ConnectionClosed
 
 from speech_client.hearing import HearingSession
 from speech_client.relay import HOP_FRAME_BYTES, AppEnded, HopClose
@@ -20,7 +19,7 @@ from speech_client.wire import Language, SessionCreated
 from tests.support.hear_support import FakeHearing, hear_runtime
 from tests.support.identity_support import valid_pair
 from tests.support.live_support import INPUT_RATE, SPEECH_LEVEL
-from tests.support.tcp_server_support import serving_asgi, serving_over_tcp
+from tests.support.tcp_server_support import close_code, serving_asgi, serving_over_tcp
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -83,19 +82,6 @@ async def _speak_then_fall_silent(browser: ClientConnection) -> None:
         await browser.send(audio[start : start + HOP_FRAME_BYTES])
 
 
-async def _close_code(browser: ClientConnection) -> int:
-    """The code the app closed the browser with; any message first fails the test."""
-    try:
-        await asyncio.wait_for(browser.recv(), WAIT_SECONDS)
-    except ConnectionClosed as closed:
-        close_frame = closed.rcvd
-    else:
-        message = "the app sent a message instead of closing the browser"
-        raise AssertionError(message)
-    assert close_frame is not None
-    return close_frame.code
-
-
 async def _service_takes_a_session(service_url: str) -> bool:
     """Whether the service's one place is free: a new session is opened."""
     pair = valid_pair()
@@ -144,7 +130,7 @@ def test_a_spoken_utterance_reaches_the_app_with_its_language_and_positions(
             await asyncio.wait_for(hop.heard.wait(), WAIT_SECONDS)
             hop.ended.set()
             outcome = await asyncio.wait_for(hop.outcome, END_BOUND_SECONDS)
-            return hop.utterances, outcome, await _close_code(browser)
+            return hop.utterances, outcome, await close_code(browser)
 
     utterances, outcome, code = asyncio.run(scenario())
 
@@ -164,7 +150,7 @@ def test_the_apps_end_signal_ends_the_hearing_and_frees_the_service() -> None:
                 await browser.send(bytes(HOP_FRAME_BYTES))
                 hop.ended.set()
                 outcome = await asyncio.wait_for(hop.outcome, END_BOUND_SECONDS)
-                code = await asyncio.wait_for(_close_code(browser), END_BOUND_SECONDS)
+                code = await asyncio.wait_for(close_code(browser), END_BOUND_SECONDS)
             freed = await _service_takes_a_session(service_url)
             return hop.utterances, outcome, code, freed
 
