@@ -274,7 +274,9 @@ def speak_measured(
         connection.request(
             "POST",
             SPEECH_PATH,
-            speech_request_body(text, voice, ResponseFormat.WAV),
+            speech_request_body(
+                text, voice, ResponseFormat.WAV, VOICES[voice].languages[0]
+            ),
             speech_request_headers(
                 workload_token=pair.workload, person_token=pair.person
             ),
