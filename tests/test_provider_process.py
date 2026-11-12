@@ -424,7 +424,7 @@ def test_qwen_cancel_beyond_drain_reaps_then_runtime_loads_a_fresh_worker(
         return engine
 
     runtime = Runtime(
-        None,
+        {VoiceId.PIPER: None},
         dependencies=RuntimeDependencies(
             engine_factory=factory,
             missing_artifacts=lambda _voice: (),
@@ -516,7 +516,7 @@ def test_shutdown_during_handshake_closes_pending_without_publication(
 ) -> None:
     root, cache = closed_provider(tmp_path, "held-ready")
     runtime = Runtime(
-        None,
+        {VoiceId.PIPER: None},
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: _provider_process(root, cache),
             missing_artifacts=lambda _voice: (),
@@ -545,7 +545,7 @@ def test_missing_entrypoint_failed_exec_leaves_no_retained_engine(
 ) -> None:
     fatal = threading.Event()
     runtime = Runtime(
-        None,
+        {VoiceId.PIPER: None},
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: ProviderProcess(
                 ProviderLaunch(

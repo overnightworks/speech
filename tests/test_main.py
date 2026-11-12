@@ -116,7 +116,7 @@ def test_failed_loader_stops_the_server_and_closes_the_listener(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runtime = Runtime(
-        None,
+        {VoiceId.PIPER: None},
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: FakeSpeaking(fail=True),
             missing_artifacts=lambda _voice: (),
@@ -200,7 +200,7 @@ while True:
         )
     )
     runtime = Runtime(
-        None,
+        {VoiceId.PIPER: None},
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: engine,
             missing_artifacts=lambda _voice: (),
@@ -253,7 +253,7 @@ def test_owned_speaking_failure_stops_the_server_and_returns_failure(
 
     speaking = FatalSpeaking()
     runtime = Runtime(
-        speaking,
+        {VoiceId.PIPER: speaking},
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: speaking,
             missing_artifacts=lambda _voice: (),
@@ -302,7 +302,7 @@ def test_orchestrator_serves_health_from_its_loading_runtime(
     card_memory_mb = 42
 
     runtime = Runtime(
-        None,
+        {VoiceId.PIPER: None},
         memory_probe=lambda: card_memory_mb,
         dependencies=RuntimeDependencies(
             engine_factory=lambda _voice: _BlockedSpeaking(started, release),
@@ -366,7 +366,7 @@ def test_signal_handler_stops_the_async_orchestrator(
 def test_signal_exit_is_zero_and_closes_the_listener(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    runtime = Runtime(FakeSpeaking())
+    runtime = Runtime({VoiceId.PIPER: FakeSpeaking()})
 
     class Server:
         def __init__(self) -> None:
@@ -404,7 +404,7 @@ def test_signal_exit_is_zero_and_closes_the_listener(
 def test_server_ending_on_its_own_returns_failure_and_closes_the_listener(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    runtime = Runtime(FakeSpeaking())
+    runtime = Runtime({VoiceId.PIPER: FakeSpeaking()})
 
     class Server:
         should_exit = False

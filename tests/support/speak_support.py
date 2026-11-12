@@ -63,7 +63,9 @@ def speak_app(
     callers: SpeechCallers | None = None,
 ) -> FastAPI:
     """The private app over a fake runtime; its callers accept `valid_headers()`."""
-    runtime = Runtime(speaking or FakeSpeaking(), memory_probe=lambda: 0)
+    runtime = Runtime(
+        {VoiceId.PIPER: speaking or FakeSpeaking()}, memory_probe=lambda: 0
+    )
     return create_control_app(
         settings or Settings(), runtime, callers or valid_callers()
     )
@@ -243,12 +245,11 @@ def fake_runtime(
     """
     engine = speaking or FakeSpeaking()
     if voice is RESIDENT_VOICE:
-        return Runtime(engine, memory_probe=lambda: 0)
+        return Runtime({RESIDENT_VOICE: engine}, memory_probe=lambda: 0)
     return Runtime(
-        FakeSpeaking(),
+        {RESIDENT_VOICE: FakeSpeaking(), voice: None},
         memory_probe=lambda: 0,
         dependencies=RuntimeDependencies(
-            gpu_voices=frozenset({voice}),
             engine_factory=lambda _voice: engine,
             missing_artifacts=lambda _voice: (),
         ),
