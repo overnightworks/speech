@@ -109,7 +109,7 @@ class VoiceId(StrEnum):
 class CatalogueVoice:
     """What the wire says of a voice: its engine, its name, the languages it speaks.
 
-    The first language is the one a request without a language gets.
+    A voice of one language speaks it when a request names none.
     """
 
     model: SpeakingModel

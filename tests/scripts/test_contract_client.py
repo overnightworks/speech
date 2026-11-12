@@ -258,7 +258,7 @@ def test_each_speaking_script_sends_the_workload_token_and_the_persons_bearer(
             id="contract client",
         ),
         pytest.param(
-            lambda url, voice, minting: HEARING._speaks(url, minting, voice),  # noqa: SLF001
+            lambda url, voice, minting: HEARING._speaks(url, minting, voice),  # noqa: SLF001 - the probe's speaking step is the unit under test
             id="hearing probe",
         ),
     ],

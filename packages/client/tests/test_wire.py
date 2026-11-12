@@ -737,28 +737,8 @@ def test_a_request_naming_a_voice_outside_the_catalogue_is_refused_on_voice(
     assert [error["loc"] for error in refused.value.errors()] == [("voice",)]
 
 
-def _body(voice: VoiceId, /, **changes: object) -> str:
-    named = {
-        "model": VOICES[voice].model,
-        "input": "Hallo",
-        "voice": voice,
-        "response_format": "wav",
-    }
-    return json.dumps(named | changes)
-
-
-def _refused_fields(body: str) -> list[object]:
-    with pytest.raises(ValidationError) as refused:
-        SpeechRequest.model_validate_json(body)
-    return [error["loc"] for error in refused.value.errors()]
-
-
-_SEVERAL_LANGUAGES = [v for v in VoiceId if len(VOICES[v].languages) > 1]
 _ONE_LANGUAGE = [v for v in VoiceId if len(VOICES[v].languages) == 1]
 _VOICE_AND_ITS_LANGUAGE = [(v, lang) for v in VoiceId for lang in VOICES[v].languages]
-_VOICE_AND_OTHER_LANGUAGE = [
-    (v, lang) for v in VoiceId for lang in Language if lang not in VOICES[v].languages
-]
 
 
 @pytest.mark.parametrize(("voice", "language"), _VOICE_AND_ITS_LANGUAGE)
@@ -780,15 +760,3 @@ def test_a_voice_of_one_language_speaks_it_without_a_language_in_the_body(
     assert "language" not in json.loads(body)
     request = SpeechRequest.model_validate_json(body)
     assert request.spoken_language is VOICES[voice].languages[0]
-
-
-@pytest.mark.parametrize(("voice", "language"), _VOICE_AND_OTHER_LANGUAGE)
-def test_a_language_the_voice_lacks_is_refused_on_language(
-    voice: VoiceId, language: Language
-) -> None:
-    assert _refused_fields(_body(voice, language=language)) == [("language",)]
-
-
-@pytest.mark.parametrize("voice", _SEVERAL_LANGUAGES)
-def test_a_voice_of_several_languages_needs_a_language(voice: VoiceId) -> None:
-    assert _refused_fields(_body(voice)) == [("language",)]

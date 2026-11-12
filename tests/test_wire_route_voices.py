@@ -102,25 +102,41 @@ def test_a_voice_of_one_language_speaks_it_when_no_language_is_named(
     assert engine.heard_language == VOICES[voice].languages[0]
 
 
-def _changed(**changes: object) -> bytes:
-    return json.dumps(json.loads(speak_body()) | changes).encode()
+def _body_naming(voice: VoiceId, /, **changes: object) -> bytes:
+    return json.dumps(json.loads(speak_body(voice)) | changes).encode()
 
 
 @pytest.mark.parametrize(
     ("body", "param"),
     [
-        pytest.param(_changed(model="speech"), "model", id="model-of-hearing"),
-        pytest.param(_changed(model="speech", voice="alloy"), "model", id="both-wrong"),
         pytest.param(
-            _changed(voice=SpeakingModel.PIPER), "voice", id="voice-is-a-model"
+            _body_naming(VoiceId.THORSTEN, model="speech"),
+            "model",
+            id="model-of-hearing",
         ),
         pytest.param(
-            _changed(voice=SpeakingModel.QWEN), "voice", id="voice-is-another-model"
+            _body_naming(VoiceId.THORSTEN, model="speech", voice="alloy"),
+            "model",
+            id="both-wrong",
         ),
-        pytest.param(_changed(voice={"id": "alloy"}), "voice", id="voice-object"),
+        pytest.param(
+            _body_naming(VoiceId.THORSTEN, voice=SpeakingModel.PIPER),
+            "voice",
+            id="voice-is-a-model",
+        ),
+        pytest.param(
+            _body_naming(VoiceId.THORSTEN, voice=SpeakingModel.QWEN),
+            "voice",
+            id="voice-is-another-model",
+        ),
+        pytest.param(
+            _body_naming(VoiceId.THORSTEN, voice={"id": "alloy"}),
+            "voice",
+            id="voice-object",
+        ),
         *(
             pytest.param(
-                _changed(model=model, voice=voice),
+                _body_naming(VoiceId.THORSTEN, model=model, voice=voice),
                 "voice",
                 id=f"{voice.name.lower()}-under-{model.name.lower()}",
             )
@@ -167,10 +183,6 @@ def _offering_every_voice(voice: VoiceId, engine: FakeSpeaking) -> Runtime:
         },
         memory_probe=lambda: 0,
     )
-
-
-def _body_naming(voice: VoiceId, /, **changes: object) -> bytes:
-    return json.dumps(json.loads(speak_body(voice)) | changes).encode()
 
 
 def _without_language(voice: VoiceId) -> bytes:
@@ -229,7 +241,11 @@ def test_a_voice_of_several_languages_without_a_language_is_refused(
 def test_a_language_outside_the_wire_is_refused_naming_language(
     voice: VoiceId, language: object
 ) -> None:
-    """WIRE-138: a language that is neither de nor en is invalid_request."""
+    """WIRE-138, WIRE-139: a language outside the wire is invalid_request.
+
+    The app offers only Thorsten, so every other voice would be unavailable: the
+    refusal of the language comes first.
+    """
     response = post_speech(
         TestClient(speak_app()), _body_naming(voice, language=language)
     )
@@ -237,34 +253,45 @@ def test_a_language_outside_the_wire_is_refused_naming_language(
     _assert_language_refused(response)
 
 
-@pytest.mark.parametrize("voice", list(VoiceId))
-def test_a_wrong_language_is_refused_before_the_voice_is_found_unavailable(
-    voice: VoiceId,
-) -> None:
-    """WIRE-139: every 422 comes before any 503."""
-    response = post_speech(TestClient(speak_app()), _body_naming(voice, language="fr"))
-
-    _assert_language_refused(response)
-
-
 @pytest.mark.parametrize(
-    ("changes", "param"),
+    ("voice", "language", "changes", "param"),
     [
-        pytest.param({"model": "speech"}, "model", id="refused-model"),
-        pytest.param({"voice": "alloy"}, "voice", id="refused-voice"),
         pytest.param(
-            {"model": SpeakingModel.QWEN}, "voice", id="voice-of-another-model"
+            VoiceId.THORSTEN, "fr", {"model": "speech"}, "model", id="thorsten-model"
+        ),
+        pytest.param(
+            VoiceId.THORSTEN, "fr", {"voice": "alloy"}, "voice", id="thorsten-voice"
+        ),
+        pytest.param(
+            VoiceId.THORSTEN,
+            "fr",
+            {"model": SpeakingModel.QWEN},
+            "voice",
+            id="thorsten-voice-of-another-model",
+        ),
+        pytest.param(VoiceId.RYAN, None, {"model": "speech"}, "model", id="ryan-model"),
+        pytest.param(VoiceId.RYAN, None, {"voice": "alloy"}, "voice", id="ryan-voice"),
+        pytest.param(
+            VoiceId.RYAN,
+            Language.DE,
+            {"model": SpeakingModel.PIPER},
+            "voice",
+            id="ryan-voice-of-another-model",
         ),
     ],
 )
 def test_a_wrong_model_or_voice_is_named_before_a_wrong_language(
-    changes: dict[str, object], param: str
+    voice: VoiceId,
+    language: str | None,
+    changes: dict[str, object],
+    param: str,
 ) -> None:
     """WIRE-139: the language check follows the model and voice checks."""
-    response = post_speech(
-        TestClient(speak_app()),
-        _body_naming(VoiceId.THORSTEN, language="fr", **changes),
-    )
+    body = json.loads(_without_language(voice)) | changes
+    if language is not None:
+        body["language"] = language
+
+    response = post_speech(TestClient(speak_app()), json.dumps(body).encode())
 
     assert_refusal(
         response, HTTP_422_UNPROCESSABLE_CONTENT, RefusalCode.INVALID_REQUEST, param
