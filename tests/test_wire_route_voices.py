@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +13,13 @@ from starlette.status import (
     HTTP_422_UNPROCESSABLE_CONTENT,
 )
 
-from speech_client.wire import VOICES, RefusalCode, SpeakingModel, VoiceId
+from speech_client.wire import (
+    VOICES,
+    Language,
+    RefusalCode,
+    SpeakingModel,
+    VoiceId,
+)
 from speech_service.service import Runtime
 from speech_service.voices import PIPER_VOICES
 from tests.support.fakes_support import FakeSpeaking
@@ -26,6 +33,13 @@ from tests.support.speak_support import (
     speak_app,
     speak_body,
 )
+
+if TYPE_CHECKING:
+    from httpx2 import Response as ClientResponse
+
+
+_VOICES_OF_ONE_LANGUAGE = [v for v in VoiceId if len(VOICES[v].languages) == 1]
+_VOICES_OF_SEVERAL_LANGUAGES = [v for v in VoiceId if len(VOICES[v].languages) > 1]
 
 
 def test_missing_tokens_are_unauthorized_before_the_voice_is_checked() -> None:
@@ -53,28 +67,39 @@ def test_a_voice_outside_the_catalogue_is_invalid(voice: str) -> None:
 
 @pytest.mark.parametrize(
     ("voice", "language"),
-    [
-        (VoiceId.THORSTEN, "de"),
-        (VoiceId.NORMAN, "en"),
-        (VoiceId.LJSPEECH, "en"),
-        (VoiceId.CORI, "en"),
-        (VoiceId.RYAN, "de"),
-    ],
+    [(voice, language) for voice in VoiceId for language in VOICES[voice].languages],
 )
-def test_each_voice_is_spoken_by_its_own_engine_in_its_first_language(
-    voice: VoiceId, language: str
+def test_each_voice_is_spoken_by_its_own_engine_in_the_language_asked_for(
+    voice: VoiceId, language: Language
 ) -> None:
-    """WIRE-07, WIRE-11: each voice is spoken by its own engine."""
+    """WIRE-07, WIRE-11: each voice is spoken by its engine in the named language."""
     engines = {offered: FakeSpeaking() for offered in VoiceId}
     app = app_over(Runtime(dict(engines), memory_probe=lambda: 0))
 
-    response = post_speech(TestClient(app), speak_body(voice, "Guten Morgen"))
+    response = post_speech(
+        TestClient(app), speak_body(voice, "Guten Morgen", language=language)
+    )
 
     assert response.status_code == HTTP_200_OK
     assert {offered: engine.heard_text for offered, engine in engines.items()} == {
         offered: "Guten Morgen" if offered is voice else "" for offered in engines
     }
     assert engines[voice].heard_language == language
+
+
+@pytest.mark.parametrize("voice", _VOICES_OF_ONE_LANGUAGE)
+def test_a_voice_of_one_language_speaks_it_when_no_language_is_named(
+    voice: VoiceId,
+) -> None:
+    """WIRE-11: a voice of one language speaks it without a language."""
+    engine = FakeSpeaking()
+    app = app_over(_offering_every_voice(voice, engine))
+
+    response = post_speech(TestClient(app), speak_body(voice))
+
+    assert "language" not in json.loads(speak_body(voice))
+    assert response.status_code == HTTP_200_OK
+    assert engine.heard_language == VOICES[voice].languages[0]
 
 
 def _changed(**changes: object) -> bytes:
@@ -132,3 +157,115 @@ def test_a_piper_voice_is_unavailable_while_the_start_load_runs(
     runtime.begin_loading()
 
     assert_unavailable(post_speech(TestClient(app_over(runtime)), speak_body(voice)))
+
+
+def _offering_every_voice(voice: VoiceId, engine: FakeSpeaking) -> Runtime:
+    return Runtime(
+        {
+            offered: engine if offered is voice else FakeSpeaking()
+            for offered in VoiceId
+        },
+        memory_probe=lambda: 0,
+    )
+
+
+def _body_naming(voice: VoiceId, /, **changes: object) -> bytes:
+    return json.dumps(json.loads(speak_body(voice)) | changes).encode()
+
+
+def _without_language(voice: VoiceId) -> bytes:
+    body = json.loads(speak_body(voice))
+    body.pop("language", None)
+    return json.dumps(body).encode()
+
+
+def _assert_language_refused(response: ClientResponse) -> None:
+    assert_refusal(
+        response,
+        HTTP_422_UNPROCESSABLE_CONTENT,
+        RefusalCode.INVALID_REQUEST,
+        "language",
+    )
+
+
+@pytest.mark.parametrize(
+    ("voice", "language"),
+    [
+        (voice, language)
+        for voice in VoiceId
+        for language in Language
+        if language not in VOICES[voice].languages
+    ],
+)
+def test_a_language_the_voice_lacks_is_refused_naming_language(
+    voice: VoiceId, language: Language
+) -> None:
+    """WIRE-11: a language the voice does not speak is invalid_request on `language`."""
+    engine = FakeSpeaking()
+    app = app_over(_offering_every_voice(voice, engine))
+
+    response = post_speech(TestClient(app), _body_naming(voice, language=language))
+
+    _assert_language_refused(response)
+    assert engine.heard_text == ""
+
+
+@pytest.mark.parametrize("voice", _VOICES_OF_SEVERAL_LANGUAGES)
+def test_a_voice_of_several_languages_without_a_language_is_refused(
+    voice: VoiceId,
+) -> None:
+    """WIRE-11: a voice of several languages needs the language named."""
+    engine = FakeSpeaking()
+    app = app_over(_offering_every_voice(voice, engine))
+
+    response = post_speech(TestClient(app), _without_language(voice))
+
+    _assert_language_refused(response)
+    assert engine.heard_text == ""
+
+
+@pytest.mark.parametrize("language", ["fr", "", "DE", "de-DE", 1, ["de"]])
+@pytest.mark.parametrize("voice", list(VoiceId))
+def test_a_language_outside_the_wire_is_refused_naming_language(
+    voice: VoiceId, language: object
+) -> None:
+    """WIRE-11: a language that is neither de nor en is invalid_request."""
+    response = post_speech(
+        TestClient(speak_app()), _body_naming(voice, language=language)
+    )
+
+    _assert_language_refused(response)
+
+
+@pytest.mark.parametrize("voice", list(VoiceId))
+def test_a_wrong_language_is_refused_before_the_voice_is_found_unavailable(
+    voice: VoiceId,
+) -> None:
+    """WIRE-11, WIRE-19: every 422 comes before any 503."""
+    response = post_speech(TestClient(speak_app()), _body_naming(voice, language="fr"))
+
+    _assert_language_refused(response)
+
+
+@pytest.mark.parametrize(
+    ("changes", "param"),
+    [
+        pytest.param({"model": "speech"}, "model", id="refused-model"),
+        pytest.param({"voice": "alloy"}, "voice", id="refused-voice"),
+        pytest.param(
+            {"model": SpeakingModel.QWEN}, "voice", id="voice-of-another-model"
+        ),
+    ],
+)
+def test_a_wrong_model_or_voice_is_named_before_a_wrong_language(
+    changes: dict[str, object], param: str
+) -> None:
+    """WIRE-11: the language check follows the model and voice checks."""
+    response = post_speech(
+        TestClient(speak_app()),
+        _body_naming(VoiceId.THORSTEN, language="fr", **changes),
+    )
+
+    assert_refusal(
+        response, HTTP_422_UNPROCESSABLE_CONTENT, RefusalCode.INVALID_REQUEST, param
+    )

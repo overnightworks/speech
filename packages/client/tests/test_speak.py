@@ -8,6 +8,7 @@ import time
 from typing import TYPE_CHECKING
 
 import pytest
+from pydantic import ValidationError
 
 from speech_client import speak as speak_module
 from speech_client.speak import (
@@ -22,6 +23,8 @@ from speech_client.speak import (
 from speech_client.wire import (
     RETRY_AFTER_HEADER,
     SPEECH_PATH,
+    VOICES,
+    Language,
     RefusalCode,
     ResponseFormat,
     VoiceId,
@@ -46,10 +49,11 @@ CAP_BYTES = 1024 * 1024
 DRIP_SECONDS = 0.02
 
 
-def _speak(
+def _speak(  # noqa: PLR0913 - one keyword per call-site option
     base_url: str,
     *,
     voice: VoiceId = VOICE,
+    language: Language | None = None,
     response_format: ResponseFormat = ResponseFormat.WAV,
     deadline_seconds: float = GENEROUS_DEADLINE_SECONDS,
     cap_bytes: int = CAP_BYTES,
@@ -58,6 +62,7 @@ def _speak(
         base_url,
         "Hallo",
         voice,
+        language=language,
         response_format=response_format,
         workload_token=WORKLOAD_TOKEN,
         person_token=PERSON_TOKEN,
@@ -381,6 +386,43 @@ def test_the_request_orders_the_format_it_was_given(
     assert request.partition(b"\r\n\r\n")[2] == speech_request_body(
         "Hallo", VOICE, ordered
     )
+
+
+_VOICE_AND_ITS_LANGUAGE = [(v, lang) for v in VoiceId for lang in VOICES[v].languages]
+_VOICES_OF_SEVERAL_LANGUAGES = [v for v in VoiceId if len(VOICES[v].languages) > 1]
+
+
+@pytest.mark.parametrize(("voice", "language"), _VOICE_AND_ITS_LANGUAGE)
+def test_the_request_names_the_language_it_was_given(
+    voice: VoiceId, language: Language, raw_listener: RawListener
+) -> None:
+    with raw_listener(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b"")) as (
+        base_url,
+        requests,
+    ):
+        _speak(base_url, voice=voice, language=language)
+
+    (request,) = requests
+    assert request.partition(b"\r\n\r\n")[2] == speech_request_body(
+        "Hallo", voice, ResponseFormat.WAV, language
+    )
+
+
+@pytest.mark.parametrize("voice", _VOICES_OF_SEVERAL_LANGUAGES)
+def test_a_voice_of_several_languages_without_a_language_fails_before_the_network(
+    voice: VoiceId, raw_listener: RawListener
+) -> None:
+    with (
+        raw_listener(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b"")) as (
+            base_url,
+            requests,
+        ),
+        pytest.raises(ValidationError) as refused,
+    ):
+        _speak(base_url, voice=voice)
+
+    assert [error["loc"] for error in refused.value.errors()] == [("language",)]
+    assert requests == []
 
 
 def test_the_request_is_the_wires_body_and_headers(raw_listener: RawListener) -> None:

@@ -203,7 +203,7 @@ _REFUSED_BODIES = [
     pytest.param(
         _changed(response_format="OPUS"), "response_format", id="format-opus-uppercase"
     ),
-    pytest.param(_changed(language="de"), None, id="language-is-unknown"),
+    pytest.param(_changed(language="fr"), "language", id="language-fr"),
     pytest.param(_changed(speed=1.0), None, id="speed-is-unknown"),
 ]
 

@@ -128,8 +128,12 @@ VOICES: Final[Mapping[VoiceId, CatalogueVoice]] = {
 }
 
 
+def _absent(value: object) -> bool:
+    return value is None
+
+
 class SpeechRequest(BaseModel):
-    """The body of `POST /v1/audio/speech`: a strict subset of OpenAI's."""
+    """The body of `POST /v1/audio/speech`: OpenAI's fields and `language`."""
 
     model_config = ConfigDict(
         extra="forbid", frozen=True, hide_input_in_errors=True, strict=True
@@ -139,6 +143,7 @@ class SpeechRequest(BaseModel):
     input: str
     voice: VoiceId
     response_format: ResponseFormat
+    language: Language | None = Field(None, exclude_if=_absent, validate_default=True)
 
     @field_validator("input")
     @classmethod
@@ -158,10 +163,28 @@ class SpeechRequest(BaseModel):
             raise ValueError(message)
         return voice
 
+    @field_validator("language")
+    @classmethod
+    def _language_belongs_to_the_voice(
+        cls, language: Language | None, info: ValidationInfo
+    ) -> Language | None:
+        voice = info.data.get("voice")
+        if voice is None:
+            return language
+        languages = VOICES[voice].languages
+        if language is None:
+            if len(languages) > 1:
+                message = "language must be named for a voice of several languages"
+                raise ValueError(message)
+        elif language not in languages:
+            message = "language must be a language of voice"
+            raise ValueError(message)
+        return language
+
     @property
     def spoken_language(self) -> Language:
-        """The language the voice speaks: the first of its catalogue entry."""
-        return VOICES[self.voice].languages[0]
+        """The language named, else the one language of the voice."""
+        return self.language or VOICES[self.voice].languages[0]
 
 
 class TranscriptionRequest(BaseModel):
@@ -223,14 +246,21 @@ class Health(BaseModel):
 
 
 def speech_request_body(
-    text: str, voice: VoiceId, response_format: ResponseFormat
+    text: str,
+    voice: VoiceId,
+    response_format: ResponseFormat,
+    language: Language | None = None,
 ) -> bytes:
-    """The JSON a caller posts to speak `text` with `voice` in `response_format`."""
+    """The JSON a caller posts to speak `text` with `voice` in `response_format`.
+
+    `language` is named for a voice of several languages and may be named for any.
+    """
     request = SpeechRequest(
         model=VOICES[voice].model,
         input=text,
         voice=voice,
         response_format=response_format,
+        language=language,
     )
     return request.model_dump_json().encode()
 
@@ -378,10 +408,6 @@ class PcmFormat(_SessionPart):
 
     type: Literal["audio/pcm"]
     rate: Literal[24000]
-
-
-def _absent(value: object) -> bool:
-    return value is None
 
 
 def _distinct(codes: tuple[Language, ...]) -> tuple[Language, ...]:
