@@ -486,7 +486,7 @@ def _require_speaking(health: Health, voice: VoiceId) -> None:
 
 
 def _prove_speak(base_url: str, voice: VoiceId, minting: Minting) -> bytes:
-    """Speak German MEASURE_REPETITIONS times.
+    """Speak German figures.MEASURE_REPETITIONS times.
 
     `prove_one_speak` fails the run the moment any single repetition misses
     the first-byte limit; a passing run is the proof that every
