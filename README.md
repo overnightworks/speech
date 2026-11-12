@@ -148,7 +148,7 @@ free and cleans up what it started:
 
 | Command | What it proves |
 | --- | --- |
-| `uv run python scripts/prove_speech.py` | Health and speaking, with every repetition inside its first-byte limit |
+| `uv run python scripts/prove_speech.py` | Health and speaking: every offered Piper voice in its language, each repetition inside its first-byte limit; two voices at once; with a hearing model named, a recording heard while they speak |
 | `uv run python scripts/prove_hearing.py --device cpu --hearing-model small --record record.json --english-voice-directory ~/.cache/piper-en` | Hearing, live and from a file, with timings, word errors and, on `cuda`, the card's memory |
 | `uv run python scripts/prove_image.py` | The built image under the real `compose.yaml`, on isolated networks (CI job `Speech: image`) |
 

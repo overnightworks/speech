@@ -5,7 +5,7 @@ what it trusts.
 
 ## Purpose
 
-One process keeps the Piper voices, and optionally a hearing model,
+One process keeps each offered Piper voice, and optionally a hearing model,
 resident on the home server, loads each GPU voice the operator offers on its
 first request, and serves them to Presentator and to apps that speak or have a
 recording heard for a person. [`README.md`](../README.md) starts it,
@@ -197,8 +197,10 @@ The root is read-only, the user is not root and no capability is kept.
 - **The service never downloads.** Shipped commands fetch voices and hearing
   models at a pinned revision, so the dated tag fixes what runs and the
   container needs no egress.
-- **Piper is resident and on the CPU.** A taken card never silences speaking,
-  and a failed Piper load ends the process.
+- **Piper is resident and on the CPU.** Each offered Piper voice loads at start
+  and stays resident. A taken card never silences speaking, and a failed Piper
+  load ends the process. With hearing on `cpu`, as the image runs it, speaking
+  and hearing share the CPU.
 
 ## Not chosen
 
@@ -211,8 +213,8 @@ The root is read-only, the user is not root and no capability is kept.
   one-second first-audio target.
 - **Chatterbox, Magpie and VoxCPM:** each GPU voice costs its own environment,
   weights and card proof; reopens when the operator names a voice he wants.
-- **Piper `thorsten-high`:** first audio took 1.21 s through the service, over
-  the one-second target; reopens if the target moves.
+- **Piper `thorsten-high`:** its first audio through the service was over the
+  one-second target when measured; reopens if the target moves.
 - **Streaming Qwen:** `qwen-tts` 0.1.1 returns a complete waveform; reopens with
   a release that streams.
 - **Freeing a GPU voice or arbitrating the card in the service:** the operator
@@ -232,6 +234,14 @@ The root is read-only, the user is not root and no capability is kept.
   card is unmeasured.
 - Qwen's first audio can take longer than `SPEECH_BUSY_WAIT_SECONDS`, so a
   second request for it may answer `busy` while one long sentence runs.
+- Speaking and hearing share the CPU when hearing runs on `cpu`, as the image
+  does. `scripts/prove_speech.py` measured this on a shared development machine,
+  on the CPU with the `small` hearing model and the four Piper voices, in two
+  runs. Speaking times are medians of five repetitions. A single Piper voice's
+  first audio took 0.21 to 0.24 s; two voices speaking at once took 0.33 to
+  0.45 s each to first audio; a recording heard alone took about 1.5 s, and 4.1
+  to 5.4 s while two voices speak without pause; the service's peak resident
+  memory was 1.7 to 1.9 GB. These are ranges on that machine, not promises.
 - The service imports `piper-tts`, which is `GPL-3.0-or-later`, in a repository
   licensed MIT; the obligation that follows is not settled here.
 - A copied token works until its `exp`, with no leeway; tokens carry no sender
