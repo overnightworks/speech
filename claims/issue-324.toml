@@ -1,0 +1,8 @@
+claim_id = "cc1d9c3aa55c4950a3e3b14fcef85bf2"
+agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
+role = "builder"
+base = "456540cd37ec15a590ec56606c602fe219e1cfbb"
+branch = "claude/issue-324-second-german-voice"
+scope = ["README.md", "docs/wire.md", "packages/client/src/speech_client/wire.py", "src/speech_service/piper_voices.py", "tests"]
+opened_commit = "0095a328020e99879580125e0aac7382308cdb00"
+whole_reason = "One catalogue voice touches the client catalogue, the fetch, the wire document, the README and the tests that list the catalogue; split, the catalogue and its documents drift."
