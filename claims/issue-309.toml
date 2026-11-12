@@ -1,7 +1,0 @@
-claim_id = "2e2edfdd9180472183c1ba96d490c0cd"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "d9a24da55a79cfcc7d101393df8516f771e7aff0"
-branch = "claude/issue-309-relay-hard-end"
-scope = ["packages/client/src/speech_client/relay.py", "packages/client/tests/test_relay.py"]
-opened_commit = "830dd051c2cf3c325faf564dc3a6dac4be58f857"
