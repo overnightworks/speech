@@ -138,8 +138,8 @@ requests are refused `unavailable`, `/health` reports it not ready, and the
 Piper voices and hearing keep serving.
 
 The service sits on external, internal networks and no default one: one
-shared with the gateway that carries the key set, and one per app, shared with
-that app only. An absent network stops the start, so a run never has egress.
+shared with the gateway that carries the key set, and one per app that reaches it
+on this path, shared with that app only. An absent network stops the start, so a run never has egress.
 The root is read-only, the user is not root and no capability is kept.
 
 ## Crosscutting Concepts
