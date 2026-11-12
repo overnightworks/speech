@@ -23,7 +23,8 @@ services:
       hal_speech_issuer:
         aliases:
           - ${PROOF_KEY_SET_HOST}
-  caller-hopin:
+  # The other callers merge this block and name their own network.
+  caller-hopin: &caller
     image: speech-proof
     pull_policy: never
     command: [python, -c, "import time; time.sleep(3600)"]
@@ -31,17 +32,11 @@ services:
     networks:
       - hal_speech_hopin
   caller-presentator:
-    image: speech-proof
-    pull_policy: never
-    command: [python, -c, "import time; time.sleep(3600)"]
-    stop_grace_period: 1s
+    <<: *caller
     networks:
       - hal_speech_presentator
   caller-personas:
-    image: speech-proof
-    pull_policy: never
-    command: [python, -c, "import time; time.sleep(3600)"]
-    stop_grace_period: 1s
+    <<: *caller
     networks:
       - proof_personas
 
