@@ -1,8 +1,0 @@
-claim_id = "9a50cc4cf81140248814b0e3735d73f7"
-agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
-role = "builder"
-base = "8925ffcc6807204adc3c33f8abd87d4c582afb0e"
-branch = "claude/issue-300-image-proof-english"
-scope = ["scripts/image_judgement.py", "scripts/image_stack.py", "scripts/prove_image.py", "tests/scripts/test_image_judgement.py", "tests/scripts/test_image_stack.py", "tests/scripts/test_prove_image.py"]
-opened_commit = "4559f896ea62bc6ca44ada0a11eeb07fe1aee084"
-whole_reason = "The proof, its session helper, its judgement table and their three test modules state one cell and change together."
