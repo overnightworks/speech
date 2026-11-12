@@ -15,8 +15,10 @@ import pytest
 from speech_client.wire import (
     AUTHORIZATION_HEADER,
     CONTENT_TYPE_HEADER,
+    VOICES,
     WORKLOAD_TOKEN_HEADER,
     Health,
+    SpeechRequest,
     VoiceId,
 )
 from speech_service.config import Settings
@@ -189,19 +191,23 @@ def test_a_proof_client_rejects_a_body_the_service_aborted(
     asyncio.run(scenario())
 
 
-@contextmanager
-def _recording_speech_service() -> Iterator[
-    tuple[str, list[http.server.BaseHTTPRequestHandler]]
-]:
-    """A local HTTP server that answers every POST and keeps its requests."""
-    seen: list[http.server.BaseHTTPRequestHandler] = []
+class _RecordedPost(http.server.BaseHTTPRequestHandler):
+    """A request the recording server answered, with the body it carried."""
 
-    class Handler(http.server.BaseHTTPRequestHandler):
+    body: bytes = b""
+
+
+@contextmanager
+def _recording_speech_service() -> Iterator[tuple[str, list[_RecordedPost]]]:
+    """A local HTTP server that answers every POST and keeps its requests."""
+    seen: list[_RecordedPost] = []
+
+    class Handler(_RecordedPost):
         protocol_version = "HTTP/1.1"
 
         def do_POST(self) -> None:
             seen.append(self)
-            self.rfile.read(int(self.headers["Content-Length"]))
+            self.body = self.rfile.read(int(self.headers["Content-Length"]))
             self.send_response(200)
             self.send_header("Content-Type", "audio/wav")
             self.send_header("Transfer-Encoding", "chunked")
@@ -241,6 +247,18 @@ def test_each_speaking_script_sends_the_workload_token_and_the_persons_bearer(
         minting.workload_subject
     )
     assert _unverified_subject(person) == minting.person_subject
+
+
+@pytest.mark.parametrize("voice", list(VoiceId))
+def test_the_contract_client_speaks_each_voice_in_a_language_the_service_accepts(
+    minting: Minting, voice: VoiceId
+) -> None:
+    with _recording_speech_service() as (base_url, requests):
+        CLIENT.speak(base_url, "Hallo", voice, minting)
+
+    (request,) = requests
+    spoken = SpeechRequest.model_validate_json(request.body)
+    assert spoken.spoken_language == VOICES[voice].languages[0]
 
 
 def test_the_contract_client_command_passes_the_minting_file_path_and_no_secret(
