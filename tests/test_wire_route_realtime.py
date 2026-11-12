@@ -18,6 +18,7 @@ from starlette.status import (
 from starlette.testclient import WebSocketDenialResponse
 from starlette.websockets import WebSocketDisconnect
 
+from proof_identity import PERSON_SECONDS, WORKLOAD_SECONDS
 from speech_client.wire import (
     AUTHENTICATE_HEADER,
     REALTIME_PATH,
@@ -42,8 +43,10 @@ from tests.support.hear_support import (
 from tests.support.identity_support import (
     APP,
     OTHER_MINTING,
+    Clocks,
     altered,
     callers_of_two_apps,
+    callers_over,
     valid_headers,
     valid_pair,
 )
@@ -93,6 +96,35 @@ def test_a_session_hears_a_committed_turn_and_ends_when_the_client_leaves() -> N
     ]
     assert events[-1]["transcript"] == HEARD_TEXT
     assert events[-1]["languages"] == [{"code": "en"}]
+
+
+def test_a_session_runs_on_after_both_tokens_expire_and_a_new_upgrade_is_refused() -> (
+    None
+):
+    """WIRE-97, WIRE-140: the tokens count at the upgrade only."""
+    clocks = Clocks()
+    client = TestClient(
+        create_control_app(
+            Settings(), hear_runtime(FakeHearing()), callers_over(clocks=clocks)
+        )
+    )
+    headers = valid_headers(clocks.wall)
+
+    with client.websocket_connect(URL, headers=headers) as socket:
+        assert socket.receive_json()["type"] == "session.created"
+        clocks.advance(max(WORKLOAD_SECONDS, PERSON_SECONDS) + 1)
+        socket.send_text(append(audio(0.5)))
+        socket.send_text(commit())
+        events = [socket.receive_json() for _ in range(4)]
+
+    assert events[-1]["type"] == COMPLETED
+    assert events[-1]["transcript"] == HEARD_TEXT
+    _assert_denied(
+        _denied(client, headers=headers),
+        HTTP_401_UNAUTHORIZED,
+        RefusalCode.UNAUTHORIZED,
+        None,
+    )
 
 
 def test_a_session_with_a_set_echoes_it_and_names_the_language_of_each_item() -> None:
