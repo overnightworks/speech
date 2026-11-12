@@ -324,8 +324,9 @@ ended, shutdown has not begun, and every offered Piper voice can speak. With no 
 voice offered, it is true once the start load ends. **WIRE-125** `speaking.voices` lists
 the offered voices by id. Each reports, loaded or not, its `model` (the request's
 `model`), its `name`, its `languages` (the codes it speaks) and its WAV `sample_rate` (a
-Piper voice's is 0 until it is loaded). A client reads each id as a string, so a voice
-of a later catalogue does not break its reading of health. **WIRE-126** A voice's `ready` is true exactly when a request for it
+Piper voice's is 0 until it is loaded). A client reads each id as a string, so a voice id it
+does not know, under a model and in languages it knows, does not break its reading of
+health. **WIRE-126** A voice's `ready` is true exactly when a request for it
 would be spoken now: never during the start load or once shutdown began, and
 never for a GPU voice that is not loaded, failed, or whose worker died.
 **WIRE-127** The service builds the answer through `Health` in `speech_client.wire`,
