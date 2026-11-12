@@ -6,6 +6,7 @@ import contextlib
 import json
 import re
 import tomllib
+from array import array
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,7 +25,10 @@ from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
     import argparse
+    import wave
     from collections.abc import Callable, Iterator
+
+    from piper.config import SynthesisConfig
 
     from speech_service.voices import VoiceId
 
@@ -205,6 +209,32 @@ def test_both_languages_run_in_one_fixed_order_for_every_clip() -> None:
     two_languages = [allowed for allowed in handed if len(allowed) > 1]
     assert two_languages
     assert set(two_languages) == {(HEARING.Language.DE, HEARING.Language.EN)}
+
+
+class VoiceWithDurationNoise:
+    """A voice whose sentences pause past the cut-off unless its durations are fixed."""
+
+    def synthesize_wav(
+        self,
+        text: str,
+        wav_file: wave.Wave_write,
+        syn_config: SynthesisConfig | None = None,
+    ) -> None:
+        """Each sentence as two halves of speech with a pause between them."""
+        rate = 22050
+        pause = 0.3 if syn_config and syn_config.noise_w_scale == 0.0 else 0.6
+        wav_file.setparams((1, 2, rate, 0, "NONE", "not compressed"))
+        for sentence in re.split(r"(?<=\.) ", text):
+            half = array("h", [8000]) * (len(sentence) * rate // 200)
+            wav_file.writeframes(
+                half.tobytes() + bytes(int(2 * rate * pause)) + half.tobytes()
+            )
+
+
+def test_an_english_long_turn_stays_one_turn_whatever_the_durations() -> None:
+    clip = HEARING.english_clip(VoiceWithDurationNoise(), HEARING.ENGLISH_LONG_TURN)
+
+    HEARING.figures.check_continuous_turn(clip)
 
 
 async def _one_delta_turn(_: object, __: object, ___: bytes) -> HEARING.LiveTurn:
