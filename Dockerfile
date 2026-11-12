@@ -42,6 +42,9 @@ ENV HF_HOME=/tmp/huggingface \
     SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing
 RUN speech-fetch-voice de_DE-thorsten-medium \
+ && speech-fetch-voice en_US-norman-medium \
+ && speech-fetch-voice en_US-ljspeech-medium \
+ && speech-fetch-voice en_GB-cori-medium \
  && speech-fetch-hearing-model small
 
 FROM python-base
