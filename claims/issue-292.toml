@@ -1,0 +1,8 @@
+claim_id = "2bdbb9f5aa644f23805e06281abd5459"
+agent = "Claude 5bad407f-2df7-4c90-996c-44ab630406ec"
+role = "builder"
+base = "b289272a569aa019115d75f783c5e5aae7090651"
+branch = "claude/issue-292-runtime-owns-start"
+scope = ["src/speech_service/__main__.py", "src/speech_service/service.py", "src/speech_service/voice_slot.py", "tests/scripts/test_contract_client.py", "tests/support/fakes_support.py", "tests/support/hear_support.py", "tests/support/speak_support.py", "tests/test_main.py", "tests/test_main_serve_lifecycle.py", "tests/test_provider_process.py", "tests/test_service_health.py", "tests/test_service_hearing.py", "tests/test_service_start.py", "tests/test_voice_slot_load.py", "tests/test_voice_slot_stop.py", "tests/test_wire_route.py", "tests/test_wire_route_browser_player.py", "tests/test_wire_route_client_speak.py", "tests/test_wire_route_tcp.py"]
+opened_commit = "3d4eecf4c64b58c5f1ed64b41207f5bcdad2d2db"
+whole_reason = "The Runtime constructor changes shape, so every test module that builds a Runtime directly changes its constructor line in the same landing."
