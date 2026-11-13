@@ -57,7 +57,7 @@ def test_a_teardown_tries_both_removals_and_names_each_that_failed(
     monkeypatch.setattr(image_stack.subprocess, "run", fake)
 
     result = image_stack.teardown(
-        image_stack.Compose((REPOSITORY / "compose.yaml",), {}), failed=False
+        image_stack.Compose((REPOSITORY / "compose.yaml",), {}, "run"), failed=False
     )
 
     assert fake.commands == ["down", "image"]
@@ -101,7 +101,7 @@ def test_the_session_speaks_each_voice_in_a_language_the_service_accepts(
     minting: Minting, voice: VoiceId
 ) -> None:
     config = load_caller_config(REPOSITORY / "deploy" / "speech.toml")
-    compose = RecordingCompose((), {})
+    compose = RecordingCompose((), {}, "run")
     session = image_stack.Session(
         compose,
         config,

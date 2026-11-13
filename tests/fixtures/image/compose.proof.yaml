@@ -2,13 +2,13 @@
 # their keys and become isolated ones under the proof's project name; a test CA
 # stands in the secret's place, a key-set server sits on the issuer's network and
 # a caller container per app on that app's network. Every path and name comes
-# from the environment the proof sets.
+# from the environment the proof sets (PROOF_IMAGE is the run's own image name).
 
 services:
   speech:
-    image: speech-proof
+    image: ${PROOF_IMAGE}
   key-server:
-    image: speech-proof
+    image: ${PROOF_IMAGE}
     pull_policy: never
     command: [python, /key_server.py]
     environment:
@@ -22,7 +22,7 @@ services:
           - ${PROOF_KEY_SET_HOST}
   # The other callers merge this block and name their own network.
   caller-hopin: &caller
-    image: speech-proof
+    image: ${PROOF_IMAGE}
     pull_policy: never
     command: [python, -c, "import time; time.sleep(3600)"]
     stop_grace_period: 1s

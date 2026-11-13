@@ -128,7 +128,7 @@ def test_a_failed_removal_of_the_temporary_files_fails_the_proof_loudly(
     stuck.mkdir(parents=True)
     (stuck / "file").write_text("x")
     stuck.chmod(0o500)
-    monkeypatch.setattr(PROVE, "wait_for_load", lambda: None)
+    monkeypatch.setenv(PROVE.PROJECT_ENV, "a-run")
     monkeypatch.setattr(PROVE.tempfile, "mkdtemp", lambda **_: str(directory))
     monkeypatch.setattr(PROVE, "Compose", StoppedCompose)
     monkeypatch.setattr(
@@ -167,9 +167,44 @@ def test_the_teardown_prints_its_outcome_in_order(
     stdout_starts: str,
     stderr: str,
 ) -> None:
-    PROVE.print_teardown(outcome)
+    PROVE.print_teardown(outcome, "a-run")
 
     captured = capsys.readouterr()
     assert captured.out.startswith(stdout_starts)
     assert ("torn_down" in captured.out) is (not stderr)
     assert captured.err == stderr
+
+
+def test_the_image_built_for_a_run_is_removed_when_the_drive_fails() -> None:
+    removed: list[str] = []
+    built: list[str] = []
+
+    def refused(*_: object, **__: object) -> int:
+        message = "the drive failed"
+        raise SystemExit(message)
+
+    with pytest.raises(SystemExit):
+        PROVE.build_then_drive(
+            [], built.append, removed.append, refused, lambda _: "/bin/probe-run"
+        )
+
+    assert built
+    assert removed == built
+
+
+def test_a_host_without_probe_run_refuses_before_building_the_image() -> None:
+    built: list[str] = []
+
+    with pytest.raises(SystemExit, match=PROVE.PROBE_RUN):
+        PROVE.build_then_drive(
+            [], built.append, lambda _: None, lambda *_, **__: 0, lambda _: None
+        )
+
+    assert built == []
+
+
+def test_two_runs_never_share_a_project_name() -> None:
+    first = PROVE.new_project()
+    second = PROVE.new_project()
+
+    assert first != second
