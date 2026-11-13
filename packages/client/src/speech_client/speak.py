@@ -157,13 +157,14 @@ def _answer(
     return _refusal(response)
 
 
-# Every input comes from the call site; only `language` has a default.
+# Every input comes from the call site; only `language` and `instructions` default.
 def speak(  # noqa: PLR0913
     base_url: str,
     text: str,
     voice: VoiceId,
     *,
     language: Language | None = None,
+    instructions: str | None = None,
     response_format: ResponseFormat,
     workload_token: str,
     person_token: str,
@@ -172,12 +173,13 @@ def speak(  # noqa: PLR0913
 ) -> SpeakOutcome:
     """Speak `text` with `voice` at the service on `base_url`, within the bounds.
 
-    `language` is required for a voice of several languages. `deadline_seconds`
-    bounds the whole call, `cap_bytes` the audio. See the module for the outcomes
+    `language` is required for a voice of several languages. `instructions` name
+    the tone, for a voice that takes them. `deadline_seconds` bounds the whole
+    call, `cap_bytes` the audio. See the module for the outcomes
     and for what raises.
     """
     origin = checked_origin(base_url, deadline_seconds, cap_bytes)
-    body = speech_request_body(text, voice, response_format, language)
+    body = speech_request_body(text, voice, response_format, language, instructions)
     headers = speech_request_headers(
         workload_token=workload_token, person_token=person_token
     )

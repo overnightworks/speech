@@ -48,8 +48,10 @@ class SpeakingEngine(Protocol):
     def load(self) -> None:
         """Load weights and become ready, or raise."""
 
-    def pcm_chunks(self, text: str, language: str) -> Generator[bytes]:
-        """16-bit mono PCM as soon as the model produces it."""
+    def pcm_chunks(
+        self, text: str, language: str, instructions: str | None = None
+    ) -> Generator[bytes]:
+        """16-bit mono PCM as soon as the model produces it, in the tone asked."""
 
     def close(self) -> None:
         """Release owned resources once."""
@@ -212,11 +214,12 @@ def audio_chunks(
     speaking: SpeakingEngine,
     text: str,
     language: str,
+    instructions: str | None,
     response_format: ResponseFormat,
 ) -> Iterator[bytes]:
     """`text` spoken by `speaking` in `response_format`, as the voice produces it."""
     with PayloadFreeFailure(logger, "speaking failed", reraise_as=SpeakingFailedError):
-        synthesis = speaking.pcm_chunks(text, language)
+        synthesis = speaking.pcm_chunks(text, language, instructions)
         try:
             if response_format is ResponseFormat.OPUS:
                 yield from ogg_opus_chunks(synthesis, speaking.sample_rate)

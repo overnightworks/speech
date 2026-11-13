@@ -49,9 +49,17 @@ AUTHORIZATION_HEADER: Final = "Authorization"
 AUTHENTICATE_HEADER: Final = "WWW-Authenticate"
 
 RequestField = Literal[
-    "file", "model", "input", "voice", "language", "response_format", "intent"
+    "file",
+    "model",
+    "input",
+    "voice",
+    "language",
+    "instructions",
+    "response_format",
+    "intent",
 ]
 _INPUT_WITHOUT_CONTENT: Final = "input must hold a letter or a digit"
+MAX_INSTRUCTIONS_CHARACTERS: Final = 500
 
 
 class ResponseFormat(StrEnum):
@@ -108,14 +116,16 @@ class VoiceId(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class CatalogueVoice:
-    """What the wire says of a voice: its engine, its name, the languages it speaks.
+    """What the wire says of a voice: its engine, name, languages and instructions.
 
-    A voice of one language speaks it when a request names none.
+    A voice of one language speaks it when a request names none. A voice that
+    takes instructions speaks in the tone a request's `instructions` name.
     """
 
     model: SpeakingModel
     name: str
     languages: tuple[Language, ...]
+    takes_instructions: bool = False
 
 
 VOICES: Final[Mapping[VoiceId, CatalogueVoice]] = {
@@ -125,7 +135,10 @@ VOICES: Final[Mapping[VoiceId, CatalogueVoice]] = {
     VoiceId.LJSPEECH: CatalogueVoice(SpeakingModel.PIPER, "LJ Speech", (Language.EN,)),
     VoiceId.CORI: CatalogueVoice(SpeakingModel.PIPER, "Cori", (Language.EN,)),
     VoiceId.RYAN: CatalogueVoice(
-        SpeakingModel.QWEN, "Ryan", (Language.DE, Language.EN)
+        SpeakingModel.QWEN,
+        "Ryan",
+        (Language.DE, Language.EN),
+        takes_instructions=True,
     ),
 }
 
@@ -146,6 +159,7 @@ class SpeechRequest(BaseModel):
     voice: VoiceId
     response_format: ResponseFormat
     language: Language | None = Field(None, exclude_if=_absent, validate_default=True)
+    instructions: str | None = Field(None, exclude_if=_absent)
 
     @field_validator("input")
     @classmethod
@@ -183,6 +197,27 @@ class SpeechRequest(BaseModel):
             raise ValueError(message)
         return language
 
+    @field_validator("instructions")
+    @classmethod
+    def _instructions_are_a_tone_the_voice_takes(
+        cls, instructions: str | None, info: ValidationInfo
+    ) -> str | None:
+        if instructions is None:
+            return instructions
+        if len(instructions) > MAX_INSTRUCTIONS_CHARACTERS:
+            message = (
+                f"instructions must be at most {MAX_INSTRUCTIONS_CHARACTERS} characters"
+            )
+            raise ValueError(message)
+        if not any(character.isalpha() for character in instructions):
+            message = "instructions must hold a letter"
+            raise ValueError(message)
+        voice = info.data.get("voice")
+        if voice is not None and not VOICES[voice].takes_instructions:
+            message = "instructions must be named for a voice that takes them"
+            raise ValueError(message)
+        return instructions
+
     @property
     def spoken_language(self) -> Language:
         """The language named, else the one language of the voice."""
@@ -215,6 +250,7 @@ class VoiceHealth(BaseModel):
     model: SpeakingModel
     name: str
     languages: tuple[Language, ...]
+    takes_instructions: StrictBool
     ready: StrictBool
     sample_rate: StrictInt
 
@@ -252,10 +288,12 @@ def speech_request_body(
     voice: VoiceId,
     response_format: ResponseFormat,
     language: Language | None = None,
+    instructions: str | None = None,
 ) -> bytes:
     """The JSON a caller posts to speak `text` with `voice` in `response_format`.
 
     `language` is named for a voice of several languages and may be named for any.
+    `instructions` name the tone, for a voice that takes them.
     """
     request = SpeechRequest(
         model=VOICES[voice].model,
@@ -263,6 +301,7 @@ def speech_request_body(
         voice=voice,
         response_format=response_format,
         language=language,
+        instructions=instructions,
     )
     return request.model_dump_json().encode()
 

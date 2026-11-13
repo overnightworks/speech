@@ -34,6 +34,7 @@ def test_health_answers_while_models_are_not_ready() -> None:
                 "model": VOICES[VoiceId.THORSTEN].model,
                 "name": VOICES[VoiceId.THORSTEN].name,
                 "languages": [*VOICES[VoiceId.THORSTEN].languages],
+                "takes_instructions": VOICES[VoiceId.THORSTEN].takes_instructions,
                 "ready": False,
                 "sample_rate": SPEAK_SAMPLE_RATE,
             }
@@ -78,6 +79,7 @@ def test_a_voice_that_is_not_loaded_reports_its_catalogue_facts_not_ready(
         model=VOICES[voice].model,
         name=VOICES[voice].name,
         languages=VOICES[voice].languages,
+        takes_instructions=VOICES[voice].takes_instructions,
         ready=False,
         sample_rate=reported.sample_rate,
     )

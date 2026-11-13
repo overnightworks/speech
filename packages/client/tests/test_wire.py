@@ -406,6 +406,7 @@ def _voice_health_body() -> dict[str, object]:
         "model": SpeakingModel.PIPER.value,
         "name": "A name",
         "languages": [Language.DE.value],
+        "takes_instructions": False,
         "ready": True,
         "sample_rate": SAMPLE_RATE,
     }
@@ -460,6 +461,7 @@ def _with_value(path: tuple[str, ...], value: object) -> dict[str, object]:
     [
         ("speaking", "ready"),
         ("speaking", "voices", "v", "ready"),
+        ("speaking", "voices", "v", "takes_instructions"),
         ("hearing", "ready"),
     ],
 )
@@ -491,6 +493,7 @@ def test_a_health_body_built_through_the_models_still_parses() -> None:
                     model=SpeakingModel.PIPER,
                     name="A name",
                     languages=(Language.DE,),
+                    takes_instructions=False,
                     ready=True,
                     sample_rate=SAMPLE_RATE,
                 )
@@ -760,3 +763,47 @@ def test_a_voice_of_one_language_speaks_it_without_a_language_in_the_body(
     assert "language" not in json.loads(body)
     request = SpeechRequest.model_validate_json(body)
     assert request.spoken_language is VOICES[voice].languages[0]
+
+
+@pytest.mark.parametrize("voice", [v for v in VoiceId if VOICES[v].takes_instructions])
+def test_a_request_carries_the_instructions_a_voice_takes(voice: VoiceId) -> None:
+    """WIRE-141: the body carries `instructions` and parses back to them."""
+    body = speech_request_body(
+        "Hallo",
+        voice,
+        ResponseFormat.WAV,
+        VOICES[voice].languages[0],
+        "Speak angrily",
+    )
+
+    assert json.loads(body)["instructions"] == "Speak angrily"
+    assert SpeechRequest.model_validate_json(body).instructions == "Speak angrily"
+
+
+@pytest.mark.parametrize("voice", list(VoiceId))
+def test_a_request_without_instructions_has_none_and_no_key(voice: VoiceId) -> None:
+    body = speech_request_body(
+        "Hallo", voice, ResponseFormat.WAV, VOICES[voice].languages[0]
+    )
+
+    assert "instructions" not in json.loads(body)
+    assert SpeechRequest.model_validate_json(body).instructions is None
+
+
+@pytest.mark.parametrize(
+    "voice", [v for v in VoiceId if not VOICES[v].takes_instructions]
+)
+def test_instructions_for_a_voice_that_takes_none_are_refused_on_instructions(
+    voice: VoiceId,
+) -> None:
+    """WIRE-142: instructions for a voice that takes none are refused."""
+    with pytest.raises(ValidationError) as refused:
+        SpeechRequest(
+            model=VOICES[voice].model,
+            input="Hallo",
+            voice=voice,
+            response_format=ResponseFormat.WAV,
+            instructions="Speak angrily",
+        )
+
+    assert [error["loc"] for error in refused.value.errors()] == [("instructions",)]

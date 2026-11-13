@@ -14,6 +14,7 @@ from starlette.status import (
 )
 
 from speech_client.wire import (
+    MAX_INSTRUCTIONS_CHARACTERS,
     VOICES,
     Language,
     RefusalCode,
@@ -40,6 +41,8 @@ if TYPE_CHECKING:
 
 _VOICES_OF_ONE_LANGUAGE = [v for v in VoiceId if len(VOICES[v].languages) == 1]
 _VOICES_OF_SEVERAL_LANGUAGES = [v for v in VoiceId if len(VOICES[v].languages) > 1]
+_VOICES_TAKING_INSTRUCTIONS = [v for v in VoiceId if VOICES[v].takes_instructions]
+_VOICES_TAKING_NONE = [v for v in VoiceId if not VOICES[v].takes_instructions]
 
 
 def test_missing_tokens_are_unauthorized_before_the_voice_is_checked() -> None:
@@ -296,3 +299,94 @@ def test_a_wrong_model_or_voice_is_named_before_a_wrong_language(
     assert_refusal(
         response, HTTP_422_UNPROCESSABLE_CONTENT, RefusalCode.INVALID_REQUEST, param
     )
+
+
+@pytest.mark.parametrize("voice", _VOICES_TAKING_INSTRUCTIONS)
+def test_a_voice_that_takes_instructions_is_spoken_in_the_tone_they_name(
+    voice: VoiceId,
+) -> None:
+    """WIRE-141: the instructions of a request reach the voice that takes them."""
+    engine = FakeSpeaking()
+    app = app_over(_offering_every_voice(voice, engine))
+
+    response = post_speech(
+        TestClient(app), speak_body(voice, instructions="Speak angrily and loudly")
+    )
+
+    assert response.status_code == HTTP_200_OK
+    assert engine.heard_instructions == "Speak angrily and loudly"
+
+
+@pytest.mark.parametrize("voice", _VOICES_TAKING_INSTRUCTIONS)
+@pytest.mark.parametrize("named", [False, True], ids=["absent", "null"])
+def test_a_request_without_instructions_speaks_without_any(
+    voice: VoiceId, *, named: bool
+) -> None:
+    """WIRE-141: absent or `null` instructions count as not named."""
+    engine = FakeSpeaking()
+    app = app_over(_offering_every_voice(voice, engine))
+    body = json.loads(speak_body(voice)) | ({"instructions": None} if named else {})
+
+    response = post_speech(TestClient(app), json.dumps(body).encode())
+
+    assert response.status_code == HTTP_200_OK
+    assert engine.heard_instructions is None
+
+
+@pytest.mark.parametrize("voice", _VOICES_TAKING_NONE)
+def test_instructions_for_a_voice_that_takes_none_are_refused_never_ignored(
+    voice: VoiceId,
+) -> None:
+    """WIRE-142: a voice that takes no instructions refuses a request naming them."""
+    engine = FakeSpeaking()
+    app = app_over(_offering_every_voice(voice, engine))
+
+    response = post_speech(
+        TestClient(app), _body_naming(voice, instructions="Speak angrily")
+    )
+
+    assert_refusal(
+        response,
+        HTTP_422_UNPROCESSABLE_CONTENT,
+        RefusalCode.INVALID_REQUEST,
+        "instructions",
+    )
+    assert engine.heard_text == ""
+
+
+@pytest.mark.parametrize(
+    "instructions",
+    ["", "   ", "123 !?", "a" * (MAX_INSTRUCTIONS_CHARACTERS + 1), 5, ["angry"], True],
+    ids=["empty", "blank", "no-letter", "too-long", "number", "array", "boolean"],
+)
+@pytest.mark.parametrize("voice", _VOICES_TAKING_INSTRUCTIONS)
+def test_instructions_that_are_not_a_bounded_text_with_a_letter_are_refused(
+    voice: VoiceId, instructions: object
+) -> None:
+    """WIRE-141: instructions are a string of one to 500 characters with a letter."""
+    engine = FakeSpeaking()
+    app = app_over(_offering_every_voice(voice, engine))
+    body = json.loads(speak_body(voice)) | {"instructions": instructions}
+
+    response = post_speech(TestClient(app), json.dumps(body).encode())
+
+    assert_refusal(
+        response,
+        HTTP_422_UNPROCESSABLE_CONTENT,
+        RefusalCode.INVALID_REQUEST,
+        "instructions",
+    )
+    assert engine.heard_text == ""
+
+
+@pytest.mark.parametrize("voice", _VOICES_TAKING_INSTRUCTIONS)
+def test_instructions_of_the_longest_length_are_spoken(voice: VoiceId) -> None:
+    """WIRE-141: 500 characters of instructions are accepted."""
+    engine = FakeSpeaking()
+    app = app_over(_offering_every_voice(voice, engine))
+    longest = "a" * MAX_INSTRUCTIONS_CHARACTERS
+
+    response = post_speech(TestClient(app), speak_body(voice, instructions=longest))
+
+    assert response.status_code == HTTP_200_OK
+    assert engine.heard_instructions == longest

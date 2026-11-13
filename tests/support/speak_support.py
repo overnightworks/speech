@@ -143,6 +143,7 @@ def speak_body(
     text: str = "Hallo",
     response_format: ResponseFormat = ResponseFormat.WAV,
     language: Language | None = None,
+    instructions: str | None = None,
 ) -> bytes:
     """The body of a speak request; a voice of several languages gets its first.
 
@@ -151,7 +152,7 @@ def speak_body(
     languages = VOICES[voice].languages
     if language is None and len(languages) > 1:
         language = languages[0]
-    return speech_request_body(text, voice, response_format, language)
+    return speech_request_body(text, voice, response_format, language, instructions)
 
 
 def wav_body(messages: list[dict[str, object]]) -> bytes:
@@ -389,15 +390,18 @@ class FailingSpeaking(FakeSpeaking):
         self._chunk_seconds = chunk_seconds
         self.failed = False
 
-    def pcm_chunks(self, text: str, language: str) -> Iterator[bytes]:
+    def pcm_chunks(
+        self, text: str, language: str, instructions: str | None = None
+    ) -> Iterator[bytes]:
         """Yield the tone, or fail once."""
         if self.failed:
-            yield from super().pcm_chunks(text, language)
+            yield from super().pcm_chunks(text, language, instructions)
             return
         self.failed = True
         if self._chunk_seconds is None:
             yield from itertools.islice(
-                super().pcm_chunks(text, language), self._chunks_before_failing
+                super().pcm_chunks(text, language, instructions),
+                self._chunks_before_failing,
             )
         else:
             for _ in range(self._chunks_before_failing):

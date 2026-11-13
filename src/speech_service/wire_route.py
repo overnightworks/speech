@@ -175,6 +175,7 @@ class _SpeechRoute:
             speaking,
             request.input,
             request.spoken_language,
+            request.instructions,
             request.response_format,
         )
         return ClosingAudioResponse(chunks, lease, request.response_format.media_type)
