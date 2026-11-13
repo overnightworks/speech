@@ -43,7 +43,7 @@ def _process_state(pid: int) -> str | None:
     """Read the kernel's state line for `pid`; None once the pid is gone."""
     try:
         lines = Path(f"/proc/{pid}/status").read_text(encoding="ascii").splitlines()
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return None
     return next(line for line in lines if line.startswith("State:"))
 
