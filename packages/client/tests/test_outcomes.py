@@ -4,6 +4,7 @@ from http import HTTPStatus
 
 import pytest
 
+from speech_client import outcomes, wire
 from speech_client.outcomes import BusyWait, RetryAfterError, busy_wait
 from speech_client.wire import REFUSAL_STATUS, RETRY_AFTER_HEADER, RefusalCode
 
@@ -13,6 +14,17 @@ BUSY = REFUSAL_STATUS[RefusalCode.BUSY]
 def test_busy_answer_gives_the_wait_in_seconds() -> None:
     """WIRE-104: a busy answer gives the wait in whole seconds."""
     assert busy_wait(BUSY, {RETRY_AFTER_HEADER: "5"}) == BusyWait(retry_after_seconds=5)
+
+
+@pytest.mark.parametrize("name", ["BusyWait", "RetryAfterError", "busy_wait"])
+def test_wire_module_serves_the_busy_wait(name: str) -> None:
+    """WIRE-104: `busy_wait` is imported from `speech_client.wire`."""
+    assert getattr(wire, name) is getattr(outcomes, name)
+
+
+def test_wire_module_has_no_unknown_attribute() -> None:
+    with pytest.raises(AttributeError):
+        wire.not_a_wire_name  # noqa: B018 - the attribute read is the call under test
 
 
 def test_header_name_is_matched_case_insensitively() -> None:

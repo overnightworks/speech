@@ -399,6 +399,15 @@ def refusal(code: RefusalCode, param: RequestField | None = None) -> Refusal:
     )
 
 
+def __getattr__(name: str) -> object:
+    """Serve the busy wait from `speech_client.outcomes`, which imports this module."""
+    if name not in {"BusyWait", "RetryAfterError", "busy_wait"}:
+        raise AttributeError(name)
+    from speech_client import outcomes  # noqa: PLC0415 - outcomes imports this module
+
+    return getattr(outcomes, name)
+
+
 # The Realtime transcription session, as OpenAI types it, narrowed to what this
 # service applies. A field it does not apply is refused, never ignored.
 

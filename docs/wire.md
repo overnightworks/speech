@@ -298,7 +298,7 @@ names is not part of the contract, but for WIRE-139.
 | WIRE-103 | `unavailable` | 503 | the tokens cannot be checked because the issuer's key set is unreachable and no cached key serves, or the named voice cannot speak: it is not offered, the start load still runs, its load failed or found its files missing, its worker died while the request waited, or the service is shutting down (`param` `voice`); for a recording: hearing is not loaded or configured, or its decode failed | |
 
 **WIRE-104** Apps read the `busy` wait with `busy_wait(status, headers)` in
-`speech_client.outcomes`: it returns the wait in whole seconds, `None` for any
+`speech_client.wire`: it returns the wait in whole seconds, `None` for any
 other status, and fails loud on a `busy` without whole seconds, at least 1, in `Retry-After`.
 
 **WIRE-105** `n` is read as a decimal integer, so `/v01/...` is version 1. **WIRE-106** A path that is no
