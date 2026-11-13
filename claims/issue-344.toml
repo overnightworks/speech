@@ -3,6 +3,6 @@ agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
 role = "builder"
 base = "25b1c3e86ba1f3f87eba24f5463bc27a03a4d391"
 branch = "claude/issue-344-qwen-speaks-through-its-own-vllm-omni-ch"
-scope = ["docs/ARCHITECTURE.md", "providers/provider-contract/pyproject.toml", "providers/qwen", "src/speech_service/provider_process.py", "tests/test_provider_process.py", "tests/test_provider_process_start.py"]
+scope = [".github/dependabot.yml", "README.md", "docs/ARCHITECTURE.md", "providers/provider-contract/pyproject.toml", "providers/provider-contract/src/speech_provider_contract/__init__.py", "providers/qwen", "quality/baseline.toml", "quality/config.toml", "src/speech_service/provider_process.py", "tests/test_provider_process.py", "tests/test_provider_process_environment.py", "tests/test_provider_process_start.py", "uv.lock"]
 opened_commit = "5d81c58cd88f43e6bfaa1796dfd9c7c0dd60eecc"
 whole_reason = "The provider's engine, its process guard and the environment it starts in change as one piece."
