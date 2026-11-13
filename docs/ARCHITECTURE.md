@@ -138,8 +138,8 @@ flowchart LR
 
 ## Delivery
 
-The release builds, attests and pushes two images to GHCR, the small one at the
-dated tag and the gpu one at the same tag with `-gpu`. hal builds its own small
+The release builds, attests and pushes two images to GHCR, the gpu one at the dated
+tag with `-gpu` first, then the small one at the dated tag. hal builds its own small
 image from the dated tag, so the tag fixes the code, locked dependencies, voices,
 hearing model and caller table. Nothing is fetched at start or restart: the
 voices and the hearing model are in the image, each fetched by a shipped

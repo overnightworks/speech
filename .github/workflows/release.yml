@@ -30,9 +30,13 @@ jobs:
       version: ${{ inputs.version }}
       form: YYYY.MM.DD.N
 
+  # The small image waits for the gpu build, the likelier to fail, so a failed
+  # build leaves no pushed version without its tag.
   image:
     name: Image
-    needs: gate
+    needs:
+      - gate
+      - image-gpu
     uses: overnightworks/quality/.github/workflows/image.yml@eb140c397e83b8ec4e9ee849453d14efeef4e787 # v0.14.0
     permissions:
       attestations: write

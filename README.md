@@ -59,7 +59,7 @@ It is configured like the small image (`SPEECH_HOST`, `SPEECH_CONFIG_FILE`, the
 networks and the read-only root); what differs when you run it:
 
 - **One GPU.** Request one card; the service assumes nothing about being alone on
-  it. Qwen reserves 0.45 of the card, and with large-v3 beside it the card held
+  it. Qwen reserves a fixed share of the card, and with large-v3 beside it the card held
   13.2 GB on an RTX 3090.
 - **Memory.** The service and its Qwen server peaked at 12.7 GB of host memory.
 - **`/dev/shm`.** The server's stages pass data through it, so size it above
@@ -162,7 +162,7 @@ gh workflow run release.yml -f version=YYYY.MM.DD.N
 gh workflow run release-distributions.yml -f version=X.Y.Z
 ```
 
-`release.yml` releases the app: it builds, attests and pushes the image to GHCR,
+`release.yml` releases the app: it builds, attests and pushes the gpu image, then the small one, to GHCR,
 then sets the dated tag `vYYYY.MM.DD.N`. `release-distributions.yml` releases the
 three distributions and the browser package at one `X.Y.Z`, and uploads the
 package's tarball as a release file. Both run quality's release gate; its refusals
