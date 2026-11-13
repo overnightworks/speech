@@ -241,8 +241,8 @@ no capability is kept.
   second request for it may answer `busy` while one long sentence runs.
 - Speaking and hearing share the CPU when hearing runs on `cpu`, as the image
   does. `scripts/prove_speech.py` measured this on a shared development machine,
-  on the CPU with the `small` hearing model and the four Piper voices, in two
-  runs. Speaking times are medians of five repetitions. A single Piper voice's
+  on the CPU with the `small` hearing model and four of the Piper voices (all
+  but Kerstin), in two runs. Speaking times are medians of five repetitions. A single Piper voice's
   first audio took 0.21 to 0.24 s; two voices speaking at once took 0.33 to
   0.45 s each to first audio; a recording heard alone took about 1.5 s, and 4.1
   to 5.4 s while two voices speak without pause; the service's peak resident
