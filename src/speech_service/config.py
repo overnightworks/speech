@@ -43,6 +43,7 @@ class Settings(BaseSettings):
         default_factory=lambda: Path(huggingface_hub_constants.HF_HUB_CACHE)
     )
     provider_root: Path | None = None
+    load_gpu_voices_at_start: bool = False
     host: str = "127.0.0.1"
     port: int = Field(default=8080, ge=1, le=65535)
     busy_wait_seconds: float = Field(default=5.0, ge=0, allow_inf_nan=False)

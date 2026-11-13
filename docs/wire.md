@@ -45,7 +45,7 @@ positions), optionally the text so far, or the code of a failed item or of an
 | WIRE-05 | `model` | `piper` or `qwen3-tts-1.7b`, the engine of `voice`. Any other value is refused, so a request naming another model is never answered by this one. |
 | WIRE-06 | `input` | Text with at least one letter or digit, at most `SPEECH_MAX_INPUT_CHARACTERS` characters (default 4096; the operator may raise it above OpenAI's 4096). |
 | WIRE-07 | `voice` | A catalogue voice of `model` as a string: `de_DE-thorsten-medium`, `de_DE-kerstin-medium`, `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` under `piper`; `ryan` under `qwen3-tts-1.7b`. `speaking.voices` in health lists those offered. OpenAI's object form is refused. |
-| WIRE-09 | `voice` | A GPU voice that is not loaded yet loads for this request, which waits for the load. |
+| WIRE-09 | `voice` | A GPU voice that is not loaded yet loads for this request, which waits for the load; with WIRE-143 it is loaded at start, so none is. |
 | WIRE-10 | `response_format` | `wav` or `opus`. OpenAI defaults an absent field to `mp3`, so it is required here. |
 | WIRE-138 | `language` | An extension to OpenAI's request, which has no such field. `de` or `en`, the codes of WIRE-34; `null` counts as not named. A voice of one language speaks it, and the field is optional but, when named, must be that language. A voice of several languages (`ryan`: `de`, `en`) speaks the language named, and the field is required. A value other than `de` or `en`, or a language the voice does not speak, or no language for a voice of several, is refused. |
 | WIRE-141 | `instructions` | OpenAI's field of that name: how to speak the text, for example its tone. A string with at least one letter and at most 500 characters; `null` counts as not named, and a request without it speaks as before. Otherwise it is refused. The voice speaks the text in the manner the instructions name. |
@@ -311,8 +311,13 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
 
 - **WIRE-107** `SPEECH_VOICES` (catalogue voice ids separated by commas; every Piper voice
   when absent, none when set empty): the voices offered. A Piper voice loads at start, a
-  GPU voice on its first request (WIRE-09). An unknown or repeated id, or a named Piper
-  voice whose files are missing or fail to load, ends the start.
+  GPU voice on its first request (WIRE-09), or at start with WIRE-143. An unknown or
+  repeated id, or a named Piper voice whose files are missing or fail to load, ends the
+  start.
+- **WIRE-143** `SPEECH_LOAD_GPU_VOICES_AT_START` (`true` or `false`, default `false`): with
+  `true` every offered GPU voice loads at start, after the Piper voices and before hearing,
+  and a GPU voice whose files are missing or fail to load ends the start as a Piper voice's
+  do. `speaking.ready` (WIRE-124) then waits for it.
 - **WIRE-108** `SPEECH_BUSY_WAIT_SECONDS` (default `5.0`, at least 0): how long a request
   waits for its voice's synthesis before `busy`.
 - **WIRE-109** `SPEECH_MAX_WAITING_REQUESTS` (default `3`, at least 0, where 0 allows no
@@ -349,8 +354,8 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
 `{"speaking": {"ready", "voices": {"<voice id>": {"model", "name", "languages", "takes_instructions", "ready", "sample_rate"}}}, "hearing": {"model", "ready"}, "card_memory_mb"}`.
 **WIRE-123** It answers while the models are still loading, with `ready` false.
 **WIRE-124** `speaking.ready` is the speaking service's own readiness: the start load has
-ended, shutdown has not begun, and every offered Piper voice can speak. With no Piper
-voice offered, it is true once the start load ends. **WIRE-125** `speaking.voices` lists
+ended, shutdown has not begun, and every offered Piper voice (with WIRE-143, every offered voice)
+can speak. With no such voice offered, it is true once the start load ends. **WIRE-125** `speaking.voices` lists
 the offered voices by id. Each reports, loaded or not, its `model` (the request's
 `model`), its `name`, its `languages` (the codes it speaks), whether it `takes_instructions` (WIRE-142) and its WAV `sample_rate` (a
 Piper voice's is 0 until it is loaded). A client reads each id as a string, so a voice id it

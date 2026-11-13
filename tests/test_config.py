@@ -45,6 +45,16 @@ def test_settings_read_speech_environment(monkeypatch: pytest.MonkeyPatch) -> No
     assert settings.voices == {VoiceId.RYAN}
 
 
+def test_gpu_voices_load_on_their_first_request_unless_the_start_setting_says_so(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WIRE-143: GPU voices load on their first request unless the setting says so."""
+    before = Settings().load_gpu_voices_at_start
+    monkeypatch.setenv("SPEECH_LOAD_GPU_VOICES_AT_START", "true")
+
+    assert (before, Settings().load_gpu_voices_at_start) == (False, True)
+
+
 @pytest.mark.parametrize(
     ("name", "value"),
     [

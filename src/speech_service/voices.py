@@ -35,9 +35,12 @@ _SAMPLE_RATES_BEFORE_LOAD: Final[dict[SpeakingModel, int]] = {
 }
 
 
-def loads_at_start(voice: VoiceId) -> bool:
-    """Whether the start loads `voice` rather than its first request."""
-    return VOICES[voice].model is SpeakingModel.PIPER
+def loads_at_start(voice: VoiceId, *, gpu_voices: bool = False) -> bool:
+    """Whether the start loads `voice` rather than its first request.
+
+    A Piper voice always loads at start; a GPU voice only when `gpu_voices`.
+    """
+    return gpu_voices or VOICES[voice].model is SpeakingModel.PIPER
 
 
 def sample_rate_before_load(voice: VoiceId) -> int:
