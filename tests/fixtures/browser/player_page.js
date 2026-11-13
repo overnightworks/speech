@@ -20,6 +20,9 @@ const Page = {
   start: AudioBufferSourceNode.prototype.start,
 };
 const SAMPLE_MS = 20;
+const HEARD_BLOCK = 256;
+const HEARD_BLOCKS_OF_LATENCY = 2;
+const HEARD_THRESHOLD = 0.005;
 const SILENCE_POLL_MS = 10;
 const SILENCE_GIVE_UP_MS = 5000;
 const JUNK_BYTES = 512;
@@ -48,6 +51,7 @@ const seen = {
   lastActionAt: null,
   endedAtAction: null,
   peakRms: 0,
+  heardOnsets: [],
 };
 const contexts = [];
 const clockReads = new Map();
@@ -78,6 +82,24 @@ function kindOf(node) {
 function meterOf(context) {
   if (!meters.has(context)) meters.set(context, new Page.AnalyserNode(context));
   return meters.get(context);
+}
+
+// The page's own ear: it notes the context time at which each stretch of sound begins to reach the output. A
+// script processor double-buffers, so its input block began two blocks before its `playbackTime`.
+function listenTo(output) {
+  const ear = output.context.createScriptProcessor(HEARD_BLOCK, 1, 1);
+  let silent = true;
+  ear.onaudioprocess = (event) => {
+    const samples = event.inputBuffer.getChannelData(0);
+    const first = samples.findIndex((value) => Math.abs(value) > HEARD_THRESHOLD);
+    if (first >= 0 && silent) {
+      const blockStart = event.playbackTime - (HEARD_BLOCKS_OF_LATENCY * HEARD_BLOCK) / output.context.sampleRate;
+      seen.heardOnsets.push(blockStart + first / output.context.sampleRate);
+    }
+    silent = first < 0;
+  };
+  Page.connect.call(output, ear);
+  Page.connect.call(ear, output.context.destination);
 }
 
 function trackSource(source) {
@@ -151,6 +173,7 @@ AudioNode.prototype.connect = function (target, ...parameters) {
   if (toOutput) {
     outputGain = this;
     Page.connect.call(this, meterOf(this.context));
+    listenTo(this);
   }
   return Page.connect.call(this, target, ...parameters);
 };
@@ -194,14 +217,15 @@ function argumentOf(spec) {
 }
 
 function handOver(spec) {
-  const sound = { id: seen.sounds.length, startedValue: null, startedCount: 0, endedValue: null, endedCount: 0, endedAt: null, peakRms: 0, playedSeconds: null, contextAtStart: null, contextAtEnd: null };
+  const sound = { id: seen.sounds.length, startedValue: null, startedCount: 0, endedValue: null, endedCount: 0, endedAt: null, peakRms: 0, playedSeconds: null, contextAtStart: null, start: null, contextAtEnd: null };
   seen.sounds.push(sound);
   const playback = player.play(argumentOf(spec));
   playback.started.then((value) => {
-    sound.startedValue = value;
+    sound.startedValue = value.kind;
+    sound.start = value.kind === "playing" ? { contextTime: value.contextTime, onThePlayersContext: value.context === contexts[0] } : null;
     sound.startedCount += 1;
     sound.contextAtStart = contexts[0].currentTime;
-    seen.log.push({ event: "started", id: sound.id, value, at: performance.now() });
+    seen.log.push({ event: "started", id: sound.id, value: value.kind, at: performance.now() });
   });
   playback.ended.then((end) => {
     sound.endedValue = end.kind;
