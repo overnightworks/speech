@@ -91,7 +91,7 @@ describe("WavPcmDecoder", () => {
     const second = decoder.push(bytes.subarray(cut));
 
     expect([...first, ...second]).toEqual(EXPECTED);
-    expect(first.length).toBe(SAMPLES.length - 2);
+    expect(first).toHaveLength(SAMPLES.length - 2);
   });
 
   it("reports no rate before the data chunk begins", () => {

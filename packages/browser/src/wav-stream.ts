@@ -14,7 +14,7 @@ export type Samples = Float32Array<ArrayBuffer>;
 type Phase = "riff" | "chunks" | "data" | "done" | "unsupported";
 
 function tagAt(bytes: Uint8Array, offset: number): string {
-  return String.fromCharCode(...bytes.subarray(offset, offset + 4));
+  return String.fromCodePoint(...bytes.subarray(offset, offset + 4));
 }
 
 /**
@@ -160,23 +160,47 @@ export class PcmStream {
       this.#first = undefined;
       return first;
     }
-    for (;;) {
-      const { done, value } = await this.reader.read();
-      if (done) {
-        this.decoder.finish();
-        return undefined;
-      }
-      const samples = this.decoder.push(value);
-      if (samples.length > 0) {
-        return samples;
-      }
+    const { done, value } = await this.reader.read();
+    if (done) {
+      this.decoder.finish();
+      return undefined;
     }
+    const samples = this.decoder.push(value);
+    return samples.length > 0 ? samples : this.next();
   }
 }
 
 export type OpenedSound =
   | { readonly kind: "stream"; readonly stream: PcmStream }
   | { readonly kind: "whole"; readonly bytes: ArrayBuffer };
+
+/** Reads until the decoder knows the format; returns the samples of the last chunk read. */
+async function readHeader(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  decoder: WavPcmDecoder,
+  head: Uint8Array[],
+): Promise<Samples> {
+  const { done, value } = await reader.read();
+  if (done) {
+    throw new Error("the WAV body ended inside its header");
+  }
+  head.push(value);
+  const samples = decoder.push(value);
+  return decoder.sampleRate === undefined && !decoder.unsupported
+    ? readHeader(reader, decoder, head)
+    : samples;
+}
+
+async function readRest(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  parts: Uint8Array[],
+): Promise<void> {
+  const next = await reader.read();
+  if (!next.done) {
+    parts.push(next.value);
+    await readRest(reader, parts);
+  }
+}
 
 /**
  * Reads a response up to its first samples when it is a 16-bit mono PCM WAV; any other answer is read whole.
@@ -189,20 +213,10 @@ export async function openSound(response: Response): Promise<OpenedSound> {
   const reader = response.body.getReader();
   const decoder = new WavPcmDecoder();
   const head: Uint8Array[] = [];
-  let first: Samples = new Float32Array(0);
-  while (decoder.sampleRate === undefined && !decoder.unsupported) {
-    const { done, value } = await reader.read();
-    if (done) {
-      throw new Error("the WAV body ended inside its header");
-    }
-    head.push(value);
-    first = decoder.push(value);
-  }
+  const first = await readHeader(reader, decoder, head);
   if (decoder.sampleRate !== undefined) {
     return { kind: "stream", stream: new PcmStream(decoder.sampleRate, first, reader, decoder) };
   }
-  for (let next = await reader.read(); !next.done; next = await reader.read()) {
-    head.push(next.value);
-  }
+  await readRest(reader, head);
   return { kind: "whole", bytes: await new Blob(head.map((part) => part.slice())).arrayBuffer() };
 }

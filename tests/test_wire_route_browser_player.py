@@ -202,7 +202,7 @@ async def _activated(tmp_path: Path) -> AsyncIterator[Stage]:
         yield stage
 
 
-def test_three_sounds_play_in_the_order_handed_over_and_never_at_once(
+def test_three_sounds_play_in_the_order_handed_over(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:

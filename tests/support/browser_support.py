@@ -206,7 +206,7 @@ async def _until_disconnect(receive: Receive) -> None:
 def _install_sounds(
     app: FastAPI, service_url: str, side: AppSide, recordings: Path
 ) -> None:
-    """The routes that answer a sound: spoken by the service, whole, held or cut off."""
+    """The routes that answer a sound: spoken, whole, held or streamed."""
 
     @app.get(VOICE_PATH)
     async def voice(request: Request) -> Response:
@@ -243,6 +243,12 @@ def _install_sounds(
         return HeldResponse(
             (recordings / name).read_bytes(), side, lead=STREAMED_LEAD_BYTES
         )
+
+    _install_cut_sounds(app, side, recordings)
+
+
+def _install_cut_sounds(app: FastAPI, side: AppSide, recordings: Path) -> None:
+    """The routes that answer a sound and break the connection off."""
 
     @app.get(f"{CUT_PATH}/{{name}}")
     async def cut(name: str, request: Request) -> StreamingResponse:

@@ -196,6 +196,7 @@ class PlayerRun {
           return;
         }
         // A failed sound has ended already; a refused one ends here. Neither blocks the next.
+        head.abort.abort();
         head.end({ kind: "refused" });
         this.#queue.shift();
       }
@@ -242,22 +243,13 @@ class PlayerRun {
 
   /** Back to back on the context's clock: each chunk starts where the one before ends. */
   async #playStream(scheduled: Scheduled, stream: PcmStream, generation: number): Promise<void> {
-    let nextAt = 0;
     try {
-      for (let samples = await stream.next(); samples !== undefined; samples = await stream.next()) {
-        if (generation !== this.#generation) {
-          return;
-        }
-        const buffer = this.#context.createBuffer(1, samples.length, stream.sampleRate);
-        buffer.copyToChannel(samples, 0);
-        nextAt = Math.max(nextAt, this.#context.currentTime);
-        this.#schedule(scheduled, buffer, nextAt);
-        nextAt += buffer.duration;
-      }
+      await this.#scheduleChunks(scheduled, stream, generation, 0);
     } catch {
       if (generation === this.#generation) {
         this.#playing = undefined;
         silence(scheduled);
+        scheduled.item.abort.abort();
         scheduled.item.end({ kind: "failed" });
         void this.#pump();
       }
@@ -267,6 +259,23 @@ class PlayerRun {
       scheduled.bodyScheduled = true;
       this.#settle(scheduled);
     }
+  }
+
+  async #scheduleChunks(
+    scheduled: Scheduled,
+    stream: PcmStream,
+    generation: number,
+    startAt: number,
+  ): Promise<void> {
+    const samples = await stream.next();
+    if (samples === undefined || generation !== this.#generation) {
+      return;
+    }
+    const buffer = this.#context.createBuffer(1, samples.length, stream.sampleRate);
+    buffer.copyToChannel(samples, 0);
+    const when = Math.max(startAt, this.#context.currentTime);
+    this.#schedule(scheduled, buffer, when);
+    return this.#scheduleChunks(scheduled, stream, generation, when + buffer.duration);
   }
 
   #settle(scheduled: Scheduled): void {
