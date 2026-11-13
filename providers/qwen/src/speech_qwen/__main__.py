@@ -1,9 +1,7 @@
 """Bootstrap Qwen after reserving stdout for its binary protocol."""
 
 import argparse
-import ctypes
 import os
-import signal
 from functools import partial
 
 from speech_provider_contract import (
@@ -12,6 +10,8 @@ from speech_provider_contract import (
     QwenSpeaker,
     serve_provider,
 )
+
+from speech_qwen.parent_death import install_parent_death_signal
 
 
 def main() -> int:
@@ -46,15 +46,6 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--cache", required=True)
     parser.add_argument("--speaker", type=QwenSpeaker, required=True)
     return parser.parse_args()
-
-
-def install_parent_death_signal(expected_parent_pid: int) -> None:
-    """Kill this worker when its exact creator thread ends."""
-    if (
-        ctypes.CDLL(None).prctl(1, signal.SIGKILL) != 0
-        or os.getppid() != expected_parent_pid
-    ):
-        raise RuntimeError
 
 
 if __name__ == "__main__":

@@ -3,6 +3,8 @@
 It also owns the payload-free failure renderer the service's `log_failure` uses.
 """
 
+from __future__ import annotations
+
 import contextlib
 import errno
 import functools
