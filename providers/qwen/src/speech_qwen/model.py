@@ -1,4 +1,4 @@
-"""The pinned Qwen3-TTS 0.6B adapter, local-cache only."""
+"""The pinned Qwen3-TTS 1.7B adapter, local-cache only."""
 
 from __future__ import annotations
 

@@ -100,7 +100,7 @@ class SpeakingModel(StrEnum):
     """The engines the service speaks with: a request's `model`."""
 
     PIPER = "piper"
-    QWEN = "qwen3-tts-0.6b"
+    QWEN = "qwen3-tts-1.7b"
 
 
 class VoiceId(StrEnum):

@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 QWEN_SAMPLE_RATE = 24_000
 # The only device the Qwen adapter loads on, whatever device hearing uses.
 QWEN_DEVICE = "cuda"
-QWEN_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
-QWEN_REVISION = "85e237c12c027371202489a0ec509ded67b5e4b5"
+QWEN_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+QWEN_REVISION = "0c0e3051f131929182e2c023b9537f8b1c68adfe"
 QWEN_ARTIFACTS = (
     ".gitattributes",
     "README.md",

@@ -721,7 +721,7 @@ def test_a_request_naming_another_model_is_refused_on_model(model: str) -> None:
     assert [error["loc"] for error in refused.value.errors()] == [("model",)]
 
 
-@pytest.mark.parametrize("voice", ["piper", "qwen3-tts-0.6b", "alloy", "", {"id": "x"}])
+@pytest.mark.parametrize("voice", ["piper", "qwen3-tts-1.7b", "alloy", "", {"id": "x"}])
 def test_a_request_naming_a_voice_outside_the_catalogue_is_refused_on_voice(
     voice: object,
 ) -> None:
