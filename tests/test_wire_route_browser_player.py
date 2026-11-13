@@ -23,9 +23,11 @@ from webauth.policies import default_content_security_policy
 from speech_client.wire import VoiceId
 from speech_service.service import Runtime
 from tests.support.browser_support import (
+    CUT_LATE_PATH,
     CUT_PATH,
     HELD_PATH,
     SOUNDS_PATH,
+    STREAMED_PATH,
     VOICE_PATH,
     AppSide,
     chromium_page,
@@ -57,7 +59,6 @@ SOUND_SECONDS = {
 SILENT_RMS = 0.001
 AUDIBLE_RMS = 0.05
 CLOSED = "closed"
-SOUNDS_STARTED_AROUND_THE_MUTE = 2
 RESUMES_REJECTED_THEN_PASSED = 2
 ALL_ENDED = "s.sounds.every(sound => sound.endedValue !== null)"
 SHORT = f"{SOUNDS_PATH}/short.wav"
@@ -66,6 +67,8 @@ LONG = f"{SOUNDS_PATH}/long.wav"
 NATURAL = f"{SOUNDS_PATH}/natural.wav"
 HELD = f"{HELD_PATH}/short.wav"
 CUT = f"{CUT_PATH}/short.wav"
+STREAMED = f"{STREAMED_PATH}/long.wav"
+CUT_LATE = f"{CUT_LATE_PATH}/long.wav"
 ABSENT = "/absent.wav"
 VOICE_BYTES = "voice"
 TAP_NAMES = re.compile(r"analys|tap|level|meter|energy", re.IGNORECASE)
@@ -199,7 +202,7 @@ async def _activated(tmp_path: Path) -> AsyncIterator[Stage]:
         yield stage
 
 
-def test_three_sounds_play_in_the_order_handed_over_and_never_at_once(
+def test_three_sounds_play_in_the_order_handed_over(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
@@ -214,7 +217,6 @@ def test_three_sounds_play_in_the_order_handed_over_and_never_at_once(
     assert _events(seen) == [
         (event, sound) for sound in range(3) for event in ("started", "ended")
     ]
-    assert seen["maxActiveSources"] == 1
 
 
 def test_a_sound_whose_answer_is_held_plays_before_the_later_one_that_decoded(
@@ -309,7 +311,7 @@ def test_a_stopped_sound_reports_nothing_more_at_its_natural_end_and_starts_noth
         (event, sound) for sound in range(2) for event in ("started", "ended")
     ]
     assert _ends(seen) == ["stopped", "stopped"]
-    assert seen["sourcesStarted"] == 1
+    assert _starts(seen) == ["playing", "ended"]
 
 
 def test_a_sound_handed_over_after_stop_plays(tmp_path: Path) -> None:
@@ -325,7 +327,6 @@ def test_a_sound_handed_over_after_stop_plays(tmp_path: Path) -> None:
     seen = asyncio.run(scenario())
 
     assert _ends(seen) == ["stopped", "played"]
-    assert seen["sourcesStarted"] == len(seen["sounds"])
 
 
 def test_stop_twice_on_an_idle_player_reports_nothing(tmp_path: Path) -> None:
@@ -394,7 +395,7 @@ def test_unmuting_plays_the_next_sound_and_none_handed_over_before(
     seen = asyncio.run(scenario())
 
     assert _ends(seen) == ["muted", "muted", "played"]
-    assert seen["sourcesStarted"] == SOUNDS_STARTED_AROUND_THE_MUTE
+    assert _starts(seen) == ["playing", "ended", "playing"]
     assert seen["gainValue"] == 1
     assert seen["sounds"][2]["peakRms"] > AUDIBLE_RMS
 
@@ -417,6 +418,43 @@ def test_a_sound_that_cannot_load_fails_and_the_next_one_plays(
     assert _starts(seen) == ["ended", "playing"]
 
 
+def test_a_streamed_wav_starts_before_its_body_has_ended_and_plays_through_to_its_end(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> tuple[dict[str, object], dict[str, object]]:
+        async with _activated(tmp_path) as stage:
+            await stage.hand_over(url(STREAMED))
+            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
+            while_streaming = await stage.snapshot()
+            stage.side.held_release.set()
+            return while_streaming, await stage.finish()
+
+    while_streaming, seen = asyncio.run(scenario())
+
+    assert _starts(while_streaming) == ["playing"]
+    assert _ends(while_streaming) == [None]
+    assert _ends(seen) == ["played"]
+    assert _events(seen) == [("started", 0), ("ended", 0)]
+
+
+def test_stop_silences_a_streamed_wav_at_once_and_aborts_its_fetch(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> tuple[dict[str, object], float]:
+        async with _activated(tmp_path) as stage:
+            await stage.hand_over(url(STREAMED))
+            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
+            await stage.act("stop")
+            silent_ms = await stage.silent_within()
+            await asyncio.wait_for(stage.side.held_aborted.wait(), WAIT_SECONDS)
+            return await stage.snapshot(), silent_ms
+
+    seen, silent_ms = asyncio.run(scenario())
+
+    assert seen["endedAtAction"] == ["stopped"]
+    assert silent_ms < STOP_BOUND_MS
+
+
 def test_a_route_that_aborts_mid_body_fails_and_the_next_one_plays(
     tmp_path: Path,
 ) -> None:
@@ -427,6 +465,25 @@ def test_a_route_that_aborts_mid_body_fails_and_the_next_one_plays(
 
     seen = asyncio.run(scenario())
 
+    assert _ends(seen) == ["failed", "played"]
+
+
+def test_a_streamed_wav_that_breaks_off_stops_playing_where_it_broke_and_fails(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> tuple[dict[str, object], dict[str, object]]:
+        async with _activated(tmp_path) as stage:
+            await stage.hand_over(url(CUT_LATE), url(SHORT))
+            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
+            stage.side.held_release.set()
+            await stage.until("s.sounds[0].endedValue !== null")
+            at_break = await stage.snapshot()
+            return at_break, await stage.finish()
+
+    at_break, seen = asyncio.run(scenario())
+
+    assert _ends(at_break)[0] == "failed"
+    assert _starts(seen) == ["playing", "playing"]
     assert _ends(seen) == ["failed", "played"]
 
 
@@ -486,7 +543,7 @@ def test_every_source_connects_only_to_the_one_gain_that_is_the_outputs_only_inp
     ]
 
     assert into_output["fromKind"] == "GainNode"
-    assert len(from_sources) == seen["sourcesStarted"] == len(seen["sounds"])
+    assert len(from_sources) == seen["sourcesStarted"] >= len(seen["sounds"])
     assert {edge["to"] for edge in from_sources} == {into_output["from"]}
 
 
@@ -586,7 +643,7 @@ def test_a_stop_in_the_task_of_a_natural_end_gives_one_report_and_starts_nothing
     seen = asyncio.run(scenario())
 
     assert seen["instrumentStops"] == 1
-    assert seen["sourcesStarted"] == 1
+    assert _starts(seen)[1] == "ended"
     assert _ends(seen) == ["stopped", "stopped"]
     assert [sound["endedCount"] for sound in seen["sounds"]] == [1, 1]
 

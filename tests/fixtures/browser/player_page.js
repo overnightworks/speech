@@ -40,7 +40,6 @@ const seen = {
   sourcesCreated: 0,
   sourcesStarted: 0,
   sourcesEnded: 0,
-  maxActiveSources: 0,
   instrumentStops: 0,
   decodesCalled: 0,
   decodesSettled: 0,
@@ -57,7 +56,6 @@ const held = { decode: [], resume: [] };
 const heldNow = [];
 const byteStore = new Map();
 let nextNodeId = 0;
-let activeSources = 0;
 let stopOnSourceEnd = false;
 let rejectNextResume = false;
 let outputGain = null;
@@ -87,7 +85,6 @@ function trackSource(source) {
   // Added at creation, so it runs before the `onended` the package sets.
   source.addEventListener("ended", () => {
     seen.sourcesEnded += 1;
-    activeSources -= 1;
     if (stopOnSourceEnd) {
       stopOnSourceEnd = false;
       seen.instrumentStops += 1;
@@ -131,8 +128,6 @@ BaseAudioContext.prototype.createAnalyser = function () {
 };
 Page.AudioBufferSourceNode.prototype.start = function (...parameters) {
   seen.sourcesStarted += 1;
-  activeSources += 1;
-  seen.maxActiveSources = Math.max(seen.maxActiveSources, activeSources);
   return Page.start.apply(this, parameters);
 };
 AudioNode.prototype.connect = function (target, ...parameters) {

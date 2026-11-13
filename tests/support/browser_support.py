@@ -59,7 +59,10 @@ REFUSING_HOP_PATH = "/refuse"
 VOICE_PATH = "/voice"
 SOUNDS_PATH = "/sounds"
 HELD_PATH = "/held"
+STREAMED_PATH = "/streamed"
+STREAMED_LEAD_BYTES = 16 * 1024
 CUT_PATH = "/cut"
+CUT_LATE_PATH = "/cutlate"
 CHROMIUM_FLAGS = (
     "--use-fake-device-for-media-stream",
     "--use-fake-ui-for-media-stream",
@@ -155,14 +158,15 @@ def _web_auth_config() -> WebAuthConfig:
 class HeldResponse(Response):
     """A WAV answer whose headers leave at once and whose body waits for the test.
 
-    The body goes out once `side.held_release` is set; a client that leaves first sets
-    `side.held_aborted`.
+    The first `lead` bytes of the body leave with the headers. The rest goes out once
+    `side.held_release` is set; a client that leaves first sets `side.held_aborted`.
     """
 
-    def __init__(self, body: bytes, side: AppSide) -> None:
-        """Hold `body` for `side`."""
+    def __init__(self, body: bytes, side: AppSide, lead: int = 0) -> None:
+        """Hold `body` for `side`, after sending its first `lead` bytes."""
         super().__init__(body, media_type=WAV_MEDIA_TYPE)
         self._side = side
+        self._lead = lead
 
     async def __call__(self, _scope: Scope, receive: Receive, send: Send) -> None:
         """Answer once released, or note that the client left."""
@@ -173,6 +177,14 @@ class HeldResponse(Response):
                 "headers": self.raw_headers,
             }
         )
+        if self._lead:
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": self.body[: self._lead],
+                    "more_body": True,
+                }
+            )
         released = asyncio.create_task(self._side.held_release.wait())
         left = asyncio.create_task(_until_disconnect(receive))
         done, pending = await asyncio.wait(
@@ -181,7 +193,7 @@ class HeldResponse(Response):
         for task in pending:
             task.cancel()
         if released in done:
-            await send({"type": "http.response.body", "body": self.body})
+            await send({"type": "http.response.body", "body": self.body[self._lead :]})
         else:
             self._side.held_aborted.set()
 
@@ -194,7 +206,7 @@ async def _until_disconnect(receive: Receive) -> None:
 def _install_sounds(
     app: FastAPI, service_url: str, side: AppSide, recordings: Path
 ) -> None:
-    """The routes that answer a sound: spoken by the service, whole, held or cut off."""
+    """The routes that answer a sound: spoken, whole, held or streamed."""
 
     @app.get(VOICE_PATH)
     async def voice(request: Request) -> Response:
@@ -225,6 +237,19 @@ def _install_sounds(
         side.record_request(request.url.path)
         return HeldResponse((recordings / name).read_bytes(), side)
 
+    @app.get(f"{STREAMED_PATH}/{{name}}")
+    async def streamed(name: str, request: Request) -> Response:
+        side.record_request(request.url.path)
+        return HeldResponse(
+            (recordings / name).read_bytes(), side, lead=STREAMED_LEAD_BYTES
+        )
+
+    _install_cut_sounds(app, side, recordings)
+
+
+def _install_cut_sounds(app: FastAPI, side: AppSide, recordings: Path) -> None:
+    """The routes that answer a sound and break the connection off."""
+
     @app.get(f"{CUT_PATH}/{{name}}")
     async def cut(name: str, request: Request) -> StreamingResponse:
         side.record_request(request.url.path)
@@ -235,6 +260,20 @@ def _install_sounds(
             raise ConnectionAbortedError
 
         return StreamingResponse(first_half_then_abort(), media_type=WAV_MEDIA_TYPE)
+
+    @app.get(f"{CUT_LATE_PATH}/{{name}}")
+    async def cut_late(name: str, request: Request) -> StreamingResponse:
+        side.record_request(request.url.path)
+        body = (recordings / name).read_bytes()
+
+        async def lead_then_abort_once_released() -> AsyncIterator[bytes]:
+            yield body[:STREAMED_LEAD_BYTES]
+            await side.held_release.wait()
+            raise ConnectionAbortedError
+
+        return StreamingResponse(
+            lead_then_abort_once_released(), media_type=WAV_MEDIA_TYPE
+        )
 
 
 async def _write_outbox(browser: WebSocket, side: AppSide) -> None:
