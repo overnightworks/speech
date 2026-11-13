@@ -1,6 +1,8 @@
 """Configuration comes from the environment."""
 
+import io
 import ipaddress
+import wave
 from typing import TYPE_CHECKING
 
 import pytest
@@ -232,6 +234,18 @@ def test_provider_root_is_optional_for_the_default_piper_process(
 ) -> None:
     monkeypatch.delenv("SPEECH_PROVIDER_ROOT", raising=False)
     assert Settings().provider_root is None
+
+
+def test_streamed_wav_header_is_readable_by_the_wave_module() -> None:
+    frames = b"\x01\x00" * 8
+    with wave.open(io.BytesIO(wav_header(SPEAK_SAMPLE_RATE) + frames)) as reader:
+        assert reader.getframerate() == SPEAK_SAMPLE_RATE
+        assert reader.readframes(8) == frames
+
+
+def test_sized_wav_header_keeps_its_exact_riff_size() -> None:
+    header = wav_header(SPEAK_SAMPLE_RATE, 100)
+    assert int.from_bytes(header[4:8], "little") == len(header) - 8 + 100
 
 
 def test_wav_header_is_sixteen_bit_mono() -> None:

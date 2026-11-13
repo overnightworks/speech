@@ -37,7 +37,11 @@ def wav_header(sample_rate: int, data_bytes: int = STREAMING_DATA_SIZE) -> bytes
     byte_rate = sample_rate * CHANNELS * BYTES_PER_SAMPLE
     block_align = CHANNELS * BYTES_PER_SAMPLE
     mark = _ai_mark_chunk()
-    riff_size = (36 + len(mark) + data_bytes) & 0xFFFFFFFF
+    riff_size = (
+        STREAMING_DATA_SIZE
+        if data_bytes == STREAMING_DATA_SIZE
+        else (36 + len(mark) + data_bytes) & 0xFFFFFFFF
+    )
     format_chunk = struct.pack(
         "<4sI4s4sIHHIIHH",
         b"RIFF",
