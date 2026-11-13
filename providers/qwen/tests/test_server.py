@@ -86,8 +86,10 @@ def test_a_server_that_never_answers_fails_the_start_and_is_stopped(
     with pytest.raises(ServerStartError):
         _start("unhealthy", tmp_path, "--pid-file", str(pid_file))
 
+    stopped_pid = int(pid_file.read_text(encoding="ascii"))
+
     with pytest.raises(ProcessLookupError):
-        os.kill(int(pid_file.read_text(encoding="ascii")), 0)
+        os.kill(stopped_pid, 0)
 
 
 def test_a_bind_that_fails_is_a_failed_start(tmp_path: Path) -> None:
