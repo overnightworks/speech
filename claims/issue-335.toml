@@ -1,7 +1,0 @@
-claim_id = "d7d68c55c31a4e218fbd2882e9683811"
-agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
-role = "builder"
-base = "ccd012bda95524f93834bef2fa04638cc6464a85"
-branch = "claude/issue-335-speech-started-callback"
-scope = ["packages/client/src/speech_client/__init__.py", "packages/client/src/speech_client/utterances.py", "tests/test_wire_route_client_utterances.py"]
-opened_commit = "9fc9ef9e611cb7b231462618042a15d144d9de53"
