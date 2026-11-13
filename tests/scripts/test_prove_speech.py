@@ -203,15 +203,6 @@ def test_term_stops_the_speech_server_through_its_teardown(tmp_path: Path) -> No
     server.terminate.assert_called_once_with()
 
 
-@pytest.mark.usefixtures("terminate_handler")
-def test_a_load_that_never_falls_ends_at_term() -> None:
-    with pytest.raises(SystemExit):
-        PROVE.wait_for_load(
-            read_load=lambda: PROVE.LOAD_CEILING + 1,
-            sleep=lambda _: os.kill(os.getpid(), signal.SIGTERM),
-        )
-
-
 @pytest.mark.usefixtures("restored_terminate_handler")
 def test_term_during_the_proof_under_probe_run_runs_its_teardown() -> None:
     torn_down: list[bool] = []

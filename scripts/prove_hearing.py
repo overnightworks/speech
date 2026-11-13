@@ -67,7 +67,6 @@ from prove_speech import (
     speak_measured,
     speech_environment,
     speech_server,
-    wait_for_load,
 )
 from speech_client.hearing import Refused
 from speech_client.wire import (
@@ -681,13 +680,9 @@ def record_writer(
     return save
 
 
-def prove(
-    arguments: argparse.Namespace,
-    wait_for_calm: Callable[[], None] = wait_for_load,
-) -> None:
+def prove(arguments: argparse.Namespace) -> None:
     """Measure every model and card stage into the record, then judge it."""
     require_cached_models(arguments.hearing_models)
-    wait_for_calm()
     models: dict[str, object] = {}
     stages = {
         name: figures.open_stage(arguments.device, "cuda") for name in CARD_STAGES

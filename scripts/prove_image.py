@@ -26,7 +26,10 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from image_gpu_voice import cell_gpu_voice_not_offered, cell_gpu_voice_offered
 from image_judgement import (
@@ -87,13 +90,13 @@ from proof_identity import (
     proof_identity,
 )
 from prove_speech import (
+    PROBE_RUN,
     SENTENCE,
     SENTENCES,
     UNDER_PROBE_RUN_ENV,
     parse_arguments,
     prove_under_probe_run,
     run_under_probe_run,
-    wait_for_load,
 )
 from speech_client.hearing import Refused
 from speech_client.wire import (
@@ -669,7 +672,6 @@ def hearing_cells(
 
 
 def _prove() -> None:
-    wait_for_load()
     config = load_caller_config(BAKED_CONFIG)
     baked = baked_caller(config, min(config.apps))
     directory = Path(tempfile.mkdtemp(prefix="speech-image-"))
@@ -723,16 +725,23 @@ def _prove() -> None:
     print("PROOF_OK")
 
 
-def build_then_drive(arguments: list[str]) -> int:
+def build_then_drive(
+    arguments: list[str],
+    build: Callable[[str], None] = cell_build,
+    remove: Callable[[str], None] = remove_image,
+    drive: Callable[..., int] = run_under_probe_run,
+    which: Callable[[str], str | None] = shutil.which,
+) -> int:
     """Build this run's image, drive the proof under `probe-run`, remove the image."""
+    if which(PROBE_RUN) is None:
+        message = f"{PROBE_RUN} is not on PATH; the proof does not run without it"
+        raise SystemExit(message)
     project = new_project()
     try:
-        cell_build(project)
-        return run_under_probe_run(
-            arguments, script=THIS_SCRIPT, environment={PROJECT_ENV: project}
-        )
+        build(project)
+        return drive(arguments, script=THIS_SCRIPT, environment={PROJECT_ENV: project})
     finally:
-        remove_image(project)
+        remove(project)
 
 
 def main() -> None:

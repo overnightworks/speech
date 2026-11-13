@@ -148,8 +148,8 @@ and the path itself are in
 ## Proofs
 
 Each proof re-runs itself under `probe-run`, which waits for the machine to be
-free, uses a free port and its own container and project names, and cleans up
-what it started:
+free and caps the run; the proof uses a free port and its own container and
+project names, and cleans up what it started:
 
 | Command | What it proves |
 | --- | --- |

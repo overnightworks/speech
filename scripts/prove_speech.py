@@ -1,6 +1,6 @@
 """Stage proof: start the service, drive health and speak, then the contract client.
 
-Drives itself under `probe-run`, checks the 1-minute load, runs one heavy step at a
+Drives itself under `probe-run`, which waits for the load, runs one heavy step at a
 time, and leaves no process behind. Model weights stay in the Hugging Face and
 Piper caches.
 """
@@ -91,7 +91,6 @@ SPEAK_TIMEOUT_SECONDS = 120
 CONCURRENT_EXTRA_WAIT_SECONDS = 8.0
 CONTRACT_MARKERS = ("contract_health", "contract_speak")
 LOGGER = logging.getLogger(__name__)
-LOAD_CEILING = 18.0
 READY_TIMEOUT_SECONDS = 300.0
 HEALTH_DEADLINE_SECONDS = 5.0
 HEALTH_CAP_BYTES = 64 * 1024
@@ -101,24 +100,6 @@ PIPER_CACHE = Path.home() / ".cache" / "piper"
 LOOPBACK_HOST = "127.0.0.1"
 PROVIDER_ROOT = Path(__file__).resolve().parents[1] / "providers"
 HF_CACHE = Path.home() / ".cache" / "huggingface" / "hub"
-
-
-def _load_1min() -> float:
-    return float(Path("/proc/loadavg").read_text(encoding="utf-8").split()[0])
-
-
-def wait_for_load(
-    read_load: Callable[[], float] = _load_1min,
-    sleep: Callable[[float], None] = time.sleep,
-) -> None:
-    """Wait for the 1-minute load to fall to the ceiling, inside the probe-run cap."""
-    while True:
-        load = read_load()
-        print(f"load_1min={load:.2f}")
-        if load <= LOAD_CEILING:
-            return
-        print(f"load {load:.2f} is above {LOAD_CEILING}, waiting")
-        sleep(15)
 
 
 def fleet_command(arguments: list[str], script: Path = THIS_SCRIPT) -> list[str]:
@@ -666,7 +647,6 @@ def parse_arguments(arguments: list[str]) -> argparse.Namespace:
 
 
 def _prove() -> None:
-    wait_for_load()
     print("gpu_before", nvidia_memory())
     work_directory = Path(tempfile.mkdtemp(prefix="speech-"))
     port = free_local_port()
