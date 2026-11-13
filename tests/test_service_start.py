@@ -318,7 +318,6 @@ def test_a_gpu_voice_loaded_at_start_is_not_ready_until_its_load_ends() -> None:
     loaded = runtime.health().speaking.ready
 
     assert (while_loading, loaded) == (False, True)
-    assert runtime.load_on_demand(VoiceId.RYAN) is None
 
 
 def test_shutdown_during_the_start_load_leaves_later_voices_and_hearing_unloaded() -> (

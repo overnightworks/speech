@@ -383,13 +383,20 @@ def test_a_request_during_a_failed_loads_cleanup_shares_its_refusal_and_starts_n
     assert_reaped(pid)
 
 
+@pytest.mark.parametrize("loaded_at_start", [False, True])
 @pytest.mark.parametrize("death", ["killed while idle", "failed synthesis"])
 def test_a_worker_that_dies_after_it_was_ready_turns_its_voice_unready_and_reloads(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, death: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    death: str,
+    *,
+    loaded_at_start: bool,
 ) -> None:
-    """WIRE-103, WIRE-126: a worker that dies turns its voice unready."""
+    """WIRE-103, WIRE-126, WIRE-143: a worker that dies turns its voice unready."""
     fatal = threading.Event()
-    with gpu_voice_stage(tmp_path, monkeypatch, _SERVING) as stage:
+    with gpu_voice_stage(
+        tmp_path, monkeypatch, _SERVING, load_gpu_voices_at_start=loaded_at_start
+    ) as stage:
         stage.runtime.set_fatal_callback(fatal.set)
         client = TestClient(stage.app(), raise_server_exceptions=False)
         _assert_spoken_at(

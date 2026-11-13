@@ -155,9 +155,10 @@ class Runtime:
     def load_on_demand(self, voice: VoiceId) -> Future[SpeakingEngine | None] | None:
         """The voice's shared load, started if none runs; `None` if none may.
 
-        A start voice never loads on demand, and no voice does during the start.
+        A Piper voice never loads on demand, and no voice does during the start.
+        A GPU voice the start loaded reloads here once its worker died.
         """
-        if voice in self._start_voices or self.loading:
+        if loads_at_start(voice) or self.loading:
             return None
         return self.slots[voice].shared_load()
 
