@@ -1,8 +1,0 @@
-claim_id = "a1749924cb3e452dbcab6ce52f5bb474"
-agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
-role = "builder"
-base = "8a4fc7de57a93cfe8b970a7003f151a7e972cbeb"
-branch = "claude/issue-333-gpu-image"
-scope = [".dockerignore", ".github/workflows", "Dockerfile", "README.md", "docs/ARCHITECTURE.md", "docs/wire.md", "quality/config.toml", "scripts", "src/speech_service", "tests"]
-opened_commit = "57817e746b13dc5db17bd6977e355404be025a24"
-whole_reason = "The gpu image, its start, its proof and its release change as one piece, with every quality pin moved to the release that carries the runner input."
