@@ -222,7 +222,7 @@ describe("openSound", () => {
 
   it("reads an answer that names no type whole", async () => {
     const bytes = wav(SAMPLES);
-    const opened = await openSound(new Response(bytes));
+    const opened = await openSound(new Response(bytes.slice()));
 
     expect(opened.kind).toBe("whole");
   });
