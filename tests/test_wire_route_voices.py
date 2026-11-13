@@ -281,6 +281,13 @@ def test_a_language_outside_the_wire_is_refused_naming_language(
             "voice",
             id="ryan-voice-of-another-model",
         ),
+        pytest.param(
+            VoiceId.THORSTEN,
+            "fr",
+            {"instructions": "Sprich zornig"},
+            "language",
+            id="thorsten-language-before-instructions",
+        ),
     ],
 )
 def test_a_wrong_model_or_voice_is_named_before_a_wrong_language(
@@ -289,7 +296,7 @@ def test_a_wrong_model_or_voice_is_named_before_a_wrong_language(
     changes: dict[str, object],
     param: str,
 ) -> None:
-    """WIRE-139: the language check follows the model and voice checks."""
+    """WIRE-139: the language check follows model and voice and precedes instructions."""
     body = json.loads(_without_language(voice)) | changes
     if language is not None:
         body["language"] = language
