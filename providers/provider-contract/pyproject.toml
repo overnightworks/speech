@@ -5,13 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "overnightworks-speech-provider-contract"
 version = "0.12.0"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/speech_provider_contract"]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py312"
 src = ["src", "../qwen/src", "../qwen/tests"]
 
 [tool.ruff.lint]

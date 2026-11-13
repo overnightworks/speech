@@ -45,7 +45,8 @@ updates:
           - "torchaudio"
           - "transformers"
           - "accelerate"
-          - "qwen-tts"
+          - "vllm"
+          - "vllm-omni"
   - package-ecosystem: npm
     directory: /packages/browser
     schedule:

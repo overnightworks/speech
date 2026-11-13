@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import os
 import re
+import signal
 import sys
+import time
 import tomllib
 from pathlib import Path
 
@@ -116,6 +118,26 @@ raise SystemExit(serve_provider(
     device="cpu", cache=cache, protocol_stdout=protocol_stdout,
     sample_rate=24000,
     functions=ProviderFunctions(lambda _device, _cache: object(), synthesize),
+))
+"""
+_STAGE_BODY = """import os
+import subprocess
+import sys
+from pathlib import Path
+
+from speech_provider_contract import ProviderFunctions, serve_provider
+
+cache = Path(sys.argv[sys.argv.index("--cache") + 1])
+protocol_stdout = os.dup(1)
+stage = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
+cache.mkdir(exist_ok=True)
+cache.joinpath("worker").write_text(str(os.getpid()))
+cache.joinpath("stage").write_text(str(stage.pid))
+
+raise SystemExit(serve_provider(
+    device="cpu", cache=str(cache), protocol_stdout=protocol_stdout,
+    sample_rate=24000,
+    functions=ProviderFunctions(lambda _device, _cache: object(), lambda *_: ()),
 ))
 """
 _SENTENCE = "Ein Satz, den nur der Aufrufer kennt"
@@ -342,3 +364,36 @@ def test_a_provider_that_dies_after_ready_logs_its_exit_status(
 
     _assert_no_sentence(caplog)
     assert caplog.text.count(f"{ENDED_AFTER_READY}, exit status 3") == 1
+
+
+def _has_ended(pid: int) -> bool:
+    """Whether `pid` is gone or a zombie that its adopter has yet to reap."""
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            status = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+        except FileNotFoundError:
+            return True
+        if status.rpartition(")")[2].split()[0] == "Z":
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def test_a_stage_process_that_outlives_its_worker_ends_with_the_service_stop(
+    tmp_path: Path,
+) -> None:
+    engine = _provider(tmp_path, _STAGE_BODY)
+    engine.load()
+    cache = tmp_path / "cache"
+    worker = int((cache / "worker").read_text())
+    stage = int((cache / "stage").read_text())
+
+    os.kill(worker, signal.SIGKILL)
+    deadline = time.monotonic() + 5
+    while engine.ready and time.monotonic() < deadline:
+        time.sleep(0.01)
+    engine.close()
+
+    assert not engine.ready
+    assert _has_ended(stage)

@@ -41,7 +41,7 @@ a card, run it as `SPEECH_DEVICE=cpu uv run python scripts/prove_speech.py`.
 - **A GPU voice.** Name it beside the Piper voices in `SPEECH_VOICES`, for example
   `SPEECH_VOICES=de_DE-thorsten-medium,de_DE-kerstin-medium,en_US-norman-medium,en_US-ljspeech-medium,en_GB-cori-medium,ryan`,
   fetch with `uv run speech-fetch-voice` and run `uv sync --locked` inside
-  `providers/qwen`. It always runs on `cuda`, so the card must be free.
+  `providers/qwen`. It always runs on `cuda` and reserves about 11 GB of it (0.45 of a 24 GB card).
 - **A container.** `Dockerfile` and `compose.yaml` build and run the service on
   the CPU with the five Piper voices and the `small` hearing model,
   fetched at build. The image carries no GPU voice; see
