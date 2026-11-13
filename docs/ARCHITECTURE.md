@@ -56,6 +56,13 @@ flowchart LR
   with no process and no CUDA context, until a request names it. Its first
   request starts the slot's one load job on a thread the slot owns, and every
   request for that voice awaits the same job. Nothing unloads a voice.
+- **Qwen speaks through its own server.** Its worker starts `vllm-omni serve`
+  as a child in `load`, on the pinned checkpoint, and `load` returns once the
+  child answers its health check. A request goes to it over HTTP on a Unix
+  socket and its audio is read per arrived chunk, so the first chunk reaches the
+  caller before the second is made; the instructions cross as the request's
+  `instructions`. The server reserves 0.45 of the card (0.3 for the talker, 0.15
+  for the decoder) and assumes nothing about being alone on it.
 - **Three load rules.** A request that leaves never cancels a shared load: the
   job's future runs before its thread starts and requests await it shielded. A
   load first checks the voice's pinned files and worker, and a failed load
@@ -177,6 +184,24 @@ no capability is kept.
   errno names or numbers, int error codes and exit statuses, and code frames,
   escaped and at most 4 KB in its FAILED frame, and the provider's stderr
   after READY stays /dev/null.
+- Qwen's server is the worker's child, reachable only through a Unix socket in
+  the worker's private directory, a fresh path per start, so no port opens and a
+  server left by an earlier start is never mistaken for the new one. Readiness
+  counts only while that child lives. It sends no telemetry
+  (`VLLM_NO_USAGE_STATS`, `DO_NOT_TRACK`), its stdout goes nowhere, and its
+  stderr joins the worker's own, which is the startup file until READY and
+  `/dev/null` after.
+- The server dies with its worker (the parent-death signal, set on the worker's
+  main thread) and stays in the worker's process group, so the service's stop
+  ends every stage process through that group, also after the worker died first.
+  The worker ends when its server does, so health never reports a voice whose
+  server is gone. The next start removes the wake directories a killed server
+  left in `/dev/shm`, those its user owns and no process still reads; a link
+  there is never followed.
+- vLLM-Omni's deploy config and its tokenizer load still ask for
+  `trust_remote_code`; the command no longer does. The pinned snapshot holds no
+  Python file and no `auto_map`, and the process runs offline, so there is no
+  remote code to fetch or run.
 - A refusal never says which token or claim failed beyond its code.
 - The browser hop of the client's relay is the app's: its frames are untrusted
   and bounded (a text frame or a frame over the app's limit ends it with a named
@@ -220,8 +245,6 @@ no capability is kept.
   weights and card proof; reopens when the operator names a voice he wants.
 - **Piper `thorsten-high`:** its first audio through the service was over the
   one-second target when measured; reopens if the target moves.
-- **Streaming Qwen:** `qwen-tts` 0.1.1 returns a complete waveform; reopens with
-  a release that streams.
 - **Freeing a GPU voice or arbitrating the card in the service:** the operator
   turns a voice off in the setting; reopens when he forgets that often, with a
   second card or with a platform-level reservation.
@@ -232,13 +255,14 @@ no capability is kept.
   switch `compose.yaml` runs the service, naming no GPU voice and reserving no
   card: it speaks with Piper and hears on the CPU. The card reservation and its
   proof wait for the platform's GPU design.
-- A GPU voice is proven with a fake worker. The image does not carry Qwen until
-  the platform's GPU slice, so nothing proves that Qwen still installs into an
-  image against lock changes (wheel-only install, the sox build, the numba cache
-  in a read-only container), and its latency through the service on the target
-  card is unmeasured.
+- A GPU voice is proven with a fake worker and a fake server. The image does not
+  carry Qwen until the platform's GPU slice, so nothing proves that the server
+  still installs into an image against lock changes (a read-only root, its
+  compile caches in the worker's private directory), and its latency through the
+  service on the target card is unmeasured.
 - Qwen's first audio can take longer than `SPEECH_BUSY_WAIT_SECONDS`, so a
-  second request for it may answer `busy` while one long sentence runs.
+  second request for it may answer `busy` while one long sentence runs. The
+  first request also waits for the server to load, about three minutes.
 - Speaking and hearing share the CPU when hearing runs on `cpu`, as the image
   does. `scripts/prove_speech.py` measured this on a shared development machine,
   on the CPU with the `small` hearing model and four of the Piper voices (all
