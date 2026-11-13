@@ -9,10 +9,10 @@ Run each in its project's own directory (the root, or `providers/qwen`).
 - `uv run --locked python scripts/generate_browser_wire.py`: rewrite `packages/browser/src/hop.ts` from `PcmFormat` and `speech_client.relay`; `--check` fails on a drifted or missing module.
 - In `packages/browser`: `pnpm install --frozen-lockfile`, `pnpm run check`, `pnpm run build` and `pnpm run test:coverage`.
 - In `packages/browser`: `node scripts/pack-release.js <destination>` packs the tarball into the empty `<destination>` and installs it into an empty project.
-- `uv run --locked pytest -q -n 2 -m browser tests/test_wire_route_browser_capture.py tests/test_wire_route_browser_player.py`: the browser flows (capture and player) in Chromium against `packages/browser/dist` (build it first; `uv run --locked playwright install chromium` once), under `/tmp/probe-stack.lock`.
+- `probe-run uv run --locked pytest -q -n 2 -m browser tests/test_wire_route_browser_capture.py tests/test_wire_route_browser_player.py`: the browser flows (capture and player) in Chromium against `packages/browser/dist` (build it first; `uv run --locked playwright install chromium` once).
 - `uv run --locked --project ../qwen ruff check --config pyproject.toml .`: lint `providers/provider-contract`, from its directory.
-- `uv run --locked pytest -q -m keycloak tests/test_callers_keycloak.py`: token shapes against a Keycloak you start yourself on a free port and name in `KEYCLOAK_URL`, under `/tmp/probe-stack.lock`.
-- `uv run python scripts/prove_speech.py`: stage proof of health and speaking; starts the providers and takes `/tmp/probe-stack.lock` itself.
+- `probe-run uv run --locked pytest -q -m keycloak tests/test_callers_keycloak.py`: token shapes against a Keycloak you start yourself on a free port and name in `KEYCLOAK_URL`.
+- `uv run python scripts/prove_speech.py`: stage proof of health and speaking; starts the providers and re-runs itself under `probe-run`.
 
 ## Rules
 

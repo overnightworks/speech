@@ -14,6 +14,7 @@ from packaging.markers import Marker
 
 from hearing_figures import words
 from prove_speech import spoken_in_log
+from speech_client.outcomes import RetryAfterError, busy_wait
 from speech_client.wire import (
     REFUSAL_STATUS,
     VOICES,
@@ -22,10 +23,8 @@ from speech_client.wire import (
     Refusal,
     RefusalCode,
     RequestField,
-    RetryAfterError,
     Transcription,
     VoiceId,
-    busy_wait,
 )
 from speech_service.hearing_models import HearingModel, voiced_floor
 from speech_service.pcm import AI_MARK, pcm_from_wav, voiced_seconds

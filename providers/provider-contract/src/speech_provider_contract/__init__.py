@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO, TypeGuard
+from typing import TYPE_CHECKING, BinaryIO, Final, TypeGuard
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 QWEN_SAMPLE_RATE = 24_000
 # The only device the Qwen adapter loads on, whatever device hearing uses.
 QWEN_DEVICE = "cuda"
-QWEN_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
-QWEN_REVISION = "85e237c12c027371202489a0ec509ded67b5e4b5"
+QWEN_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+QWEN_REVISION = "0c0e3051f131929182e2c023b9537f8b1c68adfe"
 QWEN_ARTIFACTS = (
     ".gitattributes",
     "README.md",
@@ -66,8 +66,13 @@ MAX_FRAME_LENGTH = 1_048_585
 FRAME_OVERHEAD = 9
 MIN_PCM_BYTES = 2
 MAX_PCM_BYTES = 1_048_576
-MIN_SYNTHESIS_BYTES = 2
-MAX_SYNTHESIS_BYTES = 16_385
+MAX_INSTRUCTION_BYTES = 2_000
+MAX_TEXT_BYTES = 16_384
+# The language code, the instructions' byte length, the instructions, the text.
+MIN_SYNTHESIS_BYTES = 4
+MAX_SYNTHESIS_BYTES = 3 + MAX_INSTRUCTION_BYTES + MAX_TEXT_BYTES
+SYNTHESIS_LANGUAGES: Final = {"de": 1, "en": 2}
+_INSTRUCTION_LENGTH = struct.Struct("!H")
 MAX_FAILURE_CAUSE_BYTES = 4096
 _CAUSE_LINKS = 4
 _CAUSE_FRAMES = 6
@@ -212,16 +217,54 @@ def _validate(frame: Frame) -> None:
         raise ProtocolError
 
 
-def _valid_synthesis(payload: bytes) -> bool:
+@dataclass(frozen=True, slots=True)
+class Synthesis:
+    """What one SYNTHESIZE frame asks: the text, its language code, how to speak it."""
+
+    language: str
+    text: str
+    instructions: str | None = None
+
+
+def encode_synthesis(synthesis: Synthesis) -> bytes:
+    """Encode `synthesis`, whose language is a key of `SYNTHESIS_LANGUAGES`."""
+    instructions = (synthesis.instructions or "").encode("utf-8")
+    return (
+        bytes([SYNTHESIS_LANGUAGES[synthesis.language]])
+        + _INSTRUCTION_LENGTH.pack(len(instructions))
+        + instructions
+        + synthesis.text.encode("utf-8")
+    )
+
+
+def decode_synthesis(payload: bytes) -> Synthesis:
+    """Decode a SYNTHESIZE payload; ProtocolError when it is none."""
     if not MIN_SYNTHESIS_BYTES <= len(payload) <= MAX_SYNTHESIS_BYTES:
-        return False
-    if payload[0] not in {1, 2}:
-        return False
+        raise ProtocolError
+    languages = {code: language for language, code in SYNTHESIS_LANGUAGES.items()}
+    language = languages.get(payload[0])
+    (instruction_bytes,) = _INSTRUCTION_LENGTH.unpack_from(payload, 1)
+    text_start = 3 + instruction_bytes
+    if (
+        language is None
+        or instruction_bytes > MAX_INSTRUCTION_BYTES
+        or not 0 < len(payload) - text_start <= MAX_TEXT_BYTES
+    ):
+        raise ProtocolError
     try:
-        payload[1:].decode("utf-8")
+        instructions = payload[3:text_start].decode("utf-8")
+        text = payload[text_start:].decode("utf-8")
     except UnicodeDecodeError:
+        raise ProtocolError from None
+    return Synthesis(language, text, instructions or None)
+
+
+def _valid_synthesis(payload: bytes) -> bool:
+    try:
+        decode_synthesis(payload)
+    except ProtocolError:
         return False
-    return bool(payload[1:])
+    return True
 
 
 def _valid_pcm(payload: bytes) -> bool:
@@ -244,7 +287,7 @@ class ProviderFunctions:
     """Provider callbacks behind the shared command loop."""
 
     load: Callable[[str, Path], object]
-    synthesize: Callable[[object, str, str], Iterable[bytes]]
+    synthesize: Callable[[object, str, str, str | None], Iterable[bytes]]
     prepare: Callable[[object], None] | None = None
 
 
@@ -331,7 +374,7 @@ def _read_commands(
 def serve_commands(
     commands: queue.Queue[Frame | BaseException],
     stream: BinaryIO,
-    synthesize: Callable[[object, str, str], Iterable[bytes]],
+    synthesize: Callable[[object, str, str, str | None], Iterable[bytes]],
     model: object,
 ) -> None:
     """Serve validated commands until input or synthesis fails."""
@@ -365,18 +408,19 @@ def serve_commands(
 def _synthesize_request(
     commands: queue.Queue[Frame | BaseException],
     stream: BinaryIO,
-    synthesize: Callable[[str, str], Iterable[bytes]],
+    synthesize: Callable[[str, str, str | None], Iterable[bytes]],
     command: Frame,
     previous_terminal: int,
 ) -> FrameKind | None:
     """Stream one request; return its terminal kind, or None after FAILED."""
     request_id = command.request_id
-    language = {1: "de", 2: "en"}[command.payload[0]]
-    text = command.payload[1:].decode("utf-8")
+    synthesis = decode_synthesis(command.payload)
     iterator: Iterable[bytes] | None = None
     try:
         cancelled = False
-        iterator = iter(synthesize(text, language))
+        iterator = iter(
+            synthesize(synthesis.text, synthesis.language, synthesis.instructions)
+        )
         for pcm in iterator:
             cancelled = _consume_cancellation(commands, request_id, previous_terminal)
             if cancelled:

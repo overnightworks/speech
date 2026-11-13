@@ -204,7 +204,7 @@ def test_every_voice_of_the_catalogue_can_be_offered(
     [
         "alloy",
         "piper",
-        "qwen3-tts-0.6b",
+        "qwen3-tts-1.7b",
         f"{VoiceId.RYAN.value},",
         f",{VoiceId.RYAN.value}",
         f"{VoiceId.RYAN.value},{VoiceId.RYAN.value}",

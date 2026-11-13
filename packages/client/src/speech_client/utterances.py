@@ -4,12 +4,20 @@
 with `speech_client.relay.relay` and hands the app what the service heard as
 typed records. The app keeps the route, its admission, the token choice, its
 rule and when a hearing ends: it sets `ended` to end it, and the relay's hard
-end holds, so after `ended` is set no utterance and no partial reaches the app.
+end holds, so after `ended` is set no callback is called again.
 
 - `on_utterance` gets an `Utterance` for each finished item with a non-empty
   transcript: its text, its decoded language and the positions, in milliseconds
   of the audio, at which the item's speech started and stopped (`None` when the
   service did not send that event). An empty transcript reaches nobody.
+- `on_speech_started`, if given, gets a `SpeechStart` for each `speech_started`
+  event, the moment a person starts speaking, in event order with the other
+  callbacks: before that item's partials and its utterance. Without it nothing
+  of the event reaches the app.
+- `on_turn_ended`, if given, gets a `TurnEnd` for each finished item, empty or
+  not, after that item's `on_utterance`: `heard_words` is false when the
+  transcript was empty, a cough for one. Without it nothing of an empty turn
+  reaches the app.
 - `on_partial`, if given, gets a `Partial` for each delta: the item's text so far.
   Without it nothing of a delta reaches the app.
 - A failed item or an `error` event ends the hearing: the browser is closed
@@ -58,6 +66,20 @@ class Utterance:
 
 
 @dataclass(frozen=True, slots=True)
+class SpeechStart:
+    """A person started speaking, `audio_start_ms` into the audio."""
+
+    audio_start_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class TurnEnd:
+    """A person's turn ended; `heard_words` is false when it carried no words."""
+
+    heard_words: bool
+
+
+@dataclass(frozen=True, slots=True)
 class Partial:
     """The text of an item heard so far."""
 
@@ -101,12 +123,17 @@ class _Mapping:
 
     on_utterance: Callable[[Utterance], Awaitable[None]]
     on_partial: Callable[[Partial], Awaitable[None]] | None
+    on_speech_started: Callable[[SpeechStart], Awaitable[None]] | None
+    on_turn_ended: Callable[[TurnEnd], Awaitable[None]] | None
+    ended: asyncio.Event
     items: _Items = field(default_factory=_Items)
 
     async def on_event(self, event: ServerEvent) -> None:
         match event:
             case SpeechStarted():
                 self.items.started[event.item_id] = event.audio_start_ms
+                if self.on_speech_started is not None:
+                    await self.on_speech_started(SpeechStart(event.audio_start_ms))
             case SpeechStopped():
                 self.items.stopped[event.item_id] = event.audio_end_ms
             case TranscriptDelta() if self.on_partial is not None:
@@ -123,6 +150,10 @@ class _Mapping:
                             audio_start_ms=start,
                             audio_end_ms=end,
                         )
+                    )
+                if self.on_turn_ended is not None and not self.ended.is_set():
+                    await self.on_turn_ended(
+                        TurnEnd(heard_words=bool(event.transcript))
                     )
             case TranscriptFailed() | ErrorEvent():
                 raise _ServiceFailedError(event.error.code)
@@ -142,6 +173,8 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
     ended: asyncio.Event,
     on_utterance: Callable[[Utterance], Awaitable[None]],
     on_partial: Callable[[Partial], Awaitable[None]] | None = None,
+    on_speech_started: Callable[[SpeechStart], Awaitable[None]] | None = None,
+    on_turn_ended: Callable[[TurnEnd], Awaitable[None]] | None = None,
     opening_seconds: float = OPENING_SECONDS,
 ) -> UtteranceOutcome:
     """Hear `browser`'s audio at the service at `origin`; see the module."""
@@ -159,7 +192,9 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
             browser,
             session,
             app_ended=ended,
-            on_event=_Mapping(on_utterance, on_partial).on_event,
+            on_event=_Mapping(
+                on_utterance, on_partial, on_speech_started, on_turn_ended, ended
+            ).on_event,
             frame_limit_bytes=HOP_FRAME_BYTES,
         )
     except _ServiceFailedError as failure:

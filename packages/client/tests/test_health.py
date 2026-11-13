@@ -46,6 +46,7 @@ _HEALTH = {
                 "model": SpeakingModel.PIPER.value,
                 "name": "A name",
                 "languages": [Language.DE.value],
+                "takes_instructions": False,
                 "ready": True,
                 "sample_rate": 22050,
             }

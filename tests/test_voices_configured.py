@@ -34,7 +34,7 @@ from tests.support.speak_support import (
     post_speech,
     speak_body,
 )
-from tests.support.worker_support import spoken_language_codes
+from tests.support.worker_support import spoken_instructions, spoken_language_codes
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -135,6 +135,21 @@ def test_ryan_is_spoken_by_the_worker_in_the_language_asked_for(
 
     assert spoken.status_code == HTTP_200_OK
     assert spoken_language_codes(stage.cache) == [provider_language_byte]
+
+
+@pytest.mark.parametrize("instructions", [None, "Lass mich ausreden, zornig und laut"])
+def test_ryan_is_spoken_by_the_worker_with_the_instructions_asked_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, instructions: str | None
+) -> None:
+    """WIRE-141: the instructions of a request reach the worker with its text."""
+    with gpu_voice_stage(tmp_path, monkeypatch, StageSetup("normal")) as stage:
+        spoken = post_speech(
+            TestClient(stage.app()),
+            speak_body(VoiceId.RYAN, instructions=instructions),
+        )
+
+    assert spoken.status_code == HTTP_200_OK
+    assert spoken_instructions(stage.cache) == [instructions]
 
 
 @pytest.mark.parametrize("voice", [v for v in VoiceId if v is not VoiceId.THORSTEN])

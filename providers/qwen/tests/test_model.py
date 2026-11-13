@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
-from speech_provider_contract import MAX_PCM_BYTES, QWEN_DEVICE
+from speech_provider_contract import (
+    MAX_PCM_BYTES,
+    QWEN_DEVICE,
+    QWEN_MODEL_ID,
+    QWEN_REVISION,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -61,9 +67,9 @@ def test_load_uses_the_pinned_local_snapshot_and_closed_cuda_mapping(
     assert model.load_model(QWEN_DEVICE, tmp_path) is loaded
     assert observed == {
         "snapshot": {
-            "repo_id": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+            "repo_id": QWEN_MODEL_ID,
             "repo_type": "model",
-            "revision": "85e237c12c027371202489a0ec509ded67b5e4b5",
+            "revision": QWEN_REVISION,
             "allow_patterns": model.QWEN_ARTIFACTS,
             "local_files_only": True,
             "cache_dir": tmp_path,
@@ -118,8 +124,62 @@ def test_english_is_explicit_and_instruction_is_absent(model: ModuleType) -> Non
     ]
 
 
+def test_named_instructions_reach_the_model_as_instruct_for_that_utterance(
+    model: ModuleType,
+) -> None:
+    generated = _GeneratedModel(np.array([0.25]))
+
+    assert list(
+        model.pcm_chunks(generated, "Hallo", "de", "Sprich zornig", speaker="Ryan")
+    )
+    assert list(model.pcm_chunks(generated, "Hallo", "de", speaker="Ryan"))
+
+    assert generated.calls == [
+        {
+            "text": "Hallo",
+            "language": "German",
+            "speaker": "Ryan",
+            "instruct": "Sprich zornig",
+        },
+        {"text": "Hallo", "language": "German", "speaker": "Ryan"},
+    ]
+
+
 def test_generation_rejects_an_unexpected_sample_rate(model: ModuleType) -> None:
     generated = _GeneratedModel(np.array([0.25]), rate=16_000)
 
     with pytest.raises(ValueError, match="Qwen sample rate"):
         list(model.pcm_chunks(generated, "Hallo", "de", speaker="Ryan"))
+
+
+def test_the_pinned_model_keeps_the_instructions_the_sdk_receives() -> None:
+    import torch
+    from qwen_tts import Qwen3TTSModel
+
+    parameter_count = re.search(r"-(\d+)\.(\d+)B-", QWEN_MODEL_ID)
+    assert parameter_count is not None
+    model_size = f"{parameter_count[1]}b{parameter_count[2]}"
+    received: dict[str, object] = {}
+
+    def generate(**arguments: object) -> tuple[list[object], None]:
+        received.update(arguments)
+        return [object()], None
+
+    sdk_model = SimpleNamespace(
+        tts_model_type="custom_voice",
+        tts_model_size=model_size,
+        device="cpu",
+        generate=generate,
+        speech_tokenizer=SimpleNamespace(
+            decode=lambda _codes: ([np.array([0.25])], 24_000)
+        ),
+    )
+    speaking = Qwen3TTSModel(
+        sdk_model, lambda **_text: {"input_ids": torch.tensor([1, 2])}
+    )
+
+    speaking.generate_custom_voice(
+        text="Hallo", language="German", speaker="Ryan", instruct="Sprich zornig"
+    )
+
+    assert received["instruct_ids"][0] is not None

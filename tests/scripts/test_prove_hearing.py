@@ -360,7 +360,7 @@ def cuda_arguments(tmp_path: Path, *changes: str) -> argparse.Namespace:
 def prove(tmp_path: Path, *changes: str) -> dict[str, object]:
     arguments = cuda_arguments(tmp_path, *changes)
     with contextlib.suppress(SystemExit, RuntimeError):
-        HEARING.prove(arguments, lambda: None)
+        HEARING.prove(arguments)
     return json.loads(arguments.record.read_text())
 
 
@@ -402,7 +402,7 @@ def test_a_taken_card_that_differs_is_never_written_as_complete(
     arguments = cuda_arguments(tmp_path, "--hearing-model", "large-v3")
 
     with pytest.raises(SystemExit, match="differs from cell 30: x"):
-        HEARING.prove(arguments, lambda: None)
+        HEARING.prove(arguments)
 
     assert True not in written
 
@@ -451,7 +451,7 @@ def test_a_stage_that_does_not_apply_on_cpu_is_not_missing(
     record_path = tmp_path / "record.json"
     arguments = HEARING.parse_arguments(command("--record", str(record_path)))
 
-    HEARING.prove(arguments, lambda: None)
+    HEARING.prove(arguments)
 
     assert json.loads(record_path.read_text())["not_measured"] == []
 
@@ -702,7 +702,7 @@ def test_a_cpu_run_that_fails_names_no_stage_that_never_applied(
     arguments = HEARING.parse_arguments(command("--record", str(record_path)))
 
     with pytest.raises(RuntimeError, match="small failed"):
-        HEARING.prove(arguments, lambda: None)
+        HEARING.prove(arguments)
 
     assert json.loads(record_path.read_text())["not_measured"] == [
         "hearing model small"

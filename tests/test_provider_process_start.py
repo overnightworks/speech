@@ -46,7 +46,7 @@ def load(device, cache):
     return object()
 
 
-def synthesize(model, text, language):
+def synthesize(model, text, language, instructions):
     print(text, file=sys.stderr, flush=True)
     Path(cache).mkdir(exist_ok=True)
     Path(cache, "stderr-target").write_text(os.readlink("/proc/self/fd/2"))
@@ -107,7 +107,7 @@ class PropertyCodeError(RuntimeError):
         return self.text
 
 
-def synthesize(model, text, language):
+def synthesize(model, text, language, instructions):
 {synthesis}
     yield b"\\x00\\x01"
 

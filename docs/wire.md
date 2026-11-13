@@ -38,23 +38,25 @@ positions), optionally the text so far, or the code of a failed item or of an
 
 ## Request
 
-**WIRE-04** A JSON object with exactly these fields, all required but `language`, all strict JSON types:
+**WIRE-04** A JSON object with exactly these fields, all required but `language` and `instructions`, all strict JSON types:
 
 | ID | Field | Accepted value |
 |---|---|---|
-| WIRE-05 | `model` | `piper` or `qwen3-tts-0.6b`, the engine of `voice`. Any other value is refused, so a request naming another model is never answered by this one. |
+| WIRE-05 | `model` | `piper` or `qwen3-tts-1.7b`, the engine of `voice`. Any other value is refused, so a request naming another model is never answered by this one. |
 | WIRE-06 | `input` | Text with at least one letter or digit, at most `SPEECH_MAX_INPUT_CHARACTERS` characters (default 4096; the operator may raise it above OpenAI's 4096). |
-| WIRE-07 | `voice` | A catalogue voice of `model` as a string: `de_DE-thorsten-medium`, `de_DE-kerstin-medium`, `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` under `piper`; `ryan` under `qwen3-tts-0.6b`. `speaking.voices` in health lists those offered. OpenAI's object form is refused. |
+| WIRE-07 | `voice` | A catalogue voice of `model` as a string: `de_DE-thorsten-medium`, `de_DE-kerstin-medium`, `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` under `piper`; `ryan` under `qwen3-tts-1.7b`. `speaking.voices` in health lists those offered. OpenAI's object form is refused. |
 | WIRE-09 | `voice` | A GPU voice that is not loaded yet loads for this request, which waits for the load. |
 | WIRE-10 | `response_format` | `wav` or `opus`. OpenAI defaults an absent field to `mp3`, so it is required here. |
 | WIRE-138 | `language` | An extension to OpenAI's request, which has no such field. `de` or `en`, the codes of WIRE-34; `null` counts as not named. A voice of one language speaks it, and the field is optional but, when named, must be that language. A voice of several languages (`ryan`: `de`, `en`) speaks the language named, and the field is required. A value other than `de` or `en`, or a language the voice does not speak, or no language for a voice of several, is refused. |
+| WIRE-141 | `instructions` | OpenAI's field of that name: how to speak the text, for example its tone. A string with at least one letter and at most 500 characters; `null` counts as not named, and a request without it speaks as before. Otherwise it is refused. The voice speaks the text in the manner the instructions name. |
+| WIRE-142 | `instructions` | `speaking.voices` in health lists for each voice whether it `takes_instructions`: `ryan` does, the Piper voices do not. A request that names instructions for a voice that takes none is refused, never ignored. |
 
 **WIRE-11** Each voice speaks the languages `speaking.voices` in health lists for it, and
-any field not listed here (`speed`, `instructions`, `stream_format`, ...) is refused.
-**WIRE-139** The request is checked in the order `model`, `voice`, `language`: a refused
-`language` is `invalid_request` with `param` `language` unless the `model` or the `voice`
-is refused first, which names that field, and it is answered before any `unavailable`
-(WIRE-103).
+any field not listed here (`speed`, `stream_format`, ...) is refused.
+**WIRE-139** The request is checked in the order `model`, `voice`, `language`,
+`instructions`: a refused `language` or `instructions` is `invalid_request` with `param`
+`language` or `instructions` unless an earlier field is refused first, which names that
+field, and it is answered before any `unavailable` (WIRE-103).
 
 ## Headers
 
@@ -292,7 +294,7 @@ names is not part of the contract, but for WIRE-139.
 | WIRE-96 | `not_found` | 404 | any other path, method or upgrade under version 1 | |
 | WIRE-97 | `unauthorized` | 401 | a token is missing, malformed, expired, for another issuer or audience, badly signed, or lacks a subject or a valid group claim | `WWW-Authenticate`: `Bearer` |
 | WIRE-98 | `forbidden` | 403 | both tokens are valid but do not permit the request: not a workload token, an unregistered app, tokens of different clients or of one subject, a person outside the app group or the service group | |
-| WIRE-100 | `invalid_request` | 422 | the body is not a JSON object, a field is missing, unknown or mistyped, a value is not accepted, or `input` is empty, without a letter or digit, or over the limit; for a recording: the form or `file` is missing, a field is unknown or not accepted, or the audio cannot be decoded (`param` `file`) | |
+| WIRE-100 | `invalid_request` | 422 | the body is not a JSON object, a field is missing, unknown or mistyped, a value is not accepted, or `input` is empty, without a letter or digit, or over the limit, or `instructions` are not accepted (WIRE-141, WIRE-142); for a recording: the form or `file` is missing, a field is unknown or not accepted, or the audio cannot be decoded (`param` `file`) | |
 | WIRE-101 | `too_large` | 413 | the body is over `SPEECH_MAX_BODY_BYTES` (a recording: `SPEECH_MAX_RECORDING_BYTES`), or the recording is longer than `SPEECH_MAX_RECORDING_SECONDS` (`param` `file`) | |
 | WIRE-102 | `busy` | 429 | the one synthesis (a recording: the one decode) is taken and its waiting places are taken (answered at once), or it is not free within its wait: `SPEECH_MAX_WAITING_REQUESTS` and `SPEECH_BUSY_WAIT_SECONDS`, for a recording `SPEECH_HEARING_MAX_WAITING_REQUESTS` and `SPEECH_HEARING_BUSY_WAIT_SECONDS` | `Retry-After`: the wait in whole seconds, at least 1 |
 | WIRE-103 | `unavailable` | 503 | the tokens cannot be checked because the issuer's key set is unreachable and no cached key serves, or the named voice cannot speak: it is not offered, the start load still runs, its load failed or found its files missing, its worker died while the request waited, or the service is shutting down (`param` `voice`); for a recording: hearing is not loaded or configured, or its decode failed | |
@@ -344,13 +346,13 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
 ## Health
 
 **WIRE-122** `GET /health` answers without a token, so a supervisor can poll it:
-`{"speaking": {"ready", "voices": {"<voice id>": {"model", "name", "languages", "ready", "sample_rate"}}}, "hearing": {"model", "ready"}, "card_memory_mb"}`.
+`{"speaking": {"ready", "voices": {"<voice id>": {"model", "name", "languages", "takes_instructions", "ready", "sample_rate"}}}, "hearing": {"model", "ready"}, "card_memory_mb"}`.
 **WIRE-123** It answers while the models are still loading, with `ready` false.
 **WIRE-124** `speaking.ready` is the speaking service's own readiness: the start load has
 ended, shutdown has not begun, and every offered Piper voice can speak. With no Piper
 voice offered, it is true once the start load ends. **WIRE-125** `speaking.voices` lists
 the offered voices by id. Each reports, loaded or not, its `model` (the request's
-`model`), its `name`, its `languages` (the codes it speaks) and its WAV `sample_rate` (a
+`model`), its `name`, its `languages` (the codes it speaks), whether it `takes_instructions` (WIRE-142) and its WAV `sample_rate` (a
 Piper voice's is 0 until it is loaded). A client reads each id as a string, so a voice id it
 does not know, under a model and in languages it knows, does not break its reading of
 health. **WIRE-126** A voice's `ready` is true exactly when a request for it

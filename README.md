@@ -7,7 +7,7 @@ starts and configures it; an app developer reads the wire.
 One process holds the offered Piper voices resident and offers `GET /health`, the
 speak route, a route that hears a recording and a live hearing WebSocket, over
 HTTP on a TCP address. Beside them it offers each GPU voice the operator names
-(today Qwen3-TTS 0.6B's `ryan`), loaded on its first request. When a hearing model is
+(today Qwen3-TTS 1.7B's `ryan`), loaded on its first request. When a hearing model is
 named, it also holds a faster-whisper model resident. Speaking and hearing need
 the app's workload token and the person's token; `/health` needs none. The
 service stores no choice of its own.
@@ -54,7 +54,7 @@ a card, run it as `SPEECH_DEVICE=cpu uv run python scripts/prove_speech.py`.
 | Speaking, Piper | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices), `de_DE-thorsten-medium` | Recordings CC0; ONNX weights under the piper-voices MIT repository; the `piper-tts` runtime is `GPL-3.0-or-later` |
 | Speaking, Piper, German | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices), `de_DE-kerstin-medium` | CC0 for the dataset (OHF-Voice voice-datasets) per the model card; fine-tuned from the Hi-Fi TTS base model, CC BY 4.0 (NVIDIA), which needs credit |
 | Speaking, Piper, English | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices), `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` | Public domain per each voice's model card (LibriVox for norman and cori, LJ Speech for ljspeech) |
-| Speaking, optional | [`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice), German and English, the built-in speaker `ryan` | Apache-2.0 |
+| Speaking, optional | [`Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice), German and English, the built-in speaker `ryan` | Apache-2.0 |
 | Hearing, optional | [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3) (recommended) and [`Systran/faster-whisper-small`](https://huggingface.co/Systran/faster-whisper-small), German and English | MIT |
 
 A speak request names a `model`, the engine, and a `voice` of it, and a `language` where the voice speaks several (`ryan`: `de` or `en`):
@@ -66,7 +66,7 @@ A speak request names a `model`, the engine, and a `voice` of it, and a `languag
 | `en_US-norman-medium` | `piper` | Norman | English |
 | `en_US-ljspeech-medium` | `piper` | LJ Speech | English |
 | `en_GB-cori-medium` | `piper` | Cori | English |
-| `ryan` | `qwen3-tts-0.6b` | Ryan | German and English, named by the request's `language` |
+| `ryan` | `qwen3-tts-1.7b` | Ryan | German and English, named by the request's `language` |
 
 Each model is pinned to a revision. `small` fits a CPU and the image, but can
 mishear a question, so `large-v3` is the model to use where the meaning counts.
@@ -147,8 +147,9 @@ and the path itself are in
 
 ## Proofs
 
-Each proof takes `/tmp/probe-stack.lock` itself, waits for the machine to be
-free and cleans up what it started:
+Each proof re-runs itself under `probe-run`, which waits for the machine to be
+free and caps the run; the proof uses a free port and its own container and
+project names, and cleans up what it started:
 
 | Command | What it proves |
 | --- | --- |

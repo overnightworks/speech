@@ -1,8 +1,7 @@
-"""The wire: a `busy` wait, token headers, hearing request, refusals, events, health."""
+"""The wire: token headers, hearing request, refusals, events, health."""
 
 import json
 import traceback
-from http import HTTPStatus
 
 import pytest
 from pydantic import ValidationError
@@ -11,14 +10,11 @@ from speech_client.wire import (
     AUTHORIZATION_HEADER,
     CONTENT_TYPE_HEADER,
     MODEL,
-    REFUSAL_STATUS,
-    RETRY_AFTER_HEADER,
     VOICES,
     WORKLOAD_TOKEN_HEADER,
     AudioAppend,
     AudioCommit,
     AudioCommitted,
-    BusyWait,
     ClientEventError,
     DurationUsage,
     Health,
@@ -27,7 +23,6 @@ from speech_client.wire import (
     Language,
     RefusalCode,
     ResponseFormat,
-    RetryAfterError,
     ServerEvent,
     ServerEventError,
     SessionCreated,
@@ -46,7 +41,6 @@ from speech_client.wire import (
     TranscriptLanguage,
     VoiceHealth,
     VoiceId,
-    busy_wait,
     error_event,
     item_failure,
     parse_client_event,
@@ -56,44 +50,6 @@ from speech_client.wire import (
     speech_request_headers,
     token_headers,
 )
-
-BUSY = REFUSAL_STATUS[RefusalCode.BUSY]
-
-
-def test_busy_answer_gives_the_wait_in_seconds() -> None:
-    """WIRE-104: a busy answer gives the wait in whole seconds."""
-    assert busy_wait(BUSY, {RETRY_AFTER_HEADER: "5"}) == BusyWait(retry_after_seconds=5)
-
-
-def test_header_name_is_matched_case_insensitively() -> None:
-    assert busy_wait(int(BUSY), {RETRY_AFTER_HEADER.lower(): "1"}) == BusyWait(1)
-
-
-@pytest.mark.parametrize(
-    "status",
-    [s for s in (*REFUSAL_STATUS.values(), HTTPStatus.OK) if s != BUSY],
-)
-def test_other_statuses_give_no_wait(status: HTTPStatus) -> None:
-    """WIRE-104: any status but busy gives no wait."""
-    assert busy_wait(status, {RETRY_AFTER_HEADER: "5"}) is None
-
-
-@pytest.mark.parametrize(
-    "headers",
-    [
-        {},
-        {RETRY_AFTER_HEADER: "-1"},
-        {RETRY_AFTER_HEADER: "1.5"},
-        {RETRY_AFTER_HEADER: "Wed, 21 Oct 2026 07:28:00 GMT"},
-        {RETRY_AFTER_HEADER: ""},
-        {RETRY_AFTER_HEADER: "0"},
-    ],
-    ids=["missing", "negative", "fraction", "http-date", "empty", "zero"],
-)
-def test_busy_answer_without_whole_seconds_fails_loud(headers: dict[str, str]) -> None:
-    """WIRE-104: a busy answer without whole seconds fails loud."""
-    with pytest.raises(RetryAfterError, match=RETRY_AFTER_HEADER):
-        busy_wait(BUSY, headers)
 
 
 @pytest.mark.parametrize("field", ["file", "model", "language", "response_format"])
@@ -406,6 +362,7 @@ def _voice_health_body() -> dict[str, object]:
         "model": SpeakingModel.PIPER.value,
         "name": "A name",
         "languages": [Language.DE.value],
+        "takes_instructions": False,
         "ready": True,
         "sample_rate": SAMPLE_RATE,
     }
@@ -460,6 +417,7 @@ def _with_value(path: tuple[str, ...], value: object) -> dict[str, object]:
     [
         ("speaking", "ready"),
         ("speaking", "voices", "v", "ready"),
+        ("speaking", "voices", "v", "takes_instructions"),
         ("hearing", "ready"),
     ],
 )
@@ -491,6 +449,7 @@ def test_a_health_body_built_through_the_models_still_parses() -> None:
                     model=SpeakingModel.PIPER,
                     name="A name",
                     languages=(Language.DE,),
+                    takes_instructions=False,
                     ready=True,
                     sample_rate=SAMPLE_RATE,
                 )
@@ -718,7 +677,7 @@ def test_a_request_naming_another_model_is_refused_on_model(model: str) -> None:
     assert [error["loc"] for error in refused.value.errors()] == [("model",)]
 
 
-@pytest.mark.parametrize("voice", ["piper", "qwen3-tts-0.6b", "alloy", "", {"id": "x"}])
+@pytest.mark.parametrize("voice", ["piper", "qwen3-tts-1.7b", "alloy", "", {"id": "x"}])
 def test_a_request_naming_a_voice_outside_the_catalogue_is_refused_on_voice(
     voice: object,
 ) -> None:
@@ -760,3 +719,47 @@ def test_a_voice_of_one_language_speaks_it_without_a_language_in_the_body(
     assert "language" not in json.loads(body)
     request = SpeechRequest.model_validate_json(body)
     assert request.spoken_language is VOICES[voice].languages[0]
+
+
+@pytest.mark.parametrize("voice", [v for v in VoiceId if VOICES[v].takes_instructions])
+def test_a_request_carries_the_instructions_a_voice_takes(voice: VoiceId) -> None:
+    """WIRE-141: the body carries `instructions` and parses back to them."""
+    body = speech_request_body(
+        "Hallo",
+        voice,
+        ResponseFormat.WAV,
+        VOICES[voice].languages[0],
+        "Speak angrily",
+    )
+
+    assert json.loads(body)["instructions"] == "Speak angrily"
+    assert SpeechRequest.model_validate_json(body).instructions == "Speak angrily"
+
+
+@pytest.mark.parametrize("voice", list(VoiceId))
+def test_a_request_without_instructions_has_none_and_no_key(voice: VoiceId) -> None:
+    body = speech_request_body(
+        "Hallo", voice, ResponseFormat.WAV, VOICES[voice].languages[0]
+    )
+
+    assert "instructions" not in json.loads(body)
+    assert SpeechRequest.model_validate_json(body).instructions is None
+
+
+@pytest.mark.parametrize(
+    "voice", [v for v in VoiceId if not VOICES[v].takes_instructions]
+)
+def test_instructions_for_a_voice_that_takes_none_are_refused_on_instructions(
+    voice: VoiceId,
+) -> None:
+    """WIRE-142: instructions for a voice that takes none are refused."""
+    with pytest.raises(ValidationError) as refused:
+        SpeechRequest(
+            model=VOICES[voice].model,
+            input="Hallo",
+            voice=voice,
+            response_format=ResponseFormat.WAV,
+            instructions="Speak angrily",
+        )
+
+    assert [error["loc"] for error in refused.value.errors()] == [("instructions",)]

@@ -54,6 +54,7 @@ def _speak(  # noqa: PLR0913 - one keyword per call-site option
     *,
     voice: VoiceId = VOICE,
     language: Language | None = None,
+    instructions: str | None = None,
     response_format: ResponseFormat = ResponseFormat.WAV,
     deadline_seconds: float = GENEROUS_DEADLINE_SECONDS,
     cap_bytes: int = CAP_BYTES,
@@ -63,6 +64,7 @@ def _speak(  # noqa: PLR0913 - one keyword per call-site option
         "Hallo",
         voice,
         language=language,
+        instructions=instructions,
         response_format=response_format,
         workload_token=WORKLOAD_TOKEN,
         person_token=PERSON_TOKEN,
@@ -405,6 +407,23 @@ def test_the_request_names_the_language_it_was_given(
     (request,) = requests
     assert request.partition(b"\r\n\r\n")[2] == speech_request_body(
         "Hallo", voice, ResponseFormat.WAV, language
+    )
+
+
+def test_the_request_names_the_instructions_it_was_given(
+    raw_listener: RawListener,
+) -> None:
+    voice = next(v for v in VoiceId if VOICES[v].takes_instructions)
+    language = VOICES[voice].languages[0]
+    with raw_listener(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b"")) as (
+        base_url,
+        requests,
+    ):
+        _speak(base_url, voice=voice, language=language, instructions="Speak angrily")
+
+    (request,) = requests
+    assert request.partition(b"\r\n\r\n")[2] == speech_request_body(
+        "Hallo", voice, ResponseFormat.WAV, language, "Speak angrily"
     )
 
 

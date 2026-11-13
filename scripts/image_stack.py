@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import subprocess
+import uuid
 from dataclasses import dataclass, field, replace
 from http import HTTPStatus
 from pathlib import Path
@@ -48,8 +49,9 @@ if TYPE_CHECKING:
 
 REPOSITORY: Final = Path(__file__).resolve().parents[1]
 FIXTURES: Final = REPOSITORY / "tests" / "fixtures" / "image"
-PROJECT: Final = "speech-proof"
-IMAGE: Final = "speech-proof"
+# The proof override names the run's image through this variable.
+IMAGE_ENV: Final = "PROOF_IMAGE"
+PROJECT_PREFIX: Final = "speech-proof-"
 SERVICE: Final = "speech"
 KEY_SERVER: Final = "key-server"
 LIVE_PACE_SECONDS: Final = 0.05
@@ -58,6 +60,11 @@ MEMORY_PEAK_FILE: Final = "/sys/fs/cgroup/memory.peak"
 HEALTHY_TIMEOUT_SECONDS: Final = 120
 STOP_TIMEOUT_SECONDS: Final = 5
 HEARING_LANGUAGE: Final = Language.DE.value
+
+
+def new_project() -> str:
+    """A compose project name no other run shares; the run's image carries it too."""
+    return PROJECT_PREFIX + uuid.uuid4().hex[:12]
 
 
 def caller_service(app: str) -> str:
@@ -80,6 +87,7 @@ class Compose:
 
     files: tuple[Path, ...]
     environment: Mapping[str, str]
+    project: str
 
     def command(self, *arguments: str) -> list[str]:
         """The full argv of one compose subcommand."""
@@ -90,7 +98,7 @@ class Compose:
             "--project-directory",
             str(REPOSITORY),
             "-p",
-            PROJECT,
+            self.project,
             *files,
             *arguments,
         ]
@@ -102,7 +110,7 @@ class Compose:
         completed = subprocess.run(  # noqa: S603 - docker with this repository's files and fixed arguments
             self.command(*arguments),
             input=stdin,
-            env={**os.environ, **self.environment},
+            env={**os.environ, **self.environment, IMAGE_ENV: self.project},
             capture_output=True,
             text=True,
             check=False,
@@ -379,6 +387,16 @@ def seconds_until_healthy(compose: Compose) -> float:
     return seconds_to_healthy(state["StartedAt"], state["Health"]["Log"])
 
 
+def remove_image(project: str) -> subprocess.CompletedProcess[str]:
+    """Remove the image a run built under `project`."""
+    return subprocess.run(  # noqa: S603 - docker with fixed arguments
+        ["docker", "image", "rm", "--force", project],  # noqa: S607 - docker is the host's own client
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 @dataclass(frozen=True)
 class Teardown:
     """What teardown did: a failed proof's log tail and the removals that failed."""
@@ -405,12 +423,7 @@ def teardown(compose: Compose, *, failed: bool) -> Teardown:
             str(STOP_TIMEOUT_SECONDS),
             check=False,
         ),
-        "docker image rm": subprocess.run(  # noqa: S603 - docker with fixed arguments
-            ["docker", "image", "rm", "--force", IMAGE],  # noqa: S607 - docker is the host's own client
-            capture_output=True,
-            text=True,
-            check=False,
-        ),
+        "docker image rm": remove_image(compose.project),
     }
     left = [
         f"{what} failed: {done.stderr.strip()[-300:]}"

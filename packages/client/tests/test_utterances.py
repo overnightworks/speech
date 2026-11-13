@@ -27,6 +27,7 @@ from packages.client.tests.support.hearing_support import (
 from speech_client.hearing import Closed, Refused, session_update
 from speech_client.outcomes import (
     Busy,
+    BusyWait,
     Cut,
     Malformed,
     OverCap,
@@ -43,11 +44,11 @@ from speech_client.relay import (
 from speech_client.utterances import (
     Partial,
     ServiceFailed,
+    TurnEnd,
     Utterance,
     hear_utterances,
 )
 from speech_client.wire import (
-    BusyWait,
     DurationUsage,
     Language,
     RefusalCode,
@@ -153,6 +154,10 @@ class _Recorder:
     ends_after_first: bool = False
     raises: Exception | None = None
     got: list[Utterance | Partial] = field(default_factory=list)
+    turn_ends: list[TurnEnd] = field(default_factory=list)
+
+    async def on_turn_ended(self, turn_end: TurnEnd) -> None:
+        self.turn_ends.append(turn_end)
 
     async def on_utterance(self, utterance: Utterance) -> None:
         await self._take(utterance)
@@ -246,6 +251,7 @@ async def _hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
                 ended=recorder.ended,
                 on_utterance=recorder.on_utterance,
                 on_partial=recorder.on_partial if partials else None,
+                on_turn_ended=recorder.on_turn_ended,
             ),
             WAIT_SECONDS,
         )
@@ -622,6 +628,18 @@ def test_once_ended_is_set_no_utterance_and_no_partial_reaches_the_app(
     assert outcome == AppEnded()
     assert recorder.got == expected
     assert browser.closed_with == [HopClose.NORMAL]
+
+
+def test_no_turn_end_reaches_the_app_after_its_utterance_set_ended() -> None:
+    recorder = _Recorder(ends_after_first=True)
+
+    outcome = asyncio.run(
+        _hear(_hearing(_completed("a", "first"), stays_open=True), recorder=recorder)
+    )
+
+    assert outcome == AppEnded()
+    assert recorder.got == [_utterance("first")]
+    assert recorder.turn_ends == []
 
 
 def test_no_log_and_no_outcome_carries_a_token_or_heard_text(
