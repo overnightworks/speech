@@ -150,9 +150,7 @@ def test_a_cut_sound_reports_the_seconds_the_context_clock_passed_since_it_start
     cut_sound, waiting = seen["sounds"]
     elapsed = cut_sound["contextAtEnd"] - cut_sound["contextAtStart"]
     assert elapsed > 0
-    assert cut_sound["playedSeconds"] == pytest.approx(
-        elapsed, abs=seen["clockStep"]
-    )
+    assert cut_sound["playedSeconds"] == pytest.approx(elapsed, abs=seen["clockStep"])
     assert waiting["playedSeconds"] == 0
 
 
