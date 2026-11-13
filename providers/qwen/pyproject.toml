@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "overnightworks-speech-qwen"
 version = "0.0.0"
-requires-python = ">=3.14"
+requires-python = ">=3.12,<3.13"
 dependencies = [
-    "numpy==2.5.4",
     "overnightworks-speech-provider-contract",
-    "qwen-tts==0.1.1",
+    "vllm==0.32.0",
+    "vllm-omni==0.32.0",
 ]
 
 [project.scripts]
@@ -21,6 +21,12 @@ overnightworks-speech-provider-contract = { path = "../provider-contract", edita
 [dependency-groups]
 dev = ["pytest==9.2.0", "pytest-cov==7.1.0", "pytest-xdist==3.8.0", "ruff==0.17.4"]
 
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+# vllm-omni lists openai-whisper, but its only import is the Ming model's
+# processor, which the Qwen path never reaches; the override drops it.
+override-dependencies = ["openai-whisper ; sys_platform == 'never'"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/speech_qwen"]
 
@@ -29,7 +35,7 @@ addopts = "--strict-config --strict-markers"
 testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py312"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
@@ -46,10 +52,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.flake8-tidy-imports]
-# The model libraries stay unloaded until the worker holds the model.
+# The model libraries stay unloaded until the worker loads.
 banned-module-level-imports = [
     "huggingface_hub",
-    "qwen_tts",
     "speech_qwen.model",
     "torch",
 ]
