@@ -12,9 +12,14 @@ export type PlaybackEnd =
   | { readonly kind: "refused" } // no user activation, or resume() refused
   | { readonly kind: "failed" }; // the fetch, the decode or a streamed body failed
 
+export type PlaybackStart =
+  /** `contextTime`: the time on `context`'s clock (`currentTime`) at which the sound's first sample plays, to within one render quantum. An app adds a timing relative to the sound's start to it to place that part on the clock it reads each frame. `context` is the AudioContext the sound plays on. */
+  | { readonly kind: "playing"; readonly contextTime: number; readonly context: AudioContext }
+  | { readonly kind: "ended" }; // the sound ended first, so it has no start
+
 export interface Playback {
-  /** Resolves once and never rejects: "playing" when the sound's source starts on a running context, "ended" when it ended first. */
-  readonly started: Promise<"playing" | "ended">;
+  /** Resolves once and never rejects: "playing" with the sound's start when its source starts on a running context, "ended" when it ended first. */
+  readonly started: Promise<PlaybackStart>;
   /** Resolves once and never rejects, with how the sound ended. A streamed body that breaks off ends "failed" where it broke. */
   readonly ended: Promise<PlaybackEnd>;
 }
@@ -84,7 +89,7 @@ class Queued {
   readonly abort = new AbortController();
   readonly playback: Playback;
   loaded: Promise<Loaded | undefined> = Promise.resolve(undefined);
-  readonly #started = Promise.withResolvers<"playing" | "ended">();
+  readonly #started = Promise.withResolvers<PlaybackStart>();
   readonly #ended = Promise.withResolvers<PlaybackEnd>();
   #over = false;
 
@@ -92,15 +97,16 @@ class Queued {
     this.playback = { started: this.#started.promise, ended: this.#ended.promise };
   }
 
-  begin(): void {
-    this.#started.resolve("playing");
+  /** Only the first call counts: a streamed sound begins with its first chunk. */
+  begin(contextTime: number, context: AudioContext): void {
+    this.#started.resolve({ kind: "playing", contextTime, context });
   }
 
   /** The first end wins. */
   end(end: PlaybackEnd): void {
     if (!this.#over) {
       this.#over = true;
-      this.#started.resolve("ended");
+      this.#started.resolve({ kind: "ended" });
       this.#ended.resolve(end);
     }
   }
@@ -249,8 +255,9 @@ class PlayerRun {
     };
     scheduled.sources.add(source);
     source.start(when);
-    scheduled.chunks.push({ start: Math.max(when, this.#context.currentTime), seconds: buffer.duration });
-    scheduled.item.begin();
+    const start = Math.max(when, this.#context.currentTime);
+    scheduled.chunks.push({ start, seconds: buffer.duration });
+    scheduled.item.begin(start, this.#context);
   }
 
   /** Back to back on the context's clock: each chunk starts where the one before ends. */

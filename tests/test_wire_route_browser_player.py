@@ -522,6 +522,7 @@ def test_a_switch_while_the_head_is_held_leaves_it_ended_and_the_new_sound_plays
 
     assert ends(seen) == ["stopped" if switch == "stop" else "muted", "played"]
     assert starts(seen) == ["ended", "playing"]
+    assert seen["sounds"][0]["start"] is None
     assert seen["sourcesStarted"] == 1
     assert [sound["endedCount"] for sound in seen["sounds"]] == [1, 1]
 
@@ -578,3 +579,22 @@ def test_a_sound_that_never_started_ends_with_zero_played_seconds(
     seen = asyncio.run(scenario())
 
     assert seen["sounds"][0]["playedSeconds"] == 0
+
+
+@pytest.mark.parametrize("sound", [SHORT, STREAMED], ids=["whole", "streamed"])
+def test_the_start_a_sound_hands_over_is_the_context_time_its_first_sample_is_heard(
+    tmp_path: Path, sound: str
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.hand_over(url(sound))
+            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    start = seen["sounds"][0]["start"]
+    assert start["onThePlayersContext"]
+    assert seen["heardOnsets"][0] == pytest.approx(
+        start["contextTime"], abs=seen["clockStep"]
+    )
