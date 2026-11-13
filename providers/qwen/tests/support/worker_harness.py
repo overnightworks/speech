@@ -13,6 +13,7 @@ from speech_qwen.server import STDERR_THREAD_NAME, Server, exit_worker, start_se
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+_USER_ID = os.getuid()
 _FAKE = Path(__file__).with_name("fake_vllm_omni.py")
 
 
@@ -25,6 +26,7 @@ def start_fake_server(
     directory: Path,
     *extra: str,
     when_server_ends: Callable[[], None] = _ignore,
+    user_id: int = _USER_ID,
 ) -> Server:
     """Start the fake server in `mode` on a socket in `directory`."""
     socket_path = directory / "server.sock"
@@ -32,6 +34,7 @@ def start_fake_server(
         [sys.executable, str(_FAKE), mode, "--uds", str(socket_path), *extra],
         socket_path,
         shared_memory_directory=directory / "shm",
+        user_id=user_id,
         when_server_ends=when_server_ends,
     )
 

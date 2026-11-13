@@ -33,6 +33,12 @@ def _start(mode: str, tmp_path: Path, *extra: str) -> server_module.Server:
     return start_fake_server(mode, tmp_path, *extra)
 
 
+def _start_and_stop(tmp_path: Path, **options: int) -> None:
+    process = start_fake_server("healthy", tmp_path, **options).process
+    process.kill()
+    process.wait()
+
+
 def _has_ended(pid: int) -> bool:
     """Whether `pid` is gone or a zombie that its adopter has yet to reap."""
     deadline = time.monotonic() + 5
@@ -126,15 +132,36 @@ def test_leftovers_of_servers_that_are_gone_are_removed_at_the_next_start(
     reader = os.open(in_use / "0_fifo", os.O_RDONLY | os.O_NONBLOCK)
 
     try:
-        process = _start("healthy", tmp_path).process
-        process.kill()
-        process.wait()
+        _start_and_stop(tmp_path)
     finally:
         os.close(reader)
 
     assert not any(leftover.exists() for leftover in leftovers)
     assert in_use.exists()
     assert all(path.exists() for path in other_names)
+
+
+def test_leftovers_of_another_user_stay(tmp_path: Path) -> None:
+    shm = tmp_path / "shm"
+    foreign = _wake_directory(shm, f"omni_shm_wake_{os.getuid()}_{os.getpid()}")
+
+    _start_and_stop(tmp_path, user_id=os.getuid() + 1)
+
+    assert foreign.exists()
+
+
+def test_a_symbolic_link_among_the_leftovers_is_neither_followed_nor_removed(
+    tmp_path: Path,
+) -> None:
+    shm = tmp_path / "shm"
+    target = _wake_directory(shm, "unrelated")
+    link = shm / "omni_shm_link"
+    link.symlink_to(target)
+
+    _start_and_stop(tmp_path)
+
+    assert link.is_symlink()
+    assert target.exists()
 
 
 def _run_harness(

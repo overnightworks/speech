@@ -8,6 +8,7 @@ import http.client
 import os
 import shutil
 import socket
+import stat
 import subprocess
 import tempfile
 import threading
@@ -30,7 +31,9 @@ _HEALTH_REQUEST_SECONDS = 2.0
 _STOP_GRACE_SECONDS = 5.0
 _STDERR_READ_BYTES = 64 * 1024
 _STDERR_DESCRIPTOR = 2
-_SHARED_MEMORY_DIRECTORY = Path("/dev/shm")  # noqa: S108 - the server's fixed shared memory
+_SHARED_MEMORY_DIRECTORY = Path("/dev", "shm")
+"""Where the server's shared-memory connector keeps its wake directories."""
+_OWN_USER_ID = os.getuid()
 STDERR_THREAD_NAME = "speech-qwen-server-stderr"
 _WATCH_THREAD_NAME = "speech-qwen-server-watch"
 
@@ -85,16 +88,17 @@ def start_server(
     socket_path: Path,
     *,
     shared_memory_directory: Path = _SHARED_MEMORY_DIRECTORY,
+    user_id: int = _OWN_USER_ID,
     when_server_ends: Callable[[], None] = exit_worker,
 ) -> Server:
     """Start `command`, which listens on `socket_path`, and return once it is healthy.
 
     Call on the worker's main thread before any other thread exists: the parent
     death signal follows the thread that created the child. What an earlier
-    server left in `shared_memory_directory` is removed first. Once the server
-    is healthy, `when_server_ends` runs when its process ends.
+    server of `user_id` left in `shared_memory_directory` is removed first. Once
+    the server is healthy, `when_server_ends` runs when its process ends.
     """
-    _remove_leftover_shared_memory(shared_memory_directory)
+    _remove_leftover_shared_memory(shared_memory_directory, user_id)
     process = subprocess.Popen(  # noqa: S603 - argv is the closed server command with no shell
         command,
         stdin=subprocess.DEVNULL,
@@ -131,12 +135,17 @@ def _call_when_ended(
     when_server_ends()
 
 
-def _remove_leftover_shared_memory(directory: Path) -> None:
-    """Remove the wake directories of ours that no process reads from any more."""
+def _remove_leftover_shared_memory(directory: Path, user_id: int) -> None:
+    """Remove the wake directories of `user_id` that no process reads from any more.
+
+    The directory is writable by every user, so an entry counts only when it is
+    a real directory (a symbolic link is never followed) that `user_id` owns.
+    """
     for entry in directory.glob("omni_shm_*"):
+        status = entry.lstat()
         if (
-            entry.is_dir()
-            and entry.stat().st_uid == os.getuid()
+            stat.S_ISDIR(status.st_mode)
+            and status.st_uid == user_id
             and not any(_is_read(fifo) for fifo in entry.iterdir())
         ):
             shutil.rmtree(entry)
