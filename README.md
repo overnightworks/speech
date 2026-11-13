@@ -7,7 +7,8 @@ starts and configures it; an app developer reads the wire.
 One process holds the offered Piper voices resident and offers `GET /health`, the
 speak route, a route that hears a recording and a live hearing WebSocket, over
 HTTP on a TCP address. Beside them it offers each GPU voice the operator names
-(today Qwen3-TTS 1.7B's `ryan`), loaded on its first request. When a hearing model is
+(today Qwen3-TTS 1.7B's `ryan`), loaded on its first request, or at start where
+`SPEECH_LOAD_GPU_VOICES_AT_START` says so. When a hearing model is
 named, it also holds a faster-whisper model resident. Speaking and hearing need
 the app's workload token and the person's token; `/health` needs none. The
 service stores no choice of its own.
@@ -44,8 +45,30 @@ a card, run it as `SPEECH_DEVICE=cpu uv run python scripts/prove_speech.py`.
   `providers/qwen`. It always runs on `cuda` and reserves about 11 GB of it (0.45 of a 24 GB card).
 - **A container.** `Dockerfile` and `compose.yaml` build and run the service on
   the CPU with the five Piper voices and the `small` hearing model,
-  fetched at build. The image carries no GPU voice; see
-  [Delivery](docs/ARCHITECTURE.md#delivery).
+  fetched at build. That image carries no GPU voice; [The GPU image](#the-gpu-image)
+  does, and [Delivery](docs/ARCHITECTURE.md#delivery) says why there are two.
+
+## The GPU image
+
+Every release publishes two images to GHCR: `ghcr.io/overnightworks/speech:<version>`
+is the small one, and `ghcr.io/overnightworks/speech:<version>-gpu` is the same
+service for a card (`docker build --target gpu .`). It bakes all six voices,
+Qwen's `ryan` among them, and Whisper large-v3. It loads Qwen and large-v3 at
+start, hears on `cuda`, and `/health` is ready only after both are loaded.
+It is configured like the small image (`SPEECH_HOST`, `SPEECH_CONFIG_FILE`, the
+networks and the read-only root); what differs when you run it:
+
+- **One GPU.** Request one card; the service assumes nothing about being alone on
+  it. Qwen reserves 0.45 of the card, and with large-v3 beside it the card held
+  13.2 GB on an RTX 3090.
+- **Memory.** The service and its Qwen server peaked at 12.7 GB of host memory.
+- **`/dev/shm`.** The server's stages pass data through it, so size it above
+  Docker's 64 MB default (`--shm-size`, or `--ipc=host`).
+- **`/tmp`.** Writable: the Qwen worker keeps its compile caches there.
+- **Startup probe.** `/health` answers while the models load, with `ready` false.
+  Qwen took about 5 minutes to load and large-v3 under 10 seconds, so probe until
+  `speaking.ready` and `hearing.ready` are both true and allow 10 minutes: the
+  worker gives its server 600 seconds, and a slower start ends the process.
 
 ## Models
 
@@ -86,6 +109,7 @@ The process's own:
 | `SPEECH_VOICE_CACHE` | `~/.cache/piper` | Where Piper's files are kept and fetched to |
 | `SPEECH_HUGGINGFACE_CACHE` | the Hugging Face Hub cache | Where hearing's and Qwen's files are kept and fetched to |
 | `SPEECH_PROVIDER_ROOT` | none | Directory of the provider environments, `providers` in a checkout; a GPU voice needs it |
+| `SPEECH_LOAD_GPU_VOICES_AT_START` | `false` | `true` loads every offered GPU voice at start and holds `/health` not ready until it is loaded; the GPU image sets it |
 
 ## Install as a dependency
 

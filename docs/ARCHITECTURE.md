@@ -7,7 +7,7 @@ what it trusts.
 
 One process keeps each offered Piper voice, and optionally a hearing model,
 resident on the home server, loads each GPU voice the operator offers on its
-first request, and serves them to Presentator and to apps that speak or have a
+first request (or at start, as the GPU image does), and serves them to Presentator and to apps that speak or have a
 recording heard for a person. [`README.md`](../README.md) starts it,
 [`wire.md`](wire.md) holds the wire and its settings.
 
@@ -35,10 +35,11 @@ flowchart LR
   and each one's voiced floor; `recording.py` the incremental decode of an
   uploaded recording; `clock.py` the monotonic clock every gate deadline is read
   and waited on.
-- `Dockerfile`, `compose.yaml`, `deploy/speech.toml`: the container the dated
-  tag brings, with the Piper voices, the `small` hearing model and the
-  caller table baked in; the release builds, attests and pushes it to GHCR, see
-  [Delivery](#delivery). `scripts/prove_image.py` proves it.
+- `Dockerfile`, `compose.yaml`, `deploy/speech.toml`: the containers the dated
+  tag brings: the small image with the Piper voices, the `small` hearing model and the
+  caller table baked in, and the `gpu` target, which adds Qwen, its server environment
+  and large-v3; the release builds, attests and pushes both to GHCR, see
+  [Delivery](#delivery). `scripts/prove_image.py` proves the small one.
 - `packages/client`: the wire types an app and the service share (the closed voice catalogue among them), the bounded speaking call, the bounded health fetch, the live hearing session (`HearingSession`: the allowed languages, frames held up to a caller-set byte limit, typed server events that name each item's language, one closed outcome union), the relay (`relay`) of a browser socket to that session an app makes, and `hear_utterances`, which builds that session and hands an app finished utterances.
 - `packages/browser`: the framework-free browser package (`overnightworks-speech-browser`) an app's page streams its microphone and plays sounds with. `startCapture` takes the first audio track of the app's own stream, resamples it with a filter to the wire's PCM16 at 24 kHz in its own same-origin AudioWorklet file and main-thread resampler, and sends 100 ms frames to the app's relay route, capturing only once the hop socket is open, so it sends no audio older than the app's accept of that socket; it has no loudness gate, hands the app every message the app's own server sends down the hop (its optional `onMessage`, uninterpreted, in arrival order, until the capture ends), and its `ended` names how the hop ended. `createPlayer` plays the sounds an app hands it, each as bytes or the URL of the app's own route, in the order of the calls (a route answering 16-bit mono PCM WAV plays while its body still arrives, its chunks scheduled back to back; every other sound plays whole), as sources into the player's one GainNode, the only input of the output (the one node a per-frame reader can tap; the package builds none). It reports each sound's start and end once, with how it ended (played, stopped, muted, refused (no user activation, or `resume()` refused), or failed to load); `stop` and `setMuted(true)` end the playing and every waiting sound at once and abort their fetches, and `close` also closes the context. Both are exported from one entry, `index.ts`. Its `hop.ts` is generated from `PcmFormat` and `speech_client.relay` by `scripts/generate_browser_wire.py`.
 - `providers/*`: the voices that run in their own processes and environments. Each is its own uv project with its own lock; `providers/provider-contract` is the shared source the others install from. The client in `packages/client` is a uv workspace member of the root.
@@ -52,7 +53,9 @@ flowchart LR
   order. The offer decides which voice may take the card.
 - **Piper at start, a GPU voice on its first request.** The start loads each
   offered Piper voice in order, then hearing; a failed Piper load ends the
-  process. A GPU slot stays idle,
+  process. With `SPEECH_LOAD_GPU_VOICES_AT_START` each GPU voice loads at start too,
+  after the Piper voices and before hearing, and `/health` is ready only
+  after it. Otherwise a GPU slot stays idle,
   with no process and no CUDA context, until a request names it. Its first
   request starts the slot's one load job on a thread the slot owns, and every
   request for that voice awaits the same job. Nothing unloads a voice.
@@ -135,18 +138,29 @@ flowchart LR
 
 ## Delivery
 
-The release builds, attests and pushes the image to GHCR. hal builds its own
-from the dated tag, so the tag fixes the code, locked dependencies, voices,
-hearing model and caller table. Nothing is fetched at start or restart: Piper's
-voices and the `small` hearing model are in the image, each fetched by a shipped
+The release builds, attests and pushes two images to GHCR, the small one at the
+dated tag and the gpu one at the same tag with `-gpu`. hal builds its own small
+image from the dated tag, so the tag fixes the code, locked dependencies, voices,
+hearing model and caller table. Nothing is fetched at start or restart: the
+voices and the hearing model are in the image, each fetched by a shipped
 command at its pinned revision, and the service has no route to a registry or a
-hub. The image carries no GPU voice, because no deployment has a card to run it. The healthcheck requires Piper and hearing
+hub. The small image carries no GPU voice and hears with `small` on the CPU. The
+healthcheck requires Piper and hearing
 to be ready, so a deployment that cannot hear is not recorded. Qwen is offered
 only when the start setting names it, and then launches on `cuda`, the provider
 contract's one device for it, whatever device hearing uses. Offered on the
-image, which lacks its environment and weights, it is not installed: its
+small image, which lacks its environment and weights, it is not installed: its
 requests are refused `unavailable`, `/health` reports it not ready, and the
 Piper voices and hearing keep serving.
+
+The gpu image is the same service with the six voices, Qwen's pinned weights,
+large-v3 and the Qwen provider's own environment: uv-managed CPython 3.12, which
+vLLM-Omni caps below the service's 3.14, pinned through the uv image's digest,
+beside the service's CUDA 12 libraries for CTranslate2. It sets Qwen to load at
+start and hearing to large-v3 on `cuda`, so `/health` is ready only once both
+are loaded. The environment is too large for a standard runner's disk, so its
+release job builds on the larger runner `speech-gpu-build`, and each layer stays
+under 10 GB. Which workload holds the card is the platform's switch.
 
 The service sits on external, internal networks and no default one: one
 shared with the gateway that carries the key set, and one per app that reaches it
@@ -223,7 +237,8 @@ no capability is kept.
 
 - **The operator owns the card.** The service knows nothing of another GPU user
   and arbitrates nothing. `SPEECH_VOICES` is his switch, the Piper voices alone by
-  default, and a loaded GPU voice keeps the card until the process ends.
+  default, and a loaded GPU voice keeps the card until the process ends; the
+  platform decides which workload runs on it.
 - **The service never downloads.** Shipped commands fetch voices and hearing
   models at a pinned revision, so the dated tag fixes what runs and the
   container needs no egress.
@@ -255,14 +270,14 @@ no capability is kept.
   switch `compose.yaml` runs the service, naming no GPU voice and reserving no
   card: it speaks with Piper and hears on the CPU. The card reservation and its
   proof wait for the platform's GPU design.
-- A GPU voice is proven with a fake worker and a fake server. The image does not
-  carry Qwen until the platform's GPU slice, so nothing proves that the server
-  still installs into an image against lock changes (a read-only root, its
-  compile caches in the worker's private directory), and its latency through the
-  service on the target card is unmeasured.
+- A GPU voice is proven with a fake worker and a fake server. CI builds and
+  proves the small image only; the gpu image is first built by the release, so a
+  lock change that breaks its environment shows there, and its speaking and
+  hearing on the card are proven by a GPU run of the built image.
 - Qwen's first audio can take longer than `SPEECH_BUSY_WAIT_SECONDS`, so a
-  second request for it may answer `busy` while one long sentence runs. The
-  first request also waits for the server to load, about three minutes.
+  second request for it may answer `busy` while one long sentence runs. Without
+  the start setting the first request also waits for the server to load, about
+  five minutes.
 - Speaking and hearing share the CPU when hearing runs on `cpu`, as the image
   does. `scripts/prove_speech.py` measured this on a shared development machine,
   on the CPU with the `small` hearing model and four of the Piper voices (all
