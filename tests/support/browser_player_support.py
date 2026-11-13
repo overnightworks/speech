@@ -49,7 +49,6 @@ SOUND_SECONDS = {
     "long.wav": 4.0,
     "natural.wav": 1.2,
 }
-DUCKED = 0.2
 SILENT_RMS = 0.001
 AUDIBLE_RMS = 0.05
 CLOSED = "closed"
@@ -123,10 +122,6 @@ class Stage:
     async def set_muted(self, *, muted: bool) -> None:
         """Flip the app's mute switch and wait until its task is over."""
         await self.act("mute", muted)
-
-    async def set_volume(self, level: float) -> None:
-        """Set the app's volume and wait until its task is over."""
-        await self.act("volume", level)
 
     async def until(self, condition: str) -> None:
         """Wait until `condition` holds on `s`, what the page saw."""

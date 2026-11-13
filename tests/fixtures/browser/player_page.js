@@ -220,15 +220,6 @@ window.playerPage = {
   stop: () => act(() => player.stop()),
   mute: (muted) => act(() => player.setMuted(muted)),
   close: () => act(() => player.close()),
-  volume: (level) => act(() => player.setVolume(level)),
-  volumeError(level) {
-    try {
-      player.setVolume(level);
-      return null;
-    } catch (error) {
-      return error.name;
-    }
-  },
   hold: (kind) => held[kind].push(Promise.withResolvers()),
   release: () => heldNow.splice(0).forEach((gate) => gate.resolve()),
   rejectNextResume: () => (rejectNextResume = true),

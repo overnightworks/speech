@@ -26,10 +26,6 @@ export interface Player {
   stop(): void;
   /** The app's mute switch. Muting ends the playing and every waiting sound as "muted" and aborts their fetches; while muted, a sound handed over ends "muted" at once, unfetched. Idempotent; never throws. */
   setMuted(muted: boolean): void;
-  /** Sets the volume of the playing and every later sound to `level`, from 0 to 1; a value outside that range or NaN throws a RangeError and changes nothing.
-   * The change glides over a few tens of milliseconds, so it does not click. Volume 0 ends no sound; only setMuted(true) and stop() do.
-   * Mute wins: while muted nothing is heard whatever the volume, and setMuted(false) brings back the last volume set. */
-  setVolume(level: number): void;
   /** Ends every sound as "stopped" and closes the player's context; every later sound ends "stopped" at once. Idempotent; never throws. */
   close(): void;
 }
@@ -46,15 +42,12 @@ export function createPlayer(): Player {
     play: (sound) => run.play(sound),
     stop: () => run.stop(),
     setMuted: (muted) => run.setMuted(muted),
-    setVolume: (level) => run.setVolume(level),
     close: () => run.close(),
   };
 }
 
 type Interruption = "stopped" | "muted";
 
-/** The gain follows its target with this time constant, so a change is settled within a few tens of milliseconds. */
-const GLIDE_SECONDS = 0.015;
 const NONE = -1;
 
 type Loaded =
@@ -122,7 +115,6 @@ class PlayerRun {
   #generation = 0;
   #pumping = NONE;
   #muted = false;
-  #volume = 1;
   #closed = false;
 
   constructor() {
@@ -149,27 +141,10 @@ class PlayerRun {
 
   setMuted(muted: boolean): void {
     this.#muted = muted;
+    this.#gain.gain.value = muted ? 0 : 1;
     if (muted) {
-      this.#gain.gain.cancelScheduledValues(0);
-      this.#gain.gain.value = 0;
       this.#endAll("muted");
-    } else {
-      this.#glideToVolume();
     }
-  }
-
-  setVolume(level: number): void {
-    if (!(level >= 0 && level <= 1)) {
-      throw new RangeError(`the volume is from 0 to 1, not ${level}`);
-    }
-    this.#volume = level;
-    if (!this.#muted) {
-      this.#glideToVolume();
-    }
-  }
-
-  #glideToVolume(): void {
-    this.#gain.gain.setTargetAtTime(this.#volume, this.#context.currentTime, GLIDE_SECONDS);
   }
 
   close(): void {

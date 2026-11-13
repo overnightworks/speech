@@ -24,6 +24,7 @@ from tests.support.browser_player_support import (
     OTHER,
     RESUMES_REJECTED_THEN_PASSED,
     SHORT,
+    SOUND_SECONDS,
     STOP_BOUND_MS,
     STREAMED,
     TAP_NAMES,
@@ -523,3 +524,57 @@ def test_a_switch_while_the_head_is_held_leaves_it_ended_and_the_new_sound_plays
     assert starts(seen) == ["ended", "playing"]
     assert seen["sourcesStarted"] == 1
     assert [sound["endedCount"] for sound in seen["sounds"]] == [1, 1]
+
+
+def test_a_sound_played_through_reports_its_full_length_as_played_seconds(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.hand_over(url(SHORT))
+            return await stage.finish()
+
+    seen = asyncio.run(scenario())
+
+    assert seen["sounds"][0]["playedSeconds"] == pytest.approx(
+        SOUND_SECONDS["short.wav"], abs=seen["clockStep"]
+    )
+
+
+@pytest.mark.parametrize("cut", ["stop", "mute"])
+@pytest.mark.parametrize("sound", [LONG, STREAMED], ids=["whole", "streamed"])
+def test_a_cut_sound_reports_the_seconds_the_context_clock_passed_since_it_started(
+    tmp_path: Path, cut: str, sound: str
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.hand_over(url(sound), url(SHORT))
+            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
+            await stage.settle()
+            if cut == "stop":
+                await stage.act("stop")
+            else:
+                await stage.set_muted(muted=True)
+            return await stage.finish()
+
+    seen = asyncio.run(scenario())
+
+    cut_sound, waiting = seen["sounds"]
+    elapsed = cut_sound["contextAtEnd"] - cut_sound["contextAtStart"]
+    assert elapsed > 0
+    assert cut_sound["playedSeconds"] == pytest.approx(elapsed, abs=seen["clockStep"])
+    assert waiting["playedSeconds"] == 0
+
+
+def test_a_sound_that_never_started_ends_with_zero_played_seconds(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.set_muted(muted=True)
+            await stage.hand_over(url(SHORT))
+            return await stage.finish()
+
+    seen = asyncio.run(scenario())
+
+    assert seen["sounds"][0]["playedSeconds"] == 0
