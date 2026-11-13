@@ -18,6 +18,14 @@ path = "providers/qwen/tests/test_worker.py"
 rule = "test-layout"
 reason = "it tests the provider contract, a sibling project with no tests of its own"
 
+[[python.allow]]
+path = "providers/qwen/pyproject.toml"
+reason = "vllm-omni 0.32.0 declares Requires-Python <3.14,>=3.11, so no locked wheel set reaches 3.14"
+
+[[python.allow]]
+path = "providers/provider-contract/pyproject.toml"
+reason = "the Qwen worker imports it on Python 3.12, where vllm-omni 0.32.0 (Requires-Python <3.14,>=3.11) caps it"
+
 # providers/qwen/uv.lock: advisories no relock reaches
 [[advisories.allow]]
 id = "PYSEC-2026-3804"
