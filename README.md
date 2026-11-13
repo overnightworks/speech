@@ -147,8 +147,9 @@ and the path itself are in
 
 ## Proofs
 
-Each proof takes `/tmp/probe-stack.lock` itself, waits for the machine to be
-free and cleans up what it started:
+Each proof re-runs itself under `probe-run`, which waits for the machine to be
+free, uses a free port and its own container and project names, and cleans up
+what it started:
 
 | Command | What it proves |
 | --- | --- |

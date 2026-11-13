@@ -4,7 +4,8 @@
 external networks become internal ones, a test CA takes the secret's place, and
 a key-set server and a caller container join. The tokens carry the issuer,
 audience, group and caller of the baked `deploy/speech.toml`. The proof takes
-/tmp/probe-stack.lock like `prove_speech.py` and removes everything it made.
+`probe-run` like `prove_speech.py`, builds the run's image before it, and removes
+everything it made.
 `image_judgement` holds what the proof judges and `image_stack` what it drives.
 """
 
@@ -58,9 +59,7 @@ from image_judgement import (
 from image_stack import (
     FIXTURES,
     HEARING_LANGUAGE,
-    IMAGE,
     KEY_SERVER,
-    PROJECT,
     REPOSITORY,
     SERVICE,
     STOP_TIMEOUT_SECONDS,
@@ -73,6 +72,8 @@ from image_stack import (
     docker,
     form_of_size,
     healthcheck_passes,
+    new_project,
+    remove_image,
     seconds_until_healthy,
     service_config,
     speak_marked,
@@ -86,13 +87,12 @@ from proof_identity import (
     proof_identity,
 )
 from prove_speech import (
-    LOCK_HELD_ENV,
-    LOCK_PATH,
     SENTENCE,
     SENTENCES,
+    UNDER_PROBE_RUN_ENV,
     parse_arguments,
-    prove_under_lock,
-    run_under_lock,
+    prove_under_probe_run,
+    run_under_probe_run,
     wait_for_load,
 )
 from speech_client.hearing import Refused
@@ -116,6 +116,7 @@ MISSING_MODEL_OVERRIDE: Final = FIXTURES / "compose.missing-model.yaml"
 
 # hal builds with a cap of 1800 s; a build past half of it is a finding.
 BUILD_LIMIT_SECONDS: Final = 900
+PROJECT_ENV: Final = "SPEECH_PROOF_PROJECT"
 PUBLIC_ADDRESSES: Final = ("1.1.1.1:443", "huggingface.co:443")
 FORBIDDEN_EXECUTABLES: Final = ("git", "uv", "gcc", "cc")
 # What caller.py reports for a connection nothing listens on.
@@ -133,12 +134,12 @@ BURST_SIZE: Final = 5
 ANSWER_WAIT_SECONDS: Final = 60
 
 
-def cell_build(compose: Compose) -> None:
-    """Cell 1: a build with no layer cache, timed."""
+def cell_build(project: str) -> None:
+    """Cell 1: a build with no layer cache, timed, before the drive starts."""
     started = time.monotonic()
-    compose.run("build", "--no-cache", SERVICE)
+    docker("build", "--no-cache", "--tag", project, str(REPOSITORY))
     seconds = time.monotonic() - started
-    size = int(docker("image", "inspect", "--format", "{{.Size}}", IMAGE))
+    size = int(docker("image", "inspect", "--format", "{{.Size}}", project))
     print(
         f"cell 1: build_seconds={seconds:.0f} image_mib={size // 2**20}"
         " layer_cache=none (images already pulled on the host are still reused)"
@@ -176,7 +177,7 @@ def cell_contents(plain: Compose) -> None:
     script = (FIXTURES / "inspect_image.py").read_text()
     output = docker(
         "run", "--rm", "--interactive", "--network", "none", "--entrypoint", "python",
-        IMAGE, "-", environment["SPEECH_VOICE_CACHE"],
+        plain.project, "-", environment["SPEECH_VOICE_CACHE"],
         environment["SPEECH_HUGGINGFACE_CACHE"], environment[HEARING_MODEL_SETTING],
         *FORBIDDEN_EXECUTABLES,
         stdin=script,
@@ -643,14 +644,14 @@ def cell_hearing_log(session: Session) -> None:
     )
 
 
-def print_teardown(outcome: Teardown) -> None:
+def print_teardown(outcome: Teardown, project: str) -> None:
     """Print the log tail of a failed proof, then what teardown left or `torn_down`."""
     if outcome.tail is not None:
         print(outcome.tail)
     if outcome.left:
         print("teardown left something:", *outcome.left, sep="\n", file=sys.stderr)
     else:
-        print("torn_down", PROJECT)
+        print("torn_down", project)
 
 
 def hearing_cells(
@@ -677,8 +678,9 @@ def _prove() -> None:
         "PROOF_KEY_SET_PATH": baked.key_set_path,
         "PROOF_KEY_SET_HOST": baked.key_set_host,
     }
-    plain = Compose((COMPOSE_FILE,), {})
-    compose = Compose((COMPOSE_FILE, PROOF_OVERRIDE), environment)
+    project = os.environ[PROJECT_ENV]
+    plain = Compose((COMPOSE_FILE,), {}, project)
+    compose = Compose((COMPOSE_FILE, PROOF_OVERRIDE), environment, project)
     failed = True
     try:
         try:
@@ -694,7 +696,6 @@ def _prove() -> None:
                     fetch_key_set(identity.jwks_url, identity.ca_path),
                 )
                 session = Session(compose, config, baked, signing, [], [], [])
-                cell_build(compose)
                 cell_contents(plain)
                 cell_absent_networks(plain, names)
                 started_after = cell_start(session)
@@ -713,7 +714,7 @@ def _prove() -> None:
             failed = False
         finally:
             outcome = teardown(compose, failed=failed)
-            print_teardown(outcome)
+            print_teardown(outcome, project)
     finally:
         shutil.rmtree(directory)
     if outcome.left:
@@ -722,15 +723,26 @@ def _prove() -> None:
     print("PROOF_OK")
 
 
+def build_then_drive(arguments: list[str]) -> int:
+    """Build this run's image, drive the proof under `probe-run`, remove the image."""
+    project = new_project()
+    try:
+        cell_build(project)
+        return run_under_probe_run(
+            arguments, script=THIS_SCRIPT, environment={PROJECT_ENV: project}
+        )
+    finally:
+        remove_image(project)
+
+
 def main() -> None:
-    """Run the image proof, taking the probe-stack lock through the fleet form."""
+    """Run the image proof, driving it through the fleet's `probe-run` form."""
     parse_arguments(sys.argv[1:])
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
-    if LOCK_HELD_ENV not in os.environ:
-        print("waiting_for_lock", LOCK_PATH)
-        raise SystemExit(run_under_lock(sys.argv[1:], script=THIS_SCRIPT))
-    prove_under_lock(os.environ, _prove)
+    if UNDER_PROBE_RUN_ENV not in os.environ:
+        raise SystemExit(build_then_drive(sys.argv[1:]))
+    prove_under_probe_run(_prove)
 
 
 if __name__ == "__main__":

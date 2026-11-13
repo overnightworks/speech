@@ -128,6 +128,7 @@ def test_a_failed_removal_of_the_temporary_files_fails_the_proof_loudly(
     stuck.mkdir(parents=True)
     (stuck / "file").write_text("x")
     stuck.chmod(0o500)
+    monkeypatch.setenv(PROVE.PROJECT_ENV, "a-run")
     monkeypatch.setattr(PROVE, "wait_for_load", lambda: None)
     monkeypatch.setattr(PROVE.tempfile, "mkdtemp", lambda **_: str(directory))
     monkeypatch.setattr(PROVE, "Compose", StoppedCompose)
@@ -167,9 +168,33 @@ def test_the_teardown_prints_its_outcome_in_order(
     stdout_starts: str,
     stderr: str,
 ) -> None:
-    PROVE.print_teardown(outcome)
+    PROVE.print_teardown(outcome, "a-run")
 
     captured = capsys.readouterr()
     assert captured.out.startswith(stdout_starts)
     assert ("torn_down" in captured.out) is (not stderr)
     assert captured.err == stderr
+
+
+def test_the_image_built_for_a_run_is_removed_when_the_drive_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    removed: list[str] = []
+    built: list[str] = []
+    monkeypatch.setattr(PROVE, "cell_build", built.append)
+    monkeypatch.setattr(PROVE, "remove_image", removed.append)
+
+    def refused(*_: object, **__: object) -> int:
+        message = "probe-run is not on PATH"
+        raise SystemExit(message)
+
+    monkeypatch.setattr(PROVE, "run_under_probe_run", refused)
+
+    with pytest.raises(SystemExit):
+        PROVE.build_then_drive([])
+
+    assert removed == built
+
+
+def test_two_runs_never_share_a_project_name() -> None:
+    assert PROVE.new_project() != PROVE.new_project()

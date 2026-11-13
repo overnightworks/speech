@@ -5,8 +5,8 @@ English question and a long turn, live over a WebSocket and from a file. On
 `cuda` it also measures the card's peak memory and starts the service on a card
 a second process holds. It writes one JSON record and prints its stage lines.
 It never downloads a hearing model and fetches only the English Piper voice
-at its pin, never starts or stops anything but its own processes, and takes the
-probe-stack lock as `prove_speech` does. Its clips are synthetic: German from the
+at its pin, never starts or stops anything but its own processes, and drives under
+`probe-run` as `prove_speech` does. Its clips are synthetic: German from the
 service's speak route, English from a Piper voice.
 """
 
@@ -54,17 +54,16 @@ from hearing_client import (
 from hearing_figures import LiveTurn
 from proof_identity import Minting, load_minting, mint_pair, proof_identity
 from prove_speech import (
-    LOCK_HELD_ENV,
-    LOCK_PATH,
     LOOPBACK_HOST,
     PIPER_PROOF_VOICE,
     READY_TIMEOUT_SECONDS,
+    UNDER_PROBE_RUN_ENV,
     free_local_port,
     nvidia_memory,
-    prove_under_lock,
+    prove_under_probe_run,
     read_health,
     require_running,
-    run_under_lock,
+    run_under_probe_run,
     speak_measured,
     speech_environment,
     speech_server,
@@ -595,7 +594,7 @@ def _record_path(text: str) -> Path:
 def parse_arguments(arguments: list[str]) -> argparse.Namespace:
     """Read the command line before anything starts; `--help` and typos exit here."""
     parser = argparse.ArgumentParser(
-        description="Stage proof of hearing under the probe-stack lock.",
+        description="Stage proof of hearing under probe-run.",
         allow_abbrev=False,
     )
     parser.add_argument("--device", choices=("cpu", "cuda"), required=True)
@@ -738,14 +737,13 @@ def prove(
 
 
 def main() -> None:
-    """Run the stage proof, taking the probe-stack lock through the fleet form."""
+    """Run the stage proof, driving it through the fleet's `probe-run` form."""
     arguments = parse_arguments(sys.argv[1:])
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
-    if LOCK_HELD_ENV not in os.environ:
-        print("waiting_for_lock", LOCK_PATH)
-        raise SystemExit(run_under_lock(sys.argv[1:], script=THIS_SCRIPT))
-    prove_under_lock(os.environ, functools.partial(prove, arguments))
+    if UNDER_PROBE_RUN_ENV not in os.environ:
+        raise SystemExit(run_under_probe_run(sys.argv[1:], script=THIS_SCRIPT))
+    prove_under_probe_run(functools.partial(prove, arguments))
 
 
 if __name__ == "__main__":

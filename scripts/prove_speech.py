@@ -1,6 +1,6 @@
 """Stage proof: start the service, drive health and speak, then the contract client.
 
-Takes /tmp/probe-stack.lock, checks the 1-minute load, runs one heavy step at a
+Drives itself under `probe-run`, checks the 1-minute load, runs one heavy step at a
 time, and leaves no process behind. Model weights stay in the Hugging Face and
 Piper caches.
 """
@@ -74,14 +74,10 @@ ENGLISH_SENTENCE = (
 SENTENCES: Final = {Language.DE: SENTENCE, Language.EN: ENGLISH_SENTENCE}
 THIS_SCRIPT = Path(__file__).resolve()
 SETPRIV = "setpriv"
-LOCK_PATH = Path("/tmp/probe-stack.lock")  # noqa: S108 - the one machine-wide probe lock must keep this exact path whatever TMPDIR says
-LOCK_HELD_ENV = "SPEECH_PROOF_HOLDS_PROBE_LOCK"
-LOCK_DIRECTORY_PREFIX = "speech-lock-"
-LOCK_WAIT_SECONDS = 3600
-FLOCK_TIMED_OUT_STATUS = 1
-FLOCK_COMMAND_UNAVAILABLE_STATUS = 69
+PROBE_RUN = "probe-run"
+UNDER_PROBE_RUN_ENV = "SPEECH_PROOF_UNDER_PROBE_RUN"
 # The cap and the kill grace are the numbers this script owns inside the fleet
-# lock form; together they stay within 1830 s. The grace covers the teardown
+# probe-run form; together they stay within 1830 s. The grace covers the teardown
 # `speech_server` runs after TERM: terminate, wait up to 10 s, then kill and wait
 # up to 5 s, so 15 s at worst, with the providers stopped through the server.
 # The hearing proof adds the card holder it stops after its server: up to 10 s
@@ -115,7 +111,7 @@ def wait_for_load(
     read_load: Callable[[], float] = _load_1min,
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
-    """Wait for the 1-minute load to fall to the ceiling, inside the lock's cap."""
+    """Wait for the 1-minute load to fall to the ceiling, inside the probe-run cap."""
     while True:
         load = read_load()
         print(f"load_1min={load:.2f}")
@@ -126,17 +122,9 @@ def wait_for_load(
 
 
 def fleet_command(arguments: list[str], script: Path = THIS_SCRIPT) -> list[str]:
-    """`script` under the fleet's one form for taking the probe lock."""
+    """`script` under the fleet's one form for driving a probe stack."""
     return [
-        "flock",
-        "-o",
-        "-w",
-        str(LOCK_WAIT_SECONDS),
-        str(LOCK_PATH),
-        SETPRIV,
-        "--pdeathsig",
-        "TERM",
-        "timeout",
+        PROBE_RUN,
         "-k",
         str(KILL_GRACE_SECONDS),
         str(CAP_SECONDS),
@@ -146,49 +134,27 @@ def fleet_command(arguments: list[str], script: Path = THIS_SCRIPT) -> list[str]
     ]
 
 
-def run_under_lock(
+def run_under_probe_run(
     arguments: list[str],
     run: Callable[..., subprocess.CompletedProcess[bytes]] = subprocess.run,
     script: Path = THIS_SCRIPT,
+    which: Callable[[str], str | None] = shutil.which,
+    environment: Mapping[str, str] | None = None,
 ) -> int:
-    """Run the proof under the lock; a lock still busy after the wait fails loudly."""
-    with tempfile.TemporaryDirectory(prefix=LOCK_DIRECTORY_PREFIX) as directory:
-        token = Path(directory) / "acquired"
-        environment = {**os.environ, LOCK_HELD_ENV: str(token)}
-        status = run(
-            fleet_command(arguments, script), env=environment, check=False
-        ).returncode
-        lock_was_taken = token.exists()
-    if status == FLOCK_TIMED_OUT_STATUS and not lock_was_taken:
+    """Run the proof under `probe-run`; without it the proof does not start."""
+    if which(PROBE_RUN) is None:
         message = (
-            f"probe lock {LOCK_PATH} is busy: still held after {LOCK_WAIT_SECONDS} s,"
-            " so the proof did not start"
+            f"{PROBE_RUN} is not on PATH; install the fleet's probe-run,"
+            " the proof does not run without it"
         )
         raise SystemExit(message)
-    if status == FLOCK_COMMAND_UNAVAILABLE_STATUS and not lock_was_taken:
-        message = (
-            "flock could not run setpriv, which ties the proof to the lock;"
-            " install util-linux setpriv, the proof does not run without it"
-        )
-        raise SystemExit(message)
-    return status
+    child_environment = {**os.environ, **(environment or {}), UNDER_PROBE_RUN_ENV: "1"}
+    command = fleet_command(arguments, script)
+    return run(command, env=child_environment, check=False).returncode
 
 
-def announce_lock_held(environment: Mapping[str, str]) -> None:
-    """Tell the process that waited for the lock that its child holds it."""
-    token = Path(environment[LOCK_HELD_ENV])
-    if not token.parent.name.startswith(LOCK_DIRECTORY_PREFIX):
-        message = (
-            f"{LOCK_HELD_ENV} must name a file in a {LOCK_DIRECTORY_PREFIX} directory"
-        )
-        raise SystemExit(message)
-    token.touch()
-    print("lock_acquired", LOCK_PATH)
-
-
-def prove_under_lock(environment: Mapping[str, str], prove: Callable[[], None]) -> None:
-    """Announce the held lock, turn TERM into an exit, and run the proof body."""
-    announce_lock_held(environment)
+def prove_under_probe_run(prove: Callable[[], None]) -> None:
+    """Turn TERM into an exit and run the proof body `probe-run` started."""
     exit_on_terminate()
     prove()
 
@@ -693,7 +659,7 @@ def speech_environment(
 def parse_arguments(arguments: list[str]) -> argparse.Namespace:
     """Read the command line before anything starts; `--help` and typos exit here."""
     parser = argparse.ArgumentParser(
-        description="Stage proof of the speech service under the probe-stack lock.",
+        description="Stage proof of the speech service under probe-run.",
         allow_abbrev=False,
     )
     return parser.parse_args(arguments)
@@ -748,14 +714,13 @@ def _prove() -> None:
 
 
 def main() -> None:
-    """Run the stage proof, taking the probe-stack lock through the fleet form."""
+    """Run the stage proof, driving it through the fleet's `probe-run` form."""
     parse_arguments(sys.argv[1:])
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
-    if LOCK_HELD_ENV not in os.environ:
-        print("waiting_for_lock", LOCK_PATH)
-        raise SystemExit(run_under_lock(sys.argv[1:]))
-    prove_under_lock(os.environ, _prove)
+    if UNDER_PROBE_RUN_ENV not in os.environ:
+        raise SystemExit(run_under_probe_run(sys.argv[1:]))
+    prove_under_probe_run(_prove)
 
 
 if __name__ == "__main__":

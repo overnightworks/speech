@@ -65,41 +65,34 @@ def terminate_handler() -> Iterator[None]:
 
 
 def run_returning(
-    status: int, *, takes_lock: bool = False
+    status: int,
 ) -> Callable[..., subprocess.CompletedProcess[bytes]]:
-    """A fake for the re-exec: the flock command ends with this status."""
+    """A fake for the re-exec: the `probe-run` command ends with this status."""
 
     def run(
-        command: list[str], env: dict[str, str], *, check: bool
+        command: list[str],
+        env: dict[str, str],  # noqa: ARG001 - the run signature
+        *,
+        check: bool,
     ) -> subprocess.CompletedProcess[bytes]:
         assert not check
-        if takes_lock:
-            PROVE.announce_lock_held(env)
         return subprocess.CompletedProcess(command, status)
 
     return run
 
 
-def test_the_proof_runs_itself_inside_the_fleet_lock_form() -> None:
+def test_the_proof_runs_itself_through_probe_run_with_its_own_cap() -> None:
     command = PROVE.fleet_command(["--help"])
 
-    assert command[:5] == [
-        "flock",
-        "-o",
-        "-w",
-        str(PROVE.LOCK_WAIT_SECONDS),
-        str(PROVE.LOCK_PATH),
-    ]
-    assert command[5:8] == ["setpriv", "--pdeathsig", "TERM"]
-    assert command[8:12] == [
-        "timeout",
+    assert command[:4] == [
+        PROVE.PROBE_RUN,
         "-k",
         str(PROVE.KILL_GRACE_SECONDS),
         str(PROVE.CAP_SECONDS),
     ]
-    assert command[12] == sys.executable
-    assert Path(command[13]) == Path(PROVE.__file__)
-    assert command[14:] == ["--help"]
+    assert command[4] == sys.executable
+    assert Path(command[5]) == Path(PROVE.__file__)
+    assert command[6:] == ["--help"]
 
 
 def test_another_script_runs_under_the_same_fleet_form() -> None:
@@ -107,18 +100,15 @@ def test_another_script_runs_under_the_same_fleet_form() -> None:
 
     command = PROVE.fleet_command(["--device", "cpu"], other)
 
-    assert Path(command[13]) == other
-    assert command[14:] == ["--device", "cpu"]
+    assert Path(command[5]) == other
+    assert command[6:] == ["--device", "cpu"]
 
 
 def test_the_cap_and_kill_grace_fit_the_fleet_budget() -> None:
     assert PROVE.CAP_SECONDS + PROVE.KILL_GRACE_SECONDS <= FLEET_BUDGET_SECONDS
 
 
-def test_a_run_outside_the_lock_hands_over_to_the_fleet_form(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv(PROVE.LOCK_HELD_ENV, raising=False)
+def test_a_run_outside_probe_run_hands_over_to_the_fleet_form() -> None:
     started: list[list[str]] = []
     environments: list[dict[str, str]] = []
 
@@ -132,34 +122,32 @@ def test_a_run_outside_the_lock_hands_over_to_the_fleet_form(
 
     other = Path("/scripts/other_proof.py")
 
-    assert PROVE.run_under_lock(["--help"], run, other) == 0
+    status = PROVE.run_under_probe_run(
+        ["--help"], run, other, which=lambda _: "/bin/probe-run", environment={"X": "1"}
+    )
+
+    assert status == 0
     assert started == [PROVE.fleet_command(["--help"], other)]
-    assert PROVE.LOCK_HELD_ENV in environments[0]
+    assert PROVE.UNDER_PROBE_RUN_ENV in environments[0]
+    assert environments[0]["X"] == "1"
 
 
-def test_a_busy_lock_fails_the_run_and_says_why() -> None:
-    busy_lock = run_returning(PROVE.FLOCK_TIMED_OUT_STATUS)
-
+def test_a_missing_probe_run_fails_the_run_naming_it() -> None:
     with pytest.raises(SystemExit) as failure:
-        PROVE.run_under_lock([], busy_lock)
+        PROVE.run_under_probe_run([], run_returning(0), which=lambda _: None)
 
-    assert "busy" in str(failure.value)
-    assert str(PROVE.LOCK_WAIT_SECONDS) in str(failure.value)
-
-
-def test_a_missing_setpriv_fails_the_run_naming_it() -> None:
-    cannot_execute = run_returning(PROVE.FLOCK_COMMAND_UNAVAILABLE_STATUS)
-
-    with pytest.raises(SystemExit) as failure:
-        PROVE.run_under_lock([], cannot_execute)
-
-    assert "setpriv" in str(failure.value)
+    assert PROVE.PROBE_RUN in str(failure.value)
 
 
-def test_a_failed_proof_under_the_lock_keeps_its_own_exit_status() -> None:
-    status = PROVE.FLOCK_TIMED_OUT_STATUS
+def test_a_failed_proof_under_probe_run_keeps_its_own_exit_status() -> None:
+    status = 3
 
-    assert PROVE.run_under_lock([], run_returning(status, takes_lock=True)) == status
+    assert (
+        PROVE.run_under_probe_run(
+            [], run_returning(status), which=lambda _: "/bin/probe-run"
+        )
+        == status
+    )
 
 
 def speaking_health(*, ready: bool) -> Health:
@@ -225,12 +213,7 @@ def test_a_load_that_never_falls_ends_at_term() -> None:
 
 
 @pytest.mark.usefixtures("restored_terminate_handler")
-def test_term_during_the_proof_under_the_lock_runs_its_teardown(
-    tmp_path: Path,
-) -> None:
-    lock_directory = tmp_path / f"{PROVE.LOCK_DIRECTORY_PREFIX}test"
-    lock_directory.mkdir()
-    token = lock_directory / "acquired"
+def test_term_during_the_proof_under_probe_run_runs_its_teardown() -> None:
     torn_down: list[bool] = []
 
     def proof_body() -> None:
@@ -240,19 +223,9 @@ def test_term_during_the_proof_under_the_lock_runs_its_teardown(
             torn_down.append(True)
 
     with pytest.raises(SystemExit):
-        PROVE.prove_under_lock({PROVE.LOCK_HELD_ENV: str(token)}, proof_body)
+        PROVE.prove_under_probe_run(proof_body)
 
     assert torn_down == [True]
-    assert token.exists()
-
-
-def test_a_lock_marker_outside_a_lock_directory_is_refused(tmp_path: Path) -> None:
-    marker = tmp_path / "1"
-
-    with pytest.raises(SystemExit):
-        PROVE.announce_lock_held({PROVE.LOCK_HELD_ENV: str(marker)})
-
-    assert not marker.exists()
 
 
 def test_a_service_ends_when_the_thread_that_started_it_ends() -> None:
