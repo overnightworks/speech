@@ -5,15 +5,21 @@ import { openSound, type PcmStream } from "./wav-stream.js";
 export type Sound = ArrayBuffer | string | URL;
 
 export type PlaybackEnd =
-  | { readonly kind: "played" }
-  | { readonly kind: "stopped" } // stop() or close()
-  | { readonly kind: "muted" } // setMuted(true), or a sound handed over while muted
+  /** `playedSeconds`: the seconds of the sound the output played, read from the player's AudioContext clock and never more than the sound's length. A "played" sound played its full length; one that never started played 0. */
+  | { readonly kind: "played"; readonly playedSeconds: number }
+  | { readonly kind: "stopped"; readonly playedSeconds: number } // stop() or close()
+  | { readonly kind: "muted"; readonly playedSeconds: number } // setMuted(true), or a sound handed over while muted
   | { readonly kind: "refused" } // no user activation, or resume() refused
   | { readonly kind: "failed" }; // the fetch, the decode or a streamed body failed
 
+export type PlaybackStart =
+  /** `contextTime`: the time on `context`'s clock (`currentTime`) at which the sound's first sample plays, to within one render quantum. An app adds a timing relative to the sound's start to it to place that part on the clock it reads each frame. `context` is the AudioContext the sound plays on. */
+  | { readonly kind: "playing"; readonly contextTime: number; readonly context: AudioContext }
+  | { readonly kind: "ended" }; // the sound ended first, so it has no start
+
 export interface Playback {
-  /** Resolves once and never rejects: "playing" when the sound's source starts on a running context, "ended" when it ended first. */
-  readonly started: Promise<"playing" | "ended">;
+  /** Resolves once and never rejects: "playing" with the sound's start when its source starts on a running context, "ended" when it ended first. */
+  readonly started: Promise<PlaybackStart>;
   /** Resolves once and never rejects, with how the sound ended. A streamed body that breaks off ends "failed" where it broke. */
   readonly ended: Promise<PlaybackEnd>;
 }
@@ -45,8 +51,8 @@ export function createPlayer(): Player {
   };
 }
 
-const STOPPED: PlaybackEnd = { kind: "stopped" };
-const MUTED: PlaybackEnd = { kind: "muted" };
+type Interruption = "stopped" | "muted";
+
 const NONE = -1;
 
 type Loaded =
@@ -56,8 +62,18 @@ type Loaded =
 /** The sources one sound has scheduled; a whole sound has one, a streamed sound one per chunk. */
 class Scheduled {
   readonly sources = new Set<AudioBufferSourceNode>();
+  readonly chunks: { readonly start: number; readonly seconds: number }[] = [];
   bodyScheduled = false;
   constructor(readonly item: Queued) {}
+
+  /** The seconds of the scheduled chunks the output has played by `now` of the context's clock. */
+  playedBy(now: number): number {
+    let played = 0;
+    for (const { start, seconds } of this.chunks) {
+      played += Math.min(Math.max(now - start, 0), seconds);
+    }
+    return played;
+  }
 }
 
 /** Detaches the sources, so that their late `ended` neither reports nor pumps, and stops them at once. */
@@ -73,7 +89,7 @@ class Queued {
   readonly abort = new AbortController();
   readonly playback: Playback;
   loaded: Promise<Loaded | undefined> = Promise.resolve(undefined);
-  readonly #started = Promise.withResolvers<"playing" | "ended">();
+  readonly #started = Promise.withResolvers<PlaybackStart>();
   readonly #ended = Promise.withResolvers<PlaybackEnd>();
   #over = false;
 
@@ -81,15 +97,16 @@ class Queued {
     this.playback = { started: this.#started.promise, ended: this.#ended.promise };
   }
 
-  begin(): void {
-    this.#started.resolve("playing");
+  /** Only the first call counts: a streamed sound begins with its first chunk. */
+  begin(contextTime: number, context: AudioContext): void {
+    this.#started.resolve({ kind: "playing", contextTime, context });
   }
 
   /** The first end wins. */
   end(end: PlaybackEnd): void {
     if (!this.#over) {
       this.#over = true;
-      this.#started.resolve("ended");
+      this.#started.resolve({ kind: "ended" });
       this.#ended.resolve(end);
     }
   }
@@ -113,9 +130,9 @@ class PlayerRun {
   play(sound: Sound): Playback {
     const item = new Queued();
     if (this.#closed) {
-      item.end(STOPPED);
+      item.end({ kind: "stopped", playedSeconds: 0 });
     } else if (this.#muted) {
-      item.end(MUTED);
+      item.end({ kind: "muted", playedSeconds: 0 });
     } else {
       item.loaded = this.#load(item, sound);
       this.#queue.push(item);
@@ -125,21 +142,21 @@ class PlayerRun {
   }
 
   stop(): void {
-    this.#endAll(STOPPED);
+    this.#endAll("stopped");
   }
 
   setMuted(muted: boolean): void {
     this.#muted = muted;
     this.#gain.gain.value = muted ? 0 : 1;
     if (muted) {
-      this.#endAll(MUTED);
+      this.#endAll("muted");
     }
   }
 
   close(): void {
     if (!this.#closed) {
       this.#closed = true;
-      this.#endAll(STOPPED);
+      this.#endAll("stopped");
       void this.#context.close();
     }
   }
@@ -238,7 +255,9 @@ class PlayerRun {
     };
     scheduled.sources.add(source);
     source.start(when);
-    scheduled.item.begin();
+    const start = Math.max(when, this.#context.currentTime);
+    scheduled.chunks.push({ start, seconds: buffer.duration });
+    scheduled.item.begin(start, this.#context);
   }
 
   /** Back to back on the context's clock: each chunk starts where the one before ends. */
@@ -281,13 +300,13 @@ class PlayerRun {
   #settle(scheduled: Scheduled): void {
     if (scheduled.bodyScheduled && scheduled.sources.size === 0 && this.#playing === scheduled) {
       this.#playing = undefined;
-      scheduled.item.end({ kind: "played" });
+      scheduled.item.end({ kind: "played", playedSeconds: scheduled.playedBy(Infinity) });
       void this.#pump();
     }
   }
 
   /** Silences the playing sound first, so that its late `ended` neither reports nor pumps. */
-  #endAll(end: PlaybackEnd): void {
+  #endAll(kind: Interruption): void {
     this.#generation += 1;
     const playing = this.#playing;
     const waiting = this.#queue;
@@ -296,11 +315,11 @@ class PlayerRun {
     if (playing !== undefined) {
       silence(playing);
       playing.item.abort.abort();
-      playing.item.end(end);
+      playing.item.end({ kind, playedSeconds: playing.playedBy(this.#context.currentTime) });
     }
     for (const item of waiting) {
       item.abort.abort();
-      item.end(end);
+      item.end({ kind, playedSeconds: 0 });
     }
   }
 }
