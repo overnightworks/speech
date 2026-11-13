@@ -39,16 +39,15 @@ def _start_and_stop(tmp_path: Path, **options: int) -> None:
     process.wait()
 
 
-def _has_ended(pid: int) -> bool:
-    """Whether `pid` is gone or a zombie that its adopter has yet to reap."""
+def _stops_answering(socket_path: Path) -> bool:
+    """Whether the server behind `socket_path` is gone: nothing accepts there."""
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
-        try:
-            status = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
-        except FileNotFoundError:
-            return True
-        if status.rpartition(")")[2].split()[0] == "Z":
-            return True
+        with socket.socket(socket.AF_UNIX) as probe:
+            try:
+                probe.connect(str(socket_path))
+            except OSError:
+                return True
         time.sleep(0.01)
     return False
 
@@ -87,7 +86,8 @@ def test_a_server_that_never_answers_fails_the_start_and_is_stopped(
     with pytest.raises(ServerStartError):
         _start("unhealthy", tmp_path, "--pid-file", str(pid_file))
 
-    assert _has_ended(int(pid_file.read_text(encoding="ascii")))
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pid_file.read_text(encoding="ascii")), 0)
 
 
 def test_a_bind_that_fails_is_a_failed_start(tmp_path: Path) -> None:
@@ -177,12 +177,12 @@ def _run_harness(
 def test_the_server_dies_with_its_worker(tmp_path: Path) -> None:
     (tmp_path / "shm").mkdir()
     with _run_harness("idle", tmp_path, stdout=subprocess.PIPE) as worker:
-        server_pid = int(worker.stdout.readline())
+        worker.stdout.readline()
 
         worker.kill()
         worker.wait()
 
-        assert _has_ended(server_pid)
+        assert _stops_answering(tmp_path / "server.sock")
 
 
 def test_the_worker_ends_when_its_server_dies_after_the_start(
@@ -215,8 +215,10 @@ def test_the_signal_is_set_while_the_creator_lives() -> None:
 
 @pytest.mark.usefixtures("parent_death_signal_cleared")
 def test_a_creator_that_is_already_gone_fails_the_signal() -> None:
+    gone_creator = os.getppid() + 1
+
     with pytest.raises(RuntimeError):
-        install_parent_death_signal(os.getppid() + 1)
+        install_parent_death_signal(gone_creator)
 
 
 def test_the_servers_output_reaches_the_service_only_before_the_worker_is_ready(
