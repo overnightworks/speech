@@ -125,6 +125,7 @@ class _Mapping:
     on_partial: Callable[[Partial], Awaitable[None]] | None
     on_speech_started: Callable[[SpeechStart], Awaitable[None]] | None
     on_turn_ended: Callable[[TurnEnd], Awaitable[None]] | None
+    ended: asyncio.Event
     items: _Items = field(default_factory=_Items)
 
     async def on_event(self, event: ServerEvent) -> None:
@@ -150,7 +151,7 @@ class _Mapping:
                             audio_end_ms=end,
                         )
                     )
-                if self.on_turn_ended is not None:
+                if self.on_turn_ended is not None and not self.ended.is_set():
                     await self.on_turn_ended(
                         TurnEnd(heard_words=bool(event.transcript))
                     )
@@ -192,7 +193,7 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
             session,
             app_ended=ended,
             on_event=_Mapping(
-                on_utterance, on_partial, on_speech_started, on_turn_ended
+                on_utterance, on_partial, on_speech_started, on_turn_ended, ended
             ).on_event,
             frame_limit_bytes=HOP_FRAME_BYTES,
         )
