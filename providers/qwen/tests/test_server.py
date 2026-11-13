@@ -19,14 +19,14 @@ import pytest
 from speech_qwen import server as server_module
 from speech_qwen.parent_death import install_parent_death_signal
 from speech_qwen.server import ServerStartError, fresh_socket_path
-from worker_harness import start_fake_server
+from support.worker_harness import start_fake_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
 PR_SET_PDEATHSIG = 1
 PR_GET_PDEATHSIG = 2
-_HARNESS = Path(__file__).with_name("worker_harness.py")
+_HARNESS = Path(__file__).parent / "support" / "worker_harness.py"
 
 
 def _start(mode: str, tmp_path: Path, *extra: str) -> server_module.Server:

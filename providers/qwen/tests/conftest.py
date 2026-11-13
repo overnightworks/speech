@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from scripted_server import ScriptedSpeechServer
+from support.scripted_server import ScriptedSpeechServer
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

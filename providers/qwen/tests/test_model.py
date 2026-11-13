@@ -15,14 +15,14 @@ from speech_provider_contract import (
     QWEN_REVISION,
 )
 
-from scripted_server import HANG_UP
+from support.scripted_server import HANG_UP
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
     from types import ModuleType
 
-    from scripted_server import ScriptedSpeechServer
+    from support.scripted_server import ScriptedSpeechServer
 
 
 @pytest.fixture
