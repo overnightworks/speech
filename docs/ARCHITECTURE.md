@@ -194,7 +194,9 @@ no capability is kept.
 - The server dies with its worker (the parent-death signal, set on the worker's
   main thread) and stays in the worker's process group, so the service's stop
   ends every stage process through that group, also after the worker died first.
-  The next start removes what a killed server left in `/dev/shm`.
+  The worker ends when its server does, so health never reports a voice whose
+  server is gone. The next start removes the wake directories a killed server
+  left in `/dev/shm`, those no process still reads.
 - vLLM-Omni's deploy config and its tokenizer load still ask for
   `trust_remote_code`; the command no longer does. The pinned snapshot holds no
   Python file and no `auto_map`, and the process runs offline, so there is no

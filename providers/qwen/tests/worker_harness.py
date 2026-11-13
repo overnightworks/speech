@@ -6,24 +6,38 @@ import os
 import sys
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from speech_qwen.server import STDERR_THREAD_NAME, Server, start_server
+from speech_qwen.server import STDERR_THREAD_NAME, Server, exit_worker, start_server
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _FAKE = Path(__file__).with_name("fake_vllm_omni.py")
 
 
-def start_fake_server(mode: str, directory: Path, *extra: str) -> Server:
+def _ignore() -> None:
+    """Leave the process to the test when the server ends."""
+
+
+def start_fake_server(
+    mode: str,
+    directory: Path,
+    *extra: str,
+    when_server_ends: Callable[[], None] = _ignore,
+) -> Server:
     """Start the fake server in `mode` on a socket in `directory`."""
     socket_path = directory / "server.sock"
     return start_server(
         [sys.executable, str(_FAKE), mode, "--uds", str(socket_path), *extra],
         socket_path,
         shared_memory_directory=directory / "shm",
+        when_server_ends=when_server_ends,
     )
 
 
-def _wait_to_be_killed(directory: Path) -> None:
-    server = start_fake_server("healthy", directory)
+def _serve_idle(directory: Path) -> None:
+    server = start_fake_server("healthy", directory, when_server_ends=exit_worker)
     sys.stdout.write(f"{server.process.pid}\n")
     sys.stdout.flush()
     threading.Event().wait()
@@ -44,6 +58,6 @@ def _discard_stderr_once_started(directory: Path) -> None:
 
 
 if __name__ == "__main__":
-    {"kill": _wait_to_be_killed, "discard": _discard_stderr_once_started}[sys.argv[1]](
+    {"idle": _serve_idle, "discard": _discard_stderr_once_started}[sys.argv[1]](
         Path(sys.argv[2])
     )

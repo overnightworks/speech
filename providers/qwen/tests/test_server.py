@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import os
 import signal
 import socket
@@ -26,12 +27,6 @@ if TYPE_CHECKING:
 PR_SET_PDEATHSIG = 1
 PR_GET_PDEATHSIG = 2
 _HARNESS = Path(__file__).with_name("worker_harness.py")
-
-
-@pytest.fixture(autouse=True)
-def quick_polls(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(server_module, "_HEALTH_POLL_SECONDS", 0.02)
-    monkeypatch.setattr(server_module, "_STOP_GRACE_SECONDS", 0.05)
 
 
 def _start(mode: str, tmp_path: Path, *extra: str) -> server_module.Server:
@@ -108,33 +103,38 @@ def test_every_start_gets_a_socket_nothing_listens_on() -> None:
     assert stat.S_IMODE(first.parent.stat().st_mode) == stat.S_IRWXU
 
 
+def _wake_directory(shm: Path, name: str) -> Path:
+    """Make a wake directory holding one FIFO, as the server's connector does."""
+    directory = shm / name
+    directory.mkdir(parents=True, mode=0o700)
+    os.mkfifo(directory / "0_fifo", 0o600)
+    return directory
+
+
 def test_leftovers_of_servers_that_are_gone_are_removed_at_the_next_start(
     tmp_path: Path,
 ) -> None:
     shm = tmp_path / "shm"
-    gone = subprocess.run(
-        [sys.executable, "-c", "import os; print(os.getpid())"],
-        capture_output=True,
-        check=True,
-    )
-    names = {
-        "dead": f"omni_shm_wake_{os.getuid()}_{int(gone.stdout)}",
-        "alive": f"omni_shm_wake_{os.getuid()}_{os.getpid()}",
-        "init": f"omni_shm_wake_{os.getuid()}_1",
-        "another_user": f"omni_shm_wake_{os.getuid() + 1}_{int(gone.stdout)}",
-        "another_name": "omni_shm_other",
-    }
-    for name in names.values():
-        (shm / name).mkdir(parents=True)
-        (shm / name / "0_fifo").touch()
+    scope = hashlib.sha256(b"a launch scope").hexdigest()[:24]
+    leftovers = [
+        _wake_directory(shm, f"omni_shm_wake_{os.getuid()}_{scope}"),
+        _wake_directory(shm, f"omni_shm_wake_{os.getuid()}_{os.getpid()}"),
+    ]
+    in_use = _wake_directory(shm, f"omni_shm_wake_{os.getuid()}_{'0' * 24}")
+    other_names = [shm / "omni_shm_other", _wake_directory(shm, "unrelated")]
+    other_names[0].touch()
+    reader = os.open(in_use / "0_fifo", os.O_RDONLY | os.O_NONBLOCK)
 
-    process = _start("healthy", tmp_path).process
-    process.kill()
-    process.wait()
+    try:
+        process = _start("healthy", tmp_path).process
+        process.kill()
+        process.wait()
+    finally:
+        os.close(reader)
 
-    assert sorted(path.name for path in shm.iterdir()) == sorted(
-        name for kind, name in names.items() if kind != "dead"
-    )
+    assert not any(leftover.exists() for leftover in leftovers)
+    assert in_use.exists()
+    assert all(path.exists() for path in other_names)
 
 
 def _run_harness(
@@ -149,13 +149,26 @@ def _run_harness(
 
 def test_the_server_dies_with_its_worker(tmp_path: Path) -> None:
     (tmp_path / "shm").mkdir()
-    with _run_harness("kill", tmp_path, stdout=subprocess.PIPE) as worker:
+    with _run_harness("idle", tmp_path, stdout=subprocess.PIPE) as worker:
         server_pid = int(worker.stdout.readline())
 
         worker.kill()
         worker.wait()
 
         assert _has_ended(server_pid)
+
+
+def test_the_worker_ends_when_its_server_dies_after_the_start(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "shm").mkdir()
+    with _run_harness("idle", tmp_path, stdout=subprocess.PIPE) as worker:
+        try:
+            os.kill(int(worker.stdout.readline()), signal.SIGKILL)
+
+            assert worker.wait(timeout=10) != 0
+        finally:
+            worker.kill()
 
 
 @pytest.fixture

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import http.client
 import os
-import re
 import shutil
 import socket
 import subprocess
@@ -21,7 +21,7 @@ from typing import IO, TYPE_CHECKING
 from speech_qwen.parent_death import install_parent_death_signal
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
 START_TIMEOUT_SECONDS = 600
 """How long a server may take to answer its health check, loading included."""
@@ -31,8 +31,8 @@ _STOP_GRACE_SECONDS = 5.0
 _STDERR_READ_BYTES = 64 * 1024
 _STDERR_DESCRIPTOR = 2
 _SHARED_MEMORY_DIRECTORY = Path("/dev/shm")  # noqa: S108 - the server's fixed shared memory
-_SHARED_MEMORY_LEFTOVER = re.compile(r"omni_shm_wake_(?P<uid>\d+)_(?P<pid>\d+)")
 STDERR_THREAD_NAME = "speech-qwen-server-stderr"
+_WATCH_THREAD_NAME = "speech-qwen-server-watch"
 
 
 class ServerStartError(RuntimeError):
@@ -75,17 +75,24 @@ def fresh_socket_path() -> Path:
     return Path(tempfile.mkdtemp(prefix="speech-qwen-server-")) / "server.sock"
 
 
+def exit_worker() -> None:
+    """End the worker at once: without its server it cannot speak."""
+    os._exit(1)
+
+
 def start_server(
     command: Sequence[str],
     socket_path: Path,
     *,
     shared_memory_directory: Path = _SHARED_MEMORY_DIRECTORY,
+    when_server_ends: Callable[[], None] = exit_worker,
 ) -> Server:
     """Start `command`, which listens on `socket_path`, and return once it is healthy.
 
     Call on the worker's main thread before any other thread exists: the parent
     death signal follows the thread that created the child. What an earlier
-    server left in `shared_memory_directory` is removed first.
+    server left in `shared_memory_directory` is removed first. Once the server
+    is healthy, `when_server_ends` runs when its process ends.
     """
     _remove_leftover_shared_memory(shared_memory_directory)
     process = subprocess.Popen(  # noqa: S603 - argv is the closed server command with no shell
@@ -108,28 +115,45 @@ def start_server(
     except BaseException:
         _stop(process)
         raise
+    threading.Thread(
+        target=_call_when_ended,
+        args=(process, when_server_ends),
+        name=_WATCH_THREAD_NAME,
+        daemon=True,
+    ).start()
     return server
 
 
+def _call_when_ended(
+    process: subprocess.Popen[bytes], when_server_ends: Callable[[], None]
+) -> None:
+    process.wait()
+    when_server_ends()
+
+
 def _remove_leftover_shared_memory(directory: Path) -> None:
-    """Remove what servers that are gone left in `directory`; a live server's stays."""
+    """Remove the wake directories of ours that no process reads from any more."""
     for entry in directory.glob("omni_shm_*"):
-        leftover = _SHARED_MEMORY_LEFTOVER.fullmatch(entry.name)
         if (
-            leftover is not None
-            and int(leftover["uid"]) == os.getuid()
-            and not _is_alive(int(leftover["pid"]))
+            entry.is_dir()
+            and entry.stat().st_uid == os.getuid()
+            and not any(_is_read(fifo) for fifo in entry.iterdir())
         ):
             shutil.rmtree(entry)
 
 
-def _is_alive(pid: int) -> bool:
+def _is_read(fifo: Path) -> bool:
+    """Whether a live process has `fifo` open for reading.
+
+    Opening a FIFO for writing without waiting fails with ENXIO exactly when no
+    reader holds it, and a killed server's readers are gone with it. What cannot
+    be judged counts as read, so it stays.
+    """
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
+        descriptor = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+    except OSError as error:
+        return error.errno != errno.ENXIO
+    os.close(descriptor)
     return True
 
 
