@@ -262,7 +262,6 @@ window.playerPage = {
   snapshot: () => ({
     ...seen,
     contextStates: contexts.map((context) => context.state),
-    renderQuantum: 128 / contexts[0].sampleRate,
     sampleRate: contexts[0].sampleRate,
     clockStep: Math.max(128 / contexts[0].sampleRate, contexts[0].baseLatency),
     gainValue: outputGain?.gain.value ?? null,
