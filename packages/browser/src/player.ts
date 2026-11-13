@@ -1,4 +1,7 @@
-/** A whole sound the app hands over: its bytes (the player decodes a copy), or the URL of the app's own route that answers one. */
+import { openSound, type PcmStream } from "./wav-stream.js";
+
+/** A sound the app hands over: its bytes (the player decodes a copy), or the URL of the app's own route that answers one.
+ * A route answering 16-bit mono PCM `audio/wav` plays while its body still arrives; every other sound plays whole. */
 export type Sound = ArrayBuffer | string | URL;
 
 export type PlaybackEnd =
@@ -6,12 +9,12 @@ export type PlaybackEnd =
   | { readonly kind: "stopped" } // stop() or close()
   | { readonly kind: "muted" } // setMuted(true), or a sound handed over while muted
   | { readonly kind: "refused" } // no user activation, or resume() refused
-  | { readonly kind: "failed" }; // the fetch or the decode failed
+  | { readonly kind: "failed" }; // the fetch, the decode or a streamed body failed
 
 export interface Playback {
   /** Resolves once and never rejects: "playing" when the sound's source starts on a running context, "ended" when it ended first. */
   readonly started: Promise<"playing" | "ended">;
-  /** Resolves once and never rejects, with how the sound ended. */
+  /** Resolves once and never rejects, with how the sound ended. A streamed body that breaks off ends "failed" where it broke. */
   readonly ended: Promise<PlaybackEnd>;
 }
 
@@ -46,10 +49,30 @@ const STOPPED: PlaybackEnd = { kind: "stopped" };
 const MUTED: PlaybackEnd = { kind: "muted" };
 const NONE = -1;
 
+type Loaded =
+  | { readonly kind: "buffer"; readonly buffer: AudioBuffer }
+  | { readonly kind: "stream"; readonly stream: PcmStream };
+
+/** The sources one sound has scheduled; a whole sound has one, a streamed sound one per chunk. */
+class Scheduled {
+  readonly sources = new Set<AudioBufferSourceNode>();
+  bodyScheduled = false;
+  constructor(readonly item: Queued) {}
+}
+
+/** Detaches the sources, so that their late `ended` neither reports nor pumps, and stops them at once. */
+function silence(scheduled: Scheduled): void {
+  for (const source of scheduled.sources) {
+    source.onended = null;
+    source.stop();
+  }
+  scheduled.sources.clear();
+}
+
 class Queued {
   readonly abort = new AbortController();
   readonly playback: Playback;
-  buffer: Promise<AudioBuffer | undefined> = Promise.resolve(undefined);
+  loaded: Promise<Loaded | undefined> = Promise.resolve(undefined);
   readonly #started = Promise.withResolvers<"playing" | "ended">();
   readonly #ended = Promise.withResolvers<PlaybackEnd>();
   #over = false;
@@ -76,7 +99,7 @@ class PlayerRun {
   readonly #context = new AudioContext();
   readonly #gain = this.#context.createGain();
   #queue: Queued[] = [];
-  #playing: { readonly item: Queued; readonly source: AudioBufferSourceNode } | undefined;
+  #playing: Scheduled | undefined;
   // Stop, close and mute bump the generation; a pump run goes on only in its own.
   #generation = 0;
   #pumping = NONE;
@@ -94,7 +117,7 @@ class PlayerRun {
     } else if (this.#muted) {
       item.end(MUTED);
     } else {
-      item.buffer = this.#load(item, sound);
+      item.loaded = this.#load(item, sound);
       this.#queue.push(item);
       void this.#pump();
     }
@@ -121,7 +144,7 @@ class PlayerRun {
     }
   }
 
-  async #load(item: Queued, sound: Sound): Promise<AudioBuffer | undefined> {
+  async #load(item: Queued, sound: Sound): Promise<Loaded | undefined> {
     try {
       let bytes: ArrayBuffer;
       if (typeof sound === "string" || sound instanceof URL) {
@@ -129,11 +152,15 @@ class PlayerRun {
         if (!response.ok) {
           throw new Error(`the route answered ${response.status}`);
         }
-        bytes = await response.arrayBuffer();
+        const opened = await openSound(response);
+        if (opened.kind === "stream") {
+          return opened;
+        }
+        bytes = opened.bytes;
       } else {
         bytes = sound.slice(0);
       }
-      return await this.#context.decodeAudioData(bytes);
+      return { kind: "buffer", buffer: await this.#context.decodeAudioData(bytes) };
     } catch {
       item.end({ kind: "failed" });
       return undefined;
@@ -148,16 +175,24 @@ class PlayerRun {
     this.#pumping = generation;
     try {
       for (let head = this.#queue[0]; head !== undefined; head = this.#queue[0]) {
-        const buffer = await head.buffer;
+        const loaded = await head.loaded;
         if (!this.#isHead(generation, head)) {
           return;
         }
-        const running = buffer !== undefined && (await this.#resume());
+        const running = loaded !== undefined && (await this.#resume());
         if (!this.#isHead(generation, head)) {
           return;
         }
         if (running) {
-          this.#startSource(head, buffer);
+          this.#queue.shift();
+          const scheduled = new Scheduled(head);
+          this.#playing = scheduled;
+          if (loaded.kind === "buffer") {
+            this.#schedule(scheduled, loaded.buffer, 0);
+            scheduled.bodyScheduled = true;
+          } else {
+            void this.#playStream(scheduled, loaded.stream, generation);
+          }
           return;
         }
         // A failed sound has ended already; a refused one ends here. Neither blocks the next.
@@ -191,22 +226,58 @@ class PlayerRun {
     }
   }
 
-  #startSource(item: Queued, buffer: AudioBuffer): void {
-    this.#queue.shift();
+  /** Schedules the buffer on the one gain at `when` of the context's clock. */
+  #schedule(scheduled: Scheduled, buffer: AudioBuffer, when: number): void {
     const source = this.#context.createBufferSource();
     source.buffer = buffer;
     source.connect(this.#gain);
     source.onended = () => {
-      this.#playing = undefined;
-      item.end({ kind: "played" });
-      void this.#pump();
+      scheduled.sources.delete(source);
+      this.#settle(scheduled);
     };
-    this.#playing = { item, source };
-    source.start();
-    item.begin();
+    scheduled.sources.add(source);
+    source.start(when);
+    scheduled.item.begin();
   }
 
-  /** Detaches the playing source first, so that its late `ended` neither reports nor pumps. */
+  /** Back to back on the context's clock: each chunk starts where the one before ends. */
+  async #playStream(scheduled: Scheduled, stream: PcmStream, generation: number): Promise<void> {
+    let nextAt = 0;
+    try {
+      for (let samples = await stream.next(); samples !== undefined; samples = await stream.next()) {
+        if (generation !== this.#generation) {
+          return;
+        }
+        const buffer = this.#context.createBuffer(1, samples.length, stream.sampleRate);
+        buffer.copyToChannel(samples, 0);
+        nextAt = Math.max(nextAt, this.#context.currentTime);
+        this.#schedule(scheduled, buffer, nextAt);
+        nextAt += buffer.duration;
+      }
+    } catch {
+      if (generation === this.#generation) {
+        this.#playing = undefined;
+        silence(scheduled);
+        scheduled.item.end({ kind: "failed" });
+        void this.#pump();
+      }
+      return;
+    }
+    if (generation === this.#generation) {
+      scheduled.bodyScheduled = true;
+      this.#settle(scheduled);
+    }
+  }
+
+  #settle(scheduled: Scheduled): void {
+    if (scheduled.bodyScheduled && scheduled.sources.size === 0 && this.#playing === scheduled) {
+      this.#playing = undefined;
+      scheduled.item.end({ kind: "played" });
+      void this.#pump();
+    }
+  }
+
+  /** Silences the playing sound first, so that its late `ended` neither reports nor pumps. */
   #endAll(end: PlaybackEnd): void {
     this.#generation += 1;
     const playing = this.#playing;
@@ -214,8 +285,8 @@ class PlayerRun {
     this.#playing = undefined;
     this.#queue = [];
     if (playing !== undefined) {
-      playing.source.onended = null;
-      playing.source.stop();
+      silence(playing);
+      playing.item.abort.abort();
       playing.item.end(end);
     }
     for (const item of waiting) {
