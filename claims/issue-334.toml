@@ -1,8 +1,0 @@
-claim_id = "6247c0fd48d745b087c69f453181b016"
-agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
-role = "builder"
-base = "ccd012bda95524f93834bef2fa04638cc6464a85"
-branch = "claude/issue-334-streamed-player"
-scope = ["docs/ARCHITECTURE.md", "docs/wire.md", "packages/browser/src", "packages/browser/vitest.config.ts", "tests/fixtures/browser/player_page.js", "tests/support/browser_support.py", "tests/test_wire_route_browser_player.py"]
-opened_commit = "8053c92ef9d82aec29c6e5ae090aa3b03ca3e7f9"
-whole_reason = "The player's playback path, its browser flow fixtures and its wire and architecture sentences change as one piece."
