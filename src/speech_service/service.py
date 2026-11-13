@@ -75,12 +75,14 @@ class Runtime:
         dependencies: RuntimeDependencies | None = None,
         hearing: Hearing | None = None,
         memory_probe: Callable[[], int] | None = None,
+        load_gpu_voices_at_start: bool = False,
     ) -> None:
         """Offer the keys of `voices`, a slot each, in catalogue order.
 
         A value is an engine already loaded, `None` a voice to load. Nothing is
         loaded until `load`, and a voice that is not a start voice not until its
-        first request.
+        first request. Every Piper voice is a start voice, and a GPU voice is one
+        when `load_gpu_voices_at_start`.
         """
         dependencies = dependencies or RuntimeDependencies()
         self.hearing = hearing or Hearing(None, _CLOCK)
@@ -90,7 +92,11 @@ class Runtime:
             for voice in VoiceId
             if voice in voices
         }
-        self._start_voices = tuple(filter(loads_at_start, self.slots))
+        self._start_voices = tuple(
+            voice
+            for voice in self.slots
+            if loads_at_start(voice, gpu_voices=load_gpu_voices_at_start)
+        )
         self._memory_probe = memory_probe or card_memory_mb
         self._phase_lock = threading.Lock()
         self._loading = False
@@ -102,6 +108,7 @@ class Runtime:
         return cls(
             dict.fromkeys(settings.voices),
             hearing=hearing_from_settings(settings, _CLOCK),
+            load_gpu_voices_at_start=settings.load_gpu_voices_at_start,
             dependencies=RuntimeDependencies(
                 engine_factory=lambda voice: speaking_for_voice(settings, voice),
                 missing_artifacts=lambda voice: missing_artifacts(settings, voice),
@@ -148,7 +155,8 @@ class Runtime:
     def load_on_demand(self, voice: VoiceId) -> Future[SpeakingEngine | None] | None:
         """The voice's shared load, started if none runs; `None` if none may.
 
-        A start voice never loads on demand, and no voice does during the start.
+        A Piper voice never loads on demand, and no voice does during the start.
+        A GPU voice the start loaded reloads here once its worker died.
         """
         if loads_at_start(voice) or self.loading:
             return None

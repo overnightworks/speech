@@ -236,9 +236,12 @@ def _offering(
     voices: dict[VoiceId, SpeakingEngine | None],
     events: list[str],
     build: Callable[[VoiceId], SpeakingEngine],
+    *,
+    load_gpu_voices_at_start: bool = False,
 ) -> Runtime:
     return Runtime(
         voices,
+        load_gpu_voices_at_start=load_gpu_voices_at_start,
         memory_probe=lambda: 0,
         dependencies=RuntimeDependencies(
             engine_factory=build, missing_artifacts=lambda _voice: ()
@@ -261,6 +264,60 @@ def test_the_start_loads_the_piper_voices_in_catalogue_order_then_hearing() -> N
         *(f"{voice.value} loaded" for voice in PIPER_VOICES),
         "hearing loaded",
     ]
+
+
+def test_the_start_loads_a_gpu_voice_after_the_piper_voices_and_before_hearing() -> (
+    None
+):
+    """WIRE-143: the start loads a GPU voice after the Piper voices, then hearing."""
+    events: list[str] = []
+    runtime = _offering(
+        {VoiceId.RYAN: None, VoiceId.THORSTEN: None},
+        events,
+        lambda voice: _RecordedSpeaking(events, voice),
+        load_gpu_voices_at_start=True,
+    )
+
+    runtime.load()
+
+    assert events == [
+        f"{VoiceId.THORSTEN.value} loaded",
+        f"{VoiceId.RYAN.value} loaded",
+        "hearing loaded",
+    ]
+
+
+def test_a_gpu_voice_loaded_at_start_is_not_ready_until_its_load_ends() -> None:
+    """WIRE-124, WIRE-143: speaking waits for the GPU voice the start loads."""
+    loading = threading.Event()
+    release = threading.Event()
+
+    class SlowSpeaking(_ClosableSpeaking):
+        def load(self) -> None:
+            loading.set()
+            assert release.wait(timeout=WAIT_SECONDS)
+            self.ready = True
+
+    runtime = Runtime(
+        {VoiceId.RYAN: None},
+        memory_probe=lambda: 0,
+        load_gpu_voices_at_start=True,
+        dependencies=RuntimeDependencies(
+            engine_factory=lambda _voice: SlowSpeaking(ready=False),
+            missing_artifacts=lambda _voice: (),
+        ),
+    )
+    starting = threading.Thread(target=runtime.load)
+    runtime.begin_loading()
+    starting.start()
+    assert loading.wait(timeout=WAIT_SECONDS)
+    while_loading = runtime.health().speaking.ready
+
+    release.set()
+    starting.join(timeout=WAIT_SECONDS)
+    loaded = runtime.health().speaking.ready
+
+    assert (while_loading, loaded) == (False, True)
 
 
 def test_shutdown_during_the_start_load_leaves_later_voices_and_hearing_unloaded() -> (

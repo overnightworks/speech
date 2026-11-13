@@ -129,6 +129,29 @@ def test_an_offered_voice_loads_on_its_first_request_and_then_reports_ready(
     assert health.speaking.voices[VoiceId.RYAN].ready is True
 
 
+def test_the_start_setting_loads_a_gpu_voice_without_a_request_and_ready_waits_for_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WIRE-124, WIRE-143: the service built from its settings loads Qwen at start."""
+    with gpu_voice_stage(
+        tmp_path,
+        monkeypatch,
+        StageSetup(started=False),
+        load_gpu_voices_at_start=True,
+    ) as stage:
+        client = TestClient(stage.app())
+        stage.runtime.begin_loading()
+        starting = threading.Thread(target=stage.runtime.load)
+        starting.start()
+        (pid,) = wait_for_starts(stage.cache, 1)
+        while_loading = _health(client).speaking.ready
+        release_load(stage.cache, pid, LoadOutcome.READY)
+        starting.join(timeout=WORKER_WAIT_SECONDS)
+        loaded = _health(client).speaking.ready
+
+    assert (while_loading, loaded) == (False, True)
+
+
 def test_a_gpu_voice_launches_on_its_providers_device_whatever_hearing_runs_on(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -360,13 +383,20 @@ def test_a_request_during_a_failed_loads_cleanup_shares_its_refusal_and_starts_n
     assert_reaped(pid)
 
 
+@pytest.mark.parametrize("loaded_at_start", [False, True])
 @pytest.mark.parametrize("death", ["killed while idle", "failed synthesis"])
 def test_a_worker_that_dies_after_it_was_ready_turns_its_voice_unready_and_reloads(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, death: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    death: str,
+    *,
+    loaded_at_start: bool,
 ) -> None:
-    """WIRE-103, WIRE-126: a worker that dies turns its voice unready."""
+    """WIRE-103, WIRE-126, WIRE-143: a worker that dies turns its voice unready."""
     fatal = threading.Event()
-    with gpu_voice_stage(tmp_path, monkeypatch, _SERVING) as stage:
+    with gpu_voice_stage(
+        tmp_path, monkeypatch, _SERVING, load_gpu_voices_at_start=loaded_at_start
+    ) as stage:
         stage.runtime.set_fatal_callback(fatal.set)
         client = TestClient(stage.app(), raise_server_exceptions=False)
         _assert_spoken_at(
