@@ -100,6 +100,22 @@ item = "overnightworks/speech#2"
 reason = "pillow 12.3.0: gradio requires pillow<13.0, even its latest 6.30.0; local TTS worker, text over a local socket"
 
 [[advisories.allow]]
+id = "GHSA-wqgw-9xfh-qf2g"
+lock = "providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-11-13
+item = "overnightworks/speech#2"
+reason = "pillow 12.3.0: gradio requires pillow<13.0, even its latest 6.30.0; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
+id = "GHSA-xcvg-w56q-r89m"
+lock = "providers/qwen/uv.lock"
+until = 2027-01-31
+date = 2026-11-13
+item = "overnightworks/speech#2"
+reason = "pillow 12.3.0: gradio requires pillow<13.0, even its latest 6.30.0; local TTS worker, text over a local socket"
+
+[[advisories.allow]]
 id = "PYSEC-2025-217"
 lock = "providers/qwen/uv.lock"
 until = 2027-01-31
