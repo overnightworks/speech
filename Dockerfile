@@ -85,7 +85,11 @@ RUN uv sync --locked --no-dev --no-editable --no-install-project --no-build \
     --no-install-package overnightworks-speech-provider-contract
 COPY providers/provider-contract/src ../provider-contract/src
 COPY providers/qwen/src src
-RUN uv sync --locked --no-dev --no-editable
+# NVIDIA's libraries are the largest part of the environment, and a layer stays
+# under 10 GB: they move out, so the next stage copies them as a layer of their
+# own and the rest of the environment as another.
+RUN uv sync --locked --no-dev --no-editable \
+ && mv /opt/providers/qwen/.venv/lib/python3.12/site-packages/nvidia /opt/qwen-nvidia
 
 FROM python-base AS gpu
 ARG GPU_VOICES
@@ -93,10 +97,8 @@ COPY --from=gpu-dependencies /opt/venv /opt/venv
 COPY --from=gpu-weights /opt/voices /opt/voices
 COPY --from=gpu-weights /opt/hearing /opt/hearing
 COPY --from=qwen-environment /opt/python /opt/python
-# NVIDIA's libraries are the largest part of the environment, and a layer stays
-# under 10 GB.
-COPY --from=qwen-environment /opt/providers/qwen/.venv/lib/python3.12/site-packages/nvidia /opt/providers/qwen/.venv/lib/python3.12/site-packages/nvidia
-COPY --from=qwen-environment --exclude=lib/python3.12/site-packages/nvidia /opt/providers/qwen/.venv /opt/providers/qwen/.venv
+COPY --from=qwen-environment /opt/qwen-nvidia /opt/providers/qwen/.venv/lib/python3.12/site-packages/nvidia
+COPY --from=qwen-environment /opt/providers/qwen/.venv /opt/providers/qwen/.venv
 COPY deploy/speech.toml deploy/speech.toml
 ENV SPEECH_VOICES=$GPU_VOICES \
     SPEECH_VOICE_CACHE=/opt/voices \
