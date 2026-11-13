@@ -1,0 +1,8 @@
+claim_id = "5d93d4321b9f42f7848f5332283f9aad"
+agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
+role = "builder"
+base = "4c855924cbbb0b8f30cc6501e8fa4d956ddb73eb"
+branch = "claude/issue-338-the-proofs-drive-under-probe-run-with-pe"
+scope = ["AGENTS.md", "README.md", "scripts", "tests/scripts"]
+opened_commit = "0be398ec9c6c82b09278683b252d83331ff32ed1"
+whole_reason = "One fleet form change across the three proof scripts that share it, their tests and the two documents that name it."
