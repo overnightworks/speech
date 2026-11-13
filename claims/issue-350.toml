@@ -1,0 +1,8 @@
+claim_id = "1f2d4c7701364c628eaca6b3ed5ec767"
+agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
+role = "builder"
+base = "bf8ba6fbabe55f5d5d3db68c47b46ed3e2446500"
+branch = "claude/issue-350-player-start-time"
+scope = ["docs/ARCHITECTURE.md", "packages/browser/src", "tests/fixtures/browser/player_page.js", "tests/support/browser_player_support.py", "tests/test_wire_route_browser_player.py"]
+opened_commit = "35bf042f0802cd04fa633a3e4bd6c04a720c67ae"
+whole_reason = "The player's start record, its doc comment and its browser flow change together."
