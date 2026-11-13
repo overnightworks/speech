@@ -5,6 +5,8 @@
 # from the environment the proof sets.
 
 services:
+  speech:
+    image: speech-proof
   key-server:
     image: speech-proof
     pull_policy: never
