@@ -203,7 +203,7 @@ jobs:
           SPEECH_BROWSER_COVERAGE_DIR: ${{ runner.temp }}/browser-coverage-raw
         # Each worker drives real-time audio graphs; two fit the runner without
         # starving the render threads.
-        run: uv run --locked pytest -q -n 2 -m browser tests/test_wire_route_browser_capture.py tests/test_wire_route_browser_player.py
+        run: uv run --locked pytest -q -n 2 -m browser tests/test_wire_route_browser_capture.py tests/test_wire_route_browser_player*.py
 
       - name: Convert the page coverage to lcov
         working-directory: packages/browser
