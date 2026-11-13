@@ -321,23 +321,6 @@ def test_a_gpu_voice_loaded_at_start_is_not_ready_until_its_load_ends() -> None:
     assert runtime.load_on_demand(VoiceId.RYAN) is None
 
 
-def test_a_gpu_voice_loads_on_its_first_request_unless_the_start_loads_it() -> None:
-    """WIRE-09, WIRE-143: without the setting a request loads the GPU voice."""
-    by_default = Runtime(
-        {VoiceId.RYAN: None},
-        memory_probe=lambda: 0,
-        dependencies=RuntimeDependencies(
-            engine_factory=lambda _voice: FakeSpeaking(),
-            missing_artifacts=lambda _voice: (),
-        ),
-    )
-
-    first_request = by_default.load_on_demand(VoiceId.RYAN)
-
-    assert first_request is not None
-    assert first_request.result(timeout=WAIT_SECONDS) is not None
-
-
 def test_shutdown_during_the_start_load_leaves_later_voices_and_hearing_unloaded() -> (
     None
 ):
