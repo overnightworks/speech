@@ -192,4 +192,5 @@ async def activated(tmp_path: Path) -> AsyncIterator[Stage]:
     async with unactivated(tmp_path) as stage:
         await stage.open()
         await stage.activate()
+        await stage.page.evaluate("window.playerPage.listening()")
         yield stage
