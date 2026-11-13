@@ -14,7 +14,12 @@ from websockets.asyncio.client import connect
 
 from speech_client.hearing import HearingSession
 from speech_client.relay import HOP_FRAME_BYTES, AppEnded, HopClose
-from speech_client.utterances import Utterance, hear_utterances
+from speech_client.utterances import (
+    Partial,
+    SpeechStart,
+    Utterance,
+    hear_utterances,
+)
 from speech_client.wire import Language, SessionCreated
 from tests.support.hear_support import FakeHearing, hear_runtime
 from tests.support.identity_support import valid_pair
@@ -38,6 +43,7 @@ class _Hop:
     """What the app side of one hearing saw."""
 
     utterances: list[Utterance] = field(default_factory=list)
+    calls: list[SpeechStart | Partial | Utterance] = field(default_factory=list)
     outcome: asyncio.Future[UtteranceOutcome] = field(
         default_factory=lambda: asyncio.get_running_loop().create_future()
     )
@@ -56,7 +62,14 @@ def _app_host(service_url: str, hop: _Hop) -> FastAPI:
 
         async def take(utterance: Utterance) -> None:
             hop.utterances.append(utterance)
+            hop.calls.append(utterance)
             hop.heard.set()
+
+        async def take_start(start: SpeechStart) -> None:
+            hop.calls.append(start)
+
+        async def take_partial(partial: Partial) -> None:
+            hop.calls.append(partial)
 
         hop.outcome.set_result(
             await hear_utterances(
@@ -69,6 +82,8 @@ def _app_host(service_url: str, hop: _Hop) -> FastAPI:
                 held_limit_bytes=HELD_LIMIT_BYTES,
                 ended=hop.ended,
                 on_utterance=take,
+                on_partial=take_partial,
+                on_speech_started=take_start,
             )
         )
 
@@ -160,3 +175,25 @@ def test_the_apps_end_signal_ends_the_hearing_and_frees_the_service() -> None:
     assert outcome == AppEnded()
     assert code == HopClose.NORMAL
     assert freed
+
+
+def test_speech_started_reaches_the_app_before_the_items_partials_and_utterance() -> (
+    None
+):
+    async def scenario() -> list[SpeechStart | Partial | Utterance]:
+        async with (
+            _browser_at_service(FakeHearing("Good day everyone")) as (hop, url, _),
+            connect(url) as browser,
+        ):
+            await _speak_then_fall_silent(browser)
+            await asyncio.wait_for(hop.heard.wait(), WAIT_SECONDS)
+            hop.ended.set()
+            await asyncio.wait_for(hop.outcome, END_BOUND_SECONDS)
+            return hop.calls
+
+    calls = asyncio.run(scenario())
+
+    starts = [call for call in calls if isinstance(call, SpeechStart)]
+    assert len(starts) == 1
+    assert calls[0] == starts[0]
+    assert isinstance(calls[-1], Utterance)
