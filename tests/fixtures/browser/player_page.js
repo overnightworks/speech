@@ -12,6 +12,7 @@ const Page = {
   AudioDestinationNode,
   GainNode,
   connect: AudioNode.prototype.connect,
+  clock: Object.getOwnPropertyDescriptor(BaseAudioContext.prototype, "currentTime"),
   createAnalyser: BaseAudioContext.prototype.createAnalyser,
   createBufferSource: BaseAudioContext.prototype.createBufferSource,
   decodeAudioData: BaseAudioContext.prototype.decodeAudioData,
@@ -49,6 +50,7 @@ const seen = {
   peakRms: 0,
 };
 const contexts = [];
+const clockReads = new Map();
 const meters = new WeakMap();
 const nodeIds = new WeakMap();
 const trackedSources = new WeakSet();
@@ -101,6 +103,19 @@ function gateFor(kind, result) {
   return gate.promise.then(() => result);
 }
 
+// The context clock advances on the audio thread, and under load two reads in one task straddle any number of its
+// steps. The instrument holds the first read of a context until the task is over, so that the player and the page
+// read the same instant when they act in one task.
+Object.defineProperty(BaseAudioContext.prototype, "currentTime", {
+  configurable: true,
+  get() {
+    if (!clockReads.has(this)) {
+      clockReads.set(this, Page.clock.get.call(this));
+      setTimeout(() => clockReads.delete(this));
+    }
+    return clockReads.get(this);
+  },
+});
 window.AudioContext = class AudioContext extends Page.AudioContext {
   constructor(...parameters) {
     super(...parameters);
