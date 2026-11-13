@@ -125,7 +125,7 @@ def test_a_sound_played_through_reports_its_full_length_as_played_seconds(
     seen = asyncio.run(scenario())
 
     assert seen["sounds"][0]["playedSeconds"] == pytest.approx(
-        SOUND_SECONDS["short.wav"], abs=seen["renderQuantum"]
+        SOUND_SECONDS["short.wav"], abs=seen["clockStep"]
     )
 
 
@@ -151,7 +151,7 @@ def test_a_cut_sound_reports_the_seconds_the_context_clock_passed_since_it_start
     elapsed = cut_sound["contextAtEnd"] - cut_sound["contextAtStart"]
     assert elapsed > 0
     assert cut_sound["playedSeconds"] == pytest.approx(
-        elapsed, abs=seen["renderQuantum"]
+        elapsed, abs=seen["clockStep"]
     )
     assert waiting["playedSeconds"] == 0
 
