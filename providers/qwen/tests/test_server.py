@@ -39,15 +39,22 @@ def _start_and_stop(tmp_path: Path, **options: int) -> None:
     process.wait()
 
 
-def _stops_answering(socket_path: Path) -> bool:
-    """Whether the server behind `socket_path` is gone: nothing accepts there."""
+def _process_state(pid: int) -> str | None:
+    """Read the kernel's state line for `pid`; None once the pid is gone."""
+    try:
+        lines = Path(f"/proc/{pid}/status").read_text(encoding="ascii").splitlines()
+    except FileNotFoundError:
+        return None
+    return next(line for line in lines if line.startswith("State:"))
+
+
+def _has_ended(pid: int) -> bool:
+    """Whether `pid` is gone or a zombie that its adopter has yet to reap."""
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
-        with socket.socket(socket.AF_UNIX) as probe:
-            try:
-                probe.connect(str(socket_path))
-            except OSError:
-                return True
+        state = _process_state(pid)
+        if state is None or "zombie" in state:
+            return True
         time.sleep(0.01)
     return False
 
@@ -179,12 +186,12 @@ def _run_harness(
 def test_the_server_dies_with_its_worker(tmp_path: Path) -> None:
     (tmp_path / "shm").mkdir()
     with _run_harness("idle", tmp_path, stdout=subprocess.PIPE) as worker:
-        worker.stdout.readline()
+        server_pid = int(worker.stdout.readline())
 
         worker.kill()
         worker.wait()
 
-        assert _stops_answering(tmp_path / "server.sock")
+        assert _has_ended(server_pid)
 
 
 def test_the_worker_ends_when_its_server_dies_after_the_start(
