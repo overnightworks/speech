@@ -22,7 +22,7 @@ from speech_provider_contract import (
 from speech_qwen.server import Server, fresh_socket_path, start_server
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator, Sequence
     from http.client import HTTPResponse
     from importlib.resources.abc import Traversable
 
@@ -40,8 +40,13 @@ class SpeechRequestError(RuntimeError):
     """The server refused a speech request or ended its audio inside a sample."""
 
 
-def load_model(device: str, cache: Path) -> Server:
-    """Start the server on the pinned checkpoint in the local Hub cache."""
+def load_model(
+    device: str,
+    cache: Path,
+    *,
+    start: Callable[[Sequence[str], Path], Server] = start_server,
+) -> Server:
+    """Start the server with `start` on the pinned checkpoint in the local Hub cache."""
     if device != QWEN_DEVICE:
         message = "unsupported Qwen device"
         raise ValueError(message)
@@ -58,7 +63,7 @@ def load_model(device: str, cache: Path) -> Server:
     )
     socket_path = fresh_socket_path()
     with importlib.resources.as_file(_deploy_config()) as deploy_config:
-        return start_server(
+        return start(
             _server_command(Path(checkpoint), deploy_config, socket_path), socket_path
         )
 

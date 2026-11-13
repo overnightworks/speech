@@ -40,28 +40,45 @@ def _fake_vllm_omni(directory: Path) -> Path:
     return deploy_config
 
 
+class _Started:
+    """What a stand-in server starter saw, and the server it hands back."""
+
+    def __init__(self) -> None:
+        self.server = object()
+        self.calls: list[tuple[list[str], Path]] = []
+
+    def __call__(self, command: list[str], socket_path: Path) -> object:
+        self.calls.append((command, socket_path))
+        return self.server
+
+
+def _load(
+    model: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> _Started:
+    """Load with the fake package and a stand-in starter, which is returned."""
+    started = _Started()
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr("huggingface_hub.snapshot_download", lambda **_: str(tmp_path))
+    assert model.load_model(QWEN_DEVICE, tmp_path, start=started) is started.server
+    return started
+
+
 def test_load_starts_the_server_on_the_pinned_local_snapshot_and_a_fresh_socket(
     model: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     checkpoint = tmp_path / "snapshot"
     deploy_config = _fake_vllm_omni(tmp_path)
     snapshots: list[dict[str, object]] = []
-    started: list[tuple[list[str], Path]] = []
-    server = object()
 
     def snapshot_download(**arguments: object) -> str:
         snapshots.append(arguments)
         return str(checkpoint)
 
-    def start_server(command: list[str], socket_path: Path) -> object:
-        started.append((command, socket_path))
-        return server
-
+    started = _Started()
     monkeypatch.syspath_prepend(str(tmp_path))
     monkeypatch.setattr("huggingface_hub.snapshot_download", snapshot_download)
-    monkeypatch.setattr(model, "start_server", start_server)
 
-    assert model.load_model(QWEN_DEVICE, tmp_path) is server
+    assert model.load_model(QWEN_DEVICE, tmp_path, start=started) is started.server
 
     assert snapshots == [
         {
@@ -73,7 +90,7 @@ def test_load_starts_the_server_on_the_pinned_local_snapshot_and_a_fresh_socket(
             "cache_dir": tmp_path,
         }
     ]
-    ((command, socket_path),) = started
+    ((command, socket_path),) = started.calls
     assert command[1:3] == ["serve", str(checkpoint)]
     assert command[command.index("--uds") + 1] == str(socket_path)
     assert command[command.index("--deploy-config") + 1] == str(deploy_config)
@@ -85,23 +102,19 @@ def test_each_load_listens_on_its_own_socket(
     model: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _fake_vllm_omni(tmp_path)
-    sockets: list[Path] = []
-    monkeypatch.syspath_prepend(str(tmp_path))
-    monkeypatch.setattr("huggingface_hub.snapshot_download", lambda **_: str(tmp_path))
-    monkeypatch.setattr(
-        model, "start_server", lambda _command, path: sockets.append(path)
-    )
+    started = _load(model, tmp_path, monkeypatch)
 
-    model.load_model(QWEN_DEVICE, tmp_path)
-    model.load_model(QWEN_DEVICE, tmp_path)
+    model.load_model(QWEN_DEVICE, tmp_path, start=started)
 
+    sockets = [socket_path for _command, socket_path in started.calls]
     assert len(sockets) == len(set(sockets)) > 1
 
 
 def test_the_cards_reservation_leaves_room_for_another_user(
-    model: ModuleType, tmp_path: Path
+    model: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    command = model._server_command(tmp_path, tmp_path, tmp_path)  # noqa: SLF001 - the reservation is a command argument only
+    _fake_vllm_omni(tmp_path)
+    ((command, _socket_path),) = _load(model, tmp_path, monkeypatch).calls
 
     stages = json.loads(command[command.index("--stage-overrides") + 1])
 
@@ -113,7 +126,7 @@ def test_load_without_vllm_omni_installed_fails(
     model: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("huggingface_hub.snapshot_download", lambda **_: str(tmp_path))
-    monkeypatch.setattr("importlib.util.find_spec", lambda _name: None)
+    monkeypatch.setitem(sys.modules, "vllm_omni", None)
 
     with pytest.raises(ModuleNotFoundError):
         model.load_model(QWEN_DEVICE, tmp_path)
