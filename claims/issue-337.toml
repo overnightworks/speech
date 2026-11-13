@@ -1,0 +1,8 @@
+claim_id = "b957968f2c0041d4bcdb102b68d016f4"
+agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
+role = "builder"
+base = "4c855924cbbb0b8f30cc6501e8fa4d956ddb73eb"
+branch = "claude/issue-337-a-speak-request-carries-openai-s-instruc"
+scope = ["docs/wire.md", "packages/client/src/speech_client/wire.py", "providers/provider-contract/src", "providers/qwen/src", "src/speech_service"]
+opened_commit = "b71b13f797675b1d058395cb0d7047379ecf91d8"
+whole_reason = "One request field crosses wire type, service, provider frame and model together; split it and a half-built field ships."
