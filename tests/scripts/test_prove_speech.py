@@ -133,8 +133,10 @@ def test_a_run_outside_probe_run_hands_over_to_the_fleet_form() -> None:
 
 
 def test_a_missing_probe_run_fails_the_run_naming_it() -> None:
+    run = run_returning(0)
+
     with pytest.raises(SystemExit) as failure:
-        PROVE.run_under_probe_run([], run_returning(0), which=lambda _: None)
+        PROVE.run_under_probe_run([], run, which=lambda _: None)
 
     assert PROVE.PROBE_RUN in str(failure.value)
 
