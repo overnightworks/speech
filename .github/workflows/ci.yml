@@ -238,6 +238,15 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked --all-groups
 
+      - name: Install the fleet's probe-run
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl --fail --silent --show-error --location \
+            --output "$HOME/.local/bin/probe-run" \
+            https://raw.githubusercontent.com/overnightworks/marketplace/855f57751a5db62a8b2782be9fd9ccc2bc80b9e7/scripts/probe_run.sh
+          chmod +x "$HOME/.local/bin/probe-run"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Build the image and prove it on isolated networks
         run: uv run --locked python scripts/prove_image.py
 
