@@ -34,7 +34,7 @@ from pydantic import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    # The `as` form marks an explicit re-export of the names `__getattr__` serves.
+    # `as` re-exports the names `__getattr__` serves, for typed consumers.
     from speech_client.outcomes import BusyWait as BusyWait  # noqa: PLC0414
     from speech_client.outcomes import RetryAfterError as RetryAfterError  # noqa: PLC0414
     from speech_client.outcomes import busy_wait as busy_wait  # noqa: PLC0414
@@ -140,10 +140,7 @@ VOICES: Final[Mapping[VoiceId, CatalogueVoice]] = {
     VoiceId.LJSPEECH: CatalogueVoice(SpeakingModel.PIPER, "LJ Speech", (Language.EN,)),
     VoiceId.CORI: CatalogueVoice(SpeakingModel.PIPER, "Cori", (Language.EN,)),
     VoiceId.RYAN: CatalogueVoice(
-        SpeakingModel.QWEN,
-        "Ryan",
-        (Language.DE, Language.EN),
-        takes_instructions=True,
+        SpeakingModel.QWEN, "Ryan", (Language.DE, Language.EN), takes_instructions=True
     ),
 }
 
@@ -209,13 +206,10 @@ class SpeechRequest(BaseModel):
     ) -> str | None:
         if instructions is None:
             return instructions
-        if len(instructions) > MAX_INSTRUCTIONS_CHARACTERS:
-            message = (
-                f"instructions must be at most {MAX_INSTRUCTIONS_CHARACTERS} characters"
-            )
-            raise ValueError(message)
-        if not any(character.isalpha() for character in instructions):
-            message = "instructions must hold a letter"
+        if len(instructions) > MAX_INSTRUCTIONS_CHARACTERS or not any(
+            character.isalpha() for character in instructions
+        ):
+            message = "instructions must be a short text with a letter"
             raise ValueError(message)
         voice = info.data.get("voice")
         if voice is not None and not VOICES[voice].takes_instructions:
