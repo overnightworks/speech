@@ -1,7 +1,8 @@
 name: Release
 
-# The app's release: one dated version, the image built, attested and pushed,
-# then the git tag. Every quality call below is pinned at a quality release.
+# The app's release: one dated version, the small image and the gpu image (the
+# same version with a `-gpu` suffix) built, attested and pushed, then the git
+# tag. Every quality call below is pinned at a quality release.
 on:
   workflow_dispatch:
     inputs:
@@ -19,7 +20,7 @@ permissions: {}
 jobs:
   gate:
     name: Gate
-    uses: overnightworks/quality/.github/workflows/release-gate.yml@be32abeb120d29f75ee7ea456d6e510ae001de04 # v0.12.0
+    uses: overnightworks/quality/.github/workflows/release-gate.yml@eb140c397e83b8ec4e9ee849453d14efeef4e787 # v0.14.0
     permissions:
       actions: read
       checks: read
@@ -32,7 +33,7 @@ jobs:
   image:
     name: Image
     needs: gate
-    uses: overnightworks/quality/.github/workflows/image.yml@be32abeb120d29f75ee7ea456d6e510ae001de04 # v0.12.0
+    uses: overnightworks/quality/.github/workflows/image.yml@eb140c397e83b8ec4e9ee849453d14efeef4e787 # v0.14.0
     permissions:
       attestations: write
       contents: read
@@ -42,12 +43,30 @@ jobs:
       version: ${{ inputs.version }}
       push: true
 
+  # The gpu image is larger than the standard runner's disk holds, so it builds
+  # on the paid larger runner `speech-gpu-build`; only this job uses it.
+  image-gpu:
+    name: Image (gpu)
+    needs: gate
+    uses: overnightworks/quality/.github/workflows/image.yml@eb140c397e83b8ec4e9ee849453d14efeef4e787 # v0.14.0
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    with:
+      version: ${{ inputs.version }}-gpu
+      target: gpu
+      runner: speech-gpu-build
+      push: true
+
   tag:
     name: Tag
     needs:
       - gate
       - image
-    uses: overnightworks/quality/.github/workflows/release-tag.yml@be32abeb120d29f75ee7ea456d6e510ae001de04 # v0.12.0
+      - image-gpu
+    uses: overnightworks/quality/.github/workflows/release-tag.yml@eb140c397e83b8ec4e9ee849453d14efeef4e787 # v0.14.0
     permissions:
       contents: write
     with:
