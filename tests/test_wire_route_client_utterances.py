@@ -17,6 +17,7 @@ from speech_client.relay import HOP_FRAME_BYTES, AppEnded, HopClose
 from speech_client.utterances import (
     Partial,
     SpeechStart,
+    TurnEnd,
     Utterance,
     hear_utterances,
 )
@@ -43,7 +44,10 @@ class _Hop:
     """What the app side of one hearing saw."""
 
     utterances: list[Utterance] = field(default_factory=list)
-    calls: list[SpeechStart | Partial | Utterance] = field(default_factory=list)
+    calls: list[SpeechStart | Partial | Utterance | TurnEnd] = field(
+        default_factory=list
+    )
+    turn_ends: asyncio.Queue[TurnEnd] = field(default_factory=asyncio.Queue)
     outcome: asyncio.Future[UtteranceOutcome] = field(
         default_factory=lambda: asyncio.get_running_loop().create_future()
     )
@@ -68,6 +72,10 @@ def _app_host(service_url: str, hop: _Hop) -> FastAPI:
         async def take_start(start: SpeechStart) -> None:
             hop.calls.append(start)
 
+        async def take_turn_end(turn: TurnEnd) -> None:
+            hop.calls.append(turn)
+            hop.turn_ends.put_nowait(turn)
+
         async def take_partial(partial: Partial) -> None:
             hop.calls.append(partial)
 
@@ -84,6 +92,7 @@ def _app_host(service_url: str, hop: _Hop) -> FastAPI:
                 on_utterance=take,
                 on_partial=take_partial,
                 on_speech_started=take_start,
+                on_turn_ended=take_turn_end,
             )
         )
 
@@ -180,7 +189,7 @@ def test_the_apps_end_signal_ends_the_hearing_and_frees_the_service() -> None:
 def test_speech_started_reaches_the_app_before_the_items_partials_and_utterance() -> (
     None
 ):
-    async def scenario() -> list[SpeechStart | Partial | Utterance]:
+    async def scenario() -> list[SpeechStart | Partial | Utterance | TurnEnd]:
         async with (
             _browser_at_service(FakeHearing("Good day everyone")) as (hop, url, _),
             connect(url) as browser,
@@ -196,4 +205,38 @@ def test_speech_started_reaches_the_app_before_the_items_partials_and_utterance(
     starts = [call for call in calls if isinstance(call, SpeechStart)]
     assert len(starts) == 1
     assert calls[0] == starts[0]
-    assert isinstance(calls[-1], Utterance)
+    partials = [i for i, call in enumerate(calls) if isinstance(call, Partial)]
+    assert all(calls.index(starts[0]) < i for i in partials)
+    assert isinstance(calls[-2], Utterance)
+
+
+def test_turn_ended_reaches_the_app_for_a_turn_with_words_and_for_an_empty_one() -> (
+    None
+):
+    engine = FakeHearing("Good day everyone")
+
+    async def scenario() -> list[SpeechStart | Partial | Utterance | TurnEnd]:
+        async with (
+            _browser_at_service(engine) as (hop, url, _),
+            connect(url) as browser,
+        ):
+            await _speak_then_fall_silent(browser)
+            await asyncio.wait_for(hop.turn_ends.get(), WAIT_SECONDS)
+            engine.text = ""
+            await _speak_then_fall_silent(browser)
+            await asyncio.wait_for(hop.turn_ends.get(), WAIT_SECONDS)
+            hop.ended.set()
+            await asyncio.wait_for(hop.outcome, END_BOUND_SECONDS)
+            return hop.calls
+
+    calls = asyncio.run(scenario())
+
+    assert [call for call in calls if isinstance(call, TurnEnd)] == [
+        TurnEnd(heard_words=True),
+        TurnEnd(heard_words=False),
+    ]
+    assert len([call for call in calls if isinstance(call, Utterance)]) == 1
+    utterance_at = next(
+        i for i, call in enumerate(calls) if isinstance(call, Utterance)
+    )
+    assert calls[utterance_at + 1] == TurnEnd(heard_words=True)
