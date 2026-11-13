@@ -105,7 +105,7 @@ def start_server(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         close_fds=True,
-        preexec_fn=partial(install_parent_death_signal, os.getpid()),  # noqa: PLW1509 - no thread exists yet, and the signal must be set before exec
+        preexec_fn=partial(install_parent_death_signal, os.getpid()),  # noqa: PLW1509 - no thread exists yet so the signal is set before exec
     )
     threading.Thread(
         target=_drain_stderr,
