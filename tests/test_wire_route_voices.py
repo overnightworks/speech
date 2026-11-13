@@ -296,7 +296,7 @@ def test_a_wrong_model_or_voice_is_named_before_a_wrong_language(
     changes: dict[str, object],
     param: str,
 ) -> None:
-    """WIRE-139: the language check follows model and voice and precedes instructions."""
+    """WIRE-139: the language check follows model and voice, precedes instructions."""
     body = json.loads(_without_language(voice)) | changes
     if language is not None:
         body["language"] = language
