@@ -10,6 +10,10 @@ end holds, so after `ended` is set no utterance and no partial reaches the app.
   transcript: its text, its decoded language and the positions, in milliseconds
   of the audio, at which the item's speech started and stopped (`None` when the
   service did not send that event). An empty transcript reaches nobody.
+- `on_speech_started`, if given, gets a `SpeechStart` for each `speech_started`
+  event, the moment a person starts speaking, in event order with the other
+  callbacks: before that item's partials and its utterance. Without it nothing
+  of the event reaches the app.
 - `on_partial`, if given, gets a `Partial` for each delta: the item's text so far.
   Without it nothing of a delta reaches the app.
 - A failed item or an `error` event ends the hearing: the browser is closed
@@ -58,6 +62,13 @@ class Utterance:
 
 
 @dataclass(frozen=True, slots=True)
+class SpeechStart:
+    """A person started speaking, `audio_start_ms` into the audio."""
+
+    audio_start_ms: int
+
+
+@dataclass(frozen=True, slots=True)
 class Partial:
     """The text of an item heard so far."""
 
@@ -101,12 +112,15 @@ class _Mapping:
 
     on_utterance: Callable[[Utterance], Awaitable[None]]
     on_partial: Callable[[Partial], Awaitable[None]] | None
+    on_speech_started: Callable[[SpeechStart], Awaitable[None]] | None
     items: _Items = field(default_factory=_Items)
 
     async def on_event(self, event: ServerEvent) -> None:
         match event:
             case SpeechStarted():
                 self.items.started[event.item_id] = event.audio_start_ms
+                if self.on_speech_started is not None:
+                    await self.on_speech_started(SpeechStart(event.audio_start_ms))
             case SpeechStopped():
                 self.items.stopped[event.item_id] = event.audio_end_ms
             case TranscriptDelta() if self.on_partial is not None:
@@ -142,6 +156,7 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
     ended: asyncio.Event,
     on_utterance: Callable[[Utterance], Awaitable[None]],
     on_partial: Callable[[Partial], Awaitable[None]] | None = None,
+    on_speech_started: Callable[[SpeechStart], Awaitable[None]] | None = None,
     opening_seconds: float = OPENING_SECONDS,
 ) -> UtteranceOutcome:
     """Hear `browser`'s audio at the service at `origin`; see the module."""
@@ -159,7 +174,7 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
             browser,
             session,
             app_ended=ended,
-            on_event=_Mapping(on_utterance, on_partial).on_event,
+            on_event=_Mapping(on_utterance, on_partial, on_speech_started).on_event,
             frame_limit_bytes=HOP_FRAME_BYTES,
         )
     except _ServiceFailedError as failure:
