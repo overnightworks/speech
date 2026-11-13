@@ -1,0 +1,7 @@
+claim_id = "d0f880556dd1491eb8d1d49792595bdc"
+agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
+role = "builder"
+base = "ccd012bda95524f93834bef2fa04638cc6464a85"
+branch = "claude/issue-331-drop-runner-caller-entry"
+scope = ["deploy/speech.toml", "docs/VISION.md", "tests/fixtures/image/compose.proof.yaml"]
+opened_commit = "d2eddbd011976a452bdf419c3d205782d02c378f"
