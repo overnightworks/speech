@@ -19,10 +19,13 @@ from pathlib import Path
 from typing import IO, TYPE_CHECKING
 
 from speech_provider_contract import (
+    SYNTHESIS_LANGUAGES,
     Frame,
     FrameDecoder,
     FrameKind,
     ProtocolError,
+    Synthesis,
+    encode_synthesis,
     failure_cause,
     ready_sample_rate,
     write_frame,
@@ -185,13 +188,15 @@ class ProviderProcess:
         if not ready:
             raise ProviderFailedError
 
-    def pcm_chunks(self, text: str, language: str) -> Generator[bytes]:
+    def pcm_chunks(
+        self, text: str, language: str, instructions: str | None = None
+    ) -> Generator[bytes]:
         """Stream one request and cancel/drain it if the response closes early."""
         normalized = language.strip().lower().replace("_", "-")
-        language_code = {"de": 1, "en": 2}.get((normalized or "de").split("-", 1)[0])
-        if language_code is None:
+        language_name = (normalized or "de").split("-", 1)[0]
+        if language_name not in SYNTHESIS_LANGUAGES:
             raise UnsupportedLanguageError
-        payload = bytes([language_code]) + text.encode("utf-8")
+        payload = encode_synthesis(Synthesis(language_name, text, instructions))
         process = self._live_process()
         completed = False
         request_id = 0

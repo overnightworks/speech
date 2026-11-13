@@ -118,6 +118,27 @@ def test_english_is_explicit_and_instruction_is_absent(model: ModuleType) -> Non
     ]
 
 
+def test_named_instructions_reach_the_model_as_instruct_for_that_utterance(
+    model: ModuleType,
+) -> None:
+    generated = _GeneratedModel(np.array([0.25]))
+
+    assert list(
+        model.pcm_chunks(generated, "Hallo", "de", "Sprich zornig", speaker="Ryan")
+    )
+    assert list(model.pcm_chunks(generated, "Hallo", "de", speaker="Ryan"))
+
+    assert generated.calls == [
+        {
+            "text": "Hallo",
+            "language": "German",
+            "speaker": "Ryan",
+            "instruct": "Sprich zornig",
+        },
+        {"text": "Hallo", "language": "German", "speaker": "Ryan"},
+    ]
+
+
 def test_generation_rejects_an_unexpected_sample_rate(model: ModuleType) -> None:
     generated = _GeneratedModel(np.array([0.25]), rate=16_000)
 

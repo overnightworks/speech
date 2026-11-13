@@ -50,6 +50,7 @@ def pcm_chunks(
     model: object,
     text: str,
     language: str,
+    instructions: str | None = None,
     *,
     speaker: QwenSpeaker | str,
 ) -> Iterator[bytes]:
@@ -63,10 +64,12 @@ def pcm_chunks(
         if isinstance(speaker, QwenSpeaker)
         else QwenSpeaker(speaker).value
     )
+    named_instructions = {} if instructions is None else {"instruct": instructions}
     waveforms, sample_rate = model.generate_custom_voice(
         text=text,
         language=language_name,
         speaker=selected_speaker,
+        **named_instructions,
     )
     if sample_rate != QWEN_SAMPLE_RATE:
         message = "unexpected Qwen sample rate"
