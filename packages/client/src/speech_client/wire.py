@@ -34,6 +34,11 @@ from pydantic import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    # The `as` form marks an explicit re-export of the names `__getattr__` serves.
+    from speech_client.outcomes import BusyWait as BusyWait  # noqa: PLC0414
+    from speech_client.outcomes import RetryAfterError as RetryAfterError  # noqa: PLC0414
+    from speech_client.outcomes import busy_wait as busy_wait  # noqa: PLC0414
+
 SPEECH_PATH: Final = "/v1/audio/speech"
 TRANSCRIPTIONS_PATH: Final = "/v1/audio/transcriptions"
 REALTIME_PATH: Final = "/v1/realtime"
