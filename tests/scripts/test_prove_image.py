@@ -204,4 +204,7 @@ def test_a_host_without_probe_run_refuses_before_building_the_image() -> None:
 
 
 def test_two_runs_never_share_a_project_name() -> None:
-    assert PROVE.new_project() != PROVE.new_project()
+    first = PROVE.new_project()
+    second = PROVE.new_project()
+
+    assert first != second
