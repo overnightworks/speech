@@ -693,14 +693,23 @@ def _prove() -> None:
         print("gpu_released", nvidia_memory())
 
 
-def main() -> None:
-    """Run the stage proof, driving it through the fleet's `probe-run` form."""
-    parse_arguments(sys.argv[1:])
+def enter_proof(
+    reexec: Callable[[list[str]], int],
+    prove: Callable[[], None],
+) -> None:
+    """Read the command line; run `reexec` outside `probe-run`, `prove` inside it."""
+    arguments = sys.argv[1:]
+    parse_arguments(arguments)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
     if UNDER_PROBE_RUN_ENV not in os.environ:
-        raise SystemExit(run_under_probe_run(sys.argv[1:]))
-    prove_under_probe_run(_prove)
+        raise SystemExit(reexec(arguments))
+    prove_under_probe_run(prove)
+
+
+def main() -> None:
+    """Run the stage proof, driving it through the fleet's `probe-run` form."""
+    enter_proof(run_under_probe_run, _prove)
 
 
 if __name__ == "__main__":

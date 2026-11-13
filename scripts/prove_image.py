@@ -93,9 +93,7 @@ from prove_speech import (
     PROBE_RUN,
     SENTENCE,
     SENTENCES,
-    UNDER_PROBE_RUN_ENV,
-    parse_arguments,
-    prove_under_probe_run,
+    enter_proof,
     run_under_probe_run,
 )
 from speech_client.hearing import Refused
@@ -746,12 +744,7 @@ def build_then_drive(
 
 def main() -> None:
     """Run the image proof, driving it through the fleet's `probe-run` form."""
-    parse_arguments(sys.argv[1:])
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(line_buffering=True)
-    if UNDER_PROBE_RUN_ENV not in os.environ:
-        raise SystemExit(build_then_drive(sys.argv[1:]))
-    prove_under_probe_run(_prove)
+    enter_proof(build_then_drive, _prove)
 
 
 if __name__ == "__main__":

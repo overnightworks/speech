@@ -221,6 +221,34 @@ def test_term_during_the_proof_under_probe_run_runs_its_teardown() -> None:
     assert torn_down == [True]
 
 
+def test_an_entry_outside_probe_run_exits_with_the_status_of_its_reexec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["proof"])
+    monkeypatch.delenv(PROVE.UNDER_PROBE_RUN_ENV, raising=False)
+    status = 7
+    proved: list[bool] = []
+
+    with pytest.raises(SystemExit) as exit_request:
+        PROVE.enter_proof(lambda _: status, lambda: proved.append(True))
+
+    assert exit_request.value.code == status
+    assert proved == []
+
+
+@pytest.mark.usefixtures("restored_terminate_handler")
+def test_an_entry_inside_probe_run_runs_the_proof_not_the_reexec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["proof"])
+    monkeypatch.setenv(PROVE.UNDER_PROBE_RUN_ENV, "1")
+    proved: list[bool] = []
+
+    PROVE.enter_proof(Mock(side_effect=AssertionError), lambda: proved.append(True))
+
+    assert proved == [True]
+
+
 def test_a_service_ends_when_the_thread_that_started_it_ends() -> None:
     sleeps_until_told = "import time; print('up', flush=True); time.sleep(600)"
     started: list[subprocess.Popen[str]] = []
