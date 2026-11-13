@@ -595,9 +595,10 @@ def test_the_start_a_sound_hands_over_is_the_context_time_its_first_sample_is_he
 
     start = seen["sounds"][0]["start"]
     assert start["onThePlayersContext"]
-    # The player reads the start from the context clock, which the page sees a callback buffer (`baseLatency`)
-    # behind the render thread, so the sound is heard up to one buffer after its start. The page hears the onset
-    # to one sample, and the tone's first sample is silent: the onset heard is a sample later.
+    # The player reads the start from the context clock, which the page sees up to one callback
+    # buffer (`baseLatency`) behind the render thread, so the sound is heard up to one buffer after
+    # its start. The page hears the onset to one sample, and the tone's first sample is silent: the
+    # onset heard is a sample later.
     assert seen["heardOnsets"][0] == pytest.approx(
         start["contextTime"], abs=seen["clockStep"] + 2 / seen["sampleRate"]
     )
