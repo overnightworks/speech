@@ -5,9 +5,10 @@ import { openSound, type PcmStream } from "./wav-stream.js";
 export type Sound = ArrayBuffer | string | URL;
 
 export type PlaybackEnd =
-  | { readonly kind: "played" }
-  | { readonly kind: "stopped" } // stop() or close()
-  | { readonly kind: "muted" } // setMuted(true), or a sound handed over while muted
+  /** `playedSeconds`: the seconds of the sound the output played, read from the player's AudioContext clock and never more than the sound's length. A "played" sound played its full length; one that never started played 0. */
+  | { readonly kind: "played"; readonly playedSeconds: number }
+  | { readonly kind: "stopped"; readonly playedSeconds: number } // stop() or close()
+  | { readonly kind: "muted"; readonly playedSeconds: number } // setMuted(true), or a sound handed over while muted
   | { readonly kind: "refused" } // no user activation, or resume() refused
   | { readonly kind: "failed" }; // the fetch, the decode or a streamed body failed
 
@@ -25,6 +26,10 @@ export interface Player {
   stop(): void;
   /** The app's mute switch. Muting ends the playing and every waiting sound as "muted" and aborts their fetches; while muted, a sound handed over ends "muted" at once, unfetched. Idempotent; never throws. */
   setMuted(muted: boolean): void;
+  /** Sets the volume of the playing and every later sound to `level`, from 0 to 1; a value outside that range or NaN throws a RangeError and changes nothing.
+   * The change glides over a few tens of milliseconds, so it does not click. Volume 0 ends no sound; only setMuted(true) and stop() do.
+   * Mute wins: while muted nothing is heard whatever the volume, and setMuted(false) brings back the last volume set. */
+  setVolume(level: number): void;
   /** Ends every sound as "stopped" and closes the player's context; every later sound ends "stopped" at once. Idempotent; never throws. */
   close(): void;
 }
@@ -41,12 +46,15 @@ export function createPlayer(): Player {
     play: (sound) => run.play(sound),
     stop: () => run.stop(),
     setMuted: (muted) => run.setMuted(muted),
+    setVolume: (level) => run.setVolume(level),
     close: () => run.close(),
   };
 }
 
-const STOPPED: PlaybackEnd = { kind: "stopped" };
-const MUTED: PlaybackEnd = { kind: "muted" };
+type Interruption = "stopped" | "muted";
+
+/** The gain follows its target with this time constant, so a change is settled within a few tens of milliseconds. */
+const GLIDE_SECONDS = 0.015;
 const NONE = -1;
 
 type Loaded =
@@ -56,8 +64,18 @@ type Loaded =
 /** The sources one sound has scheduled; a whole sound has one, a streamed sound one per chunk. */
 class Scheduled {
   readonly sources = new Set<AudioBufferSourceNode>();
+  readonly chunks: { readonly start: number; readonly seconds: number }[] = [];
   bodyScheduled = false;
   constructor(readonly item: Queued) {}
+
+  /** The seconds of the scheduled chunks the output has played by `now` of the context's clock. */
+  playedBy(now: number): number {
+    let played = 0;
+    for (const { start, seconds } of this.chunks) {
+      played += Math.min(Math.max(now - start, 0), seconds);
+    }
+    return played;
+  }
 }
 
 /** Detaches the sources, so that their late `ended` neither reports nor pumps, and stops them at once. */
@@ -104,6 +122,7 @@ class PlayerRun {
   #generation = 0;
   #pumping = NONE;
   #muted = false;
+  #volume = 1;
   #closed = false;
 
   constructor() {
@@ -113,9 +132,9 @@ class PlayerRun {
   play(sound: Sound): Playback {
     const item = new Queued();
     if (this.#closed) {
-      item.end(STOPPED);
+      item.end({ kind: "stopped", playedSeconds: 0 });
     } else if (this.#muted) {
-      item.end(MUTED);
+      item.end({ kind: "muted", playedSeconds: 0 });
     } else {
       item.loaded = this.#load(item, sound);
       this.#queue.push(item);
@@ -125,21 +144,38 @@ class PlayerRun {
   }
 
   stop(): void {
-    this.#endAll(STOPPED);
+    this.#endAll("stopped");
   }
 
   setMuted(muted: boolean): void {
     this.#muted = muted;
-    this.#gain.gain.value = muted ? 0 : 1;
     if (muted) {
-      this.#endAll(MUTED);
+      this.#gain.gain.cancelScheduledValues(0);
+      this.#gain.gain.value = 0;
+      this.#endAll("muted");
+    } else {
+      this.#glideToVolume();
     }
+  }
+
+  setVolume(level: number): void {
+    if (!(level >= 0 && level <= 1)) {
+      throw new RangeError(`the volume is from 0 to 1, not ${level}`);
+    }
+    this.#volume = level;
+    if (!this.#muted) {
+      this.#glideToVolume();
+    }
+  }
+
+  #glideToVolume(): void {
+    this.#gain.gain.setTargetAtTime(this.#volume, this.#context.currentTime, GLIDE_SECONDS);
   }
 
   close(): void {
     if (!this.#closed) {
       this.#closed = true;
-      this.#endAll(STOPPED);
+      this.#endAll("stopped");
       void this.#context.close();
     }
   }
@@ -238,6 +274,7 @@ class PlayerRun {
     };
     scheduled.sources.add(source);
     source.start(when);
+    scheduled.chunks.push({ start: Math.max(when, this.#context.currentTime), seconds: buffer.duration });
     scheduled.item.begin();
   }
 
@@ -281,13 +318,13 @@ class PlayerRun {
   #settle(scheduled: Scheduled): void {
     if (scheduled.bodyScheduled && scheduled.sources.size === 0 && this.#playing === scheduled) {
       this.#playing = undefined;
-      scheduled.item.end({ kind: "played" });
+      scheduled.item.end({ kind: "played", playedSeconds: scheduled.playedBy(Infinity) });
       void this.#pump();
     }
   }
 
   /** Silences the playing sound first, so that its late `ended` neither reports nor pumps. */
-  #endAll(end: PlaybackEnd): void {
+  #endAll(kind: Interruption): void {
     this.#generation += 1;
     const playing = this.#playing;
     const waiting = this.#queue;
@@ -296,11 +333,11 @@ class PlayerRun {
     if (playing !== undefined) {
       silence(playing);
       playing.item.abort.abort();
-      playing.item.end(end);
+      playing.item.end({ kind, playedSeconds: playing.playedBy(this.#context.currentTime) });
     }
     for (const item of waiting) {
       item.abort.abort();
-      item.end(end);
+      item.end({ kind, playedSeconds: 0 });
     }
   }
 }

@@ -179,18 +179,21 @@ function argumentOf(spec) {
 }
 
 function handOver(spec) {
-  const sound = { id: seen.sounds.length, startedValue: null, startedCount: 0, endedValue: null, endedCount: 0, endedAt: null, peakRms: 0 };
+  const sound = { id: seen.sounds.length, startedValue: null, startedCount: 0, endedValue: null, endedCount: 0, endedAt: null, peakRms: 0, playedSeconds: null, contextAtStart: null, contextAtEnd: null };
   seen.sounds.push(sound);
   const playback = player.play(argumentOf(spec));
   playback.started.then((value) => {
     sound.startedValue = value;
     sound.startedCount += 1;
+    sound.contextAtStart = contexts[0].currentTime;
     seen.log.push({ event: "started", id: sound.id, value, at: performance.now() });
   });
   playback.ended.then((end) => {
     sound.endedValue = end.kind;
     sound.endedCount += 1;
     sound.endedAt = performance.now();
+    sound.playedSeconds = end.playedSeconds ?? null;
+    sound.contextAtEnd = contexts[0].currentTime;
     seen.log.push({ event: "ended", id: sound.id, value: end.kind, at: sound.endedAt });
     if (spec.bytes !== undefined) seen.bytes[spec.bytes].after = byteStore.get(spec.bytes).byteLength;
     window.noteEnded?.(sound.id);
@@ -217,6 +220,15 @@ window.playerPage = {
   stop: () => act(() => player.stop()),
   mute: (muted) => act(() => player.setMuted(muted)),
   close: () => act(() => player.close()),
+  volume: (level) => act(() => player.setVolume(level)),
+  volumeError(level) {
+    try {
+      player.setVolume(level);
+      return null;
+    } catch (error) {
+      return error.name;
+    }
+  },
   hold: (kind) => held[kind].push(Promise.withResolvers()),
   release: () => heldNow.splice(0).forEach((gate) => gate.resolve()),
   rejectNextResume: () => (rejectNextResume = true),
@@ -224,6 +236,7 @@ window.playerPage = {
   snapshot: () => ({
     ...seen,
     contextStates: contexts.map((context) => context.state),
+    renderQuantum: 128 / contexts[0].sampleRate,
     gainValue: outputGain?.gain.value ?? null,
     hasBeenActive: navigator.userActivation.hasBeenActive,
   }),
