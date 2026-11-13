@@ -20,9 +20,6 @@ const Page = {
   start: AudioBufferSourceNode.prototype.start,
 };
 const SAMPLE_MS = 20;
-const HEARD_BLOCK = 256;
-const HEARD_BLOCKS_OF_LATENCY = 2;
-const HEARD_THRESHOLD = 0.005;
 const SILENCE_POLL_MS = 10;
 const SILENCE_GIVE_UP_MS = 5000;
 const JUNK_BYTES = 512;
@@ -84,22 +81,20 @@ function meterOf(context) {
   return meters.get(context);
 }
 
-// The page's own ear: it notes the context time at which each stretch of sound begins to reach the output. A
-// script processor double-buffers, so its input block began two blocks before its `playbackTime`.
+const earsReady = [];
+
+// The page's own ear: a worklet in the graph (`ear_processor.js`) that notes the context time of the first sample
+// of each stretch of sound that reaches the output.
 function listenTo(output) {
-  const ear = output.context.createScriptProcessor(HEARD_BLOCK, 1, 1);
-  let silent = true;
-  ear.onaudioprocess = (event) => {
-    const samples = event.inputBuffer.getChannelData(0);
-    const first = samples.findIndex((value) => Math.abs(value) > HEARD_THRESHOLD);
-    if (first >= 0 && silent) {
-      const blockStart = event.playbackTime - (HEARD_BLOCKS_OF_LATENCY * HEARD_BLOCK) / output.context.sampleRate;
-      seen.heardOnsets.push(blockStart + first / output.context.sampleRate);
-    }
-    silent = first < 0;
-  };
-  Page.connect.call(output, ear);
-  Page.connect.call(ear, output.context.destination);
+  const context = output.context;
+  earsReady.push(
+    context.audioWorklet.addModule("/ear_processor.js").then(() => {
+      const ear = new AudioWorkletNode(context, "ear");
+      ear.port.onmessage = (event) => seen.heardOnsets.push(event.data);
+      Page.connect.call(output, ear);
+      Page.connect.call(ear, context.destination);
+    }),
+  );
 }
 
 function trackSource(source) {
@@ -259,6 +254,7 @@ window.playerPage = {
   stop: () => act(() => player.stop()),
   mute: (muted) => act(() => player.setMuted(muted)),
   close: () => act(() => player.close()),
+  listening: () => Promise.all(earsReady),
   hold: (kind) => held[kind].push(Promise.withResolvers()),
   release: () => heldNow.splice(0).forEach((gate) => gate.resolve()),
   rejectNextResume: () => (rejectNextResume = true),
@@ -266,6 +262,7 @@ window.playerPage = {
   snapshot: () => ({
     ...seen,
     contextStates: contexts.map((context) => context.state),
+    sampleRate: contexts[0].sampleRate,
     clockStep: Math.max(128 / contexts[0].sampleRate, contexts[0].baseLatency),
     gainValue: outputGain?.gain.value ?? null,
     hasBeenActive: navigator.userActivation.hasBeenActive,
