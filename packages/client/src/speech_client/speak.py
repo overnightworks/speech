@@ -41,7 +41,9 @@ from speech_client.outcomes import (
     Malformed,
     OverCap,
     PastDeadline,
+    RetryAfterError,
     Unreachable,
+    busy_wait,
 )
 from speech_client.wire import (
     SPEECH_PATH,
@@ -50,9 +52,7 @@ from speech_client.wire import (
     RefusalCode,
     RequestField,
     ResponseFormat,
-    RetryAfterError,
     VoiceId,
-    busy_wait,
     refusal,
     speech_request_body,
     speech_request_headers,

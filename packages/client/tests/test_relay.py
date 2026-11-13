@@ -16,6 +16,7 @@ from websockets.asyncio.server import serve
 from speech_client.hearing import OPENING_SECONDS, Closed, HearingSession, Refused
 from speech_client.outcomes import (
     Busy,
+    BusyWait,
     Cut,
     Malformed,
     OverCap,
@@ -30,7 +31,6 @@ from speech_client.relay import (
     relay,
 )
 from speech_client.wire import (
-    BusyWait,
     DurationUsage,
     Language,
     RefusalCode,

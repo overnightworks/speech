@@ -399,35 +399,6 @@ def refusal(code: RefusalCode, param: RequestField | None = None) -> Refusal:
     )
 
 
-class RetryAfterError(ValueError):
-    """A `busy` answer whose `Retry-After` is not a whole number of seconds."""
-
-
-@dataclass(frozen=True)
-class BusyWait:
-    """How long the service asks the app to wait after a `busy` refusal."""
-
-    retry_after_seconds: int
-
-
-def busy_wait(status: int, headers: Mapping[str, str]) -> BusyWait | None:
-    """The wait a `busy` answer asks for, or `None` for any other status.
-
-    Raises `RetryAfterError` when a `busy` answer lacks a `Retry-After` of whole
-    seconds, at least 1: the service never sends a date.
-    """
-    if status != REFUSAL_STATUS[RefusalCode.BUSY]:
-        return None
-    wanted = RETRY_AFTER_HEADER.lower()
-    value = next((v for name, v in headers.items() if name.lower() == wanted), None)
-    if value is None or not (value.isascii() and value.isdigit()) or int(value) < 1:
-        message = (
-            f"{RETRY_AFTER_HEADER} must be whole seconds, at least 1, got {value!r}"
-        )
-        raise RetryAfterError(message)
-    return BusyWait(retry_after_seconds=int(value))
-
-
 # The Realtime transcription session, as OpenAI types it, narrowed to what this
 # service applies. A field it does not apply is refused, never ignored.
 

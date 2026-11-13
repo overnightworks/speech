@@ -27,6 +27,7 @@ from packages.client.tests.support.hearing_support import (
 from speech_client.hearing import Closed, Refused, session_update
 from speech_client.outcomes import (
     Busy,
+    BusyWait,
     Cut,
     Malformed,
     OverCap,
@@ -47,7 +48,6 @@ from speech_client.utterances import (
     hear_utterances,
 )
 from speech_client.wire import (
-    BusyWait,
     DurationUsage,
     Language,
     RefusalCode,
