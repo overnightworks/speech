@@ -66,7 +66,9 @@ from speech_client.outcomes import (
     Malformed,
     OverCap,
     PastDeadline,
+    RetryAfterError,
     Unreachable,
+    busy_wait,
 )
 from speech_client.wire import (
     REALTIME_INTENT,
@@ -76,14 +78,12 @@ from speech_client.wire import (
     Language,
     Refusal,
     RefusalCode,
-    RetryAfterError,
     ServerEventError,
     SessionAudio,
     SessionInput,
     SessionUpdate,
     TranscriptionSession,
     TranscriptionSetting,
-    busy_wait,
     parse_server_event,
     token_headers,
 )

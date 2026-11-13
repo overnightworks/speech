@@ -22,6 +22,8 @@ from speech_provider_contract import (
     FrameKind,
     ProviderFailure,
     ProviderFunctions,
+    Synthesis,
+    encode_synthesis,
     failure_cause,
     read_frame,
     write_frame,
@@ -31,6 +33,10 @@ from speech_qwen import __main__ as bootstrap
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+
+
+def _synthesis(language: str, text: str, instructions: str | None = None) -> bytes:
+    return encode_synthesis(Synthesis(language, text, instructions))
 
 
 def _encoded(*frames: Frame) -> bytes:
@@ -81,7 +87,7 @@ def _run_worker(
         functions=ProviderFunctions(
             recording_loader,
             synthesizer,
-            lambda model: [*synthesizer(model, "Hallo.", "de")],
+            lambda model: [*synthesizer(model, "Hallo.", "de", None)],
         ),
     )
     with os.fdopen(read_fd, "rb") as output:
@@ -94,14 +100,16 @@ def test_run_loads_warms_then_maps_active_input_eof_to_sanitized_failure(
 ) -> None:
     calls: list[tuple[str, str]] = []
 
-    def synthesize(_model: object, text: str, language: str) -> Iterator[bytes]:
+    def synthesize(
+        _model: object, text: str, language: str, _instructions: str | None
+    ) -> Iterator[bytes]:
         calls.append((text, language))
         if text != "Hallo.":
             yield b"\x00\x01"
 
     result, frames, observed = _run_worker(
         monkeypatch,
-        _encoded(Frame(FrameKind.SYNTHESIZE, 1, b"\x02Hello")),
+        _encoded(Frame(FrameKind.SYNTHESIZE, 1, _synthesis("en", "Hello"))),
         lambda _device, _cache: object(),
         synthesize,
     )
@@ -116,6 +124,29 @@ def test_run_loads_warms_then_maps_active_input_eof_to_sanitized_failure(
         thread.name == "speech-provider-input" and thread.is_alive()
         for thread in threading.enumerate()
     )
+
+
+def test_a_request_hands_its_text_language_and_instructions_to_the_synthesizer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str, str | None]] = []
+
+    def synthesize(
+        _model: object, text: str, language: str, instructions: str | None
+    ) -> Iterator[bytes]:
+        calls.append((text, language, instructions))
+        yield b"\x00\x01"
+
+    request = _synthesis("en", "Let me finish", "Speak angrily")
+    result, _, _ = _run_worker(
+        monkeypatch,
+        _encoded(Frame(FrameKind.SYNTHESIZE, 1, request)),
+        lambda _device, _cache: object(),
+        synthesize,
+    )
+
+    assert result == 1
+    assert calls[1:] == [("Let me finish", "en", "Speak angrily")]
 
 
 def test_run_joins_a_cooperative_reader_that_is_still_returning(
@@ -204,13 +235,15 @@ def test_cancellation_after_an_inflight_step_and_late_cancel_do_not_cross_ids() 
     entered = threading.Event()
     release = threading.Event()
 
-    def synthesize(_model: object, text: str, _language: str) -> Iterator[bytes]:
+    def synthesize(
+        _model: object, text: str, _language: str, _instructions: str | None
+    ) -> Iterator[bytes]:
         if text == "first":
             entered.set()
             assert release.wait(timeout=5)
         yield b"\x00\x01"
 
-    commands.put(Frame(FrameKind.SYNTHESIZE, 1, b"\x01first"))
+    commands.put(Frame(FrameKind.SYNTHESIZE, 1, _synthesis("de", "first")))
     serving = threading.Thread(
         target=worker.serve_commands, args=(commands, output, synthesize, object())
     )
@@ -220,7 +253,7 @@ def test_cancellation_after_an_inflight_step_and_late_cancel_do_not_cross_ids() 
     release.set()
     _wait_for_frames(output, 1)
     commands.put(Frame(FrameKind.CANCEL, 1, b""))
-    commands.put(Frame(FrameKind.SYNTHESIZE, 2, b"\x02second"))
+    commands.put(Frame(FrameKind.SYNTHESIZE, 2, _synthesis("en", "second")))
     _wait_for_frames(output, 3)
     commands.put(EOFError())
     serving.join(timeout=5)
@@ -259,13 +292,15 @@ def test_cancel_closes_the_active_iterator_before_the_next_request() -> None:
         def close(self) -> None:
             closed.set()
 
-    def synthesize(_model: object, text: str, _language: str) -> Iterator[bytes]:
+    def synthesize(
+        _model: object, text: str, _language: str, _instructions: str | None
+    ) -> Iterator[bytes]:
         if text == "first":
             return HeldIterator()
         assert closed.is_set()
         return iter((b"\x00\x01",))
 
-    commands.put(Frame(FrameKind.SYNTHESIZE, 1, b"\x01first"))
+    commands.put(Frame(FrameKind.SYNTHESIZE, 1, _synthesis("de", "first")))
     serving = threading.Thread(
         target=worker.serve_commands, args=(commands, output, synthesize, object())
     )
@@ -275,7 +310,7 @@ def test_cancel_closes_the_active_iterator_before_the_next_request() -> None:
         commands.put(Frame(FrameKind.CANCEL, 1, b""))
         release_first_chunk.set()
         assert closed.wait(timeout=5)
-        commands.put(Frame(FrameKind.SYNTHESIZE, 2, b"\x01second"))
+        commands.put(Frame(FrameKind.SYNTHESIZE, 2, _synthesis("de", "second")))
         _wait_for_frames(output, 3)
     finally:
         commands.put(EOFError())
@@ -299,8 +334,8 @@ def test_cancel_closes_the_active_iterator_before_the_next_request() -> None:
         ([Frame(FrameKind.CANCEL, 7, b"")], 0),
         (
             [
-                Frame(FrameKind.SYNTHESIZE, 2, b"\x01one"),
-                Frame(FrameKind.SYNTHESIZE, 2, b"\x01stale"),
+                Frame(FrameKind.SYNTHESIZE, 2, _synthesis("de", "one")),
+                Frame(FrameKind.SYNTHESIZE, 2, _synthesis("de", "stale")),
             ],
             2,
         ),
@@ -343,7 +378,7 @@ def test_model_and_pcm_validation_failure_emit_only_active_failure() -> None:
     ):
         commands: queue.Queue[Frame | BaseException] = queue.Queue()
         output = BytesIO()
-        commands.put(Frame(FrameKind.SYNTHESIZE, 9, b"\x01Hallo"))
+        commands.put(Frame(FrameKind.SYNTHESIZE, 9, _synthesis("de", "Hallo")))
         worker.serve_commands(commands, output, synthesizer, object())
         (frame,) = _frames(output.getvalue())
         _assert_failed_with_cause(frame, 9, type_name, detail)
@@ -386,7 +421,7 @@ def test_every_request_exit_closes_its_iterator_before_terminal_output(
     monkeypatch.setattr(worker, "write_frame", record_frame)
     commands: queue.Queue[Frame | BaseException] = queue.Queue()
     output = BytesIO()
-    commands.put(Frame(FrameKind.SYNTHESIZE, 9, b"\x01Hallo"))
+    commands.put(Frame(FrameKind.SYNTHESIZE, 9, _synthesis("de", "Hallo")))
     if failure == "normal":
         serving = threading.Thread(
             target=worker.serve_commands,
@@ -444,7 +479,7 @@ def test_active_protocol_failure_closes_the_iterator_before_sanitized_failure(
     monkeypatch.setattr(worker, "write_frame", record_frame)
     commands: queue.Queue[Frame | BaseException] = queue.Queue()
     output = BytesIO()
-    commands.put(Frame(FrameKind.SYNTHESIZE, 9, b"\x01Hallo"))
+    commands.put(Frame(FrameKind.SYNTHESIZE, 9, _synthesis("de", "Hallo")))
     commands.put(Frame(FrameKind.PCM, 9, b"\x00\x01"))
 
     worker.serve_commands(commands, output, lambda *_args: ClosableIterator(), object())
@@ -467,7 +502,7 @@ def test_iterator_cleanup_failure_emits_only_the_active_failure() -> None:
 
     commands: queue.Queue[Frame | BaseException] = queue.Queue()
     output = BytesIO()
-    commands.put(Frame(FrameKind.SYNTHESIZE, 9, b"\x01Hallo"))
+    commands.put(Frame(FrameKind.SYNTHESIZE, 9, _synthesis("de", "Hallo")))
 
     worker.serve_commands(
         commands, output, lambda *_args: FailingCloseIterator(), object()
@@ -500,7 +535,7 @@ def _failed_frame_for(error: Exception) -> Frame:
 
     commands: queue.Queue[Frame | BaseException] = queue.Queue()
     output = BytesIO()
-    commands.put(Frame(FrameKind.SYNTHESIZE, 9, b"\x01Hallo"))
+    commands.put(Frame(FrameKind.SYNTHESIZE, 9, _synthesis("de", "Hallo")))
     worker.serve_commands(commands, output, synthesize, object())
     (frame,) = _frames(output.getvalue())
     return frame

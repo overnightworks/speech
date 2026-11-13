@@ -350,6 +350,7 @@ def test_orchestrator_serves_health_from_its_loading_runtime(
                 "model": VOICES[VoiceId.THORSTEN].model,
                 "name": VOICES[VoiceId.THORSTEN].name,
                 "languages": [*VOICES[VoiceId.THORSTEN].languages],
+                "takes_instructions": VOICES[VoiceId.THORSTEN].takes_instructions,
                 "ready": False,
                 "sample_rate": 0,
             }

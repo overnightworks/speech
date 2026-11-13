@@ -302,6 +302,7 @@ def health_of(*, speaking: bool, hearing: bool, voices: dict[VoiceId, bool]) -> 
                         "name": VOICES[voice].name,
                         "languages": VOICES[voice].languages,
                         "ready": ready,
+                        "takes_instructions": VOICES[voice].takes_instructions,
                         "sample_rate": 1,
                     }
                     for voice, ready in voices.items()

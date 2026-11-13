@@ -25,6 +25,9 @@ from speech_provider_contract import (
     FrameDecoder,
     FrameKind,
     ProtocolError,
+    Synthesis,
+    decode_synthesis,
+    encode_synthesis,
     read_frame,
     ready_payload,
     write_frame,
@@ -158,7 +161,51 @@ def test_protocol_accepts_a_request_failure_with_or_without_its_cause(
     assert read_frame(BytesIO(encoded.getvalue())) == frame
 
 
-@pytest.mark.parametrize("payload", [b"", b"\x03text", b"\x01\xff"])
+@pytest.mark.parametrize(
+    "synthesis",
+    [
+        Synthesis("de", "Hallo"),
+        Synthesis("en", "Hello", "Speak angrily"),
+        Synthesis("de", "Lass mich ausreden", "Zornig und laut, ärgerlich \U0001f620"),
+    ],
+    ids=["no-instructions", "instructions", "multibyte-instructions"],
+)
+def test_synthesis_crosses_the_protocol_with_its_instructions(
+    synthesis: Synthesis,
+) -> None:
+    stream = BytesIO()
+    write_frame(stream, Frame(FrameKind.SYNTHESIZE, 1, encode_synthesis(synthesis)))
+
+    frame = read_frame(BytesIO(stream.getvalue()))
+
+    assert decode_synthesis(frame.payload) == synthesis
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"",
+        b"\x01",
+        b"\x01\x00\x00",
+        b"\x03\x00\x00text",
+        b"\x01\x00\x00\xff",
+        b"\x01\x00\x05abc",
+        b"\x01\x00\x03abc",
+        b"\x01\x00\x02\xff\xfftext",
+        b"\x01\x07\xd1" + b"a" * 2001 + b"text",
+    ],
+    ids=[
+        "empty",
+        "language-only",
+        "no-text",
+        "unknown-language",
+        "text-not-utf8",
+        "instructions-longer-than-the-payload",
+        "instructions-without-text",
+        "instructions-not-utf8",
+        "instructions-over-the-bound",
+    ],
+)
 def test_protocol_refuses_invalid_synthesis_payloads(payload: bytes) -> None:
     stream = BytesIO()
     frame = Frame(FrameKind.SYNTHESIZE, 1, payload)

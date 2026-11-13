@@ -47,6 +47,7 @@ class FakeSpeaking:
         self._fail = fail
         self.heard_text = ""
         self.heard_language = ""
+        self.heard_instructions: str | None = None
 
     def load(self) -> None:
         """Load the fake weights, or raise when built to fail."""
@@ -55,10 +56,13 @@ class FakeSpeaking:
             raise RuntimeError(message)
         self.ready = True
 
-    def pcm_chunks(self, text: str, language: str) -> Iterator[bytes]:
+    def pcm_chunks(
+        self, text: str, language: str, instructions: str | None = None
+    ) -> Iterator[bytes]:
         """Record the request and yield the tone in two chunks."""
         self.heard_text = text
         self.heard_language = language
+        self.heard_instructions = instructions
         pcm = sine_pcm(0.3, rate=self.sample_rate)
         mid = (len(pcm) // 2) // BYTES_PER_SAMPLE * BYTES_PER_SAMPLE
         yield pcm[:mid]
@@ -108,9 +112,11 @@ class GatedSpeaking:
         """Mark the engine ready."""
         self.ready = True
 
-    def pcm_chunks(self, text: str, language: str) -> Iterator[bytes]:
+    def pcm_chunks(
+        self, text: str, language: str, instructions: str | None = None
+    ) -> Iterator[bytes]:
         """Yield the tone in two chunks, gated by the test's events."""
-        del text, language
+        del text, language, instructions
         with self._lock:
             self.active_syntheses += 1
             self.most_concurrent_syntheses = max(

@@ -1,6 +1,7 @@
 """A fake provider worker and the readers of what it observed."""
 
 import ast
+import json
 import os
 import subprocess
 import sys
@@ -16,6 +17,7 @@ WORKER_WAIT_SECONDS = 10.0
 
 _WORKER = r"""#!{python}
 import argparse
+import json
 import os
 import signal
 import struct
@@ -31,7 +33,8 @@ print("provider print noise", flush=True)
 os.write(1, b"native provider noise\n")
 
 from speech_provider_contract import (
-    MAX_FRAME_LENGTH, Frame, FrameKind, ProviderFailure, read_frame, write_frame
+    MAX_FRAME_LENGTH, Frame, FrameKind, ProviderFailure, decode_synthesis, read_frame,
+    write_frame
 )
 
 parser = argparse.ArgumentParser()
@@ -106,13 +109,16 @@ while True:
         write_frame(stream, Frame(FrameKind.FAILED, 0, b"\x01"))
         raise SystemExit(1)
     request_id = frame.request_id
-    text = frame.payload[1:].decode()
+    synthesis = decode_synthesis(frame.payload)
+    text = synthesis.text
     print("synthesis print noise", flush=True)
     os.write(1, b"synthesis native noise\n")
     with (cache / "request-ids").open("a", encoding="utf-8") as ids:
         ids.write(f"{{request_id}}\n")
     with (cache / "language-codes").open("a", encoding="utf-8") as codes:
         codes.write(f"{{frame.payload[0]}}\n")
+    with (cache / "instructions").open("a", encoding="utf-8") as named:
+        named.write(json.dumps(synthesis.instructions) + "\n")
     if text == "stale":
         write_frame(stream, Frame(FrameKind.PCM, request_id + 1, b"\x00\x01"))
         continue
@@ -194,6 +200,14 @@ def spoken_language_codes(cache: Path) -> list[int]:
     if not log.exists():
         return []
     return [int(line) for line in log.read_text(encoding="utf-8").splitlines()]
+
+
+def spoken_instructions(cache: Path) -> list[str | None]:
+    """The instructions of every synthesis the worker over `cache` received."""
+    log = cache / "instructions"
+    if not log.exists():
+        return []
+    return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
 
 
 def wait_for_starts(cache: Path, count: int) -> list[int]:

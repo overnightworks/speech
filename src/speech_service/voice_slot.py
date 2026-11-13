@@ -166,6 +166,7 @@ class VoiceSlot:
             model=catalogued.model,
             name=catalogued.name,
             languages=catalogued.languages,
+            takes_instructions=catalogued.takes_instructions,
             ready=loaded and ready,
             sample_rate=(
                 speaking.sample_rate

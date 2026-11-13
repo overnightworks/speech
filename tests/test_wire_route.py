@@ -559,10 +559,12 @@ def test_speak_response_construction_failure_frees_the_gate_for_shutdown(
 )
 def test_speak_close_paths_free_the_gate_for_shutdown(close_path: str) -> None:
     class ClosingPathVoice(FakeSpeaking):
-        def pcm_chunks(self, text: str, language: str) -> Iterator[bytes]:
+        def pcm_chunks(
+            self, text: str, language: str, instructions: str | None = None
+        ) -> Iterator[bytes]:
             if close_path == "synthesis-error":
                 raise _ResponseBoundaryError
-            yield from super().pcm_chunks(text, language)
+            yield from super().pcm_chunks(text, language, instructions)
 
     runtime, closed = _runtime_closing_on_shutdown(ClosingPathVoice())
     response = speak_response(runtime, VoiceId.RYAN)
@@ -649,12 +651,14 @@ class _FailingOnceSpeaking(FakeSpeaking):
         self.fails = True
         self._after_first_chunk = after_first_chunk
 
-    def pcm_chunks(self, text: str, language: str) -> Iterator[bytes]:
+    def pcm_chunks(
+        self, text: str, language: str, instructions: str | None = None
+    ) -> Iterator[bytes]:
         if not self.fails:
-            yield from super().pcm_chunks(text, language)
+            yield from super().pcm_chunks(text, language, instructions)
             return
         if self._after_first_chunk:
-            yield next(iter(super().pcm_chunks(text, language)))
+            yield next(iter(super().pcm_chunks(text, language, instructions)))
         raise _error_holding_the_sentence()
 
 
@@ -753,9 +757,11 @@ def test_speak_cleanup_failure_after_a_disconnect_logs_no_sentence_and_frees_the
     class CleanupFails(FakeSpeaking):
         failing_cleanup = True
 
-        def pcm_chunks(self, text: str, language: str) -> Iterator[bytes]:
+        def pcm_chunks(
+            self, text: str, language: str, instructions: str | None = None
+        ) -> Iterator[bytes]:
             try:
-                yield from super().pcm_chunks(text, language)
+                yield from super().pcm_chunks(text, language, instructions)
             finally:
                 if self.failing_cleanup:
                     raise _error_holding_the_sentence()

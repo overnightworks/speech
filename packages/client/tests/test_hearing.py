@@ -32,13 +32,13 @@ from packages.client.tests.support.hearing_support import (
 from speech_client.hearing import OPENING_SECONDS, Closed, HearingSession, Refused
 from speech_client.outcomes import (
     Busy,
+    BusyWait,
     Cut,
     Malformed,
     OverCap,
     PastDeadline,
 )
 from speech_client.wire import (
-    BusyWait,
     Language,
     RefusalCode,
     TranscriptDelta,
