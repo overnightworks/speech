@@ -15,6 +15,7 @@ import threading
 import time
 from io import BytesIO
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from anyio import run, run_process
@@ -56,6 +57,9 @@ from tests.support.worker_support import (
     wait_for_starts,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 _SCRATCH_VARIABLES = ("NUMBA_CACHE_DIR", "TMPDIR", "HOME")
 
 
@@ -66,6 +70,13 @@ def _engine(tmp_path: Path, behavior: str = "normal") -> ProviderProcess:
 
 def _qwen_arguments(cache: Path) -> tuple[str, ...]:
     return ("--device", "cpu", "--cache", str(cache), "--speaker", "Ryan")
+
+
+def _finishes_within_timeout(target: Callable[[], object]) -> bool:
+    thread = threading.Thread(target=target)
+    thread.start()
+    thread.join(timeout=5)
+    return not thread.is_alive()
 
 
 def _provider_process(root: Path, cache: Path) -> ProviderProcess:
@@ -286,17 +297,11 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
         "speech_service.provider_process.subprocess.Popen", recording_popen
     )
     engine = _provider_process(root, cache)
-    loaded = threading.Thread(target=engine.load)
-    loaded.start()
-    loaded.join(timeout=5)
-    assert not loaded.is_alive()
+    assert _finishes_within_timeout(engine.load)
     response: list[bytes] = []
-    request = threading.Thread(
-        target=lambda: response.extend(engine.pcm_chunks("Hallo", "de-DE"))
+    assert _finishes_within_timeout(
+        lambda: response.extend(engine.pcm_chunks("Hallo", "de-DE"))
     )
-    request.start()
-    request.join(timeout=5)
-    assert not request.is_alive()
     assert response == [b"\x00\x01"]
     assert any(
         thread.name == "speech-provider-owner" for thread in threading.enumerate()
