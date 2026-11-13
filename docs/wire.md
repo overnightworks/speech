@@ -265,7 +265,9 @@ native rate, which is in the WAV header. **WIRE-89** Every WAV carries an AI mar
 `LIST`/`INFO` `ICMT` chunk before `data`. **WIRE-90** The status and headers leave before
 synthesis, so a synthesis failure cannot change the status: the server aborts
 the connection without the chunked terminator. Read the body to its end and
-treat a missing end as a failed request; never use partial audio.
+treat a missing end as a failed request; never use partial audio, except to
+play it live: a player may play the chunks as they arrive, and a body that
+breaks off stops the playback where it broke and ends it failed.
 
 **WIRE-133** For `opus`, `200` with `Content-Type: audio/ogg`, chunked: Ogg Opus
 (RFC 7845), mono at 48 kHz whatever the voice's rate, its pages leaving as the voice
