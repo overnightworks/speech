@@ -480,19 +480,22 @@ class ProviderProcess:
     def _terminate_and_reap(self, child: subprocess.Popen[bytes] | None) -> None:
         if child is None:
             return
-        if child.poll() is None:
-            os.killpg(child.pid, signal.SIGTERM)
-            try:
-                child.wait(timeout=TERMINATE_GRACE_SECONDS)
-            except subprocess.TimeoutExpired:
-                if child.poll() is None:
-                    os.killpg(child.pid, signal.SIGKILL)
-                child.wait(timeout=TERMINATE_GRACE_SECONDS)
-        else:
-            child.wait()
+        # The worker leads its process group, and the server it starts keeps
+        # its stage processes in that group: they outlive a worker that died
+        # first, so the group is signalled whether or not the worker is alive.
+        _signal_group(child.pid, signal.SIGTERM)
+        with suppress(subprocess.TimeoutExpired):
+            child.wait(timeout=TERMINATE_GRACE_SECONDS)
+        _signal_group(child.pid, signal.SIGKILL)
+        child.wait(timeout=TERMINATE_GRACE_SECONDS)
         for stream in (child.stdin, child.stdout):
             if stream is not None:
                 stream.close()
+
+
+def _signal_group(group: int, signal_number: signal.Signals) -> None:
+    with suppress(ProcessLookupError):
+        os.killpg(group, signal_number)
 
 
 def _log_synthesis_failure(request_id: int, payload: bytes) -> None:
@@ -589,6 +592,13 @@ def provider_environment(provider_directory: Path, scratch: Path) -> dict[str, s
         # builds a C module at first use, which needs a compiler the image
         # does not ship.
         "TORCH_DISABLE_NATIVE_JIT": "1",
+        # The server the Qwen worker starts keeps its compile and kernel
+        # caches under the home directory, which the image's read-only root
+        # does not let it create.
+        "HOME": str(scratch),
+        # The server reports usage to its vendor unless told not to.
+        "VLLM_NO_USAGE_STATS": "1",
+        "DO_NOT_TRACK": "1",
     }
     visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
     if visible_devices is not None:
