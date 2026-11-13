@@ -1,0 +1,7 @@
+claim_id = "14d89bfa7ddb4ca19eef8d957e6b1836"
+agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
+role = "builder"
+base = "8cd61e672e303937ba71b03dada3a71d16ec3211"
+branch = "docs/five-piper-voices"
+scope = ["docs/ARCHITECTURE.md"]
+opened_commit = "1dc07d2dd51c0a1ef3417e46dbea6f04d2e5f2e9"
