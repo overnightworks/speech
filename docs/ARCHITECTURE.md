@@ -204,7 +204,12 @@ no capability is kept.
   the worker's private directory, a fresh path per start, so no port opens and a
   server left by an earlier start is never mistaken for the new one. Readiness
   counts only while that child lives. It sends no telemetry
-  (`VLLM_NO_USAGE_STATS`, `DO_NOT_TRACK`), its stdout goes nowhere, and its
+  (`VLLM_NO_USAGE_STATS`, `DO_NOT_TRACK`), compiles nothing with `nvcc`, which
+  the image does not carry (its FlashInfer sampler is off through
+  `VLLM_USE_FLASHINFER_SAMPLER`, vLLM's other FlashInfer kernels are off while
+  no `nvcc` is found, and attention takes FlashAttention below compute
+  capability 10; only Triton and Inductor compile, with the image's `gcc`), its
+  stdout goes nowhere, and its
   stderr joins the worker's own, which is the startup file until READY and
   `/dev/null` after.
 - The server dies with its worker (the parent-death signal, set on the worker's
