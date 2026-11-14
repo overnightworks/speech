@@ -3,5 +3,6 @@ agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
 role = "builder"
 base = "c64a1a1a9906f02754ad30f07ee4404f9fc2acfc"
 branch = "claude/issue-369-gpu-ci-build"
-scope = [".github/workflows/ci.yml", "docs/ARCHITECTURE.md", "quality/config.toml"]
+scope = [".github/workflows/ci.yml", ".github/workflows/gpu-image-build.yml", "docs/ARCHITECTURE.md", "quality/baseline.toml", "quality/config.toml", "tests/scripts/test_prove_image.py"]
 opened_commit = "f79f7c16b2aca480f9bbd4cc4efd619a6fa064fc"
+whole_reason = "The gated build, its called workflow, its judge, its baseline, its pin and the risk line change together."
