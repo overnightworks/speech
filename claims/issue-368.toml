@@ -1,7 +1,0 @@
-claim_id = "a483e47070ea447892b491e41ba9fbad"
-agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
-role = "builder"
-base = "6b512298b89a2da0681993649ef4cd3dd6224122"
-branch = "claude/issue-368-gpu-voices-test"
-scope = ["tests/test_voices_gpu_image.py"]
-opened_commit = "ab5df642e0b9fd83dae65bffa97db88a7bf0c718"
