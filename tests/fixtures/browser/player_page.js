@@ -212,14 +212,13 @@ function argumentOf(spec) {
 }
 
 function handOver(spec) {
-  const sound = { id: seen.sounds.length, startedValue: null, startedCount: 0, endedValue: null, endedCount: 0, endedAt: null, peakRms: 0, playedSeconds: null, contextAtStart: null, start: null, contextAtEnd: null };
+  const sound = { id: seen.sounds.length, startedValue: null, startedCount: 0, endedValue: null, endedCount: 0, endedAt: null, peakRms: 0, playedSeconds: null, start: null, contextAtEnd: null };
   seen.sounds.push(sound);
   const playback = player.play(argumentOf(spec));
   playback.started.then((value) => {
     sound.startedValue = value.kind;
     sound.start = value.kind === "playing" ? { contextTime: value.contextTime, onThePlayersContext: value.context === contexts[0] } : null;
     sound.startedCount += 1;
-    sound.contextAtStart = contexts[0].currentTime;
     seen.log.push({ event: "started", id: sound.id, value: value.kind, at: performance.now() });
   });
   playback.ended.then((end) => {

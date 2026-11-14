@@ -54,6 +54,8 @@ export function createPlayer(): Player {
 type Interruption = "stopped" | "muted";
 
 const NONE = -1;
+/** The Web Audio render quantum; the audio graph advances in steps of this many frames. */
+const RENDER_QUANTUM_FRAMES = 128;
 
 type Loaded =
   | { readonly kind: "buffer"; readonly buffer: AudioBuffer }
@@ -244,8 +246,17 @@ class PlayerRun {
     }
   }
 
-  /** Schedules the buffer on the one gain at `when` of the context's clock. */
-  #schedule(scheduled: Scheduled, buffer: AudioBuffer, when: number): void {
+  /**
+   * The earliest context time the player knows to lie ahead of the render thread: the page's `currentTime` lags it by
+   * up to one callback buffer (`baseLatency`), so a start before this would play at a time the player cannot tell.
+   */
+  #earliestKnownStart(): number {
+    const quantum = RENDER_QUANTUM_FRAMES / this.#context.sampleRate;
+    return this.#context.currentTime + Math.max(this.#context.baseLatency, quantum);
+  }
+
+  /** Schedules the buffer on the one gain at `when` of the context's clock, or at the earliest known start if that is later; returns the start. */
+  #schedule(scheduled: Scheduled, buffer: AudioBuffer, when: number): number {
     const source = this.#context.createBufferSource();
     source.buffer = buffer;
     source.connect(this.#gain);
@@ -254,10 +265,11 @@ class PlayerRun {
       this.#settle(scheduled);
     };
     scheduled.sources.add(source);
-    source.start(when);
-    const start = Math.max(when, this.#context.currentTime);
+    const start = Math.max(when, this.#earliestKnownStart());
+    source.start(start);
     scheduled.chunks.push({ start, seconds: buffer.duration });
     scheduled.item.begin(start, this.#context);
+    return start;
   }
 
   /** Back to back on the context's clock: each chunk starts where the one before ends. */
@@ -292,8 +304,7 @@ class PlayerRun {
     }
     const buffer = this.#context.createBuffer(1, samples.length, stream.sampleRate);
     buffer.copyToChannel(samples, 0);
-    const when = Math.max(startAt, this.#context.currentTime);
-    this.#schedule(scheduled, buffer, when);
+    const when = this.#schedule(scheduled, buffer, startAt);
     return this.#scheduleChunks(scheduled, stream, generation, when + buffer.duration);
   }
 
