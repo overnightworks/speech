@@ -11,7 +11,7 @@ registerProcessor(
       const first = samples.findIndex((value) => Math.abs(value) > HEARD_THRESHOLD);
       if (first >= 0 && this.silent) this.port.postMessage((currentFrame + first) / sampleRate);
       this.silent = first < 0;
-      outputs[0][0]?.set(samples);
+      inputs[0].forEach((channel, index) => outputs[0][index]?.set(channel));
       return true;
     }
   },

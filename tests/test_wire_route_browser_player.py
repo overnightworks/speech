@@ -21,6 +21,7 @@ from tests.support.browser_player_support import (
     JUNK,
     LONG,
     NATURAL,
+    ONSET_BOUND_FRAMES,
     OTHER,
     RESUMES_REJECTED_THEN_PASSED,
     SHORT,
@@ -595,10 +596,29 @@ def test_the_start_a_sound_hands_over_is_the_context_time_its_first_sample_is_he
 
     start = seen["sounds"][0]["start"]
     assert start["onThePlayersContext"]
-    # The player reads the start from the context clock, which the page sees up to
-    # one callback buffer (`baseLatency`) behind the render thread, so the sound is
-    # heard up to one buffer after its start. The page hears the onset to one sample,
-    # and the tone's first sample is silent: the onset heard is a sample later.
+    # The start is never earlier than the render thread's clock, so the sound is heard
+    # within one render quantum of it. The page hears the onset to one sample, and the
+    # tone's first sample is silent: the onset heard is a sample later.
     assert seen["heardOnsets"][0] == pytest.approx(
-        start["contextTime"], abs=seen["clockStep"] + 2 / seen["sampleRate"]
+        start["contextTime"], abs=ONSET_BOUND_FRAMES / seen["sampleRate"]
+    )
+
+
+@pytest.mark.parametrize("sound", [SHORT, STREAMED], ids=["whole", "streamed"])
+def test_the_start_of_a_sound_scheduled_right_after_another_ended_is_where_it_is_heard(
+    tmp_path: Path, sound: str
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.hand_over(url(SHORT), url(sound))
+            await stage.until("s.heardOnsets.length === 2")
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    start = seen["sounds"][1]["start"]
+    # The second sound's time has passed when it is scheduled; the player still hands
+    # over a start the render thread has not passed.
+    assert seen["heardOnsets"][1] == pytest.approx(
+        start["contextTime"], abs=ONSET_BOUND_FRAMES / seen["sampleRate"]
     )
