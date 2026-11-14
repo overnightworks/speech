@@ -169,6 +169,10 @@ package's tarball as a release file. Both run quality's release gate; its refusa
 and the path itself are in
 [quality's `docs/release.md`](https://github.com/overnightworks/quality/blob/2d2b68bf3916b34f6f2c72a540c1e3d8a947b750/docs/release.md).
 
+When the small image fails after the gpu image was pushed, `<version>-gpu` stands
+in GHCR without the tag. Re-run the failed jobs of that release run (`gh run rerun
+<run-id> --failed`): it builds the small image and sets the tag for the same version.
+
 ## Proofs
 
 Each proof re-runs itself under `probe-run`, which waits for the machine to be
