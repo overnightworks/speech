@@ -1,0 +1,7 @@
+claim_id = "8e06312ec4b4436999ab278515401901"
+agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
+role = "builder"
+base = "25215bad068d3d5ad7223457b6328c935c029a82"
+branch = "claude/issue-373-failed-start-root-cause"
+scope = ["src/speech_service/provider_process.py", "tests/test_provider_process.py"]
+opened_commit = "f73dd5d8175c1bf2ac6206f00b6fbbe84ebf4c5a"
