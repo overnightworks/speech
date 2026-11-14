@@ -1,4 +1,5 @@
 # Both base images are held by digest, because a tag is a name its owner may
+# e2e probe comment
 # move; Dependabot's docker entry moves the digest through review, and it reads
 # only FROM lines, so uv is a stage of its own. The last stage is the small
 # image, the default target; the gpu image is the `gpu` target.
