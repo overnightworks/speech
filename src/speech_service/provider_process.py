@@ -592,6 +592,9 @@ def provider_environment(provider_directory: Path, scratch: Path) -> dict[str, s
         # Torch's native operations would launch triton kernels, and triton
         # builds a C module at first use.
         "TORCH_DISABLE_NATIVE_JIT": "1",
+        # The server's FlashInfer sampler JIT-compiles with nvcc, which the
+        # image does not carry; its PyTorch sampler needs no CUDA toolkit.
+        "VLLM_USE_FLASHINFER_SAMPLER": "0",
         # The server the Qwen worker starts keeps its compile and kernel
         # caches under the home directory, which the image's read-only root
         # does not let it create.

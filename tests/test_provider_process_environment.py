@@ -63,10 +63,16 @@ def test_the_model_server_is_told_to_send_no_telemetry(
     assert provider_environment(tmp_path, tmp_path / "scratch")[variable] == "1"
 
 
-def test_torch_native_kernels_are_switched_off(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [("TORCH_DISABLE_NATIVE_JIT", "1"), ("VLLM_USE_FLASHINFER_SAMPLER", "0")],
+)
+def test_run_time_compiles_are_switched_off(
+    tmp_path: Path, variable: str, value: str
+) -> None:
     environment = provider_environment(tmp_path, tmp_path / "scratch")
 
-    assert environment["TORCH_DISABLE_NATIVE_JIT"] == "1"
+    assert environment[variable] == value
 
 
 @pytest.mark.parametrize("visible_devices", ["", "0,1"])
@@ -110,6 +116,7 @@ def test_a_parent_token_does_not_reach_the_provider_environment(
         "TMPDIR",
         "HOME",
         "TORCH_DISABLE_NATIVE_JIT",
+        "VLLM_USE_FLASHINFER_SAMPLER",
         "VLLM_NO_USAGE_STATS",
         "DO_NOT_TRACK",
         "CUDA_VISIBLE_DEVICES",
