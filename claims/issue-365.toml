@@ -1,7 +1,0 @@
-claim_id = "48938b8248f6474da1a2d1376d9b1052"
-agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
-role = "builder"
-base = "6b512298b89a2da0681993649ef4cd3dd6224122"
-branch = "claude/issue-365-shm-cleanup-skips"
-scope = ["providers/qwen/src/speech_qwen/server.py", "providers/qwen/tests/test_server.py"]
-opened_commit = "523842c8f4c210b3272dba9461695685fdd45159"
