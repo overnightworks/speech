@@ -1,0 +1,7 @@
+claim_id = "c670a457a1844f95a92597822b5bc8ce"
+agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
+role = "builder"
+base = "c64a1a1a9906f02754ad30f07ee4404f9fc2acfc"
+branch = "claude/issue-369-gpu-ci-build"
+scope = [".github/workflows/ci.yml", "docs/ARCHITECTURE.md", "quality/config.toml"]
+opened_commit = "f79f7c16b2aca480f9bbd4cc4efd619a6fa064fc"
