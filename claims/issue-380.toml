@@ -1,0 +1,8 @@
+claim_id = "2ab7f366f4e0476d807995cb4105f817"
+agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
+role = "builder"
+base = "b0791f501a9fcbb3492edd09e2cf2889ec2983fe"
+branch = "claude/issue-380-qwen-sampler-no-jit"
+scope = ["providers/qwen/src/speech_qwen", "src/speech_service/provider_process.py", "tests/test_provider_process.py"]
+opened_commit = "a4a84fabe6f07f4efec6cc314e1e5537f1a7c7b5"
+whole_reason = "One worker environment owner and the Qwen launch it starts, checked together against every run-time compile."
