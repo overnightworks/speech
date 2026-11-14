@@ -140,15 +140,23 @@ def _remove_leftover_shared_memory(directory: Path, user_id: int) -> None:
 
     The directory is writable by every user, so an entry counts only when it is
     a real directory (a symbolic link is never followed) that `user_id` owns.
+    The directory is shared with other processes, so an entry that vanishes, cannot
+    be read or cannot be removed stays for the next start and never fails this one.
     """
     for entry in directory.glob("omni_shm_*"):
-        status = entry.lstat()
-        if (
-            stat.S_ISDIR(status.st_mode)
-            and status.st_uid == user_id
-            and not any(_is_read(fifo) for fifo in entry.iterdir())
-        ):
-            shutil.rmtree(entry)
+        with contextlib.suppress(OSError):
+            _remove_if_leftover(entry, user_id)
+
+
+def _remove_if_leftover(entry: Path, user_id: int) -> None:
+    """Remove `entry` when it is a leftover; `OSError` when it cannot be judged."""
+    status = entry.lstat()
+    if (
+        stat.S_ISDIR(status.st_mode)
+        and status.st_uid == user_id
+        and not any(_is_read(fifo) for fifo in entry.iterdir())
+    ):
+        shutil.rmtree(entry)
 
 
 def _is_read(fifo: Path) -> bool:
