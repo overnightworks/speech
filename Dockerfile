@@ -91,6 +91,7 @@ COPY providers/qwen/src src
 RUN uv sync --locked --no-dev --no-editable \
  && mv /opt/providers/qwen/.venv/lib/python3.12/site-packages/nvidia /opt/qwen-nvidia
 
+# probe: harmless comment
 FROM python-base AS gpu
 ARG GPU_VOICES
 # Triton builds its CUDA utility module from C source at run time.
