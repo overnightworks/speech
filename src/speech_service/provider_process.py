@@ -590,8 +590,7 @@ def provider_environment(provider_directory: Path, scratch: Path) -> dict[str, s
         # which would outlive the worker in the service's own small /tmp.
         "TMPDIR": str(scratch),
         # Torch's native operations would launch triton kernels, and triton
-        # builds a C module at first use, which needs a compiler the image
-        # does not ship.
+        # builds a C module at first use.
         "TORCH_DISABLE_NATIVE_JIT": "1",
         # The server the Qwen worker starts keeps its compile and kernel
         # caches under the home directory, which the image's read-only root

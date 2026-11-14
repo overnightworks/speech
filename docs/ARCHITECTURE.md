@@ -156,7 +156,9 @@ Piper voices and hearing keep serving.
 The gpu image is the same service with the six voices, Qwen's pinned weights,
 large-v3 and the Qwen provider's own environment: uv-managed CPython 3.12, which
 vLLM-Omni caps below the service's 3.14, pinned through the uv image's digest,
-beside the service's CUDA 12 libraries for CTranslate2. It sets Qwen to load at
+beside the service's CUDA 12 libraries for CTranslate2, and a C compiler with
+the C library headers, which Triton needs to build its run-time modules (it takes
+the Python headers from that interpreter). It sets Qwen to load at
 start and hearing to large-v3 on `cuda`, so `/health` is ready only once both
 are loaded. The environment is too large for a standard runner's disk, so its
 release job builds on the larger runner `speech-gpu-build`, and each layer stays
