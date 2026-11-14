@@ -3,6 +3,6 @@ agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
 role = "builder"
 base = "a5d8b31f533058de2f081138cdb1ecc4d96b5166"
 branch = "claude/issue-378-qwen-spawn-opencv"
-scope = ["Dockerfile", "providers/qwen/pyproject.toml", "providers/qwen/src/speech_qwen", "providers/qwen/uv.lock"]
+scope = ["Dockerfile", "providers/qwen/pyproject.toml", "providers/qwen/src/speech_qwen", "providers/qwen/uv.lock", "quality/config.toml", "tests/test_qwen_environment.py"]
 opened_commit = "340df4aa4cfa0b8ef6b8cc19e578f8b52ae0c56b"
 whole_reason = "One cause chain, the OpenCV build and the spawned child's import path, fixed in the Qwen provider's environment."
