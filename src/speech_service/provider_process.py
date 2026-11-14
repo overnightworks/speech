@@ -40,7 +40,7 @@ TERMINATE_GRACE_SECONDS = 5
 CANCEL_DRAIN_SECONDS = 5
 _COMMAND_WAIT_SECONDS = 0.25
 _READ_SIZE = 64 * 1024
-# A failed vLLM-Omni start prints 10 to 30 KiB: root cause, then a long traceback.
+# A failed vLLM-Omni start printed about 11 KiB: the root cause, then a long traceback.
 _STDERR_TAIL_BYTES = 64 * 1024
 ENDED_BEFORE_READY = "speech provider ended before ready"
 """The record that opens the log of a provider that ended before it was ready."""
