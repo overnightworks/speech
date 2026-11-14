@@ -92,6 +92,7 @@ RUN uv sync --locked --no-dev --no-editable \
  && mv /opt/providers/qwen/.venv/lib/python3.12/site-packages/nvidia /opt/qwen-nvidia
 
 FROM python-base AS gpu
+RUN this-command-does-not-exist-e2e369
 ARG GPU_VOICES
 # Triton builds its CUDA utility module from C source at run time.
 RUN apt-get update \
