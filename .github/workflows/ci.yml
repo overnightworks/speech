@@ -252,9 +252,10 @@ jobs:
 
   # The gpu image is larger than the standard runner's disk holds, so its build
   # runs on the paid larger runner `speech-gpu-build`; a pull request starts that
-  # runner only when it changes what the gpu stage is built from. The three jobs
-  # are: decide on the standard runner, build, and judge on the standard runner,
-  # because the verdict reads a skipped mandatory job as red.
+  # runner only when it changes what the gpu stage is built from. The two jobs
+  # are: decide on the standard runner, then call the build. The build job always
+  # runs, because the quality gate and the landing path read a skipped mandatory
+  # job as red; with nothing changed it only says so, on the standard runner.
   gpu-paths:
     name: "Speech: gpu image paths"
     runs-on: ubuntu-24.04
@@ -286,36 +287,12 @@ jobs:
   gpu-image:
     name: "Speech: gpu image build"
     needs: gpu-paths
-    if: needs.gpu-paths.outputs.changed == 'true'
     uses: $/.github/workflows/gpu-image-build.yml
     permissions:
       contents: read
     with:
-      runner: speech-gpu-build
-
-  gpu-image-verdict:
-    name: "Speech: gpu image"
-    needs:
-      - gpu-paths
-      - gpu-image
-    if: always()
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    env:
-      PATHS_RESULT: ${{ needs.gpu-paths.result }}
-      PATHS_CHANGED: ${{ needs.gpu-paths.outputs.changed }}
-      BUILD_RESULT: ${{ needs.gpu-image.result }}
-    steps:
-      - name: Judge the gpu build
-        run: |
-          if [ "$BUILD_RESULT" = success ]; then
-            echo "The gpu stage built."
-          elif [ "$BUILD_RESULT" = skipped ] && [ "$PATHS_RESULT" = success ] && [ "$PATHS_CHANGED" = false ]; then
-            echo "Skipped: nothing the gpu stage is built from changed."
-          else
-            echo "The gpu build is ${BUILD_RESULT}, the path decision ${PATHS_RESULT} (changed: ${PATHS_CHANGED:-none})." >&2
-            exit 1
-          fi
+      build: ${{ needs.gpu-paths.outputs.changed == 'true' }}
+      runner: ${{ needs.gpu-paths.outputs.changed == 'true' && 'speech-gpu-build' || 'ubuntu-24.04' }}
 
   keycloak-token-shapes:
     name: keycloak-token-shapes
@@ -409,7 +386,6 @@ jobs:
       - image
       - gpu-paths
       - gpu-image
-      - gpu-image-verdict
       - browser-unit
       - browser-flow
     if: always()

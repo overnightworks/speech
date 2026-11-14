@@ -9,6 +9,10 @@ on:
         description: The larger runner the gpu stage is built on; the standard runner's disk cannot hold it
         type: string
         required: true
+      build:
+        description: Whether the gpu stage is built; false leaves the job a successful note on the standard runner
+        type: boolean
+        required: true
 
 permissions: {}
 
@@ -20,10 +24,23 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Say which case ran
+        run: |
+          if [ "$BUILD" = true ]; then
+            echo "Building the gpu stage on ${RUNNER}."
+          else
+            echo "Nothing the gpu stage is built from changed: no build."
+          fi
+        env:
+          BUILD: ${{ inputs.build }}
+          RUNNER: ${{ inputs.runner }}
+
       - name: Check out the event commit
+        if: inputs.build
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Build the gpu stage without pushing it
+        if: inputs.build
         run: docker build --target gpu .

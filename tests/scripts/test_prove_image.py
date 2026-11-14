@@ -6,6 +6,7 @@ import json
 import re
 import runpy
 import sys
+import tomllib
 from typing import TYPE_CHECKING
 
 import pytest
@@ -35,6 +36,33 @@ def test_every_local_workflow_a_job_calls_exists() -> None:
 
     assert called
     assert all((PROVE.REPOSITORY / path).is_file() for path in called)
+
+
+def test_no_job_but_the_gate_can_end_skipped() -> None:
+    workflow = (PROVE.REPOSITORY / ".github" / "workflows" / "ci.yml").read_text()
+    jobs = workflow.partition("\njobs:\n")[2]
+
+    assert re.findall(r"^    if: (.+)$", jobs, re.MULTILINE) == ["always()"]
+
+
+def test_every_mandatory_job_is_named_as_github_lists_its_check() -> None:
+    workflow = (PROVE.REPOSITORY / ".github" / "workflows" / "ci.yml").read_text()
+    jobs = workflow.partition("\njobs:\n")[2]
+    listed = set(re.findall(r'^    name: "?([^"\n]+)"?$', jobs, re.MULTILINE))
+    for caller, path in re.findall(
+        r'^    name: "?([^"\n]+)"?\n(?:    .+\n)*?    uses: \$/(\S+\.ya?ml)$',
+        jobs,
+        re.MULTILINE,
+    ):
+        called = (PROVE.REPOSITORY / path).read_text()
+        listed.discard(caller)
+        listed.update(
+            f"{caller} / {name}"
+            for name in re.findall(r"^    name: (.+)$", called, re.MULTILINE)
+        )
+    config = tomllib.loads((PROVE.REPOSITORY / "quality" / "config.toml").read_text())
+
+    assert set(config["gate"]["mandatory_jobs"]) <= listed
 
 
 def test_the_build_context_admits_only_files_the_image_copies() -> None:
