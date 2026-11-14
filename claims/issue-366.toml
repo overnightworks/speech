@@ -1,0 +1,8 @@
+claim_id = "0edd27da2baa4984a854082e6482c072"
+agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
+role = "builder"
+base = "6b512298b89a2da0681993649ef4cd3dd6224122"
+branch = "claude/issue-366-player-exact-start"
+scope = ["packages/browser/src/player.ts", "tests/fixtures/browser/ear_processor.js", "tests/fixtures/browser/player_page.js", "tests/support/browser_player_support.py", "tests/test_wire_route_browser_player.py"]
+opened_commit = "300067e1907f4d0303792ca3f45a22cb52c167f3"
+whole_reason = "The player's start, the ear that hears it and the Chromium test that compares them change together."
