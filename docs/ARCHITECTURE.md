@@ -187,8 +187,9 @@ the C library headers, which Triton needs to build its run-time modules (it take
 the Python headers from that interpreter). It sets Qwen to load at
 start and hearing to large-v3 on `cuda`, so `/health` is ready only once both
 are loaded. The environment is too large for a standard runner's disk, so its
-release job builds on the larger runner `speech-gpu-build`, and each layer stays
-under 10 GB. Which workload holds the card is the platform's switch.
+release job and the CI build of a pull request that changes the `Dockerfile`, a
+`uv.lock` or `providers/` run on the larger runner `speech-gpu-build`, and each
+layer stays under 10 GB. Which workload holds the card is the platform's switch.
 
 The service sits on external, internal networks and no default one: one
 shared with the gateway that carries the key set, and one per app that reaches it
@@ -325,9 +326,11 @@ the old pod stops (a rolling update that never lowers the ready count).
   card: it speaks with Piper and hears on the CPU. The card reservation and its
   proof wait for the platform's GPU design.
 - A GPU voice is proven with a fake worker and a fake server. CI builds and
-  proves the small image only; the gpu image is first built by the release, so a
-  lock change that breaks its environment shows there, and its speaking and
-  hearing on the card are proven by a GPU run of the built image.
+  proves the small image; a pull request that changes the `Dockerfile`, a
+  `uv.lock` or `providers/` also builds the gpu stage without pushing it, so a
+  change that breaks its environment turns the gate red before the release.
+  Its speaking and hearing on the card are proven by a GPU run of the built
+  image.
 - Qwen's first audio can take longer than `SPEECH_BUSY_WAIT_SECONDS`, so a
   second request for it may answer `busy` while one long sentence runs. Without
   the start setting the first request also waits for the server to load, about
