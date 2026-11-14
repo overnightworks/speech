@@ -4,3 +4,6 @@
 "test_direct_closed_entrypoint_streams_after_transient_loader_exits" = 72
 
 [clones]
+
+[job_minutes.".github/workflows/gpu-image-build.yml"]
+build = 30
