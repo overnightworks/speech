@@ -372,7 +372,7 @@ def _has_ended(pid: int) -> bool:
     while time.monotonic() < deadline:
         try:
             status = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
-        except FileNotFoundError:
+        except FileNotFoundError, ProcessLookupError:
             return True
         if status.rpartition(")")[2].split()[0] == "Z":
             return True
