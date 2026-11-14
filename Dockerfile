@@ -93,6 +93,10 @@ RUN uv sync --locked --no-dev --no-editable \
 
 FROM python-base AS gpu
 ARG GPU_VOICES
+# Triton builds its CUDA utility module from C source at run time.
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends gcc libc6-dev \
+ && rm -rf /var/lib/apt/lists/*
 COPY --from=gpu-dependencies /opt/venv /opt/venv
 COPY --from=gpu-weights /opt/voices /opt/voices
 COPY --from=gpu-weights /opt/hearing /opt/hearing
