@@ -31,7 +31,7 @@ def test_every_job_the_quality_gate_waits_for_is_named_in_its_needs() -> None:
 
 def test_every_local_workflow_a_job_calls_exists() -> None:
     workflow = (PROVE.REPOSITORY / ".github" / "workflows" / "ci.yml").read_text()
-    called = re.findall(r"^    uses: (\S+\.ya?ml)$", workflow, re.MULTILINE)
+    called = re.findall(r"^    uses: \$/(\S+\.ya?ml)$", workflow, re.MULTILINE)
 
     assert called
     assert all((PROVE.REPOSITORY / path).is_file() for path in called)
