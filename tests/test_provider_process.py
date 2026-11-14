@@ -324,6 +324,7 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
         "PATH": os.defpath,
         "LD_LIBRARY_PATH": str(cublas),
         "TORCH_DISABLE_NATIVE_JIT": "1",
+        "VLLM_USE_FLASHINFER_SAMPLER": "0",
         "VLLM_NO_USAGE_STATS": "1",
         "DO_NOT_TRACK": "1",
         **dict.fromkeys(_SCRATCH_VARIABLES, environment["TMPDIR"]),
