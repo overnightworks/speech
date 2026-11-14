@@ -250,6 +250,73 @@ jobs:
       - name: Build the image and prove it on isolated networks
         run: uv run --locked python scripts/prove_image.py
 
+  # The gpu image is larger than the standard runner's disk holds, so its build
+  # runs on the paid larger runner `speech-gpu-build`; a pull request starts that
+  # runner only when it changes what the gpu stage is built from. The three jobs
+  # are: decide on the standard runner, build, and judge on the standard runner,
+  # because the verdict reads a skipped mandatory job as red.
+  gpu-paths:
+    name: "Speech: gpu image paths"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      # The merge commit has the pull request's base tip as its first parent.
+      - name: Check out the merge commit with its base
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Decide whether the pull request changes what the gpu stage is built from
+        id: diff
+        run: |
+          changed=false
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] \
+            && ! git diff --quiet HEAD^1 HEAD -- Dockerfile ':(glob)**/uv.lock' providers/; then
+            changed=true
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+  # A plain docker build: the pull request token of a Dependabot lock update is
+  # read-only, and the quality image workflow asks for packages, attestations and
+  # id-token write even without a push. The build is the release's, minus the push.
+  gpu-image:
+    name: "Speech: gpu image build"
+    needs: gpu-paths
+    if: needs.gpu-paths.outputs.changed == 'true'
+    uses: $/.github/workflows/gpu-image-build.yml
+    permissions:
+      contents: read
+    with:
+      runner: speech-gpu-build
+
+  gpu-image-verdict:
+    name: "Speech: gpu image"
+    needs:
+      - gpu-paths
+      - gpu-image
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      PATHS_RESULT: ${{ needs.gpu-paths.result }}
+      PATHS_CHANGED: ${{ needs.gpu-paths.outputs.changed }}
+      BUILD_RESULT: ${{ needs.gpu-image.result }}
+    steps:
+      - name: Judge the gpu build
+        run: |
+          if [ "$BUILD_RESULT" = success ]; then
+            echo "The gpu stage built."
+          elif [ "$BUILD_RESULT" = skipped ] && [ "$PATHS_RESULT" = success ] && [ "$PATHS_CHANGED" = false ]; then
+            echo "Skipped: nothing the gpu stage is built from changed."
+          else
+            echo "The gpu build is ${BUILD_RESULT}, the path decision ${PATHS_RESULT} (changed: ${PATHS_CHANGED:-none})." >&2
+            exit 1
+          fi
+
   keycloak-token-shapes:
     name: keycloak-token-shapes
     runs-on: ubuntu-24.04
@@ -340,6 +407,9 @@ jobs:
       - speech
       - qwen-provider
       - image
+      - gpu-paths
+      - gpu-image
+      - gpu-image-verdict
       - browser-unit
       - browser-flow
     if: always()
