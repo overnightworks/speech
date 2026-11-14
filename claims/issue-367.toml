@@ -3,5 +3,5 @@ agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
 role = "builder"
 base = "6b512298b89a2da0681993649ef4cd3dd6224122"
 branch = "claude/issue-367-release-partial-doc"
-scope = [".github/workflows/release.yml", "README.md"]
+scope = [".github/workflows/release.yml", "README.md", "tests/test_provider_process_start.py"]
 opened_commit = "6149a16a4377f0bd087734e3b5e0227fcb1b7f9f"
