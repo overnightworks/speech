@@ -303,9 +303,7 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
         lambda: response.extend(engine.pcm_chunks("Hallo", "de-DE"))
     )
     assert response == [b"\x00\x01"]
-    assert any(
-        thread.name == "speech-provider-owner" for thread in threading.enumerate()
-    )
+    assert "speech-provider-owner" in {thread.name for thread in threading.enumerate()}
     cwd, environment, pid, arguments = observed(cache)
     assert list(engine.pcm_chunks("later", "en")) == [b"\x00\x01"]
     engine.close()
