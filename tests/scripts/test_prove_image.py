@@ -29,6 +29,14 @@ def test_every_job_the_quality_gate_waits_for_is_named_in_its_needs() -> None:
     assert needs == set(re.findall(r"^  ([a-z-]+):$", jobs, re.MULTILINE))
 
 
+def test_every_local_workflow_a_job_calls_exists() -> None:
+    workflow = (PROVE.REPOSITORY / ".github" / "workflows" / "ci.yml").read_text()
+    called = re.findall(r"^    uses: (\S+\.ya?ml)$", workflow, re.MULTILINE)
+
+    assert called
+    assert all((PROVE.REPOSITORY / path).is_file() for path in called)
+
+
 def test_the_build_context_admits_only_files_the_image_copies() -> None:
     admitted = [
         line.removeprefix("!")
