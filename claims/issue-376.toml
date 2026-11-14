@@ -3,5 +3,5 @@ agent = "Claude 2d5729b4-af30-4106-bf50-a26da1bb0a81"
 role = "builder"
 base = "25215bad068d3d5ad7223457b6328c935c029a82"
 branch = "claude/issue-376-gpu-image-compiler"
-scope = ["Dockerfile", "docs/ARCHITECTURE.md"]
+scope = ["Dockerfile", "docs/ARCHITECTURE.md", "src/speech_service/provider_process.py"]
 opened_commit = "bda69058c2f9be26ffbd88070397aca2f031629b"
