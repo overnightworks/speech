@@ -204,6 +204,42 @@ def test_provider_failing_to_load_the_model_logs_its_cause_and_a_reaped_status(
     assert re.search(r"exit status -?\d+,", caplog.text)
 
 
+def _failing_start_after_writing(stderr_bytes: int) -> str:
+    return (
+        "import sys\n"
+        "sys.stderr.write('ROOT CAUSE: engine core failed\\n')\n"
+        f"sys.stderr.write('Traceback line\\n' * ({stderr_bytes} // 15))\n"
+        "sys.stderr.flush()\n"
+        "raise SystemExit(1)"
+    )
+
+
+def test_a_root_cause_printed_before_a_long_traceback_reaches_the_log(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    engine = _provider(tmp_path, _failing_start_after_writing(20 * 1024))
+
+    with caplog.at_level(logging.ERROR), pytest.raises(ProviderFailedError):
+        engine.load()
+    engine.close()
+
+    assert "ROOT CAUSE: engine core failed" in caplog.text
+
+
+def test_a_provider_writing_without_end_cannot_grow_the_log_without_limit(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    written = 1024 * 1024
+    engine = _provider(tmp_path, _failing_start_after_writing(written))
+
+    with caplog.at_level(logging.ERROR), pytest.raises(ProviderFailedError):
+        engine.load()
+    engine.close()
+
+    assert len(caplog.text) < written // 4
+    assert "ROOT CAUSE" not in caplog.text
+
+
 def test_ready_provider_logs_no_startup_record_and_its_stderr_reaches_no_log(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
