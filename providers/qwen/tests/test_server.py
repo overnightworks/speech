@@ -173,6 +173,56 @@ def test_a_symbolic_link_among_the_leftovers_is_neither_followed_nor_removed(
     assert target.exists()
 
 
+def test_an_entry_that_vanishes_during_the_cleanup_is_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shm = tmp_path / "shm"
+    leftover = _wake_directory(shm, f"omni_shm_wake_{os.getuid()}_{os.getpid()}")
+    vanished = shm / "omni_shm_vanished"
+    # Another server removes the entry between the glob and the status read.
+    monkeypatch.setattr(Path, "glob", lambda *_: iter([vanished, leftover]))
+
+    _start_and_stop(tmp_path)
+
+    assert not leftover.exists()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads every directory")
+def test_an_entry_that_cannot_be_read_stays_and_the_start_goes_on(
+    tmp_path: Path,
+) -> None:
+    shm = tmp_path / "shm"
+    unreadable = _wake_directory(shm, f"omni_shm_wake_{os.getuid()}_unreadable")
+    leftover = _wake_directory(shm, f"omni_shm_wake_{os.getuid()}_leftover")
+    unreadable.chmod(0)
+
+    try:
+        _start_and_stop(tmp_path)
+    finally:
+        unreadable.chmod(stat.S_IRWXU)
+
+    assert unreadable.exists()
+    assert not leftover.exists()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root removes every directory")
+def test_a_leftover_that_cannot_be_removed_stays_and_the_start_goes_on(
+    tmp_path: Path,
+) -> None:
+    shm = tmp_path / "shm"
+    stuck = _wake_directory(shm, f"omni_shm_wake_{os.getuid()}_stuck")
+    leftover = _wake_directory(shm, f"omni_shm_wake_{os.getuid()}_leftover")
+    stuck.chmod(stat.S_IRUSR | stat.S_IXUSR)
+
+    try:
+        _start_and_stop(tmp_path)
+    finally:
+        stuck.chmod(stat.S_IRWXU)
+
+    assert stuck.exists()
+    assert not leftover.exists()
+
+
 def _run_harness(
     role: str, tmp_path: Path, **streams: int | None
 ) -> subprocess.Popen[str]:
