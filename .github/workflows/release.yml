@@ -30,8 +30,9 @@ jobs:
       version: ${{ inputs.version }}
       form: YYYY.MM.DD.N
 
-  # The small image waits for the gpu build, the likelier to fail, so a failed
-  # build leaves no pushed version without its tag.
+  # The small image waits for the gpu build, the likelier to fail, so a gpu
+  # failure pushes nothing. A small build that fails after it leaves
+  # `<version>-gpu` pushed without the tag.
   image:
     name: Image
     needs:
