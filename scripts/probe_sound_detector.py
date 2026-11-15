@@ -300,7 +300,7 @@ def _milliseconds(costs: Sequence[HopCost]) -> str:
     )
 
 
-def report_data(corpus: Corpus, cache: Path) -> list[str]:
+def report_data(corpus: Corpus, cache: Path, requested: int) -> list[str]:
     """The Markdown lines on what was heard: counts and licences per source."""
     counts: dict[tuple[str, str], int] = {}
     for clip in corpus.clips:
@@ -319,8 +319,11 @@ def report_data(corpus: Corpus, cache: Path) -> list[str]:
         ),
         "",
         (
-            f"Clips per sound: {', '.join(per_sound)}. Speech with 2 s of quiet noise"
-            f" after each sentence: {minutes:.1f} min. Cache `{cache}`."
+            f"Clips per sound, {requested} requested: {', '.join(per_sound)}. A sound"
+            " with two sources gets half the request from each, rounded up, and a"
+            " source gives fewer where it has fewer clips or a clip is too long."
+            f" Speech with 2 s of quiet noise after each sentence: {minutes:.1f} min."
+            f" Cache `{cache}`."
         ),
         "",
     ]
@@ -620,7 +623,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     corpus = _corpus(arguments, measured=not own_processes)
     if not arguments.section:
         print("# Sound tagger probe\n")
-        print("\n".join(report_data(corpus, cache)), flush=True)
+        print(
+            "\n".join(report_data(corpus, cache, arguments.clips_per_sound)), flush=True
+        )
     if own_processes:
         del corpus
         verdicts = dict(_run_in_own_process(arguments, k) for k in arguments.candidates)
