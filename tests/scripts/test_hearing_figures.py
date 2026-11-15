@@ -11,7 +11,7 @@ import pytest
 
 import hearing_figures as figures
 from speech_client.wire import Language, RefusalCode
-from speech_service.hearing_session import SILENCE_SECONDS
+from speech_service.config import DEFAULT_LIVE_SILENCE_SECONDS
 from speech_service.pcm import pcm_from_wav
 from speech_service.voice_activity import PRE_ROLL_SECONDS, START_WINDOWS
 
@@ -195,7 +195,7 @@ def test_a_clip_of_continuous_speech_is_one_turn() -> None:
 
 
 def test_a_short_pause_does_not_end_the_turn() -> None:
-    pause = SILENCE_SECONDS - EDGES_SECONDS - 0.1
+    pause = DEFAULT_LIVE_SILENCE_SECONDS - EDGES_SECONDS - 0.1
     clip = speech() + silence(pause) + speech()
 
     assert figures.check_continuous_turn(clip) == pytest.approx(
@@ -204,7 +204,7 @@ def test_a_short_pause_does_not_end_the_turn() -> None:
 
 
 def test_a_pause_beyond_the_silence_length_ends_the_turn_early() -> None:
-    clip = speech() + silence(SILENCE_SECONDS) + speech()
+    clip = speech() + silence(DEFAULT_LIVE_SILENCE_SECONDS) + speech()
 
     with pytest.raises(figures.ClipError, match="would end the turn early"):
         figures.check_continuous_turn(clip)

@@ -28,7 +28,7 @@ from speech_client.wire import (
     TranscriptCompleted,
     TranscriptDelta,
 )
-from speech_service.hearing_session import SILENCE_SECONDS
+from speech_service.config import DEFAULT_LIVE_SILENCE_SECONDS
 from speech_service.voice_activity import PRE_ROLL_SECONDS
 from tests.support.browser_support import (
     HELD_WORKLET_PATH,
@@ -68,7 +68,7 @@ SILENT_TAIL_SECONDS = 1.5
 LAYOUTS = [(2.0, 1.0), (1.0, 2.5)]
 # The turn's seconds beyond the layout's speech: the pre-roll before it and the
 # silence that ends it, give or take a frame and a window.
-TURN_EXTRA_SECONDS = PRE_ROLL_SECONDS + SILENCE_SECONDS
+TURN_EXTRA_SECONDS = PRE_ROLL_SECONDS + DEFAULT_LIVE_SILENCE_SECONDS
 TURN_TOLERANCE_SECONDS = 0.15
 FRAMES_BEFORE_STOP = 3
 STOP_BOUND_MS = 1000

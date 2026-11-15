@@ -171,12 +171,14 @@ class LiveSession:
         hearing: Hearing,
         *,
         final_wait_seconds: float,
+        silence_seconds: float,
         send: Callable[[str], Awaitable[None]],
         close: Callable[[int], Awaitable[None]],
     ) -> None:
         """Hear through `hearing`; send events with `send` and end with `close(code)`.
 
-        A final may wait `final_wait_seconds` from its turn's end. Deadlines and
+        A final may wait `final_wait_seconds` from its turn's end; a turn ends after
+        `silence_seconds` without speech. Deadlines and
         the partials' pace follow the clock of the hearing's gate.
         """
         self._hearing = hearing
@@ -184,7 +186,9 @@ class LiveSession:
         self._send = send
         self._close = close
         self._clock = hearing.gate.clock
-        self._scheduler = HearingSession(self._clock.now, hearing.open_detector())
+        self._scheduler = HearingSession(
+            self._clock.now, hearing.open_detector(), silence_seconds
+        )
         self._resampler = Resampler()
         self._lock = asyncio.Lock()
         self._tasks: set[asyncio.Task[None]] = set()

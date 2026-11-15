@@ -62,6 +62,11 @@ def test_settings_read_speech_environment(monkeypatch: pytest.MonkeyPatch) -> No
         ("SPEECH_HEARING_MAX_WAITING_REQUESTS", "-1"),
         ("SPEECH_HEARING_FINAL_WAIT_SECONDS", "0"),
         ("SPEECH_HEARING_FINAL_WAIT_SECONDS", "-1"),
+        ("SPEECH_LIVE_SILENCE_SECONDS", "0"),
+        ("SPEECH_LIVE_SILENCE_SECONDS", "-1"),
+        ("SPEECH_LIVE_SILENCE_SECONDS", "inf"),
+        ("SPEECH_LIVE_SILENCE_SECONDS", "11"),
+        ("SPEECH_LIVE_SILENCE_SECONDS", "long"),
         ("SPEECH_MAX_RECORDING_BYTES", "0"),
         ("SPEECH_MAX_RECORDING_SECONDS", "0"),
         ("SPEECH_MAX_RECORDING_SECONDS", "inf"),
@@ -70,7 +75,7 @@ def test_settings_read_speech_environment(monkeypatch: pytest.MonkeyPatch) -> No
 def test_the_wire_settings_refuse_values_that_cannot_hold(
     monkeypatch: pytest.MonkeyPatch, name: str, value: str
 ) -> None:
-    """WIRE-108, WIRE-109, WIRE-110, WIRE-111, WIRE-120, WIRE-121: values are refused.
+    """WIRE-108 to WIRE-111, WIRE-120, WIRE-121, WIRE-148: values are refused.
 
     A value that cannot hold is refused, naming the setting.
     """
@@ -100,15 +105,18 @@ def test_the_wire_settings_accept_the_smallest_whole_limit_and_no_wait(
 def test_the_hearing_settings_are_read_from_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """WIRE-117, WIRE-118, WIRE-120, WIRE-121: hearing settings are read."""
+    """WIRE-117, WIRE-118, WIRE-120, WIRE-121, WIRE-148: hearing settings are read."""
     monkeypatch.setenv("SPEECH_HEARING_MODEL", HearingModel.LARGE_V3.value)
     monkeypatch.setenv("SPEECH_HEARING_BUSY_WAIT_SECONDS", "0")
     monkeypatch.setenv("SPEECH_HEARING_MAX_WAITING_REQUESTS", "0")
     monkeypatch.setenv("SPEECH_HEARING_FINAL_WAIT_SECONDS", "0.5")
+    monkeypatch.setenv("SPEECH_LIVE_SILENCE_SECONDS", "1.2")
     monkeypatch.setenv("SPEECH_MAX_RECORDING_BYTES", "1")
     monkeypatch.setenv("SPEECH_MAX_RECORDING_SECONDS", "0.5")
 
     settings = Settings()
+
+    assert settings.live_silence_seconds == float("1.2")
 
     assert settings.hearing_model is HearingModel.LARGE_V3
     assert settings.hearing_busy_wait_seconds == 0

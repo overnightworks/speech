@@ -221,7 +221,7 @@ turn ended is a protocol violation.
 **Turns.** **WIRE-66** Speech is what Silero VAD hears as a voice, whatever its loudness
 or distance: any voice, a television's included, is speech, and noise is not. A turn opens
 once three consecutive 32 ms windows are speech and decodes from 0.35 s before the first
-of them. The service ends it after speech followed by 0.5 s without speech, or at 30 s of
+of them. The service ends it after speech followed by the silence of WIRE-148 (0.5 s by default) without speech, or at 30 s of
 audio, pre-roll included; the rest of the audio opens the next turn. Between turns the
 service drops all audio older than that pre-roll. **WIRE-67** A session holds at most two
 ended turns, both queued to be heard from their turn's end, and the open turn, so at most
@@ -383,6 +383,8 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
 - **WIRE-121** `SPEECH_MAX_RECORDING_BYTES` (default 25 MiB, at least 1) and
   `SPEECH_MAX_RECORDING_SECONDS` (default `300`, above 0): the largest request
   body and the longest recording.
+- **WIRE-148** `SPEECH_LIVE_SILENCE_SECONDS` (default `0.5`, above 0, at most 10): the
+  silence that ends a live turn.
 
 ## Health
 

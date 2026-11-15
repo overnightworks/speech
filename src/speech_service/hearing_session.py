@@ -29,7 +29,6 @@ if TYPE_CHECKING:
 
 PARTIAL_PERIOD_SECONDS: Final = 0.4
 MIN_AUDIO_SECONDS: Final = 0.4
-SILENCE_SECONDS: Final = 0.5
 POLL_WAIT_SECONDS: Final = 0.3
 MAX_TURN_SECONDS: Final = 30.0
 _BYTES_PER_SAMPLE: Final = 2
@@ -37,7 +36,6 @@ _SAMPLES_PER_MILLISECOND: Final = SAMPLE_RATE // 1000
 _MAX_TURN_SAMPLES: Final = int(MAX_TURN_SECONDS * SAMPLE_RATE)
 _MIN_PARTIAL_SAMPLES: Final = int(MIN_AUDIO_SECONDS * SAMPLE_RATE)
 _PRE_ROLL_SAMPLES: Final = int(PRE_ROLL_SECONDS * SAMPLE_RATE)
-_SILENT_WINDOWS: Final = math.ceil(SILENCE_SECONDS * SAMPLE_RATE / WINDOW_SAMPLES)
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,14 +73,25 @@ class HearingSession:
     """One session's open turn, and the schedule of its partials.
 
     A turn opens once `START_WINDOWS` windows in a row are speech and ends after
-    `SILENCE_SECONDS` of windows that are not, or at the cap. Between turns only the
+    `silence_seconds` of windows that are not, or at the cap. Between turns only the
     last pre-roll of audio is held; its position stays counted.
     """
 
-    def __init__(self, clock: Callable[[], float], detector: SpeechDetector) -> None:
-        """Count time with `clock`, in seconds; read the speech from `detector`."""
+    def __init__(
+        self,
+        clock: Callable[[], float],
+        detector: SpeechDetector,
+        silence_seconds: float,
+    ) -> None:
+        """Count time with `clock`, in seconds; read the speech from `detector`.
+
+        A turn ends after `silence_seconds` without speech.
+        """
         self._clock = clock
         self._detector = detector
+        self._silent_windows_to_end = math.ceil(
+            silence_seconds * SAMPLE_RATE / WINDOW_SAMPLES
+        )
         self._pcm = bytearray()
         self._held_from = 0
         self._windows = 0
@@ -200,7 +209,7 @@ class HearingSession:
             self._silent_windows += 1
         if end - self._held_from >= _MAX_TURN_SAMPLES:
             return self._end(self._held_from + _MAX_TURN_SAMPLES, by_client=False)
-        if self._silent_windows >= _SILENT_WINDOWS:
+        if self._silent_windows >= self._silent_windows_to_end:
             return self._end(end, by_client=False)
         return []
 
