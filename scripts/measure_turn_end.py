@@ -441,9 +441,7 @@ def judge[Heard](detector: Detector[Heard], heard: Heard) -> Judgement:
     cpu_start, wall_start = time.process_time(), time.perf_counter()
     score = detector.finished_score(heard)
     return Judgement(
-        score,
-        time.process_time() - cpu_start,
-        time.perf_counter() - wall_start,
+        score, time.process_time() - cpu_start, time.perf_counter() - wall_start
     )
 
 
@@ -585,12 +583,8 @@ def _quartiles(scores: Sequence[float]) -> str:
 
 def _rule_row(findings: Findings) -> str:
     results = findings.results
-    judgements = [
-        judgement
-        for result in results
-        for judgement in (result.at_end, *result.at_pauses)
-    ]
     pauses = [judgement for result in results for judgement in result.at_pauses]
+    judgements = [*(result.at_end for result in results), *pauses]
     cut_today = [result for result in results if result.cut_today]
     return (
         f"| {findings.label} at {DECISION_SILENCE_SECONDS:g} s silence"
@@ -606,9 +600,7 @@ def _rule_row(findings: Findings) -> str:
 
 def _score_row(findings: Findings) -> str:
     at_end = [result.at_end.score for result in findings.results]
-    at_pauses = [
-        judgement.score for result in findings.results for judgement in result.at_pauses
-    ]
+    at_pauses = [j.score for r in findings.results for j in r.at_pauses]
     return f"| {findings.label} | {_quartiles(at_end)} | {_quartiles(at_pauses)} |"
 
 
