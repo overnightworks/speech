@@ -61,6 +61,14 @@ def test_a_stalled_opening_ends_with_unreachable_at_the_bound(stall: str) -> Non
     assert elapsed < AT_ONCE_SECONDS * 2
 
 
+def test_a_deadline_equal_to_the_opening_bound_leaves_the_opening_to_end_it() -> None:
+    async def scenario() -> HearingOutcome | None:
+        async with stalled_service(()) as (port, _):
+            return await outcome_at(port, OPENING_SHORT, OPENING_SHORT)
+
+    assert asyncio.run(scenario()) == Unreachable()
+
+
 def test_a_service_that_opened_in_time_may_stay_silent_past_the_bound() -> None:
     async def scenario() -> HearingOutcome | None:
         async def says_created_then_waits(connection: ServerConnection) -> None:

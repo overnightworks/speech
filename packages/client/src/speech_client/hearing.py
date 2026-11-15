@@ -247,12 +247,14 @@ class _SourceFailedError(Exception):
         self.original = original
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class _Interrupted:
-    """The reconnect under way: why, and where the unheard audio starts."""
+    """The reconnect under way: why, from when, and how many attempts failed."""
 
     cause: ReconnectCause
     unheard_start_ms: int
+    at: float
+    failed_attempts: int = 0
 
 
 @dataclass(slots=True)
@@ -266,6 +268,7 @@ class _Wire:
     failed_sent: bool = False
     stopped: dict[str, int] = field(default_factory=dict)
     ended: HearingOutcome | None = None
+    opening: asyncio.Timeout | None = None
 
 
 def realtime_url(base_url: str) -> str:
@@ -500,49 +503,87 @@ class HearingSession:
             raise source_failure
 
     async def _hear(self, end: asyncio.Future[HearingOutcome]) -> HearingOutcome:
+        started = asyncio.get_running_loop().time()
+        deadline_at = started + self._deadline_seconds
         try:
-            async with asyncio.timeout(self._deadline_seconds):
-                return await self._reopening(end)
+            async with asyncio.timeout_at(deadline_at):
+                return await self._reopening(end, started)
         except TimeoutError:
-            # A deadline that cuts the polite close of an end keeps that end.
-            ended = self._wire.ended if self._wire is not None else None
-            return PastDeadline() if ended is None else ended
+            return self._past_deadline(deadline_at)
 
-    async def _reopening(self, end: asyncio.Future[HearingOutcome]) -> HearingOutcome:
+    def _past_deadline(self, deadline_at: float) -> HearingOutcome:
+        wire = self._wire
+        if wire is None:
+            return PastDeadline()
+        # A deadline that cuts the polite close of an end keeps that end.
+        if wire.ended is not None:
+            return wire.ended
+        # Only a strictly smaller deadline wins against a pending opening bound.
+        opening_at = wire.opening.when() if wire.opening is not None else None
+        if opening_at is not None and opening_at <= deadline_at:
+            return Unreachable()
+        return PastDeadline()
+
+    async def _reopening(
+        self, end: asyncio.Future[HearingOutcome], started: float
+    ) -> HearingOutcome:
         """Run one wire session after another until the hearing ends."""
         clock = asyncio.get_running_loop().time
-        attempts = 0
-        interrupted_at = 0.0
+        attempt_started = started
         while True:
             if end.done():
                 return end.result()
-            opening_seconds = self._opening_seconds
-            if self._interrupted is not None:
-                remaining = self._bound.within_seconds - (clock() - interrupted_at)
-                if attempts >= self._bound.attempts or remaining <= 0:
-                    return ReconnectFailed()
-                opening_seconds = min(opening_seconds, remaining)
+            opening_at = self._opening_at(attempt_started)
+            if opening_at is None:
+                return ReconnectFailed()
             self._wire = _Wire(
                 offset_ms=_milliseconds(self._written_bytes),
                 last_turn_end_ms=_milliseconds(self._written_bytes),
             )
-            outcome = await self._wire_session(end, opening_seconds)
+            outcome = await self._wire_session(end, opening_at)
             wire, self._wire = self._wire, None
-            if wire.opened.is_set():
-                cause = self._reopening_cause(outcome, wire)
-                if cause is None:
-                    return outcome
-                self._interrupted = _Interrupted(cause, wire.last_turn_end_ms)
-                attempts, interrupted_at = 0, clock()
-            elif self._interrupted is not None and _is_failed_attempt(outcome):
-                attempts += 1
-                pause = min(
-                    self._bound.pause_seconds,
-                    self._bound.within_seconds - (clock() - interrupted_at),
-                )
-                await asyncio.wait({end}, timeout=max(pause, 0))
-            else:
+            ended = self._ended_by(outcome, wire, clock())
+            if ended is not None:
+                return ended
+            await self._paused(end, clock())
+            attempt_started = clock()
+
+    def _opening_at(self, attempt_started: float) -> float | None:
+        """When an opening begun now must be over; `None` once the bound ran out."""
+        opening_at = attempt_started + self._opening_seconds
+        if self._interrupted is None:
+            return opening_at
+        bound_ends_at = self._interrupted.at + self._bound.within_seconds
+        if attempt_started >= bound_ends_at:
+            return None
+        return min(opening_at, bound_ends_at)
+
+    def _ended_by(
+        self, outcome: HearingOutcome, wire: _Wire, now: float
+    ) -> HearingOutcome | None:
+        """The outcome that ends the hearing, or `None` when another opening follows."""
+        if wire.opened.is_set():
+            cause = self._reopening_cause(outcome, wire)
+            if cause is None:
                 return outcome
+            self._interrupted = _Interrupted(cause, wire.last_turn_end_ms, now)
+            return None
+        interrupted = self._interrupted
+        if interrupted is None or not _is_failed_attempt(outcome):
+            return outcome
+        interrupted.failed_attempts += 1
+        if interrupted.failed_attempts >= self._bound.attempts:
+            return ReconnectFailed()
+        return None
+
+    async def _paused(self, end: asyncio.Future[HearingOutcome], now: float) -> None:
+        """Wait the pause after a failed attempt, or until the hearing ends."""
+        interrupted = self._interrupted
+        if interrupted is None or interrupted.failed_attempts == 0:
+            return
+        bound_ends_in = interrupted.at + self._bound.within_seconds - now
+        pause = min(self._bound.pause_seconds, bound_ends_in)
+        await asyncio.wait({end}, timeout=max(pause, 0))
 
     @staticmethod
     def _reopening_cause(outcome: HearingOutcome, wire: _Wire) -> ReconnectCause | None:
@@ -553,11 +594,11 @@ class HearingSession:
         return ReconnectCause.CUT
 
     async def _wire_session(  # noqa: PLR0911 - one return per way a session ends
-        self, end: asyncio.Future[HearingOutcome], opening_seconds: float
+        self, end: asyncio.Future[HearingOutcome], opening_at: float
     ) -> HearingOutcome:
         wire = self._wire
         assert wire is not None  # noqa: S101 - set by the caller
-        opening = asyncio.timeout(opening_seconds)
+        opening = wire.opening = asyncio.timeout_at(opening_at)
         try:
             async with opening:
                 socket = await self._open(end)
@@ -649,11 +690,13 @@ class HearingSession:
             if not wire.opened.is_set():
                 if not isinstance(event, SessionCreated):
                     raise ServerEventError
+                # A bound that expires in this very pass has won: the cancel it
+                # sent ends the attempt as unopened, and rescheduling would raise.
+                if opening.expired():
+                    return
                 # The first event proves the session is open, before a slow caller
-                # can hold the queue. A bound that expires in this very pass has
-                # won: rescheduling then raises.
-                if not opening.expired():
-                    opening.reschedule(None)
+                # can hold the queue.
+                opening.reschedule(None)
                 wire.opened.set()
                 await self._announce_reconnect(wire)
             await self._received.put(self._on_timeline(event, wire))
