@@ -408,3 +408,56 @@ class FailingSpeaking(FakeSpeaking):
                 yield sine_pcm(self._chunk_seconds, rate=self.sample_rate)
         message = "engine failed"
         raise RuntimeError(message)
+
+
+class DisconnectingReceive:
+    """Delivers the request body once, then waits for the test to signal disconnect.
+
+    `delivered` fires once this call has actually handed `http.disconnect` back to
+    its caller (the response's own `listen_for_disconnect` loop), so a test can
+    wait on that instead of guessing how long delivery takes.
+    """
+
+    def __init__(self) -> None:
+        """Wait for no disconnect yet."""
+        self._sent_body = False
+        self._disconnect = asyncio.Event()
+        self.delivered = asyncio.Event()
+
+    def disconnect(self) -> None:
+        """Let the waiting receive hand back `http.disconnect`."""
+        self._disconnect.set()
+
+    async def __call__(self) -> dict[str, object]:
+        """The next ASGI receive message."""
+        if not self._sent_body:
+            self._sent_body = True
+            return {"type": "http.request", "body": speak_body(), "more_body": False}
+        await self._disconnect.wait()
+        self.delivered.set()
+        return {"type": "http.disconnect"}
+
+
+class HoldingSend:
+    """Records ASGI send messages, pausing after the first body chunk once armed."""
+
+    def __init__(self, *, hold_after_first_chunk: bool = False) -> None:
+        """Hold after the first body chunk only when `hold_after_first_chunk`."""
+        self.messages: list[dict[str, object]] = []
+        self.entered_hold = asyncio.Event()
+        self._holds = hold_after_first_chunk
+        self._held_once = False
+        self._release = asyncio.Event()
+
+    async def __call__(self, message: dict[str, object]) -> None:
+        """Record the message; pause once when armed."""
+        self.messages.append(message)
+        if (
+            self._holds
+            and not self._held_once
+            and message["type"] == "http.response.body"
+            and message.get("more_body")
+        ):
+            self._held_once = True
+            self.entered_hold.set()
+            await self._release.wait()

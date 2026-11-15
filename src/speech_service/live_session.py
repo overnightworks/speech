@@ -366,8 +366,7 @@ class LiveSession:
             waiting = StepTimer(
                 "turn_end_wait.ended", logger, item_id=item_id, ended_by=ended_by.value
             )
-        with waiting:
-            pass
+        waiting.__exit__(None, None, None)
 
     def _queue_final(self, final: _Final) -> None:
         ahead = self._finals[-1] if self._finals else None
@@ -378,7 +377,7 @@ class LiveSession:
         refusal: RefusalCode | None = None
         with unit_trace(final.traceparent):
             try:
-                with final.hearing:
+                async with final.hearing:
                     refusal = await self._hear(final, ahead)
                     if refusal is not None:
                         final.hearing.refuse(refusal.value)
