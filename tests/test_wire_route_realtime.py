@@ -146,6 +146,29 @@ def test_a_session_with_a_set_echoes_it_and_names_the_language_of_each_item() ->
     assert [languages for _, languages in engine.heard] == [(Language.DE, Language.EN)]
 
 
+def _first_turn_bytes(**settings: float) -> int:
+    """The audio the first heard turn holds for two bursts of speech 0.8 s apart."""
+    engine = FakeHearing()
+    with _client(engine, **settings).websocket_connect(
+        URL, headers=valid_headers()
+    ) as socket:
+        socket.receive_json()
+        for message in (audio(0.5), audio(0.8, 0), audio(0.5), audio(2.5, 0)):
+            socket.send_text(append(message))
+        while socket.receive_json()["type"] != COMPLETED:
+            pass
+    return engine.heard[0][0]
+
+
+def test_a_live_turn_ends_after_the_configured_silence_and_not_the_default() -> None:
+    """WIRE-148: the configured silence decides where a live turn ends."""
+    ended_by_default = _first_turn_bytes()
+
+    ended_by_setting = _first_turn_bytes(live_silence_seconds=2.0)
+
+    assert ended_by_setting > ended_by_default
+
+
 def _completed_per_turn(
     engine: FakeHearing, setup: str, *heard_in: Language | None
 ) -> list[dict[str, object]]:
