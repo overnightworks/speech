@@ -122,6 +122,7 @@ MAX_HEARING_RISE: Final = 0.10
 MIN_HIT_RATE: Final = 0.80
 MAX_FALSE_ALARMS_PER_HOUR: Final = 6.0
 MIN_ECHO_MINUTES: Final = 30.0
+MIN_SPEECH_MINUTES: Final = 120.0
 MAX_ADDED_RSS_MEGABYTES: Final = 200.0
 
 RECORDING_SECONDS: Final = (8.0, 14.0)
@@ -143,7 +144,6 @@ QUIET: Final = re.compile(
     re.IGNORECASE,
 )
 ANY_SOUND: Final = len(Sound)
-COLUMN_NAMES: Final = (*Sound, "any sound")
 
 
 def _rss_megabytes() -> float:
@@ -204,6 +204,10 @@ class Heard:
     def peaks(self) -> npt.NDArray[np.float32]:
         """Per segment (row) the best score of every column over its hops."""
         return np.stack([hop.max(axis=0) for hop in self.hops])
+
+    def false_alarms_per_hour(self, threshold: float) -> float:
+        """The events of the six sounds per hour of audio."""
+        return self.per_hour(threshold, range(ANY_SOUND))
 
     def per_hour(self, threshold: float, columns: Sequence[int]) -> float:
         """The events of the columns per hour of audio.
@@ -354,13 +358,14 @@ def measure(tagger: Tagger, corpus: Corpus, cache: Path, runs: int) -> Findings:
     size = sum(f.stat().st_size for f in tagger.files if f.suffix != ".csv") / _MEGABYTE
     before = _rss_megabytes()
     tagger.load()
-    checked = tagger.check()
-    if not checked.passed:
-        return Findings(tagger, checked, size)
     warm = windows_of(corpus.clips[0].samples, tagger.window_samples)
     for window in warm * WARM_UP_PASSES:
         tagger.scores(window)
+    # Read before the check: it loads the reference runtimes a service never holds.
     added = _rss_megabytes() - before
+    checked = tagger.check()
+    if not checked.passed:
+        return Findings(tagger, checked, size)
     clips = {
         sound: Heard.of(tagger, [c.samples for c in corpus.clips if c.sound is sound])
         for sound in Sound
@@ -438,7 +443,7 @@ def _operator_rules(findings: Findings, threshold: float) -> list[str]:
         return [_rule(maep_text, needs, ok=None), _rule(echo_text, needs, ok=None)]
     rate = hit_rate(maep.peaks, ANY_SOUND, threshold)
     minutes = echo.seconds / 60
-    per_hour = echo.per_hour(threshold, list(range(len(COLUMN_NAMES))))
+    per_hour = echo.false_alarms_per_hour(threshold)
     long_enough = minutes >= MIN_ECHO_MINUTES
     return [
         _rule(
@@ -453,10 +458,9 @@ def _operator_rules(findings: Findings, threshold: float) -> list[str]:
     ]
 
 
-def report(findings: Findings) -> list[str]:
-    """The Markdown lines of one candidate against every pass threshold."""
+def _report_header(findings: Findings) -> list[str]:
     tagger, check = findings.tagger, findings.check
-    lines = [
+    return [
         f"## {tagger.title}",
         "",
         (
@@ -467,23 +471,26 @@ def report(findings: Findings) -> list[str]:
         f"- ONNX against its reference: {check.detail}: "
         + ("held." if check.passed else "EXCLUDED."),
     ]
-    if not check.passed:
-        return [*lines, ""]
-    clips, speech, contention = findings.clips, findings.speech, findings.contention
-    loaded, sounds = list(contention.hops), list(range(ANY_SOUND))
-    operating = next(
+
+
+def _operating_threshold(speech: Heard) -> float | None:
+    """The lowest threshold whose false alarms on the speech stay within the limit."""
+    return next(
         (
             t
             for t in THRESHOLDS
-            if speech.per_hour(t, sounds) <= MAX_FALSE_ALARMS_PER_HOUR
+            if speech.false_alarms_per_hour(t) <= MAX_FALSE_ALARMS_PER_HOUR
         ),
         None,
     )
-    threshold = THRESHOLDS[-1] if operating is None else operating
-    cpu_p95 = float(np.percentile([c.cpu * 1000 for c in loaded], 95))
-    rss = findings.added_rss_megabytes
-    lines += [
-        f"- Added RSS {rss:.0f} MB.",
+
+
+def _measurements(
+    findings: Findings, contention: Contention, speech: Heard
+) -> list[str]:
+    loaded = list(contention.hops)
+    return [
+        f"- Added RSS {findings.added_rss_megabytes:.0f} MB.",
         (
             f"- ms per hop on one thread, median / p95: {_milliseconds(speech.costs)}"
             f" alone; {_milliseconds(loaded)} while two Piper voices speak and a"
@@ -495,6 +502,11 @@ def report(findings: Findings) -> list[str]:
             f" {statistics.median(contention.hearing_with_detector):.2f} s with it."
         ),
         "",
+    ]
+
+
+def _threshold_table(clips: Mapping[Sound, Heard], speech: Heard) -> list[str]:
+    lines = [
         _row(
             "Threshold", *Sound, "other sounds' clips", "false alarms/h", "non-speech/h"
         ),
@@ -513,11 +525,12 @@ def report(findings: Findings) -> list[str]:
                 f"{step:g}",
                 *map(_share, own),
                 _share(float(np.mean(others))),
-                f"{speech.per_hour(step, sounds):.1f}",
+                f"{speech.false_alarms_per_hour(step):.1f}",
                 f"{speech.per_hour(step, [ANY_SOUND]):.1f}",
             )
         )
-    lines += [
+    return [
+        *lines,
         "",
         (
             "A hit is a hop at or over the threshold in a clip of the sound; 'other"
@@ -527,6 +540,26 @@ def report(findings: Findings) -> list[str]:
             " counts events of any label that is not speech, silence or the room."
         ),
         "",
+    ]
+
+
+def _speech_rule(speech: Heard, threshold: float, *, operating: bool) -> str:
+    minutes = speech.seconds / 60
+    long_enough = minutes >= MIN_SPEECH_MINUTES
+    return _rule(
+        f"false alarms <= {MAX_FALSE_ALARMS_PER_HOUR:g}/h over >="
+        f" {MIN_SPEECH_MINUTES:g} min of speech",
+        f"{speech.false_alarms_per_hour(threshold):.1f}/h at threshold {threshold:g}"
+        f" over {minutes:.1f} min" + ("" if long_enough else ", too short to judge"),
+        ok=operating if long_enough else None,
+    )
+
+
+def _pass_rules(findings: Findings, threshold: float, *, operating: bool) -> list[str]:
+    clips, speech, contention = findings.clips, findings.speech, findings.contention
+    cpu_p95 = float(np.percentile([c.cpu * 1000 for c in contention.hops], 95))
+    rss = findings.added_rss_megabytes
+    lines = [
         _row("Pass threshold", "Figure", "Verdict"),
         "|---|---|---|",
         _rule(
@@ -544,11 +577,7 @@ def report(findings: Findings) -> list[str]:
             f"{rss:.0f} MB",
             ok=rss <= MAX_ADDED_RSS_MEGABYTES,
         ),
-        _rule(
-            f"false alarms <= {MAX_FALSE_ALARMS_PER_HOUR:g}/h on the speech",
-            f"{speech.per_hour(threshold, sounds):.1f}/h at threshold {threshold:g}",
-            ok=operating is not None,
-        ),
+        _speech_rule(speech, threshold, operating=operating),
     ]
     for i, sound in enumerate(Sound):
         rate = hit_rate(clips[sound].peaks, i, threshold)
@@ -556,7 +585,25 @@ def report(findings: Findings) -> list[str]:
             f"hit rate >= {MIN_HIT_RATE:.0%}, {sound.value}, at threshold {threshold:g}"
         )
         lines.append(_rule(text, _share(rate), ok=rate >= MIN_HIT_RATE))
-    return [*lines, *_operator_rules(findings, threshold), ""]
+    return lines
+
+
+def report(findings: Findings) -> list[str]:
+    """The Markdown lines of one candidate against every pass threshold."""
+    lines = _report_header(findings)
+    if not findings.check.passed:
+        return [*lines, ""]
+    speech = findings.speech
+    operating = _operating_threshold(speech)
+    threshold = THRESHOLDS[-1] if operating is None else operating
+    return [
+        *lines,
+        *_measurements(findings, findings.contention, speech),
+        *_threshold_table(findings.clips, speech),
+        *_pass_rules(findings, threshold, operating=operating is not None),
+        *_operator_rules(findings, threshold),
+        "",
+    ]
 
 
 def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
