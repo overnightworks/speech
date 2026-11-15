@@ -2,9 +2,8 @@
 
 This module is the one owner of what travels on `POST /v1/audio/speech`,
 `POST /v1/audio/transcriptions` and the Realtime transcription WebSocket: the
-paths, the requests, the transcription answer, the Realtime events, and the
-closed list of refusals with their statuses, messages and the body they are
-answered in (OpenAI's error form). It owns the answer of `GET /health` as well.
+paths, requests, transcription answer, Realtime events, `GET /health` answer and
+the closed list of refusals with their statuses, messages and OpenAI-form body.
 The service and its callers import these types and copy none of them.
 """
 
@@ -17,7 +16,6 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Annotated, ClassVar, Final, Literal
 from uuid import uuid4
 
-from logline import current_traceparent
 from pydantic import (
     AfterValidator,
     BaseModel,
@@ -71,10 +69,7 @@ MAX_INSTRUCTIONS_CHARACTERS: Final = 500
 
 
 class ResponseFormat(StrEnum):
-    """The audio formats the service speaks.
-
-    Each owns the media type and the container signature of its answer.
-    """
+    """The audio formats the service speaks, each with its media type and signature."""
 
     WAV = "wav"
     OPUS = "opus"
@@ -308,36 +303,19 @@ def speech_request_body(
     return request.model_dump_json().encode()
 
 
-def sent_traceparent(traceparent: str | None) -> str | None:
-    """The `traceparent` a call sends: the caller's, else the running trace's."""
-    return current_traceparent() if traceparent is None else traceparent
-
-
-def token_headers(
-    *, workload_token: str, person_token: str, traceparent: str | None = None
-) -> dict[str, str]:
-    """The app's token and the person's, for a request whose transport sets the type.
-
-    A `traceparent` joins the service's lines to the caller's trace.
-    """
+def token_headers(*, workload_token: str, person_token: str) -> dict[str, str]:
+    """The app's token and the person's, for a request whose transport sets the type."""
     return {
         WORKLOAD_TOKEN_HEADER: workload_token,
         AUTHORIZATION_HEADER: f"Bearer {person_token}",
-        **({} if traceparent is None else {TRACEPARENT_HEADER: traceparent}),
     }
 
 
-def speech_request_headers(
-    *, workload_token: str, person_token: str, traceparent: str | None = None
-) -> dict[str, str]:
+def speech_request_headers(*, workload_token: str, person_token: str) -> dict[str, str]:
     """The headers a caller posts with the body: the content type and both tokens."""
     return {
         CONTENT_TYPE_HEADER: "application/json",
-        **token_headers(
-            workload_token=workload_token,
-            person_token=person_token,
-            traceparent=traceparent,
-        ),
+        **token_headers(workload_token=workload_token, person_token=person_token),
     }
 
 
@@ -438,9 +416,8 @@ class _SessionPart(BaseModel):
 class PcmFormat(_SessionPart):
     """PCM16 little-endian mono at 24 kHz, the one input format.
 
-    A sample is `sample_bytes` bytes and a frame of samples has `channels`
-    channels. Both are class constants, so the session's shape names only
-    `type` and `rate`.
+    A sample is `sample_bytes` bytes and a frame has `channels` channels, both
+    class constants, so the session's shape names only `type` and `rate`.
     """
 
     sample_bytes: ClassVar[int] = 2

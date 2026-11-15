@@ -53,6 +53,7 @@ from typing import TYPE_CHECKING, Final
 
 from pydantic import ValidationError
 
+from speech_client._traceparent import traceparent_headers
 from speech_client._transport import (
     body_pieces,
     checked_origin,
@@ -78,7 +79,6 @@ from speech_client.wire import (
     ResponseFormat,
     VoiceId,
     refusal,
-    sent_traceparent,
     speech_request_body,
     speech_request_headers,
 )
@@ -288,11 +288,12 @@ def _chunks(  # noqa: PLR0913
     """The one transport: the body's chunks, or the failure that ends them."""
     origin = checked_origin(base_url, deadline_seconds, cap_bytes)
     body = speech_request_body(text, voice, response_format, language, instructions)
-    headers = speech_request_headers(
-        workload_token=workload_token,
-        person_token=person_token,
-        traceparent=sent_traceparent(traceparent),
-    )
+    headers = {
+        **speech_request_headers(
+            workload_token=workload_token, person_token=person_token
+        ),
+        **traceparent_headers(traceparent),
+    }
     return exchange_stream(
         origin,
         deadline_seconds,

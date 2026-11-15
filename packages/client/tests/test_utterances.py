@@ -6,31 +6,42 @@ import asyncio
 import contextlib
 import functools
 import logging
-from dataclasses import dataclass, field
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 import pytest
-from logline import current_traceparent, unit_trace
-from websockets.asyncio.server import serve
-from websockets.datastructures import Headers
-from websockets.http11 import Response
 
 import speech_client.hearing
 from packages.client.tests.support.hearing_support import (
-    CREATED_EVENT,
     HEARD_TEXT,
-    LOOPBACK,
     PERSON_TOKEN,
     WORKLOAD_TOKEN,
-    fixed_tokens,
-    silent_peer,
 )
 from packages.client.tests.support.scripted_hearing_support import (
     Refusal,
     drains,
     says,
     scripted,
+)
+from packages.client.tests.support.utterances_support import (
+    Bounds,
+    Browser,
+    Recorder,
+    binary_message,
+    completed,
+    delta,
+    drops_the_connection,
+    ended_already,
+    hear,
+    hearing,
+    service_not_answering,
+    service_refusing,
+    service_saying,
+    speaks_nonsense,
+    started,
+    stopped,
+    text_message,
+    utterance_of,
 )
 from speech_client.hearing import (
     Closed,
@@ -60,38 +71,26 @@ from speech_client.relay import (
     RuleBroken,
 )
 from speech_client.utterances import (
-    HearingCallbacks,
     Partial,
     ServiceFailed,
-    TurnEnd,
     Utterance,
-    hear_utterances,
 )
 from speech_client.wire import (
     DRAIN_CLOSE_CODE,
-    TRACEPARENT_HEADER,
-    DurationUsage,
     Language,
     RefusalCode,
-    SpeechStarted,
-    SpeechStopped,
-    TranscriptCompleted,
-    TranscriptDelta,
     TranscriptFailed,
-    TranscriptLanguage,
     error_event,
     item_failure,
     token_headers,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+    from collections.abc import AsyncIterator, Callable, Mapping
 
     from websockets.asyncio.server import ServerConnection
-    from websockets.http11 import Request
 
     from packages.client.tests.support.scripted_hearing_support import Script
-    from speech_client.hearing import TokenSource
     from speech_client.utterances import UtteranceOutcome
     from speech_client.wire import ServerEvent
 
@@ -100,212 +99,6 @@ type Peer = Callable[[], contextlib.AbstractAsyncContextManager[int]]
 DISCONNECT = {"type": "websocket.disconnect", "code": 1001}
 # Far below the session deadline, so a stalled opening is told from a late one.
 STALLED_OPENING_SECONDS = 0.3
-WAIT_SECONDS = 10
-
-
-def _ended_already() -> asyncio.Event:
-    ended = asyncio.Event()
-    ended.set()
-    return ended
-
-
-def _binary(size: int) -> dict[str, object]:
-    return {"type": "websocket.receive", "bytes": b"\0" * size, "text": None}
-
-
-def _text() -> dict[str, object]:
-    return {"type": "websocket.receive", "bytes": None, "text": "hello"}
-
-
-def _delta(item_id: str, text: str) -> TranscriptDelta:
-    return TranscriptDelta(item_id=item_id, delta=text)
-
-
-def _started(item_id: str, at_ms: int) -> SpeechStarted:
-    return SpeechStarted(item_id=item_id, audio_start_ms=at_ms)
-
-
-def _stopped(item_id: str, at_ms: int) -> SpeechStopped:
-    return SpeechStopped(item_id=item_id, audio_end_ms=at_ms)
-
-
-def _completed(
-    item_id: str,
-    text: str,
-    language: Language = Language.DE,
-    traceparent: str | None = None,
-) -> TranscriptCompleted:
-    return TranscriptCompleted(
-        item_id=item_id,
-        transcript=text,
-        usage=DurationUsage(seconds=1),
-        languages=(TranscriptLanguage(code=language),),
-        traceparent=traceparent,
-    )
-
-
-def _utterance(  # noqa: PLR0913 - one keyword per field of the record
-    text: str,
-    language: Language = Language.DE,
-    *,
-    start: int | None = None,
-    end: int | None = None,
-    item_id: str = "a",
-    traceparent: str | None = None,
-) -> Utterance:
-    return Utterance(
-        text,
-        language,
-        audio_start_ms=start,
-        audio_end_ms=end,
-        item_id=item_id,
-        traceparent=traceparent,
-    )
-
-
-class _Browser:
-    """A browser socket that plays its messages, then waits for its peer.
-
-    It offers only what the relay calls: nothing can be written to it but a close.
-    """
-
-    def __init__(self, messages: tuple[Mapping[str, object], ...] = ()) -> None:
-        self._messages = list(messages)
-        self.closed_with: list[int] = []
-
-    async def receive(self) -> Mapping[str, object]:
-        if self._messages:
-            return self._messages.pop(0)
-        await asyncio.Event().wait()
-        raise AssertionError
-
-    async def close(self, code: int) -> None:
-        self.closed_with.append(code)
-
-
-@dataclass
-class _Recorder:
-    """The app's side: what its callbacks got, in order, and how they behave."""
-
-    ended: asyncio.Event = field(default_factory=asyncio.Event)
-    ends_after_first: bool = False
-    raises: Exception | None = None
-    got: list[Utterance | Partial] = field(default_factory=list)
-    turn_ends: list[TurnEnd] = field(default_factory=list)
-    reconnected: list[Reconnected] = field(default_factory=list)
-
-    async def on_reconnected(self, reconnected: Reconnected) -> None:
-        self.reconnected.append(reconnected)
-
-    async def on_turn_ended(self, turn_end: TurnEnd) -> None:
-        self.turn_ends.append(turn_end)
-
-    async def on_utterance(self, utterance: Utterance) -> None:
-        await self._take(utterance)
-
-    async def on_partial(self, partial: Partial) -> None:
-        await self._take(partial)
-
-    async def _take(self, heard: Utterance | Partial) -> None:
-        self.got.append(heard)
-        if self.ends_after_first:
-            self.ended.set()
-        if self.raises is not None:
-            raise self.raises
-
-
-@dataclass(frozen=True)
-class _Bounds:
-    deadline_seconds: float = 5
-    held_limit_bytes: int = 2 * HOP_FRAME_BYTES
-    opening_seconds: float = 5
-
-
-def _says(
-    *events: ServerEvent, stays_open: bool = False
-) -> Callable[[ServerConnection], Awaitable[None]]:
-    async def handler(connection: ServerConnection) -> None:
-        await connection.recv()
-        await connection.send(CREATED_EVENT)
-        for event in events:
-            await connection.send(event.model_dump_json())
-        if stays_open:
-            await connection.wait_closed()
-
-    return handler
-
-
-async def _speaks_nonsense(connection: ServerConnection) -> None:
-    await connection.send("not json")
-    await connection.wait_closed()
-
-
-async def _drops_the_connection(connection: ServerConnection) -> None:
-    connection.transport.abort()
-
-
-@contextlib.asynccontextmanager
-async def _service_saying(
-    handler: Callable[[ServerConnection], Awaitable[None]],
-) -> AsyncIterator[int]:
-    async with serve(handler, LOOPBACK, 0) as server:
-        yield server.sockets[0].getsockname()[1]
-
-
-@contextlib.asynccontextmanager
-async def _service_refusing(
-    status: HTTPStatus, *headers: tuple[str, str]
-) -> AsyncIterator[int]:
-    def refuse(_: ServerConnection, __: Request) -> Response:
-        return Response(status.value, status.phrase, Headers(headers), b"")
-
-    async with serve(_says(), LOOPBACK, 0, process_request=refuse) as server:
-        yield server.sockets[0].getsockname()[1]
-
-
-@contextlib.asynccontextmanager
-async def _service_not_answering() -> AsyncIterator[int]:
-    async with await asyncio.start_server(silent_peer, LOOPBACK, 0) as server:
-        yield server.sockets[0].getsockname()[1]
-
-
-async def _hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
-    peer: Peer,
-    browser: _Browser | None = None,
-    recorder: _Recorder | None = None,
-    *,
-    partials: bool = True,
-    languages: tuple[Language, ...] = (Language.DE,),
-    bounds: _Bounds = _Bounds(),  # noqa: B008 - immutable
-    token_source: TokenSource = fixed_tokens,
-    traceparent: str | None = None,
-) -> UtteranceOutcome:
-    recorder = recorder or _Recorder()
-    async with peer() as port:
-        return await asyncio.wait_for(
-            hear_utterances(
-                browser or _Browser(),
-                f"http://{LOOPBACK}:{port}",
-                token_source=token_source,
-                traceparent=traceparent,
-                languages=languages,
-                deadline_seconds=bounds.deadline_seconds,
-                held_limit_bytes=bounds.held_limit_bytes,
-                opening_seconds=bounds.opening_seconds,
-                ended=recorder.ended,
-                callbacks=HearingCallbacks(
-                    on_utterance=recorder.on_utterance,
-                    on_partial=recorder.on_partial if partials else None,
-                    on_turn_ended=recorder.on_turn_ended,
-                    on_reconnected=recorder.on_reconnected,
-                ),
-            ),
-            WAIT_SECONDS,
-        )
-
-
-def _hearing(*events: ServerEvent, stays_open: bool = False) -> Peer:
-    return functools.partial(_service_saying, _says(*events, stays_open=stays_open))
 
 
 def test_one_session_goes_to_the_origin_with_both_tokens_and_the_languages() -> None:
@@ -316,7 +109,7 @@ def test_one_session_goes_to_the_origin_with_both_tokens_and_the_languages() -> 
         arrived.append((dict(connection.request.headers), await connection.recv()))
 
     outcome = asyncio.run(
-        _hear(functools.partial(_service_saying, records), languages=languages)
+        hear(functools.partial(service_saying, records), languages=languages)
     )
 
     (headers, first), *_ = arrived
@@ -328,128 +121,79 @@ def test_one_session_goes_to_the_origin_with_both_tokens_and_the_languages() -> 
     assert first == session_update(languages)
 
 
-@pytest.mark.parametrize("trace", ["caller's", "ambient", "none"])
-def test_the_session_upgrade_carries_the_callers_traceparent_or_the_ambient_one_or_none(
-    trace: str,
-) -> None:
-    """WIRE-149: the upgrade carries the caller's or the running trace's traceparent."""
-    given = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-    arrived: list[str | None] = []
-
-    async def records(connection: ServerConnection) -> None:
-        arrived.append(connection.request.headers.get(TRACEPARENT_HEADER))
-        await connection.recv()
-
-    async def scenario() -> str | None:
-        peer = functools.partial(_service_saying, records)
-        if trace != "ambient":
-            await _hear(peer, traceparent=given if trace == "caller's" else None)
-            return None
-        with unit_trace(None):
-            await _hear(peer)
-            return current_traceparent()
-
-    ambient = asyncio.run(scenario())
-
-    expected = {"caller's": given, "ambient": ambient, "none": None}[trace]
-    assert arrived == [expected]
-
-
 @pytest.mark.parametrize("language", list(Language))
 def test_a_completed_transcript_reaches_the_app_once_with_its_text_and_language(
     language: Language,
 ) -> None:
-    recorder = _Recorder()
+    recorder = Recorder()
 
-    asyncio.run(_hear(_hearing(_completed("a", "guten Tag", language)), None, recorder))
+    asyncio.run(hear(hearing(completed("a", "guten Tag", language)), None, recorder))
 
-    assert recorder.got == [_utterance("guten Tag", language)]
-
-
-def test_an_utterance_carries_the_item_and_the_trace_of_its_transcript() -> None:
-    """WIRE-150: the utterance names its item and its turn's traceparent."""
-    traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-    recorder = _Recorder()
-
-    asyncio.run(
-        _hear(
-            _hearing(
-                _completed("a", "one", traceparent=traceparent),
-                _completed("b", "two"),
-            ),
-            None,
-            recorder,
-        )
-    )
-
-    assert recorder.got == [
-        _utterance("one", item_id="a", traceparent=traceparent),
-        _utterance("two", item_id="b"),
-    ]
+    assert recorder.got == [utterance_of("guten Tag", language)]
 
 
 def test_an_empty_transcript_reaches_nobody_and_the_next_one_still_does() -> None:
-    recorder = _Recorder()
+    recorder = Recorder()
 
     asyncio.run(
-        _hear(_hearing(_completed("a", ""), _completed("b", "weiter")), None, recorder)
+        hear(hearing(completed("a", ""), completed("b", "weiter")), None, recorder)
     )
 
-    assert recorder.got == [_utterance("weiter", item_id="b")]
+    assert recorder.got == [utterance_of("weiter", item_id="b")]
 
 
 @pytest.mark.parametrize(
     ("events", "expected"),
     [
         pytest.param(
-            [_started("a", 100), _stopped("a", 900), _completed("a", "x")],
-            [_utterance("x", start=100, end=900)],
+            [started("a", 100), stopped("a", 900), completed("a", "x")],
+            [utterance_of("x", start=100, end=900)],
             id="both-positions",
         ),
         pytest.param(
-            [_stopped("a", 900), _completed("a", "x")],
-            [_utterance("x", end=900)],
+            [stopped("a", 900), completed("a", "x")],
+            [utterance_of("x", end=900)],
             id="no-speech-started",
         ),
         pytest.param(
-            [_started("a", 100), _completed("a", "x")],
-            [_utterance("x", start=100)],
+            [started("a", 100), completed("a", "x")],
+            [utterance_of("x", start=100)],
             id="no-speech-stopped",
         ),
-        pytest.param([_completed("a", "x")], [_utterance("x")], id="no-position"),
+        pytest.param([completed("a", "x")], [utterance_of("x")], id="no-position"),
         pytest.param(
             [
-                _started("a", 100),
-                _started("b", 500),
-                _stopped("a", 400),
-                _stopped("b", 900),
-                _completed("b", "second"),
-                _completed("a", "first"),
+                started("a", 100),
+                started("b", 500),
+                stopped("a", 400),
+                stopped("b", 900),
+                completed("b", "second"),
+                completed("a", "first"),
             ],
             [
-                _utterance("second", start=500, end=900, item_id="b"),
-                _utterance("first", start=100, end=400),
+                utterance_of("second", start=500, end=900, item_id="b"),
+                utterance_of("first", start=100, end=400),
             ],
             id="two-items-interleaved",
         ),
         pytest.param(
             [
-                _started("a", 100),
-                _stopped("a", 400),
-                _completed("a", "first"),
-                _completed("a", "again"),
+                started("a", 100),
+                stopped("a", 400),
+                completed("a", "first"),
+                completed("a", "again"),
             ],
-            [_utterance("first", start=100, end=400), _utterance("again")],
+            [utterance_of("first", start=100, end=400), utterance_of("again")],
             id="nothing-kept-once-an-item-completed",
         ),
         pytest.param(
             [
-                _started("a", 100),
-                _stopped("a", 400),
-                _completed("a", ""),
-                _completed("a", "again"),
+                started("a", 100),
+                stopped("a", 400),
+                completed("a", ""),
+                completed("a", "again"),
             ],
-            [_utterance("again")],
+            [utterance_of("again")],
             id="nothing-kept-of-an-item-that-completed-empty",
         ),
     ],
@@ -457,9 +201,9 @@ def test_an_empty_transcript_reaches_nobody_and_the_next_one_still_does() -> Non
 def test_an_utterance_carries_the_positions_of_its_own_item(
     events: list[ServerEvent], expected: list[Utterance]
 ) -> None:
-    recorder = _Recorder()
+    recorder = Recorder()
 
-    asyncio.run(_hear(_hearing(*events), None, recorder))
+    asyncio.run(hear(hearing(*events), None, recorder))
 
     assert recorder.got == expected
 
@@ -468,22 +212,22 @@ def test_an_utterance_carries_the_positions_of_its_own_item(
     ("events", "expected"),
     [
         pytest.param(
-            [_delta("a", "gu"), _delta("a", "ten"), _completed("a", "guten")],
-            [Partial("gu"), Partial("guten"), _utterance("guten")],
+            [delta("a", "gu"), delta("a", "ten"), completed("a", "guten")],
+            [Partial("gu"), Partial("guten"), utterance_of("guten")],
             id="the-text-so-far",
         ),
         pytest.param(
-            [_delta("a", "gu"), _delta("b", "he"), _delta("a", "t"), _delta("b", "y")],
+            [delta("a", "gu"), delta("b", "he"), delta("a", "t"), delta("b", "y")],
             [Partial("gu"), Partial("he"), Partial("gut"), Partial("hey")],
             id="two-items-interleaved",
         ),
         pytest.param(
-            [_delta("a", "one"), _completed("a", "one"), _delta("b", "two")],
-            [Partial("one"), _utterance("one"), Partial("two")],
+            [delta("a", "one"), completed("a", "one"), delta("b", "two")],
+            [Partial("one"), utterance_of("one"), Partial("two")],
             id="the-next-item-starts-anew",
         ),
         pytest.param(
-            [_delta("a", "one"), _completed("a", ""), _delta("a", "two")],
+            [delta("a", "one"), completed("a", ""), delta("a", "two")],
             [Partial("one"), Partial("two")],
             id="the-same-id-starts-anew-after-an-empty-one",
         ),
@@ -492,26 +236,26 @@ def test_an_utterance_carries_the_positions_of_its_own_item(
 def test_with_on_partial_each_delta_arrives_as_its_items_text_so_far(
     events: list[ServerEvent], expected: list[Utterance | Partial]
 ) -> None:
-    recorder = _Recorder()
+    recorder = Recorder()
 
-    asyncio.run(_hear(_hearing(*events), None, recorder))
+    asyncio.run(hear(hearing(*events), None, recorder))
 
     assert recorder.got == expected
 
 
 def test_without_on_partial_nothing_of_a_delta_reaches_the_app() -> None:
-    recorder = _Recorder()
+    recorder = Recorder()
 
     asyncio.run(
-        _hear(
-            _hearing(_delta("a", "gu"), _delta("a", "ten"), _completed("a", "guten")),
+        hear(
+            hearing(delta("a", "gu"), delta("a", "ten"), completed("a", "guten")),
             None,
             recorder,
             partials=False,
         )
     )
 
-    assert recorder.got == [_utterance("guten")]
+    assert recorder.got == [utterance_of("guten")]
 
 
 @pytest.mark.parametrize(
@@ -531,20 +275,20 @@ def test_without_on_partial_nothing_of_a_delta_reaches_the_app() -> None:
 def test_a_failure_event_ends_the_hearing_as_a_service_failure_naming_only_its_code(
     failure: ServerEvent,
 ) -> None:
-    recorder = _Recorder()
-    browser = _Browser()
-    after = _completed("b", "never")
+    recorder = Recorder()
+    browser = Browser()
+    after = completed("b", "never")
 
     outcome = asyncio.run(
-        _hear(
-            _hearing(_completed("a", "before"), failure, after, stays_open=True),
+        hear(
+            hearing(completed("a", "before"), failure, after, stays_open=True),
             browser,
             recorder,
         )
     )
 
     assert outcome == ServiceFailed(RefusalCode.UNAVAILABLE)
-    assert recorder.got == [_utterance("before")]
+    assert recorder.got == [utterance_of("before")]
     assert browser.closed_with == [HopClose.SERVICE_FAILED]
     assert "model" not in repr(outcome)
     assert failure.error.message not in repr(outcome)
@@ -553,19 +297,19 @@ def test_a_failure_event_ends_the_hearing_as_a_service_failure_naming_only_its_c
 @pytest.mark.parametrize(
     "event",
     [
-        pytest.param(_completed("a", "x"), id="the-utterance-callback"),
-        pytest.param(_delta("a", "x"), id="the-partial-callback"),
+        pytest.param(completed("a", "x"), id="the-utterance-callback"),
+        pytest.param(delta("a", "x"), id="the-partial-callback"),
     ],
 )
 def test_a_failure_of_the_apps_callback_is_raised_unchanged(
     event: ServerEvent,
 ) -> None:
     failure = RuntimeError("the app failed")
-    browser = _Browser()
+    browser = Browser()
 
     with pytest.raises(RuntimeError) as raised:
         asyncio.run(
-            _hear(_hearing(event, stays_open=True), browser, _Recorder(raises=failure))
+            hear(hearing(event, stays_open=True), browser, Recorder(raises=failure))
         )
 
     assert raised.value is failure
@@ -575,93 +319,93 @@ def test_a_failure_of_the_apps_callback_is_raised_unchanged(
 @pytest.mark.parametrize(
     ("peer", "messages", "bounds", "outcome", "close"),
     [
-        pytest.param(_hearing(), (), _Bounds(), Closed(), HopClose.NORMAL, id="closed"),
+        pytest.param(hearing(), (), Bounds(), Closed(), HopClose.NORMAL, id="closed"),
         pytest.param(
-            functools.partial(_service_refusing, HTTPStatus.FORBIDDEN),
+            functools.partial(service_refusing, HTTPStatus.FORBIDDEN),
             (),
-            _Bounds(),
+            Bounds(),
             Refused(403, None),
             HopClose.SERVICE_FAILED,
             id="refused",
         ),
         pytest.param(
             functools.partial(
-                _service_refusing, HTTPStatus.TOO_MANY_REQUESTS, ("Retry-After", "7")
+                service_refusing, HTTPStatus.TOO_MANY_REQUESTS, ("Retry-After", "7")
             ),
             (),
-            _Bounds(),
+            Bounds(),
             Busy(BusyWait(retry_after_seconds=7)),
             HopClose.BUSY,
             id="busy",
         ),
         pytest.param(
-            functools.partial(_service_saying, _speaks_nonsense),
+            functools.partial(service_saying, speaks_nonsense),
             (),
-            _Bounds(),
+            Bounds(),
             Malformed(),
             HopClose.SERVICE_FAILED,
             id="malformed",
         ),
         pytest.param(
-            functools.partial(_service_saying, _drops_the_connection),
+            functools.partial(service_saying, drops_the_connection),
             (),
-            _Bounds(),
+            Bounds(),
             Cut(),
             HopClose.SERVICE_FAILED,
             id="cut",
         ),
         pytest.param(
-            _service_not_answering,
+            service_not_answering,
             (),
-            _Bounds(opening_seconds=STALLED_OPENING_SECONDS),
+            Bounds(opening_seconds=STALLED_OPENING_SECONDS),
             Unreachable(),
             HopClose.SERVICE_FAILED,
             id="the-opening-bound-passes",
         ),
         pytest.param(
-            _service_not_answering,
+            service_not_answering,
             (),
-            _Bounds(deadline_seconds=STALLED_OPENING_SECONDS),
+            Bounds(deadline_seconds=STALLED_OPENING_SECONDS),
             PastDeadline(),
             HopClose.PAST_DEADLINE,
             id="the-deadline-passes",
         ),
         pytest.param(
-            _hearing(stays_open=True),
-            (_binary(2),),
-            _Bounds(held_limit_bytes=1),
+            hearing(stays_open=True),
+            (binary_message(2),),
+            Bounds(held_limit_bytes=1),
             OverCap(),
             HopClose.OVER_CAP,
             id="the-held-limit-is-passed",
         ),
         pytest.param(
-            _hearing(stays_open=True),
-            (_binary(HOP_FRAME_BYTES + 1),),
-            _Bounds(),
+            hearing(stays_open=True),
+            (binary_message(HOP_FRAME_BYTES + 1),),
+            Bounds(),
             RuleBroken(HopClose.FRAME_TOO_LARGE),
             HopClose.FRAME_TOO_LARGE,
             id="a-frame-over-the-hop-frame-limit",
         ),
         pytest.param(
-            _hearing(stays_open=True),
-            (_text(),),
-            _Bounds(),
+            hearing(stays_open=True),
+            (text_message(),),
+            Bounds(),
             RuleBroken(HopClose.TEXT_FRAME),
             HopClose.TEXT_FRAME,
             id="a-text-frame",
         ),
         pytest.param(
-            _hearing(stays_open=True),
+            hearing(stays_open=True),
             (DISCONNECT,),
-            _Bounds(),
+            Bounds(),
             BrowserLeft(),
             None,
             id="the-browser-leaves",
         ),
         pytest.param(
-            _hearing(stays_open=True),
-            (_binary(HOP_FRAME_BYTES), DISCONNECT),
-            _Bounds(),
+            hearing(stays_open=True),
+            (binary_message(HOP_FRAME_BYTES), DISCONNECT),
+            Bounds(),
             BrowserLeft(),
             None,
             id="a-frame-exactly-the-hop-frame-limit-does-not-end-the-hop",
@@ -671,13 +415,13 @@ def test_a_failure_of_the_apps_callback_is_raised_unchanged(
 def test_every_other_end_is_the_relays_outcome_and_closes_the_browser_with_its_code(
     peer: Peer,
     messages: tuple[Mapping[str, object], ...],
-    bounds: _Bounds,
+    bounds: Bounds,
     outcome: UtteranceOutcome,
     close: HopClose | None,
 ) -> None:
-    browser = _Browser(messages)
+    browser = Browser(messages)
 
-    heard = asyncio.run(_hear(peer, browser, bounds=bounds))
+    heard = asyncio.run(hear(peer, browser, bounds=bounds))
 
     assert heard == outcome
     assert browser.closed_with == ([] if close is None else [close])
@@ -687,26 +431,26 @@ def test_every_other_end_is_the_relays_outcome_and_closes_the_browser_with_its_c
     ("events", "recorder", "expected"),
     [
         pytest.param(
-            [_completed("a", "late")],
-            _Recorder(ended=_ended_already()),
+            [completed("a", "late")],
+            Recorder(ended=ended_already()),
             [],
             id="an-utterance-after-the-end-set-before-the-call",
         ),
         pytest.param(
-            [_delta("a", "late")],
-            _Recorder(ended=_ended_already()),
+            [delta("a", "late")],
+            Recorder(ended=ended_already()),
             [],
             id="a-partial-after-the-end-set-before-the-call",
         ),
         pytest.param(
-            [_completed("a", "first"), _completed("b", "late")],
-            _Recorder(ends_after_first=True),
-            [_utterance("first")],
+            [completed("a", "first"), completed("b", "late")],
+            Recorder(ends_after_first=True),
+            [utterance_of("first")],
             id="an-utterance-after-the-end-set-by-the-first",
         ),
         pytest.param(
-            [_delta("a", "first"), _delta("b", "late")],
-            _Recorder(ends_after_first=True),
+            [delta("a", "first"), delta("b", "late")],
+            Recorder(ends_after_first=True),
             [Partial("first")],
             id="a-partial-after-the-end-set-by-the-first",
         ),
@@ -714,12 +458,12 @@ def test_every_other_end_is_the_relays_outcome_and_closes_the_browser_with_its_c
 )
 def test_once_ended_is_set_no_utterance_and_no_partial_reaches_the_app(
     events: list[ServerEvent],
-    recorder: _Recorder,
+    recorder: Recorder,
     expected: list[Utterance | Partial],
 ) -> None:
-    browser = _Browser()
+    browser = Browser()
 
-    outcome = asyncio.run(_hear(_hearing(*events, stays_open=True), browser, recorder))
+    outcome = asyncio.run(hear(hearing(*events, stays_open=True), browser, recorder))
 
     assert outcome == AppEnded()
     assert recorder.got == expected
@@ -727,14 +471,14 @@ def test_once_ended_is_set_no_utterance_and_no_partial_reaches_the_app(
 
 
 def test_no_turn_end_reaches_the_app_after_its_utterance_set_ended() -> None:
-    recorder = _Recorder(ends_after_first=True)
+    recorder = Recorder(ends_after_first=True)
 
     outcome = asyncio.run(
-        _hear(_hearing(_completed("a", "first"), stays_open=True), recorder=recorder)
+        hear(hearing(completed("a", "first"), stays_open=True), recorder=recorder)
     )
 
     assert outcome == AppEnded()
-    assert recorder.got == [_utterance("first")]
+    assert recorder.got == [utterance_of("first")]
     assert recorder.turn_ends == []
 
 
@@ -742,13 +486,13 @@ def test_no_log_and_no_outcome_carries_a_token_or_heard_text(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.DEBUG)
-    browser = _Browser()
+    browser = Browser()
 
     outcome = asyncio.run(
-        _hear(
-            _hearing(
-                _delta("a", HEARD_TEXT),
-                _completed("a", HEARD_TEXT),
+        hear(
+            hearing(
+                delta("a", HEARD_TEXT),
+                completed("a", HEARD_TEXT),
                 error_event(RefusalCode.UNAVAILABLE),
                 stays_open=True,
             ),
@@ -785,59 +529,59 @@ def quick_reconnect(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.usefixtures("quick_reconnect")
 def test_a_reconnect_reaches_on_reconnected_and_forgets_the_old_items() -> None:
-    recorder = _Recorder()
+    recorder = Recorder()
     first = says(
-        _started("a", 100).model_dump_json(),
-        _delta("a", "hel").model_dump_json(),
+        started("a", 100).model_dump_json(),
+        delta("a", "hel").model_dump_json(),
         then_close=DRAIN_CLOSE_CODE,
     )
     second = says(
-        _delta("a", "lo").model_dump_json(),
-        _completed("a", "lo").model_dump_json(),
+        delta("a", "lo").model_dump_json(),
+        completed("a", "lo").model_dump_json(),
         then_close=1000,
     )
 
     outcome = asyncio.run(
-        _hear(functools.partial(_playing, first, second), None, recorder)
+        hear(functools.partial(_playing, first, second), None, recorder)
     )
 
     assert outcome == Closed()
     assert recorder.reconnected == [Reconnected(ReconnectCause.DRAIN, 0, 0)]
-    assert recorder.got == [Partial("hel"), Partial("lo"), _utterance("lo")]
+    assert recorder.got == [Partial("hel"), Partial("lo"), utterance_of("lo")]
 
 
 @pytest.mark.usefixtures("quick_reconnect")
 def test_a_hearing_that_cannot_reopen_closes_the_browser_as_a_service_failure() -> None:
-    browser = _Browser()
+    browser = Browser()
     refusing = functools.partial(_playing, drains, Refusal(RefusalCode.UNAVAILABLE))
 
-    outcome = asyncio.run(_hear(refusing, browser))
+    outcome = asyncio.run(hear(refusing, browser))
 
     assert outcome == ReconnectFailed()
     assert browser.closed_with == [HopClose.SERVICE_FAILED]
 
 
 def test_a_source_without_tokens_closes_the_browser_in_order() -> None:
-    browser = _Browser()
+    browser = Browser()
 
     async def lapsed() -> None:
         return None
 
-    outcome = asyncio.run(_hear(_hearing(), browser, token_source=lapsed))
+    outcome = asyncio.run(hear(hearing(), browser, token_source=lapsed))
 
     assert outcome == NoToken()
     assert browser.closed_with == [HopClose.NORMAL]
 
 
 def test_a_token_source_failure_is_raised_and_the_browser_is_left_to_the_app() -> None:
-    browser = _Browser()
+    browser = Browser()
     failure = OSError("the token exchange is down")
 
     async def raises() -> SessionTokens:
         raise failure
 
     with pytest.raises(OSError, match="token exchange") as raised:
-        asyncio.run(_hear(_hearing(), browser, token_source=raises))
+        asyncio.run(hear(hearing(), browser, token_source=raises))
 
     assert raised.value is failure
     assert browser.closed_with == []

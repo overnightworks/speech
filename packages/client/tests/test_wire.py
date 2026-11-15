@@ -2,7 +2,6 @@
 
 import json
 import traceback
-from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
@@ -11,7 +10,6 @@ from speech_client.wire import (
     AUTHORIZATION_HEADER,
     CONTENT_TYPE_HEADER,
     MODEL,
-    TRACEPARENT_HEADER,
     VOICES,
     WORKLOAD_TOKEN_HEADER,
     AudioAppend,
@@ -52,9 +50,6 @@ from speech_client.wire import (
     speech_request_headers,
     token_headers,
 )
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 
 @pytest.mark.parametrize("field", ["file", "model", "language", "response_format"])
@@ -490,22 +485,6 @@ def test_the_speech_request_headers_are_the_token_headers_and_the_json_type() ->
         **token_headers(**tokens),
         CONTENT_TYPE_HEADER: "application/json",
     }
-
-
-@pytest.mark.parametrize("headers", [token_headers, speech_request_headers])
-def test_a_request_with_a_traceparent_carries_it_and_one_without_carries_none(
-    headers: Callable[..., dict[str, str]],
-) -> None:
-    """WIRE-149: the header builders add `traceparent` only when given."""
-    tokens = {"workload_token": "app", "person_token": "person"}
-    traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-
-    assert headers(**tokens, traceparent=traceparent) == {
-        **headers(**tokens),
-        TRACEPARENT_HEADER: traceparent,
-    }
-    assert TRACEPARENT_HEADER not in headers(**tokens)
-    assert TRACEPARENT_HEADER not in headers(**tokens, traceparent=None)
 
 
 def _each_server_event() -> list[ServerEvent]:

@@ -96,6 +96,7 @@ from websockets.exceptions import (
     InvalidStatus,
 )
 
+from speech_client._traceparent import traceparent_headers
 from speech_client._transport import base_origin
 from speech_client.outcomes import (
     Busy,
@@ -130,7 +131,6 @@ from speech_client.wire import (
     TranscriptionSession,
     TranscriptionSetting,
     parse_server_event,
-    sent_traceparent,
     token_headers,
 )
 
@@ -433,7 +433,7 @@ class HearingSession:
             message = "opening_seconds must be above 0"
             raise ValueError(message)
         self._url = realtime_url(base_url)
-        self._traceparent = sent_traceparent(traceparent)
+        self._traceparent_headers = traceparent_headers(traceparent)
         self._token_source = token_source
         self._update = session_update(languages)
         self._deadline_seconds = deadline_seconds
@@ -676,11 +676,13 @@ class HearingSession:
             return NoToken()
         return await _Connect(
             self._url,
-            additional_headers=token_headers(
-                workload_token=tokens.workload_token,
-                person_token=tokens.person_token,
-                traceparent=self._traceparent,
-            ),
+            additional_headers={
+                **token_headers(
+                    workload_token=tokens.workload_token,
+                    person_token=tokens.person_token,
+                ),
+                **self._traceparent_headers,
+            },
             open_timeout=None,
             logger=_SOCKET_LOGGER,
         )
