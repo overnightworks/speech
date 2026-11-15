@@ -60,6 +60,7 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
+    from speech_service.admission_gate import Lease
     from speech_service.hearing import Heard, Hearing, HearingEngine
 
 logger = logging.getLogger(__name__)
@@ -375,32 +376,40 @@ class LiveSession:
 
     async def _run_final(self, final: _Final, ahead: _Final | None) -> None:
         refusal: RefusalCode | None = None
+        decode_failure: Exception | None = None
         with unit_trace(final.traceparent):
             try:
                 async with final.hearing:
-                    refusal = await self._hear(final, ahead)
-                    if refusal is not None:
+                    lease = await self._hearing.gate.acquire_final(final.deadline)
+                    if lease is None:
+                        refusal = RefusalCode.BUSY
                         final.hearing.refuse(refusal.value)
-            except Exception as error:  # noqa: BLE001 - logged by type and never by message
+                    else:
+                        try:
+                            heard = await self._decode(final, lease)
+                        except Exception as error:
+                            decode_failure = error
+                            raise
+                        await self._deliver(final, heard, ahead)
+            except Exception as error:
+                if error is not decode_failure:
+                    raise
                 log_failure(logger, "hearing.failed", error, level=logging.WARNING)
                 refusal = RefusalCode.UNAVAILABLE
         if refusal is not None:
             await self._end(refusal)
 
-    async def _hear(self, final: _Final, ahead: _Final | None) -> RefusalCode | None:
-        """Decode and deliver the final; the refusal that ends the session, if any."""
-        lease = await self._hearing.gate.acquire_final(final.deadline)
-        if lease is None:
-            return RefusalCode.BUSY
+    async def _decode(self, final: _Final, lease: Lease) -> Heard:
         future = self._hearing.submit(
             lease, self._transcription(final.pcm, final.voiced_seconds)
         )
-        heard = await asyncio.wrap_future(future)
+        return await asyncio.wrap_future(future)
+
+    async def _deliver(self, final: _Final, heard: Heard, ahead: _Final | None) -> None:
         if ahead is not None:
             await ahead.emitted.wait()
         async with self._lock:
             await self._complete(final, heard)
-        return None
 
     async def _complete(self, final: _Final, heard: Heard) -> None:
         seconds = len(final.pcm) / _PCM_BYTES_PER_SECOND

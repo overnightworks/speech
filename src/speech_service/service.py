@@ -239,8 +239,18 @@ def audio_chunks(
     """`request` spoken by `speaking` in its format, as the voice produces it.
 
     `step` times the speaking: it marks the first chunk and ends with the stream,
-    whatever ends it.
+    whatever ends it, a close before the first chunk included.
     """
+    stream = _timed_chunks(speaking, request, step)
+    # Started here, a close before the first chunk still ends `step`: a generator
+    # closed unstarted never runs its body.
+    next(stream)
+    return stream
+
+
+def _timed_chunks(
+    speaking: SpeakingEngine, request: SpeechRequest, step: StepTimer
+) -> Iterator[bytes]:
     with (
         step,
         PayloadFreeFailure(
@@ -250,6 +260,7 @@ def audio_chunks(
             reraise_as=SpeakingFailedError,
         ),
     ):
+        yield b""
         synthesis = speaking.pcm_chunks(
             request.input, request.spoken_language, request.instructions
         )

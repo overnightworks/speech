@@ -13,6 +13,7 @@ from tests.support.clock_support import FakeClock
 from tests.support.hear_support import HEARD_TEXT, FakeHearing, loaded
 from tests.support.live_support import (
     WAIT_SECONDS,
+    FakeSocket,
     append,
     audio,
     commit_a_turn,
@@ -151,6 +152,30 @@ def test_a_failed_decode_writes_one_error_line_the_hearing_line(
     written = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     errors = [line["event"] for line in written if line["level"] == "error"]
     assert errors == [HEARING]
+
+
+def test_a_send_that_fails_after_the_decode_is_no_failed_hearing_and_ends_no_session(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _SendFailsOnTranscript(FakeSocket):
+        async def send(self, text: str) -> None:
+            if "transcription.completed" in text:
+                raise ConnectionError
+            await super().send(text)
+
+    async def scenario() -> None:
+        socket = _SendFailsOnTranscript()
+        session, _ = await started(loaded(FakeHearing(), FakeClock()), socket=socket)
+        await commit_a_turn(session)
+        await session.settled()
+
+    with configured("speech"):
+        asyncio.run(scenario())
+
+    written = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    events = [line["event"] for line in written]
+    assert "hearing.failed" not in events
+    assert "session.refused" not in events
 
 
 def test_a_hearing_the_client_leaves_ends_as_cancelled(

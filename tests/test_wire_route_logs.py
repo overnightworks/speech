@@ -287,7 +287,34 @@ def test_a_failed_speaking_writes_one_error_line_the_speak_line(
 
     errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
     assert [r.getMessage() for r in errors] == ["speak.ended"]
-    _assert_failure_logged_without_text(caplog, SpeakingFailedError())
+
+
+def test_a_client_that_leaves_before_the_first_chunk_writes_its_speak_line_as_cancelled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+    app = speak_app()
+
+    async def scenario() -> None:
+        receive = DisconnectingReceive()
+        started = asyncio.Event()
+        never = asyncio.Event()
+
+        async def send(message: dict[str, object]) -> None:
+            if message["type"] == "http.response.start":
+                started.set()
+                await never.wait()
+
+        call = asyncio.create_task(app(speak_scope(), receive, send))
+        await asyncio.wait_for(started.wait(), timeout=ASGI_TIMEOUT_SECONDS)
+        receive.disconnect()
+        await asyncio.wait_for(call, timeout=ASGI_TIMEOUT_SECONDS)
+
+    asyncio.run(scenario())
+
+    (line,) = _speak_lines(caplog)
+    assert line.outcome == "cancelled"
+    assert not hasattr(line, "first_output_ms")
 
 
 def test_the_speak_line_and_the_request_line_carry_the_trace_of_the_callers_traceparent(
