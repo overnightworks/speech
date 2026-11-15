@@ -117,7 +117,8 @@ class VoiceHashMismatchError(RuntimeError):
     """A downloaded voice file is not the pinned bytes."""
 
 
-def _sha256_of(path: Path) -> str:
+def sha256_of(path: Path) -> str:
+    """The hex SHA-256 of the file at `path`."""
     digest = hashlib.sha256()
     with path.open("rb") as source:
         while chunk := source.read(_CHUNK_BYTES):
@@ -126,7 +127,7 @@ def _sha256_of(path: Path) -> str:
 
 
 def _is_present(path: Path, pinned: PinnedFile) -> bool:
-    return path.is_file() and _sha256_of(path) == pinned.sha256
+    return path.is_file() and sha256_of(path) == pinned.sha256
 
 
 def fetch_voice_files(
@@ -172,7 +173,7 @@ def fetch_voice_files(
                     force_download=True,
                 )
             )
-            if _sha256_of(part) != file.sha256:
+            if sha256_of(part) != file.sha256:
                 message = (
                     f"{target.name} is not the pinned {file.sha256} "
                     f"(revision {pin.revision})"
