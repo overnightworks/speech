@@ -15,6 +15,7 @@ from websockets.asyncio.client import connect
 from speech_client.hearing import HearingSession
 from speech_client.relay import HOP_FRAME_BYTES, AppEnded, HopClose
 from speech_client.utterances import (
+    HearingCallbacks,
     Partial,
     SpeechStart,
     SpeechStop,
@@ -92,11 +93,13 @@ def _app_host(service_url: str, hop: _Hop) -> FastAPI:
                 deadline_seconds=WAIT_SECONDS,
                 held_limit_bytes=HELD_LIMIT_BYTES,
                 ended=hop.ended,
-                on_utterance=take,
-                on_partial=take_partial,
-                on_speech_started=take_start,
-                on_speech_stopped=take_stop,
-                on_turn_ended=take_turn_end,
+                callbacks=HearingCallbacks(
+                    on_utterance=take,
+                    on_partial=take_partial,
+                    on_speech_started=take_start,
+                    on_speech_stopped=take_stop,
+                    on_turn_ended=take_turn_end,
+                ),
             )
         )
 

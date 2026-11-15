@@ -59,6 +59,7 @@ from speech_client.relay import (
     RuleBroken,
 )
 from speech_client.utterances import (
+    HearingCallbacks,
     Partial,
     ServiceFailed,
     TurnEnd,
@@ -274,10 +275,12 @@ async def _hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
                 held_limit_bytes=bounds.held_limit_bytes,
                 opening_seconds=bounds.opening_seconds,
                 ended=recorder.ended,
-                on_utterance=recorder.on_utterance,
-                on_partial=recorder.on_partial if partials else None,
-                on_turn_ended=recorder.on_turn_ended,
-                on_reconnected=recorder.on_reconnected,
+                callbacks=HearingCallbacks(
+                    on_utterance=recorder.on_utterance,
+                    on_partial=recorder.on_partial if partials else None,
+                    on_turn_ended=recorder.on_turn_ended,
+                    on_reconnected=recorder.on_reconnected,
+                ),
             ),
             WAIT_SECONDS,
         )
