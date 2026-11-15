@@ -367,7 +367,7 @@ class LiveSession:
             waiting = StepTimer(
                 "turn_end_wait.ended", logger, item_id=item_id, ended_by=ended_by.value
             )
-        waiting.__exit__(None, None, None)
+        waiting.end()
 
     def _queue_final(self, final: _Final) -> None:
         ahead = self._finals[-1] if self._finals else None
