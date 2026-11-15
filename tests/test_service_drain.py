@@ -29,7 +29,12 @@ from speech_client.hearing import (
     SessionTokens,
 )
 from speech_client.relay import HOP_FRAME_BYTES
-from speech_client.utterances import SpeechStart, Utterance, hear_utterances
+from speech_client.utterances import (
+    HearingCallbacks,
+    SpeechStart,
+    Utterance,
+    hear_utterances,
+)
 from speech_client.wire import (
     DRAIN_CLOSE_CODE,
     REALTIME_PATH,
@@ -371,9 +376,11 @@ async def _hearing_through_the_balancer(
                 deadline_seconds=_WAIT_SECONDS * 4,
                 held_limit_bytes=NEEDED_HOLD_BYTES,
                 ended=hearing.ended,
-                on_utterance=hearing.on_utterance,
-                on_speech_started=hearing.on_speech_started,
-                on_reconnected=hearing.on_reconnected,
+                callbacks=HearingCallbacks(
+                    on_utterance=hearing.on_utterance,
+                    on_speech_started=hearing.on_speech_started,
+                    on_reconnected=hearing.on_reconnected,
+                ),
             )
         )
         try:
