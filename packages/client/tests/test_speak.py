@@ -8,6 +8,7 @@ import time
 from typing import TYPE_CHECKING
 
 import pytest
+from logline import current_traceparent, unit_trace
 from pydantic import ValidationError
 
 from packages.client.tests.support.scripted_service_support import SAMPLE_RATE, wav_of
@@ -27,6 +28,7 @@ from speech_client.speak import (
 from speech_client.wire import (
     RETRY_AFTER_HEADER,
     SPEECH_PATH,
+    TRACEPARENT_HEADER,
     VOICES,
     Language,
     RefusalCode,
@@ -39,7 +41,7 @@ from speech_client.wire import (
 
 if TYPE_CHECKING:
     import threading
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from http.client import HTTPConnection
 
     from speech_client.speak import SpeakOutcome, SpeakStreamItem
@@ -64,6 +66,7 @@ def _speak(  # noqa: PLR0913 - one keyword per call-site option
     response_format: ResponseFormat = ResponseFormat.WAV,
     deadline_seconds: float = GENEROUS_DEADLINE_SECONDS,
     cap_bytes: int = CAP_BYTES,
+    traceparent: str | None = None,
 ) -> SpeakOutcome:
     return speak(
         base_url,
@@ -72,6 +75,7 @@ def _speak(  # noqa: PLR0913 - one keyword per call-site option
         language=language,
         instructions=instructions,
         response_format=response_format,
+        traceparent=traceparent,
         workload_token=WORKLOAD_TOKEN,
         person_token=PERSON_TOKEN,
         deadline_seconds=deadline_seconds,
@@ -471,6 +475,54 @@ def test_the_request_is_the_wires_body_and_headers(raw_listener: RawListener) ->
         workload_token=WORKLOAD_TOKEN, person_token=PERSON_TOKEN
     )
     assert all(sent[name] == value for name, value in expected.items())
+
+
+def _stream_spoken(base_url: str, traceparent: str | None) -> object:
+    return list(
+        speak_stream(
+            base_url,
+            "Hallo",
+            VOICE,
+            workload_token=WORKLOAD_TOKEN,
+            person_token=PERSON_TOKEN,
+            deadline_seconds=GENEROUS_DEADLINE_SECONDS,
+            cap_bytes=CAP_BYTES,
+            traceparent=traceparent,
+        )
+    )
+
+
+def _sent_traceparents(request: bytes) -> list[str]:
+    head, _, _ = request.partition(b"\r\n\r\n")
+    pairs = (line.partition(": ") for line in head.decode().split("\r\n")[1:])
+    return [value for name, _, value in pairs if name.lower() == TRACEPARENT_HEADER]
+
+
+@pytest.mark.parametrize(
+    "call",
+    [lambda url, traceparent: _speak(url, traceparent=traceparent), _stream_spoken],
+    ids=["speak", "speak-stream"],
+)
+@pytest.mark.parametrize("trace", ["caller's", "ambient", "none"])
+def test_a_speaking_call_sends_the_callers_traceparent_or_the_ambient_one_or_none(
+    call: Callable[[str, str | None], object], trace: str, raw_listener: RawListener
+) -> None:
+    given = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    with raw_listener(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b"")) as (
+        base_url,
+        requests,
+    ):
+        if trace == "ambient":
+            with unit_trace(None):
+                ambient = current_traceparent()
+                call(base_url, None)
+            expected = [ambient]
+        else:
+            call(base_url, given if trace == "caller's" else None)
+            expected = [given] if trace == "caller's" else []
+
+    (request,) = requests
+    assert _sent_traceparents(request) == expected
 
 
 def test_a_429_with_a_whole_second_wait_is_busy(raw_listener: RawListener) -> None:

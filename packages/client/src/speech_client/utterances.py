@@ -10,7 +10,10 @@ after `ended` is set no callback is called again.
 - `on_utterance` gets an `Utterance` for each finished item with a non-empty
   transcript: its text, its decoded language and the positions, in milliseconds
   of the audio, at which the item's speech started and stopped (`None` when the
-  service did not send that event). An empty transcript reaches nobody.
+  service did not send that event), its `item_id` and the service's
+  `traceparent` of the turn (`None` from a service that sends none): an app runs
+  its handling of the turn under `logline.unit_trace(utterance.traceparent)`.
+  An empty transcript reaches nobody.
 - `on_speech_started`, if given, gets a `SpeechStart` for each `speech_started`
   event, the moment a person starts speaking, in event order with the other
   callbacks: before that item's partials and its utterance. Without it nothing
@@ -38,6 +41,9 @@ with `assert_never`: `ServiceFailed`, or the relay's `RelayOutcome` unchanged,
 and the relay has then closed the browser with its code, or not at all when the
 browser left. A failure of an app callback is raised unchanged. The browser gets
 no token and no event, only its close code. Nothing here logs.
+
+`traceparent` (default: the trace running at the call) parents the service's own
+lines of the hearing, as for `HearingSession`.
 """
 
 from __future__ import annotations
@@ -77,6 +83,8 @@ class Utterance:
     language: Language
     audio_start_ms: int | None
     audio_end_ms: int | None
+    item_id: str
+    traceparent: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +204,8 @@ class _Mapping:
                     event.languages[0].code,
                     audio_start_ms=start,
                     audio_end_ms=end,
+                    item_id=event.item_id,
+                    traceparent=event.traceparent,
                 )
             )
         if self.callbacks.on_turn_ended is not None and not self.ended.is_set():
@@ -215,6 +225,7 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
     ended: asyncio.Event,
     callbacks: HearingCallbacks,
     opening_seconds: float = OPENING_SECONDS,
+    traceparent: str | None = None,
 ) -> UtteranceOutcome:
     """Hear `browser`'s audio at the service at `origin`; see the module."""
     session = HearingSession(
@@ -224,6 +235,7 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
         deadline_seconds=deadline_seconds,
         held_limit_bytes=held_limit_bytes,
         opening_seconds=opening_seconds,
+        traceparent=traceparent,
     )
     try:
         return await relay(

@@ -78,6 +78,7 @@ from speech_client.wire import (
     ResponseFormat,
     VoiceId,
     refusal,
+    sent_traceparent,
     speech_request_body,
     speech_request_headers,
 )
@@ -282,12 +283,15 @@ def _chunks(  # noqa: PLR0913
     person_token: str,
     deadline_seconds: float,
     cap_bytes: int,
+    traceparent: str | None,
 ) -> Generator[bytes | StreamFailure]:
     """The one transport: the body's chunks, or the failure that ends them."""
     origin = checked_origin(base_url, deadline_seconds, cap_bytes)
     body = speech_request_body(text, voice, response_format, language, instructions)
     headers = speech_request_headers(
-        workload_token=workload_token, person_token=person_token
+        workload_token=workload_token,
+        person_token=person_token,
+        traceparent=sent_traceparent(traceparent),
     )
     return exchange_stream(
         origin,
@@ -324,13 +328,15 @@ def speak_stream(  # noqa: PLR0913
     person_token: str,
     deadline_seconds: float,
     cap_bytes: int,
+    traceparent: str | None = None,
 ) -> Generator[SpeakStreamItem]:
     """Speak `text` with `voice` as a WAV, its chunks yielded as they arrive.
 
     `language` is required for a voice of several languages. `instructions` name
     the tone, for a voice that takes them. `deadline_seconds` bounds the whole
-    stream, `cap_bytes` the audio. See the module for the last item and for what
-    raises, which happens at the call.
+    stream, `cap_bytes` the audio. `traceparent` joins the service's lines to a
+    trace; it defaults to the trace running at the call. See the module for the
+    last item and for what raises, which happens at the call.
     """
     return _with_length(
         _chunks(
@@ -344,6 +350,7 @@ def speak_stream(  # noqa: PLR0913
             person_token=person_token,
             deadline_seconds=deadline_seconds,
             cap_bytes=cap_bytes,
+            traceparent=traceparent,
         )
     )
 
@@ -361,13 +368,15 @@ def speak(  # noqa: PLR0913
     person_token: str,
     deadline_seconds: float,
     cap_bytes: int,
+    traceparent: str | None = None,
 ) -> SpeakOutcome:
     """Speak `text` with `voice` at the service on `base_url`, within the bounds.
 
     `language` is required for a voice of several languages. `instructions` name
     the tone, for a voice that takes them. `deadline_seconds` bounds the whole
-    call, `cap_bytes` the audio. See the module for the outcomes
-    and for what raises.
+    call, `cap_bytes` the audio. `traceparent` joins the service's lines to a
+    trace; it defaults to the trace running at the call. See the module for the
+    outcomes and for what raises.
     """
     chunks = _chunks(
         base_url,
@@ -380,6 +389,7 @@ def speak(  # noqa: PLR0913
         person_token=person_token,
         deadline_seconds=deadline_seconds,
         cap_bytes=cap_bytes,
+        traceparent=traceparent,
     )
     # Only a WAV carries a length to check; Ogg is judged by its signature.
     items = _with_length(chunks) if response_format is ResponseFormat.WAV else chunks

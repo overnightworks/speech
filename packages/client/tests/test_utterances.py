@@ -11,6 +11,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 import pytest
+from logline import current_traceparent, unit_trace
 from websockets.asyncio.server import serve
 from websockets.datastructures import Headers
 from websockets.http11 import Response
@@ -68,6 +69,7 @@ from speech_client.utterances import (
 )
 from speech_client.wire import (
     DRAIN_CLOSE_CODE,
+    TRACEPARENT_HEADER,
     DurationUsage,
     Language,
     RefusalCode,
@@ -128,23 +130,37 @@ def _stopped(item_id: str, at_ms: int) -> SpeechStopped:
 
 
 def _completed(
-    item_id: str, text: str, language: Language = Language.DE
+    item_id: str,
+    text: str,
+    language: Language = Language.DE,
+    traceparent: str | None = None,
 ) -> TranscriptCompleted:
     return TranscriptCompleted(
         item_id=item_id,
         transcript=text,
         usage=DurationUsage(seconds=1),
         languages=(TranscriptLanguage(code=language),),
+        traceparent=traceparent,
     )
 
 
-def _utterance(
+def _utterance(  # noqa: PLR0913 - one keyword per field of the record
     text: str,
     language: Language = Language.DE,
+    *,
     start: int | None = None,
     end: int | None = None,
+    item_id: str = "a",
+    traceparent: str | None = None,
 ) -> Utterance:
-    return Utterance(text, language, audio_start_ms=start, audio_end_ms=end)
+    return Utterance(
+        text,
+        language,
+        audio_start_ms=start,
+        audio_end_ms=end,
+        item_id=item_id,
+        traceparent=traceparent,
+    )
 
 
 class _Browser:
@@ -262,6 +278,7 @@ async def _hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
     languages: tuple[Language, ...] = (Language.DE,),
     bounds: _Bounds = _Bounds(),  # noqa: B008 - immutable
     token_source: TokenSource = fixed_tokens,
+    traceparent: str | None = None,
 ) -> UtteranceOutcome:
     recorder = recorder or _Recorder()
     async with peer() as port:
@@ -270,6 +287,7 @@ async def _hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
                 browser or _Browser(),
                 f"http://{LOOPBACK}:{port}",
                 token_source=token_source,
+                traceparent=traceparent,
                 languages=languages,
                 deadline_seconds=bounds.deadline_seconds,
                 held_limit_bytes=bounds.held_limit_bytes,
@@ -310,6 +328,32 @@ def test_one_session_goes_to_the_origin_with_both_tokens_and_the_languages() -> 
     assert first == session_update(languages)
 
 
+@pytest.mark.parametrize("trace", ["caller's", "ambient", "none"])
+def test_the_session_upgrade_carries_the_callers_traceparent_or_the_ambient_one_or_none(
+    trace: str,
+) -> None:
+    given = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    arrived: list[str | None] = []
+
+    async def records(connection: ServerConnection) -> None:
+        arrived.append(connection.request.headers.get(TRACEPARENT_HEADER))
+        await connection.recv()
+
+    async def scenario() -> str | None:
+        peer = functools.partial(_service_saying, records)
+        if trace != "ambient":
+            await _hear(peer, traceparent=given if trace == "caller's" else None)
+            return None
+        with unit_trace(None):
+            await _hear(peer)
+            return current_traceparent()
+
+    ambient = asyncio.run(scenario())
+
+    expected = {"caller's": given, "ambient": ambient, "none": None}[trace]
+    assert arrived == [expected]
+
+
 @pytest.mark.parametrize("language", list(Language))
 def test_a_completed_transcript_reaches_the_app_once_with_its_text_and_language(
     language: Language,
@@ -321,6 +365,27 @@ def test_a_completed_transcript_reaches_the_app_once_with_its_text_and_language(
     assert recorder.got == [_utterance("guten Tag", language)]
 
 
+def test_an_utterance_carries_the_item_and_the_trace_of_its_transcript() -> None:
+    traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    recorder = _Recorder()
+
+    asyncio.run(
+        _hear(
+            _hearing(
+                _completed("a", "one", traceparent=traceparent),
+                _completed("b", "two"),
+            ),
+            None,
+            recorder,
+        )
+    )
+
+    assert recorder.got == [
+        _utterance("one", item_id="a", traceparent=traceparent),
+        _utterance("two", item_id="b"),
+    ]
+
+
 def test_an_empty_transcript_reaches_nobody_and_the_next_one_still_does() -> None:
     recorder = _Recorder()
 
@@ -328,7 +393,7 @@ def test_an_empty_transcript_reaches_nobody_and_the_next_one_still_does() -> Non
         _hear(_hearing(_completed("a", ""), _completed("b", "weiter")), None, recorder)
     )
 
-    assert recorder.got == [_utterance("weiter")]
+    assert recorder.got == [_utterance("weiter", item_id="b")]
 
 
 @pytest.mark.parametrize(
@@ -360,7 +425,7 @@ def test_an_empty_transcript_reaches_nobody_and_the_next_one_still_does() -> Non
                 _completed("a", "first"),
             ],
             [
-                _utterance("second", start=500, end=900),
+                _utterance("second", start=500, end=900, item_id="b"),
                 _utterance("first", start=100, end=400),
             ],
             id="two-items-interleaved",

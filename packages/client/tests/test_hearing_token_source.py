@@ -7,6 +7,7 @@ import time
 from typing import TYPE_CHECKING
 
 import pytest
+from logline import current_traceparent, unit_trace
 
 from packages.client.tests.support.hearing_support import (
     AT_ONCE_SECONDS,
@@ -39,6 +40,7 @@ from speech_client.outcomes import (
 )
 from speech_client.wire import (
     AUTHORIZATION_HEADER,
+    TRACEPARENT_HEADER,
     WORKLOAD_TOKEN_HEADER,
 )
 
@@ -71,6 +73,29 @@ def test_the_source_is_awaited_before_every_opening_and_its_tokens_travel() -> N
         ("workload-1", "Bearer person-1"),
         ("workload-2", "Bearer person-2"),
     ]
+
+
+@pytest.mark.parametrize("trace", ["caller's", "ambient", "none"])
+def test_every_opening_sends_the_callers_traceparent_or_the_ambient_one_or_none(
+    trace: str,
+) -> None:
+    given = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+    async def scenario() -> tuple[list[str | None], str | None]:
+        ambient = None
+        async with scripted(drains, ends_in_order) as (port, visits):
+            if trace == "ambient":
+                with unit_trace(None):
+                    ambient = current_traceparent()
+                    await hear(port)
+            else:
+                await hear(port, traceparent=given if trace == "caller's" else None)
+            return [visit.headers.get(TRACEPARENT_HEADER) for visit in visits], ambient
+
+    sent, ambient = asyncio.run(scenario())
+
+    expected = {"caller's": given, "ambient": ambient, "none": None}[trace]
+    assert sent == [expected, expected]
 
 
 def test_a_token_repr_carries_no_token() -> None:

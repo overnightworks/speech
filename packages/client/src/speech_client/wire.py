@@ -17,6 +17,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Annotated, ClassVar, Final, Literal
 from uuid import uuid4
 
+from logline import current_traceparent
 from pydantic import (
     AfterValidator,
     BaseModel,
@@ -305,6 +306,11 @@ def speech_request_body(
         instructions=instructions,
     )
     return request.model_dump_json().encode()
+
+
+def sent_traceparent(traceparent: str | None) -> str | None:
+    """The `traceparent` a call sends: the caller's, else the running trace's."""
+    return current_traceparent() if traceparent is None else traceparent
 
 
 def token_headers(

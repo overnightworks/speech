@@ -12,6 +12,9 @@ socket's logger above debug; no outcome and no repr carries a token or heard tex
   raises ends the session at once, nothing more is opened and `outcome` stays
   `None`; leaving the context raises it. A bound that expires while the source
   runs ends the session as that bound says.
+- `traceparent` (default: the trace running when the session is built) goes on
+  every upgrade as a header and parents only the service's own lines of the
+  session, never a turn: a turn's trace comes back in its `transcript.completed`.
 - `send(pcm)` queues PCM16 audio at 24 kHz. Audio queued before a session is
   open, or faster than it is written, is held up to `held_limit_bytes`; one byte
   over ends the session with `OverCap`, at any moment. A chunk leaves the held
@@ -127,6 +130,7 @@ from speech_client.wire import (
     TranscriptionSession,
     TranscriptionSetting,
     parse_server_event,
+    sent_traceparent,
     token_headers,
 )
 
@@ -421,6 +425,7 @@ class HearingSession:
         deadline_seconds: float,
         held_limit_bytes: int,
         opening_seconds: float = OPENING_SECONDS,
+        traceparent: str | None = None,
     ) -> None:
         """Take every input; nothing is opened before `__aenter__`."""
         base_origin(base_url)
@@ -428,6 +433,7 @@ class HearingSession:
             message = "opening_seconds must be above 0"
             raise ValueError(message)
         self._url = realtime_url(base_url)
+        self._traceparent = sent_traceparent(traceparent)
         self._token_source = token_source
         self._update = session_update(languages)
         self._deadline_seconds = deadline_seconds
@@ -671,7 +677,9 @@ class HearingSession:
         return await _Connect(
             self._url,
             additional_headers=token_headers(
-                workload_token=tokens.workload_token, person_token=tokens.person_token
+                workload_token=tokens.workload_token,
+                person_token=tokens.person_token,
+                traceparent=self._traceparent,
             ),
             open_timeout=None,
             logger=_SOCKET_LOGGER,
