@@ -24,6 +24,8 @@ from tests.support.live_support import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from speech_service.live_session import LiveSession
+
 
 # Half a second of speech touches 16 windows.
 SPEECH_WINDOWS = 16
@@ -46,11 +48,10 @@ def _drive(
     return _lines(capsys, WAIT, HEARING)
 
 
-async def _one_question_heard(engine: FakeHearing, *, turns: int = 1) -> None:
+async def _one_question_heard(engine: FakeHearing) -> None:
     session, _ = await started(loaded(engine, FakeClock()))
-    for _ in range(turns):
-        await one_question(session)
-        await session.settled()
+    await one_question(session)
+    await session.settled()
 
 
 def test_a_turn_ended_by_silence_writes_its_wait_and_its_hearing_in_one_trace(
@@ -95,15 +96,6 @@ def test_a_turn_the_client_ended_names_that_and_no_silence(
     assert hearing["silence_ms"] == 0
 
 
-def test_every_turn_has_its_own_trace(capsys: pytest.CaptureFixture[str]) -> None:
-    lines = _drive(lambda: _one_question_heard(FakeHearing(), turns=2), capsys)
-
-    first_wait, first_hearing, second_wait, second_hearing = lines
-    assert first_wait["trace_id"] == first_hearing["trace_id"]
-    assert second_wait["trace_id"] == second_hearing["trace_id"]
-    assert first_wait["trace_id"] != second_wait["trace_id"]
-
-
 def _trace_id_of(traceparent: object) -> str:
     assert isinstance(traceparent, str)
     version, trace_id, span_id, flags = traceparent.split("-")
@@ -111,8 +103,11 @@ def _trace_id_of(traceparent: object) -> str:
     return trace_id
 
 
-def test_every_transcript_event_carries_the_traceparent_of_its_turns_trace(
-    capsys: pytest.CaptureFixture[str],
+@pytest.mark.parametrize(
+    "turn", [one_question, commit_a_turn], ids=["silence", "client"]
+)
+def test_every_turn_has_its_own_trace_and_its_transcript_names_it(
+    turn: Callable[[LiveSession], Awaitable[None]], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """WIRE-75, WIRE-150: the event names the trace of the turn's lines."""
     completed: list[dict[str, object]] = []
@@ -120,7 +115,7 @@ def test_every_transcript_event_carries_the_traceparent_of_its_turns_trace(
     async def scenario() -> None:
         session, socket = await started(loaded(FakeHearing(), FakeClock()))
         for _ in range(2):
-            await one_question(session)
+            await turn(session)
             await session.settled()
         completed.extend(socket.of_type(TRANSCRIPT_COMPLETED))
 
