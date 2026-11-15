@@ -1,0 +1,7 @@
+claim_id = "0d6af7b1349e49128bbe2703d668c874"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "180e78814742dad24b2c18fcee74e84d5ea834a2"
+branch = "claude/issue-421-turn-end-language-model"
+scope = ["scripts/measure_turn_end.py"]
+opened_commit = "bd16c7714ed6f0e22f470b609bb58896b22f59ff"
