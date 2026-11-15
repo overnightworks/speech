@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import tomllib
 from dataclasses import dataclass
@@ -30,6 +31,29 @@ class DistributionRow:
     name: str
     directory: str
     package: str
+    host_pins: tuple[str, ...] = ()
+
+
+def _requirement_name(requirement: str) -> str:
+    """The normalised distribution name a requirement starts with."""
+    name = re.split(r"[^A-Za-z0-9._-]", requirement.strip(), maxsplit=1)[0]
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _host_pins(project: dict[str, Any]) -> tuple[str, ...]:
+    """The dev-group URL requirements that a runtime dependency names without a URL."""
+    by_name_only = {
+        _requirement_name(requirement)
+        for requirement in project["project"].get("dependencies", [])
+        if "@" not in requirement
+    }
+    return tuple(
+        requirement
+        for requirement in project.get("dependency-groups", {}).get("dev", [])
+        if isinstance(requirement, str)
+        and "@" in requirement
+        and _requirement_name(requirement) in by_name_only
+    )
 
 
 def _read_project(root: Path, directory: str) -> dict[str, Any]:
@@ -65,6 +89,7 @@ def release_rows(root: Path) -> list[DistributionRow]:
                 name=project["project"]["name"],
                 directory=directory,
                 package=Path(wheel["packages"][0]).name,
+                host_pins=_host_pins(project),
             )
         )
     return rows
@@ -104,12 +129,12 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--rows",
         action="store_true",
-        help="print name|directory|package per distribution",
+        help="print name|directory|package|host pin... per distribution",
     )
     arguments = parser.parse_args(argv)
     if arguments.rows:
         for row in release_rows(REPOSITORY_ROOT):
-            print(f"{row.name}|{row.directory}|{row.package}")
+            print("|".join([row.name, row.directory, row.package, *row.host_pins]))
         return 0
     faults = release_faults(REPOSITORY_ROOT, arguments.version)
     for fault in faults:

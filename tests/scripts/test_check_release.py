@@ -87,7 +87,8 @@ def test_the_rows_print_for_the_workflow(capsys: pytest.CaptureFixture[str]) -> 
 
     printed = [line.split("|") for line in capsys.readouterr().out.splitlines()]
     assert printed == [
-        [row.name, row.directory, row.package] for row in release_rows(REPOSITORY_ROOT)
+        [row.name, row.directory, row.package, *row.host_pins]
+        for row in release_rows(REPOSITORY_ROOT)
     ]
 
 
@@ -184,3 +185,42 @@ def test_a_package_json_without_a_version_fails_loud(tree: Path) -> None:
 
     with pytest.raises(KeyError):
         release_faults(tree, None)
+
+
+LOGLINE_PIN = "overnightworks-logline @ git+https://example.test/logline@v0.4.0"
+
+
+def _declare_dependencies(
+    root: Path, directory: str, dependencies: list[str], dev: list[str]
+) -> None:
+    pyproject = root / directory / "pyproject.toml"
+    pyproject.write_text(
+        pyproject.read_text() + f"\n[dependency-groups]\ndev = {json.dumps(dev)}\n"
+    )
+    text = pyproject.read_text().replace(
+        f'version = "{RELEASE}"\n',
+        f'version = "{RELEASE}"\ndependencies = {json.dumps(dependencies)}\n',
+        1,
+    )
+    pyproject.write_text(text)
+
+
+def test_a_dependency_declared_by_name_carries_its_dev_group_pin(tree: Path) -> None:
+    _declare_dependencies(
+        tree,
+        "libs/client",
+        ["overnightworks-logline>=0.4,<0.5", "pydantic>=2"],
+        [LOGLINE_PIN, "pytest>=8"],
+    )
+
+    pins = {row.name: row.host_pins for row in release_rows(tree)}
+    assert pins["the-client"] == (LOGLINE_PIN,)
+    assert pins["the-contract"] == ()
+
+
+def test_a_dev_requirement_no_runtime_dependency_names_is_no_host_pin(
+    tree: Path,
+) -> None:
+    _declare_dependencies(tree, "libs/client", ["pydantic>=2"], [LOGLINE_PIN])
+
+    assert {row.name: row.host_pins for row in release_rows(tree)}["the-client"] == ()
