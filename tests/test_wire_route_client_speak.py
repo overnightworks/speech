@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import time
 from contextlib import asynccontextmanager
@@ -10,6 +11,8 @@ from typing import TYPE_CHECKING
 
 import httpx2
 import pytest
+from logline import current_traceparent, unit_trace
+from logline.testing import configured
 
 from speech_client.speak import (
     Busy,
@@ -158,6 +161,26 @@ def test_the_call_returns_the_wav_the_service_sent() -> None:
     outcome, sent = asyncio.run(scenario())
 
     assert outcome == Spoken(sent.content)
+
+
+def test_the_service_writes_its_speak_line_in_the_trace_of_the_calling_task(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """WIRE-149: a call made inside a trace needs no argument to join it."""
+
+    async def scenario() -> str | None:
+        async with _serving(FakeSpeaking()) as server:
+            with unit_trace(None):
+                await asyncio.to_thread(_speak, server.base_url)
+                return current_traceparent()
+
+    with configured("speech"):
+        callers = asyncio.run(scenario())
+
+    assert callers is not None
+    written = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    (speak_line,) = (line for line in written if line["event"] == "speak.ended")
+    assert speak_line["trace_id"] == callers.split("-")[1]
 
 
 def test_the_call_returns_the_ogg_opus_the_service_sent() -> None:

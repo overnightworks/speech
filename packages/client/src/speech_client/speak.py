@@ -283,7 +283,7 @@ def _chunks(  # noqa: PLR0913
     person_token: str,
     deadline_seconds: float,
     cap_bytes: int,
-    traceparent: str | None,
+    traceparent: str | None = None,
 ) -> Generator[bytes | StreamFailure]:
     """The one transport: the body's chunks, or the failure that ends them."""
     origin = checked_origin(base_url, deadline_seconds, cap_bytes)
