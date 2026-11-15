@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.14"
 
 [manifest]
@@ -657,8 +657,8 @@ wheels = [
 
 [[package]]
 name = "overnightworks-logline"
-version = "0.3.0"
-source = { git = "https://github.com/overnightworks/logline?rev=v0.3.0#ce06443ab20bd5fa3c153700e940cc8ace40bbcb" }
+version = "0.4.0"
+source = { git = "https://github.com/overnightworks/logline?rev=v0.4.0#24a7a6077f3bd0c382fde62e149946c70a9ced31" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "structlog" },
@@ -732,7 +732,7 @@ requires-dist = [
     { name = "numpy", specifier = "==2.5.4" },
     { name = "nvidia-cublas-cu12", marker = "extra == 'gpu'", specifier = "==12.9.3.13" },
     { name = "nvidia-cudnn-cu12", marker = "extra == 'gpu'", specifier = "==9.27.0.42" },
-    { name = "overnightworks-logline", git = "https://github.com/overnightworks/logline?rev=v0.3.0" },
+    { name = "overnightworks-logline", git = "https://github.com/overnightworks/logline?rev=v0.4.0" },
     { name = "overnightworks-speech-client", editable = "packages/client" },
     { name = "overnightworks-speech-provider-contract", editable = "providers/provider-contract" },
     { name = "overnightworks-webauth", git = "https://github.com/overnightworks/webauth?rev=v0.36.0" },

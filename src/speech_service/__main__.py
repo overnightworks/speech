@@ -57,8 +57,6 @@ def main() -> None:
     _argument_parser().parse_args()
     settings = load_settings()
     configure(_SERVICE_NAME)
-    # Piper logs its input and phonemes below ERROR; `configure` holds no cap on it.
-    logging.getLogger("piper").setLevel(logging.ERROR)
     _LOGGER.info("process.started")
     raise SystemExit(asyncio.run(serve(settings)))
 
