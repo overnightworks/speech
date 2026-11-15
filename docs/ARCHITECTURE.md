@@ -127,10 +127,11 @@ flowchart LR
   token source before every opening, a reopening after the service's drain
   included, and ends with `NoToken` when it has none.
   `speech_client.utterances` builds on it: `hear_utterances` builds the session
-  and maps the events to finished utterances, optional partials, the moments a person starts
-  and stops speaking (`on_speech_started`, `on_speech_stopped`, the latter before
-  the transcript) and a service failure, so an app keeps its route, its login check, its token choice, its rule
-  and when a hearing ends.
+  and maps the events, through the app's `HearingCallbacks`, to finished
+  utterances, optional partials, the moments a person starts and stops speaking
+  (`on_speech_started`, `on_speech_stopped`, the latter before the transcript)
+  and a service failure, so an app keeps its route, its login check, its token
+  choice, its rule and when a hearing ends.
 - **Load isolation.** A load that fails for want of the resource (no CUDA
   device, a card too full) frees what it allocated and leaves the process up:
   `/health` names hearing not ready, the route answers 503 `unavailable`, and
