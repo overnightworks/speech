@@ -665,11 +665,11 @@ class _FailingOnceSpeaking(FakeSpeaking):
 def _assert_failure_logged_without_text(
     caplog: pytest.LogCaptureFixture, raised: BaseException
 ) -> None:
-    assert "speaking failed" in caplog.text
-    assert "_SentenceCarryingError" in caplog.text
-    assert "KeyError" in caplog.text
-    assert 'File "' in caplog.text
-    assert _SPOKEN not in caplog.text
+    (failure,) = (r for r in caplog.records if r.getMessage() == "speaking.failed")
+    assert "_SentenceCarryingError" in failure.failure_chain
+    assert "KeyError" in failure.failure_chain
+    assert 'File "' in failure.failure_chain
+    assert _SPOKEN not in f"{caplog.text} {vars(failure)}"
     assert _SPOKEN not in "".join(traceback.format_exception(raised))
 
 
@@ -788,3 +788,80 @@ def test_speak_cleanup_failure_after_a_disconnect_logs_no_sentence_and_frees_the
     assert isinstance(failure, SpeakingFailedError)
     _assert_failure_logged_without_text(caplog, failure)
     assert status_of(later) == HTTP_200_OK
+
+
+def _speak_lines(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.getMessage() == "speak.ended"]
+
+
+def test_a_spoken_request_writes_one_speak_line_with_its_voice_and_first_audio(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    response = post_speech(TestClient(speak_app()), speak_body(text=_SPOKEN))
+
+    assert response.status_code == HTTP_200_OK
+    (line,) = _speak_lines(caplog)
+    assert line.outcome == "ok"
+    assert line.voice == VoiceId.THORSTEN.value
+    assert 0 <= line.first_output_ms <= line.duration_ms
+    assert _SPOKEN not in f"{caplog.text} {vars(line)}"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [_changed(voice=_SENTENCE), _changed(input=_SENTENCE * 100)],
+    ids=["unparsed-request", "too-long-input"],
+)
+def test_a_request_refused_before_its_voice_is_known_writes_a_speak_line_without_one(
+    caplog: pytest.LogCaptureFixture, body: bytes
+) -> None:
+    caplog.set_level(logging.INFO)
+    client = TestClient(speak_app(settings=Settings(max_input_characters=1000)))
+
+    post_speech(client, body)
+
+    (line,) = _speak_lines(caplog)
+    assert (line.outcome, line.reason) == (
+        "refused",
+        RefusalCode.INVALID_REQUEST.value,
+    )
+    assert not hasattr(line, "voice")
+
+
+def test_a_request_refused_before_streaming_writes_a_speak_line_with_its_reason(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    runtime = fake_runtime()
+    runtime.begin_shutdown()
+    caplog.set_level(logging.INFO)
+
+    post_speech(TestClient(app_over(runtime)), speak_body())
+
+    (line,) = _speak_lines(caplog)
+    assert (line.outcome, line.reason) == ("refused", RefusalCode.UNAVAILABLE.value)
+    assert line.voice == VoiceId.THORSTEN.value
+    assert not hasattr(line, "first_output_ms")
+
+
+def test_a_failed_speaking_writes_a_speak_line_with_the_error_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    _speak_collecting(speak_app(_FailingOnceSpeaking()))
+
+    (line,) = _speak_lines(caplog)
+    assert (line.outcome, line.error_type) == ("failed", "SpeakingFailedError")
+
+
+def test_a_refused_unauthenticated_request_writes_a_speak_line_with_its_reason(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    post_speech(TestClient(speak_app()), speak_body(), headers={})
+
+    (line,) = _speak_lines(caplog)
+    assert (line.outcome, line.reason) == ("refused", RefusalCode.UNAUTHORIZED.value)

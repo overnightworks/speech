@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import signal
 import sys
 import time
@@ -15,9 +14,6 @@ import pytest
 from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 
 from speech_service.provider_process import (
-    ENDED_AFTER_READY,
-    ENDED_BEFORE_READY,
-    SYNTHESIS_FAILED,
     ProviderFailedError,
     ProviderId,
     ProviderLaunch,
@@ -140,6 +136,7 @@ raise SystemExit(serve_provider(
     functions=ProviderFunctions(lambda _device, _cache: object(), lambda *_: ()),
 ))
 """
+_EXIT_STATUS = 3
 _SENTENCE = "Ein Satz, den nur der Aufrufer kennt"
 
 
@@ -172,6 +169,24 @@ def test_the_derived_worker_name_is_the_script_the_provider_declares() -> None:
     assert entrypoint.name in declared
 
 
+def _ended_records(
+    caplog: pytest.LogCaptureFixture, phase: str | None = None
+) -> list[logging.LogRecord]:
+    return [
+        record
+        for record in caplog.records
+        if record.getMessage() == "provider.ended" and phase in (None, record.phase)
+    ]
+
+
+def _logged_everywhere(caplog: pytest.LogCaptureFixture) -> str:
+    """Every message, rendered exception and extra field the records carry."""
+    return "\n".join(
+        f"{record.getMessage()} {record.exc_text or ''} {vars(record)}"
+        for record in caplog.records
+    )
+
+
 def test_provider_failing_to_import_logs_the_module_and_its_own_exit_status(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -181,10 +196,11 @@ def test_provider_failing_to_import_logs_the_module_and_its_own_exit_status(
         engine.load()
     engine.close()
 
-    assert "exit status 1," in caplog.text
+    (ended,) = _ended_records(caplog, "before_ready")
+    assert ended.exit_status == 1
     assert (
         "ModuleNotFoundError: No module named 'module_that_is_not_installed'"
-        in caplog.text
+        in ended.stderr_tail
     )
 
 
@@ -197,11 +213,11 @@ def test_provider_failing_to_load_the_model_logs_its_cause_and_a_reaped_status(
         engine.load()
     engine.close()
 
-    assert caplog.text.count(ENDED_BEFORE_READY) == 1
-    assert "RuntimeError: model weights unreadable" in caplog.text
+    (ended,) = _ended_records(caplog, "before_ready")
+    assert "RuntimeError: model weights unreadable" in ended.stderr_tail
     # Whether the service's stop or the provider's own exit comes first is a
     # race; either way the reaped provider has a status.
-    assert re.search(r"exit status -?\d+,", caplog.text)
+    assert isinstance(ended.exit_status, int)
 
 
 def _failing_start_after_writing(stderr_bytes: int) -> str:
@@ -223,7 +239,8 @@ def test_a_root_cause_printed_before_a_long_traceback_reaches_the_log(
         engine.load()
     engine.close()
 
-    assert "ROOT CAUSE: engine core failed" in caplog.text
+    (ended,) = _ended_records(caplog, "before_ready")
+    assert "ROOT CAUSE: engine core failed" in ended.stderr_tail
 
 
 def test_a_provider_writing_without_end_cannot_grow_the_log_without_limit(
@@ -236,8 +253,9 @@ def test_a_provider_writing_without_end_cannot_grow_the_log_without_limit(
         engine.load()
     engine.close()
 
-    assert len(caplog.text) < written // 4
-    assert "ROOT CAUSE" not in caplog.text
+    (ended,) = _ended_records(caplog, "before_ready")
+    assert len(ended.stderr_tail) < written // 4
+    assert "ROOT CAUSE" not in ended.stderr_tail
 
 
 def test_ready_provider_logs_no_startup_record_and_its_stderr_reaches_no_log(
@@ -250,9 +268,8 @@ def test_ready_provider_logs_no_startup_record_and_its_stderr_reaches_no_log(
         assert list(engine.pcm_chunks("caller secret words", "de")) == [b"\x00\x01"]
         engine.close()
 
-    assert ENDED_BEFORE_READY not in caplog.text
-    assert ENDED_AFTER_READY not in caplog.text
-    assert "caller secret words" not in caplog.text
+    assert _ended_records(caplog) == []
+    assert "caller secret words" not in _logged_everywhere(caplog)
     assert (tmp_path / "cache/stderr-target").read_text() == os.devnull
 
 
@@ -267,14 +284,14 @@ def _failed_synthesis_log(
         engine.close()
     _assert_no_sentence(caplog)
     (record,) = (
-        record for record in caplog.records if SYNTHESIS_FAILED in record.getMessage()
+        record for record in caplog.records if record.getMessage() == "synthesis.failed"
     )
-    return record.getMessage()
+    assert record.request_id == 1
+    return str(record.cause)
 
 
 def _assert_no_sentence(caplog: pytest.LogCaptureFixture) -> None:
-    assert _SENTENCE not in caplog.text
-    assert all(_SENTENCE not in (record.exc_text or "") for record in caplog.records)
+    assert _SENTENCE not in _logged_everywhere(caplog)
 
 
 def test_a_failed_synthesis_logs_its_errno_and_frame_and_an_ended_record(
@@ -286,10 +303,9 @@ def test_a_failed_synthesis_logs_its_errno_and_frame_and_an_ended_record(
         "    raise OSError(errno.EROFS, text, '/' + text)",
     )
 
-    assert message.startswith(f"{SYNTHESIS_FAILED}, request 1, cause: ")
     assert "builtins.OSError[EROFS]" in message
     assert ", in synthesize\n" in message
-    assert ENDED_AFTER_READY in caplog.text
+    assert _ended_records(caplog, "after_ready")
 
 
 def test_a_failed_synthesis_with_the_sentence_as_errno_names_no_errno(
@@ -348,7 +364,7 @@ def test_a_failed_synthesis_names_its_chain_from_the_root_cause_with_its_frames(
         "        raise AcceleratorError() from error",
     )
 
-    assert "cause: builtins.KeyError -> __main__.AcceleratorError\n" in message
+    assert message.startswith("builtins.KeyError -> __main__.AcceleratorError\n")
     assert "\nbuiltins.KeyError\n  File " in message
     assert "    raise KeyError(text)\n" in message
 
@@ -383,15 +399,17 @@ def test_a_failure_during_a_cancel_drain_logs_its_cause(
         engine.close()
 
     _assert_no_sentence(caplog)
-    cause = "builtins.GeneratorExit -> builtins.OSError[EIO]"
-    assert f"{SYNTHESIS_FAILED}, request 1, cause: {cause}" in caplog.text
+    (failed,) = (r for r in caplog.records if r.getMessage() == "synthesis.failed")
+    assert failed.cause.startswith("builtins.GeneratorExit -> builtins.OSError[EIO]\n")
     assert engine.ready is False
 
 
 def test_a_provider_that_dies_after_ready_logs_its_exit_status(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    engine = _provider(tmp_path, _FAILING_BODY.format(synthesis="    os._exit(3)"))
+    engine = _provider(
+        tmp_path, _FAILING_BODY.format(synthesis=f"    os._exit({_EXIT_STATUS})")
+    )
     with caplog.at_level(logging.DEBUG):
         engine.load()
         with pytest.raises(ProviderProtocolError):
@@ -399,7 +417,8 @@ def test_a_provider_that_dies_after_ready_logs_its_exit_status(
         engine.close()
 
     _assert_no_sentence(caplog)
-    assert caplog.text.count(f"{ENDED_AFTER_READY}, exit status 3") == 1
+    (ended,) = _ended_records(caplog, "after_ready")
+    assert ended.exit_status == _EXIT_STATUS
 
 
 def _has_ended(pid: int) -> bool:

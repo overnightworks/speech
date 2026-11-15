@@ -30,7 +30,9 @@ if TYPE_CHECKING:
     from concurrent.futures import Future
 
     from fastapi import FastAPI
+    from logline import StepTimer
 
+    from speech_client.wire import SpeechRequest
     from speech_service.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -232,20 +234,29 @@ class Runtime:
 
 
 def audio_chunks(
-    speaking: SpeakingEngine,
-    text: str,
-    language: str,
-    instructions: str | None,
-    response_format: ResponseFormat,
+    speaking: SpeakingEngine, request: SpeechRequest, step: StepTimer
 ) -> Iterator[bytes]:
-    """`text` spoken by `speaking` in `response_format`, as the voice produces it."""
-    with PayloadFreeFailure(logger, "speaking failed", reraise_as=SpeakingFailedError):
-        synthesis = speaking.pcm_chunks(text, language, instructions)
+    """`request` spoken by `speaking` in its format, as the voice produces it.
+
+    `step` times the speaking: it marks the first chunk and ends with the stream,
+    whatever ends it.
+    """
+    with (
+        step,
+        PayloadFreeFailure(logger, "speaking.failed", reraise_as=SpeakingFailedError),
+    ):
+        synthesis = speaking.pcm_chunks(
+            request.input, request.spoken_language, request.instructions
+        )
         try:
-            if response_format is ResponseFormat.OPUS:
-                yield from ogg_opus_chunks(synthesis, speaking.sample_rate)
-            else:
-                yield from _wav_chunks(synthesis, speaking.sample_rate)
+            chunks = (
+                ogg_opus_chunks(synthesis, speaking.sample_rate)
+                if request.response_format is ResponseFormat.OPUS
+                else _wav_chunks(synthesis, speaking.sample_rate)
+            )
+            for chunk in chunks:
+                step.first_output()
+                yield chunk
         finally:
             synthesis.close()
 

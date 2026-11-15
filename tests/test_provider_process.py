@@ -395,7 +395,8 @@ def test_request_failure_is_sanitized_and_marks_the_adapter_unready(
     assert engine.ready is False
     engine.close()
 
-    assert f"{SYNTHESIS_FAILED}, request 1, cause: none" in caplog.text
+    (failed,) = (r for r in caplog.records if r.getMessage() == "synthesis.failed")
+    assert (failed.request_id, failed.cause) == (1, "none")
 
 
 @pytest.mark.parametrize(

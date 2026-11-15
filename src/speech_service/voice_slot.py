@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import Future
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from speech_client.wire import VOICES, VoiceHealth
@@ -22,6 +23,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _CLEANUP_FAILED = "speaking engine cleanup failed"
+
+
+class _Closing(StrEnum):
+    """Which engine a failed close belongs to."""
+
+    BUILDING = "building"
+    FAILED = "failed"
+    DEAD = "dead"
+    UNCOMMITTED = "uncommitted"
+    SLOT_CLOSED = "slot_closed"
 
 
 class VoiceSlot:
@@ -110,7 +121,7 @@ class VoiceSlot:
         with self._state_lock:
             building, self._pending_engine = self._pending_engine, None
         if building is not None:
-            self._closed(building, _CLEANUP_FAILED)
+            self._closed(building, _Closing.BUILDING)
 
     def set_fatal_callback(self, callback: Callable[[], None]) -> None:
         """Route an owned engine failure to the service orchestrator."""
@@ -137,7 +148,7 @@ class VoiceSlot:
             self.speaking = None
             self._ready_speaking = None
         for engine in _unique_engines(engines):
-            self._closed(engine, _CLEANUP_FAILED)
+            self._closed(engine, _Closing.SLOT_CLOSED)
         with self._state_changed:
             while self._load_job is not None:
                 self._state_changed.wait()
@@ -160,7 +171,7 @@ class VoiceSlot:
             self._ready_speaking = None
             self._closing_engine = active
         try:
-            self._closed(active, "failed speaking engine cleanup failed")
+            self._closed(active, _Closing.FAILED)
         finally:
             with self._state_changed:
                 self._closing_engine = None
@@ -190,7 +201,7 @@ class VoiceSlot:
             if self._retire_dead_engine():
                 self.load()
         except Exception as error:  # noqa: BLE001 - its waiters read the outcome as the slot's readiness
-            log_failure(logger, f"voice {self.voice.value} failed to load", error)
+            log_failure(logger, "voice_load.failed", error, voice=self.voice.value)
         finally:
             with self._state_changed:
                 self.loading = False
@@ -209,14 +220,17 @@ class VoiceSlot:
                 return False
             self.speaking = None
             self._ready_speaking = None
-        return dead is None or self._closed(dead, "dead speaking engine cleanup failed")
+        return dead is None or self._closed(dead, _Closing.DEAD)
 
-    def _closed(self, engine: SpeakingEngine, failure: str) -> bool:
+    def _closed(self, engine: SpeakingEngine, closing: _Closing) -> bool:
         """Close `engine`; a failed close is fatal, because a worker may remain."""
         try:
             engine.close()
         except Exception:
-            logger.exception("%s", failure)
+            logger.exception(
+                "engine_close.failed",
+                extra={"voice": self.voice.value, "closing": closing.value},
+            )
             with self._state_lock:
                 self._cleanup_failed = True
             self._fatal_callback()
@@ -239,9 +253,12 @@ class VoiceSlot:
         missing = missing_artifacts(self.voice)
         if missing:
             logger.error(
-                "voice %s is missing %s; fetch it with speech-fetch-voice",
-                self.voice.value,
-                ", ".join(missing),
+                "voice_files.missing",
+                extra={
+                    "voice": self.voice.value,
+                    "missing_files": ", ".join(missing),
+                    "hint": "fetch the voice with speech-fetch-voice",
+                },
             )
             message = f"voice {self.voice.value} is not installed"
             raise RuntimeError(message)
@@ -275,7 +292,7 @@ class VoiceSlot:
             if still_pending:
                 self._pending_engine = None
         if engine is not None and (still_pending or not registered):
-            self._closed(engine, "uncommitted speaking engine cleanup failed")
+            self._closed(engine, _Closing.UNCOMMITTED)
 
 
 def _unique_engines(
@@ -294,6 +311,6 @@ def _load_or_raise(voice: VoiceId, engine: SpeakingEngine) -> None:
     try:
         engine.load()
     except Exception:
+        logger.exception("voice_load.failed", extra={"voice": voice.value})
         message = f"voice {voice.value} failed to load"
-        logger.exception("%s", message)
         raise RuntimeError(message) from None

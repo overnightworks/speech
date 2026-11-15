@@ -1,6 +1,7 @@
 """Serving binds the configured address first and ends with the listener closed."""
 
 import asyncio
+import logging
 import os
 import signal
 import socket
@@ -115,6 +116,67 @@ class _SignalledServer(_ShutdownOnlyServer):
         await super().serve(sockets=sockets)
 
 
+class _ReadyLine(logging.Handler):
+    """Sets its event once the process has written its ready line."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.written = asyncio.Event()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.getMessage() == "process.ready":
+            self.written.set()
+
+
+class _StoppedOnceReady(_ShutdownOnlyServer):
+    """A server that SIGTERMs the process once the ready line is written."""
+
+    def __init__(self, ready: asyncio.Event) -> None:
+        super().__init__()
+        self._ready = ready
+
+    async def serve(self, *, sockets: list[socket.socket] | None = None) -> None:
+        await asyncio.wait_for(self._ready.wait(), WAIT_SECONDS)
+        os.kill(os.getpid(), signal.SIGTERM)
+        await super().serve(sockets=sockets)
+
+
+def _events(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [record.getMessage() for record in caplog.records]
+
+
+def test_the_process_writes_its_ready_and_stop_lines(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    runtime = Runtime(
+        {VoiceId.THORSTEN: None},
+        dependencies=RuntimeDependencies(
+            engine_factory=lambda _voice: FakeSpeaking(),
+            missing_artifacts=lambda _voice: (),
+        ),
+    )
+    ready = _ReadyLine()
+    monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
+    monkeypatch.setattr(
+        __main__, "build_server", lambda _app: _StoppedOnceReady(ready.written)
+    )
+    caplog.set_level(logging.INFO)
+    logging.getLogger(__main__.__name__).addHandler(ready)
+
+    try:
+        outcome = asyncio.run(__main__.serve(_serving_settings(tmp_path)))
+    finally:
+        logging.getLogger(__main__.__name__).removeHandler(ready)
+
+    assert outcome == 0
+    events = _events(caplog)
+    assert events.index("process.ready") < events.index("process.stopped")
+    (stopped,) = [r for r in caplog.records if r.getMessage() == "process.stopped"]
+    assert stopped.exit_code == 0
+
+
 def test_failed_loader_stops_the_server_and_closes_the_listener(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -151,8 +213,9 @@ def test_an_offered_piper_voice_without_its_files_ends_the_start_naming_the_voic
     outcome = asyncio.run(__main__.serve(settings))
 
     assert outcome == 1
-    assert VoiceId.NORMAN.value in caplog.text
-    assert "speech-fetch-voice" in caplog.text
+    (missing,) = [r for r in caplog.records if r.getMessage() == "voice_files.missing"]
+    assert missing.voice == VoiceId.NORMAN.value
+    assert "speech-fetch-voice" in missing.hint
     assert not listens_on(settings.port)
 
 
@@ -575,4 +638,5 @@ def test_serve_exits_nonzero_naming_the_address_before_any_runtime_work(
         outcome = asyncio.run(__main__.serve(settings))
 
     assert outcome == 1
-    assert f"{host}:{port}" in caplog.text
+    (record,) = [r for r in caplog.records if r.getMessage() == "listener.failed"]
+    assert (record.host, record.port) == (host, port)
