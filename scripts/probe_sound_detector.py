@@ -17,8 +17,9 @@ as not measured; with a directory that lacks them the run refuses.
 
 Every model, checkpoint and clip is fetched by pinned revision into the cache
 directory or the Hugging Face cache, never into the repository. Load one
-candidate per process, as the added RSS is the process's growth. The report is
-Markdown on standard output.
+candidate per process, as the added RSS is the process's growth: a run of several
+candidates starts one child process per candidate. The report is Markdown on
+standard output.
 
 Run it as `uv run scripts/probe_sound_detector.py --candidates yamnet`.
 """
@@ -64,6 +65,7 @@ import itertools
 import os
 import re
 import statistics
+import subprocess
 import sys
 import threading
 import time
@@ -616,9 +618,34 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--speech-start-minutes", type=float, default=0.0)
     parser.add_argument("--hearings", type=int, default=3)
     parser.add_argument("--operator-recordings", type=Path)
+    parser.add_argument("--section", action="store_true", help=argparse.SUPPRESS)
     cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
     parser.add_argument("--cache", type=Path, default=cache / "probe_sound_detector")
     return parser.parse_args(argv)
+
+
+def _run_in_own_process(arguments: argparse.Namespace, key: str) -> None:
+    """Measure one candidate in a fresh process, so its RSS growth is its own."""
+    command = [
+        sys.executable,
+        __file__,
+        "--section",
+        "--candidates",
+        key,
+        "--clips-per-sound",
+        str(arguments.clips_per_sound),
+        "--speech-minutes",
+        str(arguments.speech_minutes),
+        "--speech-start-minutes",
+        str(arguments.speech_start_minutes),
+        "--hearings",
+        str(arguments.hearings),
+        "--cache",
+        str(arguments.cache),
+    ]
+    if arguments.operator_recordings:
+        command += ["--operator-recordings", str(arguments.operator_recordings)]
+    subprocess.run(command, check=True)  # noqa: S603 - argv is this interpreter, this script and its own parsed options, no shell
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -639,15 +666,19 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     spread = corpus.clips[:: max(1, len(corpus.clips) // CHECKED_WINDOWS)]
     checked_on = [windows_of(c.samples, 2 * SAMPLE_RATE)[0] for c in spread]
-    print("# Sound tagger probe\n")
-    print("\n".join(report_data(corpus, cache)))
+    if not arguments.section:
+        print("# Sound tagger probe\n")
+        print("\n".join(report_data(corpus, cache)), flush=True)
     for key in arguments.candidates:
+        if len(arguments.candidates) > 1:
+            _run_in_own_process(arguments, key)
+            continue
         tagger = CANDIDATES[key](cache, checked_on)
         print(
             "\n".join(report(measure(tagger, corpus, cache, arguments.hearings))),
             flush=True,
         )
-    if not arguments.operator_recordings:
+    if not arguments.operator_recordings and not arguments.section:
         print(
             "The määp and own-echo rows need the operator's recordings: `systemd-run"
             " --user --scope -q -p MemoryMax=4G -- probe-run uv run"
