@@ -3,5 +3,6 @@ agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
 role = "builder"
 base = "8b4ba03d1b7a4b7538f48869d6cae24419c896b6"
 branch = "claude/issue-414-sound-detector-probe"
-scope = ["scripts/probe_sound_detector.py"]
+scope = ["scripts/measure_turn_end.py", "scripts/onnx_session.py", "scripts/probe_sound_detector.py", "scripts/sound_corpus.py", "scripts/sound_taggers.py", "src/speech_service/piper_voices.py"]
 opened_commit = "553d0a030e1103ef6e656906d95bd470fb6ba5cb"
+whole_reason = "One probe split into three modules to stay under 800 lines, sharing its ONNX session and file hash with the turn-end script and the Piper fetch instead of copying them."
