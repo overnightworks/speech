@@ -41,7 +41,7 @@ flowchart LR
   caller table baked in, and the `gpu` target, which adds Qwen, its server environment
   and large-v3; the release builds, attests and pushes both to GHCR, see
   [Delivery](#delivery). `scripts/prove_image.py` proves the small one.
-- `packages/client`: the wire types an app and the service share (the closed voice catalogue among them), the bounded speaking call, the bounded health fetch, the live hearing session (`HearingSession`: the allowed languages, frames held up to a caller-set byte limit, typed server events that name each item's language, one closed outcome union), the relay (`relay`) of a browser socket to that session an app makes, and `hear_utterances`, which builds that session and hands an app finished utterances.
+- `packages/client`: the wire types an app and the service share (the closed voice catalogue among them), the bounded speaking call, the bounded health fetch, the live hearing session (`HearingSession`: the allowed languages, a token source awaited before every opening, frames held up to a caller-set byte limit, typed server events that name each item's language and sit on one audio timeline, a reopening after a drain or a cut within `RECONNECT_BOUND`, one closed outcome union), the relay (`relay`) of a browser socket to that session an app makes, and `hear_utterances`, which builds that session and hands an app finished utterances.
 - `packages/browser`: the framework-free browser package (`overnightworks-speech-browser`) an app's page streams its microphone and plays sounds with. `startCapture` takes the first audio track of the app's own stream, resamples it with a filter to the wire's PCM16 at 24 kHz in its own same-origin AudioWorklet file and main-thread resampler, and sends 100 ms frames to the app's relay route, capturing only once the hop socket is open, so it sends no audio older than the app's accept of that socket; it has no loudness gate, hands the app every message the app's own server sends down the hop (its optional `onMessage`, uninterpreted, in arrival order, until the capture ends), and its `ended` names how the hop ended. `createPlayer` plays the sounds an app hands it, each as bytes or the URL of the app's own route, in the order of the calls (a route answering 16-bit mono PCM WAV plays while its body still arrives, its chunks scheduled back to back; every other sound plays whole), as sources into the player's one GainNode, the only input of the output (the one node a per-frame reader can tap; the package builds none). It reports each sound's start and end once; the start carries the context time at which the sound's first sample plays and the context it plays on (none for a sound that ended first), and the end says how it ended (played, stopped, muted, refused (no user activation, or `resume()` refused), or failed to load); `stop` and `setMuted(true)` end the playing and every waiting sound at once and abort their fetches, and `close` also closes the context. The ends of played, stopped and muted sounds carry `playedSeconds`, read from the context's clock. Both are exported from one entry, `index.ts`. Its `hop.ts` is generated from `PcmFormat` and `speech_client.relay` by `scripts/generate_browser_wire.py`.
 - `providers/*`: the voices that run in their own processes and environments. Each is its own uv project with its own lock; `providers/provider-contract` is the shared source the others install from. The client in `packages/client` is a uv workspace member of the root.
 
@@ -123,7 +123,9 @@ flowchart LR
 - **The relay.** `speech_client.relay` (in `packages/client`) is what an app
   mounts behind its own login check: it forwards a browser's binary audio
   frames to a hearing session and hands the typed events to the app, never to
-  the browser. The tokens stay on the app's server.
+  the browser. The tokens stay on the app's server: the session asks the app's
+  token source before every opening, a reopening after the service's drain
+  included, and ends with `NoToken` when it has none.
   `speech_client.utterances` builds on it: `hear_utterances` builds the session
   and maps the events to finished utterances, optional partials and a service
   failure, so an app keeps its route, its login check, its token choice, its rule
@@ -350,4 +352,5 @@ the old pod stops (a rolling update that never lowers the ready count).
   A live hearing session opened before `exp` runs until it ends: the app closes it
   (the client's hearing session also at its total deadline) or a failure ends it. The
   service does not end it when a token expires or the person loses the right, so the
-  app ends a hearing when its right to hear ends.
+  app ends a hearing when its right to hear ends. The client's reopening after a
+  drain asks the app's token source again, so a lapsed token ends the hearing there.
