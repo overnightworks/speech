@@ -1,0 +1,8 @@
+claim_id = "e48fd177e4f94be3b6d2c4248ee70c21"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "e6795b5f32406add3387ac7ac0b1971098d1f02a"
+branch = "claude/issue-425-logline"
+scope = ["docs/ARCHITECTURE.md", "docs/wire.md", "pyproject.toml", "src/speech_service/__main__.py", "src/speech_service/audio_response.py", "src/speech_service/cuda_libs.py", "src/speech_service/failures.py", "src/speech_service/hearing.py", "src/speech_service/live_session.py", "src/speech_service/provider_process.py", "src/speech_service/service.py", "src/speech_service/voice_slot.py", "src/speech_service/wire_route.py", "tests/test_failures.py", "tests/test_live_session_log.py", "tests/test_main.py", "tests/test_main_logging.py", "tests/test_provider_process.py", "tests/test_provider_process_start.py", "tests/test_voice_slot_load.py", "tests/test_wire_route.py", "uv.lock"]
+opened_commit = "3aae889b41e94dfb5bd33e7fcfd3d7ab0df90956"
+whole_reason = "Every service logger moves to logline's one setup in the same change; a split would leave two log shapes running side by side."
