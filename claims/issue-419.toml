@@ -3,5 +3,6 @@ agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
 role = "builder"
 base = "180e78814742dad24b2c18fcee74e84d5ea834a2"
 branch = "claude/issue-419-speech-stopped-callback"
-scope = ["docs/ARCHITECTURE.md", "packages/client/src/speech_client/utterances.py", "tests/test_wire_route_client_utterances.py"]
+scope = ["docs/ARCHITECTURE.md", "packages/client/src/speech_client/utterances.py", "packages/client/tests/test_hearing_loggers.py", "packages/client/tests/test_utterances.py", "tests/test_service_drain.py", "tests/test_wire_route_client_utterances.py"]
 opened_commit = "63fb86293e1b45235e7bb859ce6cb415fbcae526"
+whole_reason = "One optional callback in hear_utterances; the three further test files only follow its changed internal signature."
