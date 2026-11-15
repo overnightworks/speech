@@ -27,7 +27,7 @@ from webauth.policies import SecurityHeadersPolicy, default_content_security_pol
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
-from speech_client.hearing import HearingSession
+from speech_client.hearing import HearingSession, SessionTokens
 from speech_client.relay import HOP_FRAME_BYTES, relay
 from speech_client.speak import Spoken, speak
 from speech_client.wire import (
@@ -105,6 +105,10 @@ class AppSide:
         """A side with a fresh token pair for its session."""
         pair = valid_pair()
         return cls(tokens=(pair.workload, pair.person))
+
+    async def token_source(self) -> SessionTokens:
+        """This side's tokens as the token source of its hearing session."""
+        return SessionTokens(*self.tokens)
 
     def record_request(self, path: str) -> None:
         """Note that the app's route `path` was asked."""
@@ -339,8 +343,7 @@ def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
     def new_session() -> HearingSession:
         return HearingSession(
             service_url,
-            workload_token=side.tokens[0],
-            person_token=side.tokens[1],
+            token_source=side.token_source,
             languages=(Language.EN,),
             deadline_seconds=SESSION_SECONDS,
             held_limit_bytes=HELD_LIMIT_BYTES,

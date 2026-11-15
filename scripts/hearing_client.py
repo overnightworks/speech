@@ -139,8 +139,7 @@ async def hear_live(
     pair = mint_pair(service.minting)
     async with HearingSession(
         service.base_url,
-        workload_token=pair.workload,
-        person_token=pair.person,
+        token_source=pair.tokens,
         languages=languages,
         deadline_seconds=question_seconds + LIVE_WAIT_SECONDS,
         held_limit_bytes=sum(map(len, frames)),
@@ -166,8 +165,7 @@ async def hear_upgrade(service: Service) -> HearingOutcome | None:
     pair = mint_pair(service.minting)
     async with HearingSession(
         service.base_url,
-        workload_token=pair.workload,
-        person_token=pair.person,
+        token_source=pair.tokens,
         languages=(Language.DE,),
         deadline_seconds=LIVE_WAIT_SECONDS,
         held_limit_bytes=0,

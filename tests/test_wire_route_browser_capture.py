@@ -228,8 +228,7 @@ async def _service_taken(stage: Stage) -> AsyncIterator[None]:
     other = AppSide.new()
     taking = HearingSession(
         stage.service_url,
-        workload_token=other.tokens[0],
-        person_token=other.tokens[1],
+        token_source=other.token_source,
         languages=(Language.EN,),
         deadline_seconds=WAIT_SECONDS,
         held_limit_bytes=HOP_FRAME_BYTES,

@@ -45,6 +45,7 @@ REALTIME_PATH: Final = "/v1/realtime"
 HEALTH_PATH: Final = "/health"
 REALTIME_INTENT_PARAM: Final = "intent"
 REALTIME_INTENT: Final = "transcription"
+DRAIN_CLOSE_CODE: Final = 1012  # the stopping service's close, with no `error` sent
 API_VERSION: Final = 1
 MODEL: Final = "speech"
 RETRY_AFTER_HEADER: Final = "Retry-After"

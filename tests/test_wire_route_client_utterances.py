@@ -83,8 +83,7 @@ def _app_host(service_url: str, hop: _Hop) -> FastAPI:
             await hear_utterances(
                 browser,
                 service_url,
-                workload_token=pair.workload,
-                person_token=pair.person,
+                token_source=pair.tokens,
                 languages=tuple(Language),
                 deadline_seconds=WAIT_SECONDS,
                 held_limit_bytes=HELD_LIMIT_BYTES,
@@ -111,8 +110,7 @@ async def _service_takes_a_session(service_url: str) -> bool:
     pair = valid_pair()
     async with HearingSession(
         service_url,
-        workload_token=pair.workload,
-        person_token=pair.person,
+        token_source=pair.tokens,
         languages=(Language.EN,),
         deadline_seconds=WAIT_SECONDS,
         held_limit_bytes=1,

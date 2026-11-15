@@ -11,9 +11,9 @@ and refusal records and these, so a caller matches one closed union per call:
 - `Unreachable`: the name did not resolve, no address accepted the connection, or
   the service did not open the session within the opening bound.
 
-`Busy` (the 429 and the wait the service asks for; the app decides to retry)
-is shared by `speak` and the hearing session only; `busy_wait` reads it
-from a response.
+`Busy` (the 429 and the wait the service asks for; the app decides to retry) is
+shared by `speak` and the hearing session only, which ends with it at its first
+opening; `busy_wait` reads it from a response.
 
 A timeout is `PastDeadline` before anything else, except the hearing session's
 opening bound, which is `Unreachable`; then a closed or reset

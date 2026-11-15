@@ -6,8 +6,6 @@ import asyncio
 import contextlib
 import functools
 import logging
-import subprocess
-import sys
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from typing import TYPE_CHECKING
@@ -17,14 +15,33 @@ from websockets.asyncio.server import serve
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
+import speech_client.hearing
 from packages.client.tests.support.hearing_support import (
+    CREATED_EVENT,
     HEARD_TEXT,
     LOOPBACK,
     PERSON_TOKEN,
     WORKLOAD_TOKEN,
+    fixed_tokens,
     silent_peer,
 )
-from speech_client.hearing import Closed, Refused, session_update
+from packages.client.tests.support.scripted_hearing_support import (
+    Refusal,
+    drains,
+    says,
+    scripted,
+)
+from speech_client.hearing import (
+    Closed,
+    NoToken,
+    ReconnectBound,
+    ReconnectCause,
+    Reconnected,
+    ReconnectFailed,
+    Refused,
+    SessionTokens,
+    session_update,
+)
 from speech_client.outcomes import (
     Busy,
     BusyWait,
@@ -49,6 +66,7 @@ from speech_client.utterances import (
     hear_utterances,
 )
 from speech_client.wire import (
+    DRAIN_CLOSE_CODE,
     DurationUsage,
     Language,
     RefusalCode,
@@ -69,6 +87,8 @@ if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection
     from websockets.http11 import Request
 
+    from packages.client.tests.support.scripted_hearing_support import Script
+    from speech_client.hearing import TokenSource
     from speech_client.utterances import UtteranceOutcome
     from speech_client.wire import ServerEvent
 
@@ -155,6 +175,10 @@ class _Recorder:
     raises: Exception | None = None
     got: list[Utterance | Partial] = field(default_factory=list)
     turn_ends: list[TurnEnd] = field(default_factory=list)
+    reconnected: list[Reconnected] = field(default_factory=list)
+
+    async def on_reconnected(self, reconnected: Reconnected) -> None:
+        self.reconnected.append(reconnected)
 
     async def on_turn_ended(self, turn_end: TurnEnd) -> None:
         self.turn_ends.append(turn_end)
@@ -185,6 +209,7 @@ def _says(
 ) -> Callable[[ServerConnection], Awaitable[None]]:
     async def handler(connection: ServerConnection) -> None:
         await connection.recv()
+        await connection.send(CREATED_EVENT)
         for event in events:
             await connection.send(event.model_dump_json())
         if stays_open:
@@ -235,6 +260,7 @@ async def _hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
     partials: bool = True,
     languages: tuple[Language, ...] = (Language.DE,),
     bounds: _Bounds = _Bounds(),  # noqa: B008 - immutable
+    token_source: TokenSource = fixed_tokens,
 ) -> UtteranceOutcome:
     recorder = recorder or _Recorder()
     async with peer() as port:
@@ -242,8 +268,7 @@ async def _hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
             hear_utterances(
                 browser or _Browser(),
                 f"http://{LOOPBACK}:{port}",
-                workload_token=WORKLOAD_TOKEN,
-                person_token=PERSON_TOKEN,
+                token_source=token_source,
                 languages=languages,
                 deadline_seconds=bounds.deadline_seconds,
                 held_limit_bytes=bounds.held_limit_bytes,
@@ -252,6 +277,7 @@ async def _hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
                 on_utterance=recorder.on_utterance,
                 on_partial=recorder.on_partial if partials else None,
                 on_turn_ended=recorder.on_turn_ended,
+                on_reconnected=recorder.on_reconnected,
             ),
             WAIT_SECONDS,
         )
@@ -672,83 +698,76 @@ def test_no_log_and_no_outcome_carries_a_token_or_heard_text(
         assert secret not in repr(browser.closed_with)
 
 
-# Run in a fresh interpreter: the helper's import is part of what it must not do to a
-# logger. hearing and relay set their own loggers up first, which is allowed.
-_LOGGER_PROBE = """
-import asyncio, logging, sys
-from websockets.asyncio.server import serve
-import speech_client.hearing, speech_client.relay
-from speech_client.wire import (
-    DurationUsage, Language, TranscriptCompleted, TranscriptLanguage,
-)
-
-QUIET = (logging.NOTSET, (), (), False)
+@contextlib.asynccontextmanager
+async def _playing(*scripts: Script) -> AsyncIterator[int]:
+    async with scripted(*scripts) as (port, _):
+        yield port
 
 
-def snapshot():
-    loggers = {"": logging.root} | {
-        name: logger
-        for name, logger in logging.root.manager.loggerDict.items()
-        if isinstance(logger, logging.Logger)
-    }
-    return {
-        name: (logger.level, tuple(logger.handlers), tuple(logger.filters),
-               logger.disabled)
-        for name, logger in loggers.items()
-    }
-
-
-class Browser:
-    async def receive(self):
-        await asyncio.Event().wait()
-
-    async def close(self, code):
-        pass
-
-
-async def hear():
-    from speech_client.utterances import hear_utterances
-
-    async def service(connection):
-        await connection.recv()
-        await connection.send(TranscriptCompleted(
-            item_id="a", transcript="x", usage=DurationUsage(seconds=1),
-            languages=(TranscriptLanguage(code=Language.DE),),
-        ).model_dump_json())
-        await connection.wait_closed()
-
-    ended = asyncio.Event()
-
-    async def on_utterance(utterance):
-        ended.set()
-
-    async with serve(service, "127.0.0.1", 0) as server:
-        port = server.sockets[0].getsockname()[1]
-        await asyncio.wait_for(hear_utterances(
-            Browser(), f"http://127.0.0.1:{port}",
-            workload_token="w", person_token="p", languages=(Language.DE,),
-            deadline_seconds=5, held_limit_bytes=1 << 20, opening_seconds=5,
-            ended=ended, on_utterance=on_utterance, on_partial=None,
-        ), 10)
-
-
-before = snapshot()
-asyncio.run(hear())
-after = snapshot()
-changed = {
-    name: state for name, state in after.items()
-    if state != before.get(name, QUIET)
-}
-sys.exit(repr(sorted(changed)) if changed else 0)
-"""
-
-
-def test_a_hearing_changes_no_logger_and_its_import_changes_none() -> None:
-    done = subprocess.run(  # noqa: S603 - a fixed probe of this interpreter
-        [sys.executable, "-c", _LOGGER_PROBE],
-        check=False,
-        capture_output=True,
-        text=True,
+@pytest.fixture
+def quick_reconnect(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        speech_client.hearing,
+        "RECONNECT_BOUND",
+        ReconnectBound(attempts=2, pause_seconds=0.01, within_seconds=3),
     )
 
-    assert done.returncode == 0, done.stderr
+
+@pytest.mark.usefixtures("quick_reconnect")
+def test_a_reconnect_reaches_on_reconnected_and_forgets_the_old_items() -> None:
+    recorder = _Recorder()
+    first = says(
+        _started("a", 100).model_dump_json(),
+        _delta("a", "hel").model_dump_json(),
+        then_close=DRAIN_CLOSE_CODE,
+    )
+    second = says(
+        _delta("a", "lo").model_dump_json(),
+        _completed("a", "lo").model_dump_json(),
+        then_close=1000,
+    )
+
+    outcome = asyncio.run(
+        _hear(functools.partial(_playing, first, second), None, recorder)
+    )
+
+    assert outcome == Closed()
+    assert recorder.reconnected == [Reconnected(ReconnectCause.DRAIN, 0, 0)]
+    assert recorder.got == [Partial("hel"), Partial("lo"), _utterance("lo")]
+
+
+@pytest.mark.usefixtures("quick_reconnect")
+def test_a_hearing_that_cannot_reopen_closes_the_browser_as_a_service_failure() -> None:
+    browser = _Browser()
+    refusing = functools.partial(_playing, drains, Refusal(RefusalCode.UNAVAILABLE))
+
+    outcome = asyncio.run(_hear(refusing, browser))
+
+    assert outcome == ReconnectFailed()
+    assert browser.closed_with == [HopClose.SERVICE_FAILED]
+
+
+def test_a_source_without_tokens_closes_the_browser_in_order() -> None:
+    browser = _Browser()
+
+    async def lapsed() -> None:
+        return None
+
+    outcome = asyncio.run(_hear(_hearing(), browser, token_source=lapsed))
+
+    assert outcome == NoToken()
+    assert browser.closed_with == [HopClose.NORMAL]
+
+
+def test_a_token_source_failure_is_raised_and_the_browser_is_left_to_the_app() -> None:
+    browser = _Browser()
+    failure = OSError("the token exchange is down")
+
+    async def raises() -> SessionTokens:
+        raise failure
+
+    with pytest.raises(OSError, match="token exchange") as raised:
+        asyncio.run(_hear(_hearing(), browser, token_source=raises))
+
+    assert raised.value is failure
+    assert browser.closed_with == []

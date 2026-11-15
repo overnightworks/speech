@@ -11,6 +11,7 @@ from speech_client.hearing import (
     Closed,
     HearingSession,
     Refused,
+    SessionTokens,
 )
 from speech_client.outcomes import OverCap, PastDeadline, Unreachable
 from speech_client.wire import (
@@ -49,10 +50,13 @@ def _session(
     held_limit_bytes: int = HELD_LIMIT_BYTES,
 ) -> HearingSession:
     pair = valid_pair()
+
+    async def tokens() -> SessionTokens:
+        return SessionTokens(workload_token or pair.workload, pair.person)
+
     return HearingSession(
         base_url,
-        workload_token=workload_token or pair.workload,
-        person_token=pair.person,
+        token_source=tokens,
         languages=(Language.EN,),
         deadline_seconds=deadline_seconds,
         held_limit_bytes=held_limit_bytes,

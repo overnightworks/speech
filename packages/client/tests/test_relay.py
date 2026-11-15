@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Self
 import pytest
 from websockets.asyncio.server import serve
 
+from packages.client.tests.support.hearing_support import fixed_tokens
 from speech_client.hearing import OPENING_SECONDS, Closed, HearingSession, Refused
 from speech_client.outcomes import (
     Busy,
@@ -473,8 +474,7 @@ def _stalled_hop(
 ) -> Awaitable[RelayOutcome]:
     session = HearingSession(
         service_url,
-        workload_token="workload",  # noqa: S106 - a scenario value
-        person_token="person",  # noqa: S106 - a scenario value
+        token_source=fixed_tokens,
         languages=(Language.EN,),
         deadline_seconds=30,
         held_limit_bytes=1,

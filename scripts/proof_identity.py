@@ -27,6 +27,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
 
+from speech_client.hearing import SessionTokens
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
@@ -74,6 +76,10 @@ class TokenPair:
 
     workload: str = field(repr=False)
     person: str = field(repr=False)
+
+    async def tokens(self) -> SessionTokens:
+        """This pair as the token source of a hearing session."""
+        return SessionTokens(self.workload, self.person)
 
 
 @dataclass(frozen=True)

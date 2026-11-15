@@ -16,9 +16,10 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
-from starlette.status import WS_1000_NORMAL_CLOSURE, WS_1012_SERVICE_RESTART
+from starlette.status import WS_1000_NORMAL_CLOSURE
 
 from speech_client.wire import (
+    DRAIN_CLOSE_CODE,
     AudioAppend,
     AudioCommit,
     AudioCommitted,
@@ -258,11 +259,9 @@ class LiveSession:
         if not self._scheduler.turn_open and not self._finals:
             self._ended = True
             self._cancel_decodes()
-            await self._close(WS_1012_SERVICE_RESTART)
+            await self._close(DRAIN_CLOSE_CODE)
         elif self._hearing.drain_left(self._final_wait_seconds) == 0:
-            await self._end_locked(
-                RefusalCode.UNAVAILABLE, close_code=WS_1012_SERVICE_RESTART
-            )
+            await self._end_locked(RefusalCode.UNAVAILABLE, close_code=DRAIN_CLOSE_CODE)
 
     async def on_disconnect(self) -> None:
         """The client left: cancel what is outstanding and send nothing."""

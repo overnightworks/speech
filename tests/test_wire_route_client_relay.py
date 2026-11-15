@@ -14,7 +14,7 @@ from fastapi import FastAPI, WebSocket
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed
 
-from speech_client.hearing import HearingSession
+from speech_client.hearing import HearingSession, SessionTokens
 from speech_client.outcomes import Busy
 from speech_client.relay import (
     AppEnded,
@@ -71,10 +71,12 @@ def _tokens() -> tuple[str, str]:
 
 
 def _session(service_url: str, tokens: tuple[str, str]) -> HearingSession:
+    async def source() -> SessionTokens:
+        return SessionTokens(*tokens)
+
     return HearingSession(
         service_url,
-        workload_token=tokens[0],
-        person_token=tokens[1],
+        token_source=source,
         languages=(Language.EN,),
         deadline_seconds=WAIT_SECONDS,
         held_limit_bytes=1024 * 1024,
