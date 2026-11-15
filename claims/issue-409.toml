@@ -1,0 +1,8 @@
+claim_id = "923a5ff1a28e4f9db1ab395e59e08d2f"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "7125ccebe15869449aa49aaf2c0b0e3a14d24d07"
+branch = "claude/issue-409-silence-setting"
+scope = ["README.md", "docs/wire.md", "scripts/hearing_figures.py", "src/speech_service", "tests"]
+opened_commit = "2753a11300533f8268c75e7f06ab599eeeb657d9"
+whole_reason = "One setting threads from the settings owner through the live session into the hearing session, with its pinning tests and two documents."
