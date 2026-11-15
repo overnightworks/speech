@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -474,11 +475,12 @@ def test_a_refused_upgrade_writes_its_session_line_in_the_callers_trace(
     assert line["trace_id"] == _CALLERS_TRACE_ID
 
 
-def test_a_session_writes_its_own_line_in_the_trace_of_the_upgrades_traceparent(
-    capsys: pytest.CaptureFixture[str],
+@pytest.mark.parametrize("sent", [_CALLERS_TRACEPARENT, "00-not-a-traceparent-01"])
+def test_a_session_writes_its_own_line_in_the_upgrades_trace_or_a_fresh_one(
+    sent: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """WIRE-149: an accepted session's own lines join the caller's trace."""
-    headers = {**valid_headers(), "traceparent": _CALLERS_TRACEPARENT}
+    """WIRE-149: a session joins the upgrade's trace; a malformed value starts one."""
+    headers = {**valid_headers(), "traceparent": sent}
     with (
         configured("speech"),
         _client().websocket_connect(URL, headers=headers) as socket,
@@ -488,4 +490,8 @@ def test_a_session_writes_its_own_line_in_the_trace_of_the_upgrades_traceparent(
         assert socket.receive_json()["type"] == "error"
 
     (line,) = _session_lines(capsys)
-    assert line["trace_id"] == _CALLERS_TRACE_ID
+    if sent == _CALLERS_TRACEPARENT:
+        assert line["trace_id"] == _CALLERS_TRACE_ID
+    else:
+        assert re.fullmatch("[0-9a-f]{32}", str(line["trace_id"]))
+        assert line["trace_id"] != _CALLERS_TRACE_ID
