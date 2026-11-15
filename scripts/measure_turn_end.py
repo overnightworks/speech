@@ -756,18 +756,27 @@ def measure_language(
     return report_language(language, len(recordings), sentences, measured)
 
 
+def positive_count(text: str) -> int:
+    """Parse a command line count that must be at least one."""
+    count = int(text)
+    if count < 1:
+        message = f"{text} is not a positive count"
+        raise argparse.ArgumentTypeError(message)
+    return count
+
+
 def main() -> None:
     """Measure both languages and print the report."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--recordings-per-language",
-        type=int,
+        type=positive_count,
         default=300,
         help="how many one-sentence recordings to hear per language",
     )
     parser.add_argument(
         "--transcribed-per-language",
-        type=int,
+        type=positive_count,
         default=100,
         help=(
             "how many of their sentences the detector of words judges: each of its"
