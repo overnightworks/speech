@@ -504,23 +504,26 @@ def _sent_traceparents(request: bytes) -> list[str]:
     ids=["speak", "speak-stream"],
 )
 @pytest.mark.parametrize("trace", ["caller's", "ambient", "none"])
-def test_a_speaking_call_sends_the_callers_traceparent_or_the_ambient_one_or_none(
+def test_a_speaking_call_sends_the_callers_traceparent_over_the_ambient_one_or_none(
     call: Callable[[str, str | None], object], trace: str, raw_listener: RawListener
 ) -> None:
-    """WIRE-149: the header is the caller's, else the running trace's, else absent."""
+    """WIRE-149: the header is the caller's, else the running trace's, else absent.
+
+    The caller's is given inside a running trace, which it must win over.
+    """
     given = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
     with raw_listener(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b"")) as (
         base_url,
         requests,
     ):
-        if trace == "ambient":
+        if trace == "none":
+            call(base_url, None)
+            expected = []
+        else:
             with unit_trace(None):
                 ambient = current_traceparent()
-                call(base_url, None)
-            expected = [ambient]
-        else:
-            call(base_url, given if trace == "caller's" else None)
-            expected = [given] if trace == "caller's" else []
+                call(base_url, given if trace == "caller's" else None)
+            expected = [given if trace == "caller's" else ambient]
 
     (request,) = requests
     assert _sent_traceparents(request) == expected
