@@ -388,7 +388,7 @@ def test_request_failure_is_sanitized_and_marks_the_adapter_unready(
     engine = _engine(tmp_path)
     engine.load()
     with (
-        caplog.at_level(logging.ERROR),
+        caplog.at_level(logging.WARNING),
         pytest.raises(RuntimeError, match=SYNTHESIS_FAILED),
     ):
         list(engine.pcm_chunks("failed", "de"))

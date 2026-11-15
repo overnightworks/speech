@@ -235,6 +235,29 @@ def test_a_caller_without_tokens_is_told_so_before_anything_else(
     assert response.headers[AUTHENTICATE_HEADER] == "Bearer"
 
 
+@pytest.mark.parametrize(
+    ("engine", "headers", "reason"),
+    [
+        (FakeHearing(), {}, RefusalCode.UNAUTHORIZED),
+        (None, None, RefusalCode.UNAVAILABLE),
+    ],
+    ids=["unauthorized", "unavailable"],
+)
+def test_a_refused_transcription_writes_a_line_with_its_reason(
+    caplog: pytest.LogCaptureFixture,
+    engine: FakeHearing | None,
+    headers: dict[str, str] | None,
+    reason: RefusalCode,
+) -> None:
+    caplog.set_level(logging.INFO)
+    client = TestClient(hear_app(hear_runtime(engine)))
+
+    post_recording(client, multipart_body(), headers=headers)
+
+    (line,) = (r for r in caplog.records if r.getMessage() == "transcription.refused")
+    assert line.reason == reason.value
+
+
 def test_a_person_outside_the_service_group_is_forbidden() -> None:
     """WIRE-15, WIRE-98: a person outside the service group is forbidden."""
     pair = valid_pair()

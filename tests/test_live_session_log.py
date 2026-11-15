@@ -135,6 +135,24 @@ def test_a_failed_decode_ends_the_hearing_as_failed_with_the_error_type_alone(
     assert "exception" not in hearing
 
 
+def test_a_failed_decode_writes_one_error_line_the_hearing_line(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def scenario() -> None:
+        engine = FakeHearing()
+        engine.fail_transcription = True
+        session, socket = await started(loaded(engine, FakeClock()))
+        await commit_a_turn(session)
+        await socket.until_closed()
+
+    with configured("speech"):
+        asyncio.run(scenario())
+
+    written = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    errors = [line["event"] for line in written if line["level"] == "error"]
+    assert errors == [HEARING]
+
+
 def test_a_hearing_the_client_leaves_ends_as_cancelled(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

@@ -383,7 +383,7 @@ class LiveSession:
                     if refusal is not None:
                         final.hearing.refuse(refusal.value)
             except Exception as error:  # noqa: BLE001 - logged by type and never by message
-                log_failure(logger, "hearing.failed", error)
+                log_failure(logger, "hearing.failed", error, level=logging.WARNING)
                 refusal = RefusalCode.UNAVAILABLE
         if refusal is not None:
             await self._end(refusal)

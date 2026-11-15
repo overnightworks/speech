@@ -496,7 +496,7 @@ def _signal_group(group: int, signal_number: signal.Signals) -> None:
 
 
 def _log_synthesis_failure(request_id: int, payload: bytes) -> None:
-    logger.error(
+    logger.warning(
         "synthesis.failed",
         extra={"request_id": request_id, "cause": failure_cause(payload) or "none"},
     )
@@ -508,7 +508,7 @@ def _close_stderr(
     *,
     provider_failed: bool,
 ) -> None:
-    """Log how a provider ended, then close its startup stderr file.
+    """Log how a provider exited, then close its startup stderr file.
 
     A provider that never became ready has its stderr tail logged; one that
     was ready and then failed has only its exit status logged.
@@ -521,8 +521,8 @@ def _close_stderr(
         if not stderr.closed and child is not None:
             size = stderr.seek(0, os.SEEK_END)
             stderr.seek(max(0, size - _STDERR_TAIL_BYTES))
-            logger.error(
-                "provider.ended",
+            logger.warning(
+                "provider.exited",
                 extra={
                     "phase": "before_ready",
                     "exit_status": child.returncode,
@@ -530,8 +530,8 @@ def _close_stderr(
                 },
             )
         elif provider_failed and child is not None:
-            logger.error(
-                "provider.ended",
+            logger.warning(
+                "provider.exited",
                 extra={"phase": "after_ready", "exit_status": child.returncode},
             )
     finally:

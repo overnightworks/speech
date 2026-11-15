@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Final
 
 from logline import StepTimer, set_route
 from pydantic import BaseModel, ValidationError
@@ -69,8 +69,21 @@ _LEAVE_NOTICE_SECONDS: Final = 1.0
 class _Refusal(JSONResponse):
     """A refusal's answer, which keeps the code it answers with."""
 
-    def __init__(self, code: RefusalCode, **answer: Any) -> None:  # noqa: ANN401 - JSONResponse's own keywords
-        super().__init__(**answer)
+    def __init__(
+        self,
+        code: RefusalCode,
+        *,
+        content: dict[str, object],
+        status_code: int,
+        headers: dict[str, str] | None,
+        background: BackgroundTask | None,
+    ) -> None:
+        super().__init__(
+            content=content,
+            status_code=status_code,
+            headers=headers,
+            background=background,
+        )
         self.code = code
 
 
@@ -263,6 +276,12 @@ class _TranscriptionRoute:
 
     async def transcribe(self, request: Request) -> Response:
         set_route(request.scope, TRANSCRIPTIONS_PATH)
+        response = await self._transcribed(request)
+        if isinstance(response, _Refusal):
+            logger.info("transcription.refused", extra={"reason": response.code.value})
+        return response
+
+    async def _transcribed(self, request: Request) -> Response:
         refused = await self._hearing_refusal(request)
         if refused is not None:
             return refused

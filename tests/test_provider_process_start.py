@@ -175,7 +175,7 @@ def _ended_records(
     return [
         record
         for record in caplog.records
-        if record.getMessage() == "provider.ended" and phase in (None, record.phase)
+        if record.getMessage() == "provider.exited" and phase in (None, record.phase)
     ]
 
 
@@ -192,7 +192,7 @@ def test_provider_failing_to_import_logs_the_module_and_its_own_exit_status(
 ) -> None:
     engine = _provider(tmp_path, "import module_that_is_not_installed")
 
-    with caplog.at_level(logging.ERROR), pytest.raises(ProviderFailedError):
+    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError):
         engine.load()
     engine.close()
 
@@ -209,7 +209,7 @@ def test_provider_failing_to_load_the_model_logs_its_cause_and_a_reaped_status(
 ) -> None:
     engine = _provider(tmp_path, _CONTRACT_BODY.format(fail_load=True))
 
-    with caplog.at_level(logging.ERROR), pytest.raises(ProviderFailedError):
+    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError):
         engine.load()
     engine.close()
 
@@ -235,7 +235,7 @@ def test_a_root_cause_printed_before_a_long_traceback_reaches_the_log(
 ) -> None:
     engine = _provider(tmp_path, _failing_start_after_writing(20 * 1024))
 
-    with caplog.at_level(logging.ERROR), pytest.raises(ProviderFailedError):
+    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError):
         engine.load()
     engine.close()
 
@@ -249,7 +249,7 @@ def test_a_provider_writing_without_end_cannot_grow_the_log_without_limit(
     written = 1024 * 1024
     engine = _provider(tmp_path, _failing_start_after_writing(written))
 
-    with caplog.at_level(logging.ERROR), pytest.raises(ProviderFailedError):
+    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError):
         engine.load()
     engine.close()
 

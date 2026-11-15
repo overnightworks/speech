@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
+from logline.testing import configured
 from starlette.responses import StreamingResponse
 from starlette.status import (
     HTTP_200_OK,
@@ -865,3 +866,36 @@ def test_a_refused_unauthenticated_request_writes_a_speak_line_with_its_reason(
 
     (line,) = _speak_lines(caplog)
     assert (line.outcome, line.reason) == ("refused", RefusalCode.UNAUTHORIZED.value)
+
+
+def test_a_failed_speaking_writes_one_error_line_the_speak_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    _speak_collecting(speak_app(_FailingOnceSpeaking()))
+
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert [r.getMessage() for r in errors] == ["speak.ended"]
+    _assert_failure_logged_without_text(caplog, SpeakingFailedError())
+
+
+def test_the_speak_line_and_the_request_line_carry_the_trace_of_the_callers_traceparent(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
+    traceparent = f"00-{trace_id}-00f067aa0ba902b7-01"
+
+    with configured("speech"):
+        response = post_speech(
+            TestClient(speak_app()),
+            speak_body(),
+            headers={**valid_headers(), "traceparent": traceparent},
+        )
+
+    assert response.status_code == HTTP_200_OK
+    written = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    (speak,) = (line for line in written if line["event"] == "speak.ended")
+    (request,) = (line for line in written if line["event"] == "request.ended")
+    assert speak["trace_id"] == trace_id
+    assert request["route"] == SPEECH_PATH

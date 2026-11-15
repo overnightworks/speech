@@ -243,7 +243,12 @@ def audio_chunks(
     """
     with (
         step,
-        PayloadFreeFailure(logger, "speaking.failed", reraise_as=SpeakingFailedError),
+        PayloadFreeFailure(
+            logger,
+            "speaking.failed",
+            level=logging.WARNING,
+            reraise_as=SpeakingFailedError,
+        ),
     ):
         synthesis = speaking.pcm_chunks(
             request.input, request.spoken_language, request.instructions
