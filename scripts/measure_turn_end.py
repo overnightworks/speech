@@ -44,7 +44,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol
 
 import numpy as np
-import onnxruntime
 import soundfile
 from huggingface_hub import constants, hf_hub_download
 from threadpoolctl import threadpool_limits
@@ -55,6 +54,7 @@ from transformers import AutoTokenizer, WhisperFeatureExtractor
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "packages/client/src"))
 
+from onnx_session import one_thread_session
 from speech_client.wire import Language
 from speech_service.hearing import ScoreIdentifier, WhisperHearing
 from speech_service.hearing_models import HearingModel, fetch_model, voiced_floor
@@ -368,21 +368,12 @@ def hear_sentence(recording: Recording, hearing: WhisperHearing) -> Sentence | N
     return Sentence(recording.transcript, tuple(pauses), end, cut_by)
 
 
-def _one_thread_session(path: Path) -> onnxruntime.InferenceSession:
-    options = onnxruntime.SessionOptions()
-    options.intra_op_num_threads = 1
-    options.inter_op_num_threads = 1
-    return onnxruntime.InferenceSession(
-        str(path), sess_options=options, providers=["CPUExecutionProvider"]
-    )
-
-
 class SmartTurn:
     """Pipecat Smart Turn: judges the last seconds of a turn's audio."""
 
     def __init__(self, file: ModelFile) -> None:
         """Open the pinned model on one thread, as a service would hold it."""
-        self._session = _one_thread_session(file.fetch())
+        self._session = one_thread_session(file.fetch())
         self._features = WhisperFeatureExtractor(chunk_length=SMART_TURN_SECONDS)
         self.finished_score(bytes(SAMPLE_RATE * _BYTES_PER_SAMPLE))
 
@@ -414,7 +405,7 @@ class Namo:
 
     def __init__(self, file: ModelFile) -> None:
         """Open the pinned model on one thread, and its repository's tokenizer."""
-        self._session = _one_thread_session(file.fetch())
+        self._session = one_thread_session(file.fetch())
         self._tokenizer = AutoTokenizer.from_pretrained(
             file.repository, revision=file.revision
         )

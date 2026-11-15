@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import contextlib
 import csv
-import hashlib
 import importlib.util
 import io
 import shutil
@@ -21,10 +20,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol
 
 import numpy as np
-import onnxruntime
 import soundfile
 import soxr
 from huggingface_hub import hf_hub_download
+
+from onnx_session import one_thread_session
+from speech_service.piper_voices import sha256_of
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -34,7 +35,6 @@ if TYPE_CHECKING:
 type Samples = npt.NDArray[np.float32]
 
 SAMPLE_RATE: Final = 16_000
-_CHUNK_BYTES: Final = 1 << 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,15 +64,6 @@ class Tagger(Protocol):
         """Compare the model with its reference."""
 
 
-def _one_thread_session(path: Path) -> onnxruntime.InferenceSession:
-    options = onnxruntime.SessionOptions()
-    options.intra_op_num_threads = 1
-    options.inter_op_num_threads = 1
-    return onnxruntime.InferenceSession(
-        str(path), sess_options=options, providers=["CPUExecutionProvider"]
-    )
-
-
 def _labels_of(path: Path) -> tuple[str, ...]:
     with path.open(encoding="utf-8", newline="") as source:
         return tuple(row["display_name"] for row in csv.DictReader(source))
@@ -83,27 +74,19 @@ def hub_file(repository: str, name: str, revision: str, kind: str = "model") -> 
     return Path(hf_hub_download(repository, name, repo_type=kind, revision=revision))
 
 
-def _sha256_of(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        while chunk := source.read(_CHUNK_BYTES):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def fetch_pinned(cache: Path, url: str, name: str, sha256: str | None = None) -> Path:
     """The file at the https `url` in `cache`, downloaded once.
 
     A file with a `sha256` is held to it; a URL that names a commit needs none.
     """
     target = cache / name
-    if target.is_file() and (sha256 is None or _sha256_of(target) == sha256):
+    if target.is_file() and (sha256 is None or sha256_of(target) == sha256):
         return target
     cache.mkdir(parents=True, exist_ok=True)
     part = target.with_suffix(target.suffix + ".part")
     with urllib.request.urlopen(url, timeout=120) as response, part.open("wb") as out:  # noqa: S310 - pinned https
         shutil.copyfileobj(response, out)
-    if sha256 is not None and _sha256_of(part) != sha256:
+    if sha256 is not None and sha256_of(part) != sha256:
         part.unlink()
         message = f"{url} is not the pinned {sha256}"
         raise RuntimeError(message)
@@ -142,7 +125,7 @@ class Yamnet:
 
     def load(self) -> None:
         """Open the ONNX."""
-        self._session = _one_thread_session(self.files[0])
+        self._session = one_thread_session(self.files[0])
 
     def scores(self, window: Samples) -> npt.NDArray[np.float32]:
         """The scores of the one 0.975 s patch."""
@@ -335,7 +318,7 @@ class FrameMn:
 
     def load(self) -> None:
         """Open the ONNX."""
-        self._session = _one_thread_session(self.files[0])
+        self._session = one_thread_session(self.files[0])
 
     def scores(self, window: Samples) -> npt.NDArray[np.float32]:
         """Per label the highest score over the frames of the window."""
