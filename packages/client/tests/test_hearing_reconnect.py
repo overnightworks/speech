@@ -367,6 +367,28 @@ def test_a_deadline_below_the_reconnect_bound_wins() -> None:
     assert elapsed < AT_ONCE_SECONDS * 2
 
 
+def test_a_deadline_due_with_the_bound_during_a_pause_ends_reconnect_failed() -> None:
+    pausing_bound = ReconnectBound(attempts=5, pause_seconds=30, within_seconds=1)
+    deadline_seconds = 2
+
+    async def fails_into_the_pause(connection: ServerConnection, visit: Visit) -> None:
+        del visit
+        await connection.wait_closed()
+        # The client pauses now; the bound and the deadline are due in one pass.
+        skip_ahead(deadline_seconds + pausing_bound.within_seconds)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(hearing, "RECONNECT_BOUND", pausing_bound)
+        outcome = outcome_of(
+            drains,
+            fails_into_the_pause,
+            opening_seconds=0.2,
+            deadline_seconds=deadline_seconds,
+        )
+
+    assert outcome == ReconnectFailed()
+
+
 def test_leaving_during_a_reconnect_ends_the_session_closed_at_once() -> None:
     async def scenario() -> tuple[HearingOutcome | None, float]:
         tokens = Tokens(2)

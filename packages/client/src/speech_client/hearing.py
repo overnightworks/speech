@@ -527,7 +527,10 @@ class HearingSession:
     def _past_deadline(self, deadline_at: float) -> HearingOutcome:
         wire = self._wire
         if wire is None:
-            return PastDeadline()
+            # A pause ends at the reconnect bound; only a strictly smaller deadline wins
+            # against it.
+            bound_ran_out = self._opening_at(deadline_at) is None
+            return ReconnectFailed() if bound_ran_out else PastDeadline()
         # A deadline that cuts the polite close of an end keeps that end.
         if wire.ended is not None:
             return wire.ended
