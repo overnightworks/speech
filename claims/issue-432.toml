@@ -1,0 +1,8 @@
+claim_id = "b585c7fb2a2b4f9fa844f439afd82eb7"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "c9cd86604422dfd3acb153b5d74deaad73945c9f"
+branch = "claude/issue-432-logline-040"
+scope = ["pyproject.toml", "src/speech_service/__main__.py", "src/speech_service/live_session.py", "tests/test_live_session_log.py", "tests/test_main_logging.py", "uv.lock"]
+opened_commit = "7665caf774ab86ebf47a406ea9066d6ce7455445"
+whole_reason = "One dependency bump with its two call-site removals and the tests that pin them; splitting leaves a pin without its use."
