@@ -1,0 +1,8 @@
+claim_id = "195a0c4351d443a39de2d41ef16a1236"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "fe9d51c4e86add26f71babb656f17adec5495860"
+branch = "claude/issue-393-the-client-reopens-a-hearing-session-on"
+scope = ["docs/ARCHITECTURE.md", "docs/wire.md", "packages/client", "src/speech_service/live_session.py", "tests"]
+opened_commit = "bd9d81924ded95b4218e6181faa41fdf109e5fc1"
+whole_reason = "The reconnect is one change to the hearing session's run loop, its timeline, its outcome union and its reconnect record, with its two callers inside the client."
