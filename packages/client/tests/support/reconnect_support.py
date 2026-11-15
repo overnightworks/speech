@@ -114,6 +114,18 @@ def visits_and_outcome(
     return asyncio.run(scenario())
 
 
+def skip_ahead(seconds: float) -> None:
+    """Let the loop's next pass see its clock `seconds` on, and only that pass.
+
+    Every timer within `seconds` is due in that pass, together with the socket data
+    already waiting, which fixes how a bound and an event of one pass interleave.
+    """
+    loop = asyncio.get_running_loop()
+    clock = loop.time
+    loop.time = lambda: clock() + seconds  # type: ignore[method-assign]
+    loop.call_soon(lambda: delattr(loop, "time"))
+
+
 async def hear_through(session: HearingSession) -> None:
     async with session:
         async with asyncio.timeout(WHOLE_RUN_SECONDS):

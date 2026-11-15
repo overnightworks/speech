@@ -23,6 +23,7 @@ from packages.client.tests.support.reconnect_support import (
     Tokens,
     hear,
     outcome_of,
+    skip_ahead,
     visits_and_outcome,
 )
 from packages.client.tests.support.scripted_hearing_support import (
@@ -147,11 +148,12 @@ def test_a_failed_attempt_is_retried_until_the_hearing_goes_on(
     assert (visits, ended) == (4, Closed())
 
 
-def test_an_attempt_whose_opening_bound_expires_counts_as_failed() -> None:
-    async def stays_silent(connection: ServerConnection, visit: Visit) -> None:
-        del visit
-        await connection.wait_closed()
+async def stays_silent(connection: ServerConnection, visit: Visit) -> None:
+    del visit
+    await connection.wait_closed()
 
+
+def test_an_attempt_whose_opening_bound_expires_counts_as_failed() -> None:
     visits, ended = visits_and_outcome(
         drains, stays_silent, ends_in_order, opening_seconds=0.2
     )
@@ -203,9 +205,9 @@ def test_a_bound_expiring_as_session_created_arrives_counts_as_a_failed_attempt(
 
     async def opens_past_the_bound(connection: ServerConnection, visit: Visit) -> None:
         visit.update = str(await connection.recv())
-        # Blocks the loop, so the bound and the first event fall due together.
-        time.sleep(opening_seconds * 1.5)  # noqa: ASYNC251 - the blocking is the point
         await connection.send(CREATED_EVENT)
+        # The event waits in the client's socket while the bound falls due.
+        skip_ahead(opening_seconds * 2)
         await connection.wait_closed()
 
     async def scenario() -> tuple[
@@ -222,6 +224,30 @@ def test_a_bound_expiring_as_session_created_arrives_counts_as_a_failed_attempt(
 
     assert (visits, outcome) == (3, Closed())
     assert sum(isinstance(event, Reconnected) for event in events) == 1
+
+
+def test_a_deadline_falling_due_with_the_last_opening_bound_ends_reconnect_failed() -> (
+    None
+):
+    deadline_seconds = 1.5
+
+    async def stalls_past_both(connection: ServerConnection, visit: Visit) -> None:
+        visit.update = str(await connection.recv())
+        # Both bounds are due in the pass that follows, before the attempt ends.
+        skip_ahead(deadline_seconds + 0.1)
+        await connection.wait_closed()
+
+    silent_attempts = (stays_silent,) * (BOUND.attempts - 1)
+
+    visits, outcome = visits_and_outcome(
+        drains,
+        *silent_attempts,
+        stalls_past_both,
+        opening_seconds=0.2,
+        deadline_seconds=deadline_seconds,
+    )
+
+    assert (visits, outcome) == (1 + BOUND.attempts, ReconnectFailed())
 
 
 def test_the_last_failed_attempt_ends_the_hearing_without_a_pause() -> None:

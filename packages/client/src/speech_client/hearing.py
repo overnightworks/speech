@@ -520,9 +520,16 @@ class HearingSession:
             return wire.ended
         # Only a strictly smaller deadline wins against a pending opening bound.
         opening_at = wire.opening.when() if wire.opening is not None else None
-        if opening_at is not None and opening_at <= deadline_at:
+        if opening_at is None or opening_at > deadline_at:
+            return PastDeadline()
+        if self._interrupted is None:
             return Unreachable()
-        return PastDeadline()
+        # A reopening counts the attempt the bound ended, as when it wins alone.
+        now = asyncio.get_running_loop().time()
+        ended = self._ended_by(Unreachable(), wire, now)
+        if ended is None and self._opening_at(now) is None:
+            return ReconnectFailed()
+        return ended or PastDeadline()
 
     async def _reopening(
         self, end: asyncio.Future[HearingOutcome], started: float
