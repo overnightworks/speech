@@ -53,6 +53,7 @@ CONTENT_TYPE_HEADER: Final = "Content-Type"
 WORKLOAD_TOKEN_HEADER: Final = "Speech-Workload-Token"  # noqa: S105 - a header name and no secret
 AUTHORIZATION_HEADER: Final = "Authorization"
 AUTHENTICATE_HEADER: Final = "WWW-Authenticate"
+TRACEPARENT_HEADER: Final = "traceparent"
 
 RequestField = Literal[
     "file",
@@ -306,19 +307,31 @@ def speech_request_body(
     return request.model_dump_json().encode()
 
 
-def token_headers(*, workload_token: str, person_token: str) -> dict[str, str]:
-    """The app's token and the person's, for a request whose transport sets the type."""
+def token_headers(
+    *, workload_token: str, person_token: str, traceparent: str | None = None
+) -> dict[str, str]:
+    """The app's token and the person's, for a request whose transport sets the type.
+
+    A `traceparent` joins the service's lines to the caller's trace.
+    """
     return {
         WORKLOAD_TOKEN_HEADER: workload_token,
         AUTHORIZATION_HEADER: f"Bearer {person_token}",
+        **({} if traceparent is None else {TRACEPARENT_HEADER: traceparent}),
     }
 
 
-def speech_request_headers(*, workload_token: str, person_token: str) -> dict[str, str]:
+def speech_request_headers(
+    *, workload_token: str, person_token: str, traceparent: str | None = None
+) -> dict[str, str]:
     """The headers a caller posts with the body: the content type and both tokens."""
     return {
         CONTENT_TYPE_HEADER: "application/json",
-        **token_headers(workload_token=workload_token, person_token=person_token),
+        **token_headers(
+            workload_token=workload_token,
+            person_token=person_token,
+            traceparent=traceparent,
+        ),
     }
 
 
@@ -708,6 +721,7 @@ class TranscriptCompleted(_ServerEvent):
     transcript: str
     usage: DurationUsage
     languages: tuple[TranscriptLanguage]
+    traceparent: str | None = None
 
 
 class ItemFailure(BaseModel):

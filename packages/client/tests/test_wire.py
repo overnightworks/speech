@@ -2,6 +2,7 @@
 
 import json
 import traceback
+from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
@@ -10,6 +11,7 @@ from speech_client.wire import (
     AUTHORIZATION_HEADER,
     CONTENT_TYPE_HEADER,
     MODEL,
+    TRACEPARENT_HEADER,
     VOICES,
     WORKLOAD_TOKEN_HEADER,
     AudioAppend,
@@ -50,6 +52,9 @@ from speech_client.wire import (
     speech_request_headers,
     token_headers,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @pytest.mark.parametrize("field", ["file", "model", "language", "response_format"])
@@ -487,6 +492,21 @@ def test_the_speech_request_headers_are_the_token_headers_and_the_json_type() ->
     }
 
 
+@pytest.mark.parametrize("headers", [token_headers, speech_request_headers])
+def test_a_request_with_a_traceparent_carries_it_and_one_without_carries_none(
+    headers: Callable[..., dict[str, str]],
+) -> None:
+    tokens = {"workload_token": "app", "person_token": "person"}
+    traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+    assert headers(**tokens, traceparent=traceparent) == {
+        **headers(**tokens),
+        TRACEPARENT_HEADER: traceparent,
+    }
+    assert TRACEPARENT_HEADER not in headers(**tokens)
+    assert TRACEPARENT_HEADER not in headers(**tokens, traceparent=None)
+
+
 def _each_server_event() -> list[ServerEvent]:
     session = TranscriptionSession(type="transcription")
     return [
@@ -568,6 +588,26 @@ _DEEP = "[" * 100000 + "]" * 100000
 def test_a_malformed_server_event_is_refused(text: str) -> None:
     with pytest.raises(ServerEventError):
         parse_server_event(text)
+
+
+def test_a_completed_item_parses_with_and_without_a_traceparent() -> None:
+    traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    event = TranscriptCompleted(
+        item_id="item",
+        transcript="Wie",
+        usage=DurationUsage(seconds=1.0),
+        languages=(TranscriptLanguage(code=Language.DE),),
+        traceparent=traceparent,
+    )
+    older = json.loads(event.model_dump_json())
+    del older["traceparent"]
+
+    parsed = parse_server_event(event.model_dump_json())
+    assert isinstance(parsed, TranscriptCompleted)
+    assert parsed.traceparent == traceparent
+    undated = parse_server_event(json.dumps(older))
+    assert isinstance(undated, TranscriptCompleted)
+    assert undated.traceparent is None
 
 
 def test_a_completed_item_names_exactly_the_one_language_it_was_heard_in() -> None:

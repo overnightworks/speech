@@ -420,6 +420,7 @@ class LiveSession:
                 transcript=heard.text,
                 usage=DurationUsage(seconds=seconds),
                 languages=(TranscriptLanguage(code=heard.language),),
+                traceparent=final.traceparent,
             )
         )
         self._finals.popleft()

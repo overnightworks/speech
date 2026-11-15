@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 SPEECH_WINDOWS = 16
 WAIT = "turn_end_wait.ended"
 HEARING = "hearing.ended"
+TRANSCRIPT_COMPLETED = "conversation.item.input_audio_transcription.completed"
 Line = dict[str, object]
 
 
@@ -101,6 +102,33 @@ def test_every_turn_has_its_own_trace(capsys: pytest.CaptureFixture[str]) -> Non
     assert first_wait["trace_id"] == first_hearing["trace_id"]
     assert second_wait["trace_id"] == second_hearing["trace_id"]
     assert first_wait["trace_id"] != second_wait["trace_id"]
+
+
+def _trace_id_of(traceparent: object) -> str:
+    assert isinstance(traceparent, str)
+    version, trace_id, span_id, flags = traceparent.split("-")
+    assert (version, len(trace_id), len(span_id), len(flags)) == ("00", 32, 16, 2)
+    return trace_id
+
+
+def test_every_transcript_event_carries_the_traceparent_of_its_turns_trace(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    completed: list[dict[str, object]] = []
+
+    async def scenario() -> None:
+        session, socket = await started(loaded(FakeHearing(), FakeClock()))
+        for _ in range(2):
+            await one_question(session)
+            await session.settled()
+        completed.extend(socket.of_type(TRANSCRIPT_COMPLETED))
+
+    first_wait, first_hearing, second_wait, second_hearing = _drive(scenario, capsys)
+
+    first, second = (_trace_id_of(event["traceparent"]) for event in completed)
+    assert first == first_wait["trace_id"] == first_hearing["trace_id"]
+    assert second == second_wait["trace_id"] == second_hearing["trace_id"]
+    assert first != second
 
 
 def test_a_turn_writes_no_line_per_chunk(capsys: pytest.CaptureFixture[str]) -> None:

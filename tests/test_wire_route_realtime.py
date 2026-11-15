@@ -6,6 +6,7 @@ import logging
 
 import pytest
 from fastapi.testclient import TestClient
+from logline.testing import configured
 from starlette.status import (
     HTTP_200_OK,
     HTTP_400_BAD_REQUEST,
@@ -451,3 +452,38 @@ def test_a_refused_upgrade_writes_a_session_line_with_its_reason(
 
     (line,) = [r for r in caplog.records if r.getMessage() == "session.refused"]
     assert line.reason == RefusalCode.UNAUTHORIZED.value
+
+
+_CALLERS_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+_CALLERS_TRACEPARENT = f"00-{_CALLERS_TRACE_ID}-00f067aa0ba902b7-01"
+
+
+def _session_lines(capsys: pytest.CaptureFixture[str]) -> list[dict[str, object]]:
+    written = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    return [line for line in written if line["event"] == "session.refused"]
+
+
+def test_a_refused_upgrade_writes_its_session_line_in_the_callers_trace(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with configured("speech"):
+        _denied(_client(), headers={"traceparent": _CALLERS_TRACEPARENT})
+
+    (line,) = _session_lines(capsys)
+    assert line["trace_id"] == _CALLERS_TRACE_ID
+
+
+def test_a_session_writes_its_own_line_in_the_trace_of_the_upgrades_traceparent(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    headers = {**valid_headers(), "traceparent": _CALLERS_TRACEPARENT}
+    with (
+        configured("speech"),
+        _client().websocket_connect(URL, headers=headers) as socket,
+    ):
+        assert socket.receive_json()["type"] == "session.created"
+        socket.send_text("not an event")
+        assert socket.receive_json()["type"] == "error"
+
+    (line,) = _session_lines(capsys)
+    assert line["trace_id"] == _CALLERS_TRACE_ID
