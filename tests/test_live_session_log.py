@@ -178,6 +178,31 @@ def test_no_line_holds_the_heard_text(capsys: pytest.CaptureFixture[str]) -> Non
     assert HEARD_TEXT not in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("text", [HEARD_TEXT, ""], ids=["heard", "judged-no-speech"])
+def test_a_finished_utterance_writes_the_measures_of_its_decode_and_never_its_text(
+    capsys: pytest.CaptureFixture[str], text: str
+) -> None:
+    async def scenario() -> None:
+        engine = FakeHearing(text)
+        engine.measures = (0.1, -0.3)
+        await _one_question_heard(engine)
+
+    with configured("speech"):
+        asyncio.run(scenario())
+
+    written = capsys.readouterr().out
+    (measured,) = [
+        json.loads(line)
+        for line in written.splitlines()
+        if json.loads(line)["event"] == "hearing.measured"
+    ]
+    assert (measured["no_speech_prob"], measured["avg_logprob"]) == (0.1, -0.3)
+    assert measured["voiced_ms"] == pytest.approx(
+        SPEECH_WINDOWS * WINDOW_SECONDS * 1000, abs=1
+    )
+    assert HEARD_TEXT not in written
+
+
 def test_the_decode_of_a_turn_is_given_its_voiced_seconds() -> None:
     async def scenario() -> FakeHearing:
         engine = FakeHearing()

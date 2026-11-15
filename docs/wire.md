@@ -252,8 +252,11 @@ default) without speech, or at 30 s of audio, pre-roll included; the rest of the
 service drops all audio older than that pre-roll. **WIRE-67** A session holds at most two
 ended turns, both queued to be heard from their turn's end, and the open turn, so at most
 90 s of audio. The wire carries no confidence value; the service logs each finished
-utterance's duration, voiced seconds, no-speech probability and average log probability,
-never its text.
+utterance's audio and voiced milliseconds, no-speech probability and average log probability
+on a `hearing.measured` line, never its text. Each turn also writes `turn_end_wait.ended`
+(the wait that ended it) and `hearing.ended` (from its end to the transcript, with the
+`audio_end_ms` it ended at and the `silence_ms` that ended it), and each speak request writes
+`speak.ended` (with its `voice` and `first_output_ms`), all in the shape of logline.
 
 **Server events**, in the order one turn produces them:
 

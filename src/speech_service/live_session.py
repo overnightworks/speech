@@ -416,6 +416,16 @@ class LiveSession:
         )
         self._finals.popleft()
         final.emitted.set()
+        logger.info(
+            "hearing.measured",
+            extra={
+                "item_id": final.item_id,
+                "audio_ms": round(seconds * 1000),
+                "voiced_ms": round(final.voiced_seconds * 1000),
+                "no_speech_prob": heard.no_speech_prob,
+                "avg_logprob": heard.avg_logprob,
+            },
+        )
 
     async def _run_partial(self, future: Future[Heard], turn_number: int) -> None:
         try:
