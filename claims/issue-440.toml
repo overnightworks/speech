@@ -1,0 +1,7 @@
+claim_id = "69f25e70f0b64506b4a03c833ad651a2"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "bb7e331b090948626b9f65ce881aa15faa0ae560"
+branch = "claude/issue-440-release-host-pins"
+scope = [".github/workflows/release-distributions.yml", "scripts/check_release.py", "tests/scripts/test_check_release.py"]
+opened_commit = "0a3923bf1b7a9aaf812857fce7df62390541ba8c"
