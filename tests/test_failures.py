@@ -29,10 +29,12 @@ def _raised(error: Exception, cause: Exception | None = None) -> Exception:
 def _logged(caplog: pytest.LogCaptureFixture, error: Exception) -> str:
     logger = logging.getLogger("tests.failures")
     with caplog.at_level(logging.ERROR, logger=logger.name):
-        log_failure(logger, "speaking failed", error)
+        log_failure(logger, "speaking.failed", error)
     (record,) = caplog.records
     assert record.exc_text is None
-    return record.getMessage()
+    assert record.getMessage() == "speaking.failed"
+    assert record.error_type == type(error).__name__
+    return str(record.failure_chain)
 
 
 def test_every_link_and_every_frame_of_a_deep_chain_is_logged_outermost_first(
@@ -49,7 +51,6 @@ def test_every_link_and_every_frame_of_a_deep_chain_is_logged_outermost_first(
     message = _logged(caplog, error)
 
     lines = message.split("\n")
-    assert lines[0] == "speaking failed"
     labels = [line for line in lines if line.startswith("builtins.")]
     assert labels == [
         "builtins.RuntimeError",
@@ -76,7 +77,7 @@ def test_an_os_error_is_labelled_by_its_errno_alone(
 ) -> None:
     lines = _logged(caplog, _raised(error)).split("\n")
 
-    assert lines[1] == label
+    assert lines[0] == label
     assert _SENTENCE not in "\n".join(lines)
 
 
@@ -93,7 +94,7 @@ def test_an_error_code_is_labelled_only_when_it_is_a_bounded_int(
 
     lines = _logged(caplog, _raised(error)).split("\n")
 
-    assert lines[1] == f"builtins.RuntimeError{suffix}"
+    assert lines[0] == f"builtins.RuntimeError{suffix}"
 
 
 def test_control_characters_in_a_type_name_are_escaped(
@@ -104,5 +105,5 @@ def test_control_characters_in_a_type_name_are_escaped(
     message = _logged(caplog, _raised(kind(_SENTENCE)))
 
     lines = message.split("\n")
-    assert lines[1].endswith(".Broken\\tLine\\nName\\xe9")
+    assert lines[0].endswith(".Broken\\tLine\\nName\\xe9")
     assert all(" " <= character <= "~" for line in lines for character in line)

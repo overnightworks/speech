@@ -7,6 +7,7 @@ import logging
 import math
 from typing import TYPE_CHECKING, Final
 
+from logline import StepTimer, set_route
 from pydantic import BaseModel, ValidationError
 from python_multipart.exceptions import FormParserError
 from starlette.background import BackgroundTask
@@ -65,22 +66,51 @@ _BEARER_CHALLENGE: Final = "Bearer"
 _LEAVE_NOTICE_SECONDS: Final = 1.0
 
 
+class _Refusal(JSONResponse):
+    """A refusal's answer, which keeps the code it answers with."""
+
+    def __init__(
+        self,
+        code: RefusalCode,
+        *,
+        content: dict[str, object],
+        status_code: int,
+        headers: dict[str, str] | None,
+        background: BackgroundTask | None,
+    ) -> None:
+        super().__init__(
+            content=content,
+            status_code=status_code,
+            headers=headers,
+            background=background,
+        )
+        self.code = code
+
+
 def _refused(
     code: RefusalCode,
     param: RequestField | None = None,
     *,
     headers: dict[str, str] | None = None,
     background: BackgroundTask | None = None,
-) -> JSONResponse:
+) -> _Refusal:
     body = refusal(code, param)
     if code is RefusalCode.UNAUTHORIZED:
         headers = {**(headers or {}), AUTHENTICATE_HEADER: _BEARER_CHALLENGE}
-    return JSONResponse(
-        body.model_dump(mode="json"),
+    return _Refusal(
+        code,
+        content=body.model_dump(mode="json"),
         status_code=body.status,
         headers=headers,
         background=background,
     )
+
+
+def _ended_refused(step: StepTimer, refused: _Refusal) -> _Refusal:
+    """Write the step's line as refused for the code of `refused`, and hand it on."""
+    with step:
+        step.refuse(refused.code.value)
+    return refused
 
 
 def _refused_field(
@@ -95,7 +125,7 @@ def _refused_field(
     return None
 
 
-def _parse(raw: bytes) -> SpeechRequest | JSONResponse:
+def _parse(raw: bytes) -> SpeechRequest | _Refusal:
     try:
         return SpeechRequest.model_validate_json(raw)
     except ValidationError as error:
@@ -123,22 +153,25 @@ class _SpeechRoute:
         self._callers = callers
 
     async def speak(self, request: Request) -> Response:
+        set_route(request.scope, SPEECH_PATH)
+        received = StepTimer("speak.ended", logger)
         admitted = await self._callers.admit(request.headers)
         if isinstance(admitted, RefusalCode):
-            return _refused(admitted)
+            return _ended_refused(received, _refused(admitted))
         accepted = self._runtime.clock.now()
         parsed = await self._checked(request)
-        if isinstance(parsed, JSONResponse):
-            return parsed
+        if isinstance(parsed, _Refusal):
+            return _ended_refused(received, parsed)
+        step = StepTimer("speak.ended", logger, voice=parsed.voice.value)
         engine = await self._engine(parsed.voice, accepted)
-        if isinstance(engine, JSONResponse):
-            return engine
+        if isinstance(engine, _Refusal):
+            return _ended_refused(step, engine)
         speaking, deadline = engine
-        return await self._spoken(parsed, speaking, deadline)
+        return await self._spoken(parsed, speaking, deadline, step)
 
     async def _engine(
         self, voice: VoiceId, accepted: float
-    ) -> tuple[SpeakingEngine, float] | JSONResponse:
+    ) -> tuple[SpeakingEngine, float] | _Refusal:
         """The engine of `voice` and the deadline of its busy wait, or the refusal.
 
         The busy wait counts from the accepted tokens, or from the end of the
@@ -159,8 +192,9 @@ class _SpeechRoute:
         request: SpeechRequest,
         speaking: SpeakingEngine,
         deadline: float,
+        step: StepTimer,
     ) -> Response:
-        """The audio of `request` once its voice's gate is held."""
+        """The audio of `request` once its voice's gate is held; `step` ends with it."""
         voice = request.voice
         lease = await self._runtime.slots[voice].gate.acquire(
             deadline, self._settings.max_waiting_requests
@@ -168,16 +202,10 @@ class _SpeechRoute:
         if self._runtime.capture(voice) is not speaking:
             if lease is not None:
                 lease.close()
-            return self._unavailable()
+            return _ended_refused(step, self._unavailable())
         if lease is None:
-            return self._busy()
-        chunks = audio_chunks(
-            speaking,
-            request.input,
-            request.spoken_language,
-            request.instructions,
-            request.response_format,
-        )
+            return _ended_refused(step, self._busy())
+        chunks = audio_chunks(speaking, request, step)
         return ClosingAudioResponse(chunks, lease, request.response_format.media_type)
 
     async def _loaded(self, voice: VoiceId) -> SpeakingEngine | None:
@@ -193,25 +221,25 @@ class _SpeechRoute:
             return None
         return loaded
 
-    async def _checked(self, request: Request) -> SpeechRequest | JSONResponse:
+    async def _checked(self, request: Request) -> SpeechRequest | _Refusal:
         raw = await _read_within(request, self._settings.max_body_bytes)
         if raw is None:
             return _refused(RefusalCode.TOO_LARGE)
         parsed = _parse(raw)
-        if isinstance(parsed, JSONResponse):
+        if isinstance(parsed, _Refusal):
             return parsed
         if len(parsed.input) > self._settings.max_input_characters:
             return _refused(RefusalCode.INVALID_REQUEST, "input")
         return parsed
 
-    def _unavailable(self) -> JSONResponse:
+    def _unavailable(self) -> _Refusal:
         return _refused(
             RefusalCode.UNAVAILABLE,
             "voice",
             background=BackgroundTask(self._runtime.reconcile_failed_active),
         )
 
-    def _busy(self) -> JSONResponse:
+    def _busy(self) -> _Refusal:
         wait = max(1, math.ceil(self._settings.busy_wait_seconds))
         return _refused(RefusalCode.BUSY, headers={RETRY_AFTER_HEADER: str(wait)})
 
@@ -247,6 +275,13 @@ class _TranscriptionRoute:
         self._callers = callers
 
     async def transcribe(self, request: Request) -> Response:
+        set_route(request.scope, TRANSCRIPTIONS_PATH)
+        response = await self._transcribed(request)
+        if isinstance(response, _Refusal):
+            logger.info("transcription.refused", extra={"reason": response.code.value})
+        return response
+
+    async def _transcribed(self, request: Request) -> Response:
         refused = await self._hearing_refusal(request)
         if refused is not None:
             return refused
@@ -319,7 +354,7 @@ class _TranscriptionRoute:
         except UndecodableRecordingError:
             return _refused(RefusalCode.INVALID_REQUEST, "file")
         except Exception as error:  # noqa: BLE001 - logged by type and never by message
-            log_failure(logger, "hearing failed", error)
+            log_failure(logger, "hearing.failed", error)
             return _refused(RefusalCode.UNAVAILABLE)
         return JSONResponse(Transcription(text=text).model_dump())
 
@@ -348,7 +383,8 @@ class _RealtimeRoute:
 
     async def serve(self, websocket: WebSocket) -> None:
         place = await self._place(websocket)
-        if isinstance(place, JSONResponse):
+        if isinstance(place, _Refusal):
+            logger.info("session.refused", extra={"reason": place.code.value})
             await websocket.send_denial_response(place)
             return
         try:
@@ -387,7 +423,7 @@ class _RealtimeRoute:
             finally:
                 await session.on_disconnect()
 
-    async def _place(self, websocket: WebSocket) -> JSONResponse | Lease:
+    async def _place(self, websocket: WebSocket) -> _Refusal | Lease:
         """The refusal of the upgrade, or the lease on the session's place."""
         admitted = await self._callers.admit(websocket.headers)
         if isinstance(admitted, RefusalCode):

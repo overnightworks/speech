@@ -50,7 +50,8 @@ class TurnEnd:
     """A turn's 16 kHz audio, where it lay in the session and how much of it was speech.
 
     The audio starts a pre-roll before the speech; the milliseconds count the
-    session's audio, the dropped audio between turns included.
+    session's audio, the dropped audio between turns included. `silence_ms` is
+    the silence that ended the turn, `0` for a turn another end cut.
     """
 
     pcm: bytes
@@ -59,6 +60,7 @@ class TurnEnd:
     voiced_seconds: float
     by_client: bool
     by_drain: bool = False
+    silence_ms: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +142,11 @@ class HearingSession:
             return None
         return self._end(self._held_end, by_client=False, by_drain=True)[0]
 
+    @property
+    def silent(self) -> bool:
+        """Whether the open turn's latest windows are silence, the wait for its end."""
+        return self._speaking and self._silent_windows > 0
+
     def partial_due(self) -> OpenTurn | None:
         """The open turn's audio when a partial is due, else `None`."""
         samples = len(self._pcm) // _BYTES_PER_SAMPLE
@@ -210,7 +217,10 @@ class HearingSession:
         if end - self._held_from >= _MAX_TURN_SAMPLES:
             return self._end(self._held_from + _MAX_TURN_SAMPLES, by_client=False)
         if self._silent_windows >= self._silent_windows_to_end:
-            return self._end(end, by_client=False)
+            silence_ms = (
+                self._silent_windows * WINDOW_SAMPLES // _SAMPLES_PER_MILLISECOND
+            )
+            return self._end(end, by_client=False, silence_ms=silence_ms)
         return []
 
     def _drop_before(self, sample: int) -> None:
@@ -222,7 +232,12 @@ class HearingSession:
             self._waiting_voiced.popleft()
 
     def _end(
-        self, end: int, *, by_client: bool, by_drain: bool = False
+        self,
+        end: int,
+        *,
+        by_client: bool,
+        by_drain: bool = False,
+        silence_ms: int = 0,
     ) -> list[TurnEnd]:
         start = self._held_from
         size = (end - start) * _BYTES_PER_SAMPLE
@@ -249,5 +264,6 @@ class HearingSession:
                 voiced_seconds,
                 by_client,
                 by_drain,
+                silence_ms,
             )
         ]

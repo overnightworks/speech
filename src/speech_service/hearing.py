@@ -404,13 +404,15 @@ class Hearing:
         try:
             engine.load()
         except ResourceUnavailableError:
-            logger.exception("hearing model %s is unavailable", engine.model_name)
+            logger.exception(
+                "hearing_model.unavailable", extra={"model": engine.model_name}
+            )
         except Exception:
-            logger.exception("hearing model %s failed to load", engine.model_name)
+            logger.exception("hearing_model.failed", extra={"model": engine.model_name})
             misconfigured = True
         else:
             self._ready = engine
-            logger.info("hearing model %s ready", engine.model_name)
+            logger.info("hearing_model.ready", extra={"model": engine.model_name})
             return
         engine.close()
         if misconfigured:

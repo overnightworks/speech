@@ -42,12 +42,8 @@ _COMMAND_WAIT_SECONDS = 0.25
 _READ_SIZE = 64 * 1024
 # A failed vLLM-Omni start prints about 11 KiB: the root cause, then a long traceback.
 _STDERR_TAIL_BYTES = 64 * 1024
-ENDED_BEFORE_READY = "speech provider ended before ready"
-"""The record that opens the log of a provider that ended before it was ready."""
-ENDED_AFTER_READY = "speech provider ended after ready"
-"""The record of a provider that was ready and then ended through a failure."""
 SYNTHESIS_FAILED = "speech provider synthesis failed"
-"""The message of a failed synthesis and the record of the cause it carries."""
+"""The message of a failed synthesis."""
 _WORKER_DIRECTORY_PREFIX = "speech-provider-"
 """The name prefix of each worker's private directory in the temporary directory.
 
@@ -271,7 +267,7 @@ class ProviderProcess:
                 self._set_failed()
                 provider_failed = True
         except Exception:
-            logger.exception("speech provider owner thread failed")
+            logger.exception("provider_owner.failed")
             lifecycle_failed = True
             self._set_failed()
         finally:
@@ -279,19 +275,19 @@ class ProviderProcess:
             try:
                 self._terminate_and_reap(child)
             except Exception:
-                logger.exception("speech provider cleanup failed")
+                logger.exception("provider_cleanup.failed")
                 lifecycle_failed = True
                 self._cleanup_failed = True
             if scratch is not None:
                 try:
                     scratch.cleanup()
                 except Exception:
-                    logger.exception("speech provider scratch cleanup failed")
+                    logger.exception("provider_scratch_cleanup.failed")
             if stderr is not None:
                 try:
                     _close_stderr(child, stderr, provider_failed=provider_failed)
                 except Exception:
-                    logger.exception("speech provider stderr cleanup failed")
+                    logger.exception("provider_stderr_cleanup.failed")
             with self._state_lock:
                 self._process = None
                 self._response_decoder = None
@@ -500,11 +496,9 @@ def _signal_group(group: int, signal_number: signal.Signals) -> None:
 
 
 def _log_synthesis_failure(request_id: int, payload: bytes) -> None:
-    logger.error(
-        "%s, request %d, cause: %s",
-        SYNTHESIS_FAILED,
-        request_id,
-        failure_cause(payload) or "none",
+    logger.warning(
+        "synthesis.failed",
+        extra={"request_id": request_id, "cause": failure_cause(payload) or "none"},
     )
 
 
@@ -514,7 +508,7 @@ def _close_stderr(
     *,
     provider_failed: bool,
 ) -> None:
-    """Log how a provider ended, then close its startup stderr file.
+    """Log how a provider exited, then close its startup stderr file.
 
     A provider that never became ready has its stderr tail logged; one that
     was ready and then failed has only its exit status logged.
@@ -527,14 +521,19 @@ def _close_stderr(
         if not stderr.closed and child is not None:
             size = stderr.seek(0, os.SEEK_END)
             stderr.seek(max(0, size - _STDERR_TAIL_BYTES))
-            logger.error(
-                "%s, exit status %s, stderr tail:\n%s",
-                ENDED_BEFORE_READY,
-                child.returncode,
-                stderr.read().decode("utf-8", errors="replace"),
+            logger.warning(
+                "provider.exited",
+                extra={
+                    "phase": "before_ready",
+                    "exit_status": child.returncode,
+                    "stderr_tail": stderr.read().decode("utf-8", errors="replace"),
+                },
             )
         elif provider_failed and child is not None:
-            logger.error("%s, exit status %s", ENDED_AFTER_READY, child.returncode)
+            logger.warning(
+                "provider.exited",
+                extra={"phase": "after_ready", "exit_status": child.returncode},
+            )
     finally:
         stderr.close()
 

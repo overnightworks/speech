@@ -10,12 +10,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-import threading
 from collections import deque
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
+from logline import StepTimer, current_traceparent, unit_trace
 from starlette.status import WS_1000_NORMAL_CLOSURE
 
 from speech_client.wire import (
@@ -60,13 +60,13 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
+    from speech_service.admission_gate import Lease
     from speech_service.hearing import Heard, Hearing, HearingEngine
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["POLL_WAIT_SECONDS", "LiveSession", "poll_forever"]
 
-_HEARING_FAILED: Final = "hearing failed"
 _PCM_BYTES_PER_SECOND: Final = 16_000 * BYTES_PER_SAMPLE
 _MAX_ENDED_TURNS: Final = 2
 
@@ -79,46 +79,20 @@ class _TurnEndedBy(StrEnum):
 
 
 @dataclass(slots=True)
-class _Partials:
-    """The partial decodes one turn ran: how many, and their decode time."""
-
-    count: int = 0
-    seconds: float = 0.0
-
-
-@dataclass(slots=True)
 class _Final:
+    """A turn's audio to decode.
+
+    `hearing` times it from the turn's end to the transcript. The final runs in its
+    own task, so it carries the turn's `traceparent` to re-enter.
+    """
+
     item_id: str
     pcm: bytes
     voiced_seconds: float
     deadline: float
-    ended_at: float
-    ended_by: _TurnEndedBy
-    partials: _Partials
-    decode_started_at: float = 0.0
-    decode_finished_at: float = 0.0
+    hearing: StepTimer
+    traceparent: str | None
     emitted: asyncio.Event = field(default_factory=asyncio.Event)
-    abandoned: bool = False
-    measures_logged: bool = False
-    # The decode's done callback runs on the worker, the abandon on the event loop.
-    guard: threading.Lock = field(default_factory=threading.Lock)
-
-    def abandon(self, future: Future[Heard]) -> None:
-        """Log the measures of a decode whose result will never be delivered."""
-        with self.guard:
-            self.abandoned = True
-            self._log_if_finished(future)
-
-    def log_if_abandoned(self, future: Future[Heard]) -> None:
-        with self.guard:
-            if self.abandoned:
-                self._log_if_finished(future)
-
-    def _log_if_finished(self, future: Future[Heard]) -> None:
-        if self.measures_logged or not future.done():
-            return
-        self.measures_logged = True
-        _log_decoded("live final undelivered", self.item_id, future)
 
 
 def _turn_ended_by(turn: TurnEnd) -> _TurnEndedBy:
@@ -128,28 +102,6 @@ def _turn_ended_by(turn: TurnEnd) -> _TurnEndedBy:
         return _TurnEndedBy.DRAIN
     reached_cap = len(turn.pcm) / _PCM_BYTES_PER_SECOND >= MAX_TURN_SECONDS
     return _TurnEndedBy.CAP if reached_cap else _TurnEndedBy.SILENCE
-
-
-def _measure(value: float | None) -> str:
-    return "none" if value is None else f"{value:.3f}"
-
-
-def _log_decoded(event: str, item_id: str, future: Future[Heard]) -> None:
-    """One line for a finished decode: its measures, never its text."""
-    if future.cancelled() or future.exception() is not None:
-        return
-    heard = future.result()
-    logger.info(
-        "%s item_id=%s no_speech_prob=%s avg_logprob=%s",
-        event,
-        item_id,
-        _measure(heard.no_speech_prob),
-        _measure(heard.avg_logprob),
-    )
-
-
-def _milliseconds(seconds: float) -> int:
-    return round(seconds * 1000)
 
 
 def _samples_of(encoded: str) -> bytes | None:
@@ -203,7 +155,7 @@ class LiveSession:
         self._turn_number = 0
         self._previous_words: list[str] = []
         self._sent_words = 0
-        self._partials = _Partials()
+        self._silence_wait: StepTimer | None = None
         self._finals: deque[_Final] = deque()
 
     async def start(self) -> None:
@@ -288,20 +240,8 @@ class LiveSession:
         except RuntimeError:
             await self._end_locked(RefusalCode.UNAVAILABLE)
             return
-        # On the worker, so a decode that finishes after the client left still logs.
-        item_id = self._open_item_id()
-        future.add_done_callback(
-            lambda done: _log_decoded("live partial decoded", item_id, done)
-        )
         self._scheduler.partial_started()
-        task = self._spawn(
-            self._run_partial(
-                future,
-                self._turn_number,
-                self._clock.now(),
-                self._partials,
-            )
-        )
+        task = self._spawn(self._run_partial(future, self._turn_number))
         task.add_done_callback(lambda _done: future.cancel())
 
     async def _on_update(self, event: SessionUpdate) -> None:
@@ -322,7 +262,23 @@ class LiveSession:
         self._audio_seen = True
         if self._hearing.draining:
             self._scheduler.stop_opening_turns()
-        await self._apply(self._scheduler.add(self._resampler.feed(raw)))
+        events = self._scheduler.add(self._resampler.feed(raw))
+        self._watch_silence(events)
+        await self._apply(events)
+
+    def _watch_silence(self, events: Sequence[SpeechStart | TurnEnd]) -> None:
+        """Time the wait for the open turn's end from the first silent audio on."""
+        if any(isinstance(event, TurnEnd) for event in events):
+            return
+        if not self._scheduler.silent:
+            self._silence_wait = None
+        elif self._silence_wait is None:
+            self._silence_wait = StepTimer(
+                "turn_end_wait.ended",
+                logger,
+                item_id=self._open_item_id(),
+                ended_by=_TurnEndedBy.SILENCE.value,
+            )
 
     async def _on_commit(self, event: AudioCommit) -> None:
         if self._hearing.draining:
@@ -366,26 +322,32 @@ class LiveSession:
 
     def _end_turn(self, turn: TurnEnd) -> tuple[list[BaseModel], bool]:
         """Queue the turn's final; return what to send and whether the queue is full."""
-        ended_at = self._clock.now()
-        deadline = ended_at + self._final_wait_seconds
+        deadline = self._clock.now() + self._final_wait_seconds
         item_id = self._open_item_id()
         self._open_item = None
         self._turn_number += 1
         self._previous_words = []
         self._sent_words = 0
-        partials, self._partials = self._partials, _Partials()
+        with unit_trace(None):
+            self._end_the_wait(item_id, _turn_ended_by(turn))
+            traceparent = current_traceparent()
         backlog = len(self._finals) == _MAX_ENDED_TURNS
         if not backlog:
-            ended_by = _turn_ended_by(turn)
+            hearing = StepTimer(
+                "hearing.ended",
+                logger,
+                item_id=item_id,
+                audio_end_ms=turn.end_ms,
+                silence_ms=turn.silence_ms,
+            )
             self._queue_final(
                 _Final(
                     item_id,
                     turn.pcm,
                     turn.voiced_seconds,
                     deadline,
-                    ended_at,
-                    ended_by,
-                    partials,
+                    hearing,
+                    traceparent,
                 )
             )
         previous, self._last_item = self._last_item, item_id
@@ -398,43 +360,52 @@ class LiveSession:
         )
         return outgoing, backlog
 
+    def _end_the_wait(self, item_id: str, ended_by: _TurnEndedBy) -> None:
+        """Write the line of the wait that ended the turn, in the turn's trace."""
+        waiting, self._silence_wait = self._silence_wait, None
+        if waiting is None or ended_by is not _TurnEndedBy.SILENCE:
+            waiting = StepTimer(
+                "turn_end_wait.ended", logger, item_id=item_id, ended_by=ended_by.value
+            )
+        waiting.__exit__(None, None, None)
+
     def _queue_final(self, final: _Final) -> None:
         ahead = self._finals[-1] if self._finals else None
         self._finals.append(final)
         self._spawn(self._run_final(final, ahead))
 
     async def _run_final(self, final: _Final, ahead: _Final | None) -> None:
-        lease = await self._hearing.gate.acquire_final(final.deadline)
-        if lease is None:
-            await self._end(RefusalCode.BUSY)
-            return
-        try:
-            final.decode_started_at = self._clock.now()
-            future = self._hearing.submit(
-                lease, self._transcription(final.pcm, final.voiced_seconds)
-            )
-        except Exception as error:  # noqa: BLE001 - logged by type and never by message
-            log_failure(logger, _HEARING_FAILED, error)
-            await self._end(RefusalCode.UNAVAILABLE)
-            return
-        # On the worker, so a decode that finishes after the session ended still logs.
-        future.add_done_callback(final.log_if_abandoned)
-        try:
-            await self._deliver_final(final, future, ahead)
-        except asyncio.CancelledError:
-            final.abandon(future)
-            raise
+        refusal: RefusalCode | None = None
+        decode_failure: Exception | None = None
+        with unit_trace(final.traceparent):
+            try:
+                async with final.hearing:
+                    lease = await self._hearing.gate.acquire_final(final.deadline)
+                    if lease is None:
+                        refusal = RefusalCode.BUSY
+                        final.hearing.refuse(refusal.value)
+                    else:
+                        try:
+                            heard = await self._decode(final, lease)
+                        except Exception as error:
+                            decode_failure = error
+                            raise
+                        await self._deliver(final, heard, ahead)
+            except Exception as error:
+                if error is not decode_failure:
+                    raise
+                log_failure(logger, "hearing.failed", error, level=logging.WARNING)
+                refusal = RefusalCode.UNAVAILABLE
+        if refusal is not None:
+            await self._end(refusal)
 
-    async def _deliver_final(
-        self, final: _Final, future: Future[Heard], ahead: _Final | None
-    ) -> None:
-        try:
-            heard = await asyncio.wrap_future(future)
-            final.decode_finished_at = self._clock.now()
-        except Exception as error:  # noqa: BLE001 - logged by type and never by message
-            log_failure(logger, _HEARING_FAILED, error)
-            await self._end(RefusalCode.UNAVAILABLE)
-            return
+    async def _decode(self, final: _Final, lease: Lease) -> Heard:
+        future = self._hearing.submit(
+            lease, self._transcription(final.pcm, final.voiced_seconds)
+        )
+        return await asyncio.wrap_future(future)
+
+    async def _deliver(self, final: _Final, heard: Heard, ahead: _Final | None) -> None:
         if ahead is not None:
             await ahead.emitted.wait()
         async with self._lock:
@@ -453,41 +424,22 @@ class LiveSession:
         )
         self._finals.popleft()
         final.emitted.set()
-        self._log_turn(final, seconds, heard)
-
-    def _log_turn(self, final: _Final, audio_seconds: float, heard: Heard) -> None:
-        """One line per finished utterance: timings and measures, never its text."""
         logger.info(
-            "live turn completed item_id=%s ended_by=%s audio_seconds=%.2f"
-            " voiced_seconds=%.2f no_speech_prob=%s avg_logprob=%s"
-            " wait_ms=%d decode_ms=%d completed_ms=%d"
-            " partial_count=%d partial_decode_ms=%d",
-            final.item_id,
-            final.ended_by.value,
-            audio_seconds,
-            final.voiced_seconds,
-            _measure(heard.no_speech_prob),
-            _measure(heard.avg_logprob),
-            _milliseconds(final.decode_started_at - final.ended_at),
-            _milliseconds(final.decode_finished_at - final.decode_started_at),
-            _milliseconds(self._clock.now() - final.ended_at),
-            final.partials.count,
-            _milliseconds(final.partials.seconds),
+            "hearing.measured",
+            extra={
+                "item_id": final.item_id,
+                "audio_ms": round(seconds * 1000),
+                "voiced_ms": round(final.voiced_seconds * 1000),
+                "no_speech_prob": heard.no_speech_prob,
+                "avg_logprob": heard.avg_logprob,
+            },
         )
 
-    async def _run_partial(
-        self,
-        future: Future[Heard],
-        turn_number: int,
-        started_at: float,
-        partials: _Partials,
-    ) -> None:
+    async def _run_partial(self, future: Future[Heard], turn_number: int) -> None:
         try:
             heard = await asyncio.wrap_future(future)
-            partials.count += 1
-            partials.seconds += self._clock.now() - started_at
         except Exception as error:  # noqa: BLE001 - logged by type and never by message
-            log_failure(logger, _HEARING_FAILED, error)
+            log_failure(logger, "hearing.failed", error)
             await self._end(RefusalCode.UNAVAILABLE)
             return
         async with self._lock:
@@ -533,6 +485,7 @@ class LiveSession:
         close_code: int = WS_1000_NORMAL_CLOSURE,
     ) -> None:
         """Fail every announced unfinished item, then send `error`, then close."""
+        logger.info("session.refused", extra={"reason": code.value})
         self._ended = True
         self._cancel_decodes()
         failure = item_failure(code)

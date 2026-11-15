@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
+from logline import RequestLineMiddleware
 
 from speech_service.service import Runtime, mount_health_route
 from speech_service.wire_route import mount_wire_routes
@@ -22,6 +23,7 @@ def create_control_app(
         redoc_url=None,
         openapi_url=None,
     )
+    app.add_middleware(RequestLineMiddleware)
     mount_health_route(app, runtime)
     mount_wire_routes(app, runtime, settings, callers)
     return app

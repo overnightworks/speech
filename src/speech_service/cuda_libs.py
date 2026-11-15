@@ -55,4 +55,4 @@ def prepare_cuda_libraries() -> None:
             try:
                 ctypes.CDLL(str(candidate), mode=ctypes.RTLD_GLOBAL)
             except OSError:
-                _LOG.debug("could not preload %s", candidate)
+                _LOG.debug("cuda_library.skipped", extra={"library": candidate.name})

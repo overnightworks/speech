@@ -388,14 +388,15 @@ def test_request_failure_is_sanitized_and_marks_the_adapter_unready(
     engine = _engine(tmp_path)
     engine.load()
     with (
-        caplog.at_level(logging.ERROR),
+        caplog.at_level(logging.WARNING),
         pytest.raises(RuntimeError, match=SYNTHESIS_FAILED),
     ):
         list(engine.pcm_chunks("failed", "de"))
     assert engine.ready is False
     engine.close()
 
-    assert f"{SYNTHESIS_FAILED}, request 1, cause: none" in caplog.text
+    (failed,) = (r for r in caplog.records if r.getMessage() == "synthesis.failed")
+    assert (failed.request_id, failed.cause) == (1, "none")
 
 
 @pytest.mark.parametrize(

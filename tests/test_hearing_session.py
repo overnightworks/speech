@@ -95,6 +95,32 @@ def test_a_turn_ends_once_the_silence_is_complete_and_not_a_window_before() -> N
     assert not ended.by_client
 
 
+def test_a_turn_ended_by_silence_names_that_silence_and_the_others_name_none() -> None:
+    session, _ = _session()
+    session.add(_speech(30))
+    (by_silence,) = _ends(session.add(_quiet(SILENT_WINDOWS)))
+    session.add(_speech(30))
+    by_client = session.commit()
+
+    assert by_silence.silence_ms == round(SILENT_WINDOWS * WINDOW_SECONDS * 1000)
+    assert by_client is not None
+    assert by_client.silence_ms == 0
+
+
+def test_the_turn_is_silent_from_its_first_quiet_window_until_speech_returns() -> None:
+    session, _ = _session()
+
+    session.add(_speech(30))
+    speaking = session.silent
+    session.add(_quiet(1))
+    waiting = session.silent
+    session.add(_speech(1))
+    resumed = session.silent
+    session.add(_quiet(SILENT_WINDOWS))
+
+    assert (speaking, waiting, resumed, session.silent) == (False, True, False, False)
+
+
 def test_a_turn_ends_after_the_configured_silence_and_not_the_default() -> None:
     longer = DEFAULT_LIVE_SILENCE_SECONDS * 3
     session = HearingSession(_Clock(), LevelDetector(), longer)

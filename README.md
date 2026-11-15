@@ -111,6 +111,8 @@ The process's own:
 | `SPEECH_HUGGINGFACE_CACHE` | the Hugging Face Hub cache | Where hearing's and Qwen's files are kept and fetched to |
 | `SPEECH_PROVIDER_ROOT` | none | Directory of the provider environments, `providers` in a checkout; a GPU voice needs it |
 | `SPEECH_LOAD_GPU_VOICES_AT_START` | `false` | `true` loads every offered GPU voice at start and holds `/health` not ready until it is loaded; the GPU image sets it |
+| `LOG_LEVEL` | `info` | The log level, `debug` to `critical`; logline reads it, and a malformed value stops the start |
+| `SERVICE_VERSION` | none | The `version` of every log line |
 
 ## Install as a dependency
 

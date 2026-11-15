@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 
 import pytest
 from fastapi.testclient import TestClient
@@ -439,3 +440,14 @@ def test_a_session_cancelled_twice_frees_its_place_and_hears_no_final() -> None:
 
     assert runtime.hearing.open_session(1) is not None
     assert gate_was_free_for_the_next_job
+
+
+def test_a_refused_upgrade_writes_a_session_line_with_its_reason(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    _denied(_client(), headers={})
+
+    (line,) = [r for r in caplog.records if r.getMessage() == "session.refused"]
+    assert line.reason == RefusalCode.UNAUTHORIZED.value

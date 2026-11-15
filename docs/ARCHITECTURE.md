@@ -112,10 +112,9 @@ flowchart LR
   floor counts voiced seconds. Hearing applies the recogniser's no-speech rule
   itself (a high no-speech probability together with a low average log
   probability): a decode that meets it adds no words, and every decode reports its two
-  measures all the same. The log line of each finished live turn holds the
-  duration, voiced seconds, no-speech probability and average log probability of
-  its decode, skipped or not (a partial decode logs its two measures on a line of
-  its own), and never its text. Hearing drops nothing that Silero calls a voice,
+  measures all the same. The `hearing.measured` line of each finished live turn
+  holds the audio and voiced milliseconds, no-speech probability and average log
+  probability of its decode, skipped or not, and never its text. Hearing drops nothing that Silero calls a voice,
   with one exception: a turn Silero opened whose decode meets the no-speech rule
   ends with no words, and no new confidence gate is added; a gate on the measures
   waits for a recorded corpus. The recording route has no turns and decodes the whole file under the
@@ -240,8 +239,19 @@ the old pod stops (a rolling update that never lowers the ready count).
 - Which issuer, group and apps count is configuration
   (`SPEECH_CONFIG_FILE`).
 - No token, subject or key-set address reaches a log, an error or a repr, and
-  no spoken or heard text reaches a log. Each live turn logs its timings, and
-  nothing it heard.
+  no spoken or heard text reaches a log.
+- Every log line is logline's JSON record under the service name `speech`: the
+  process configures logline once (Piper's loggers stay capped at ERROR, because
+  they log their input) and the control app carries its request middleware. The
+  process writes `process.started`, `process.ready` and `process.stopped`.
+  A live turn writes `turn_end_wait.ended` and `hearing.ended`, and a speak
+  request `speak.ended`, each with `duration_ms` and `outcome`, timed by
+  logline's step timer. A turn's lines share one trace the session starts at the
+  turn's end and re-enters in the task that hears it. A refusal writes its reason
+  (on the speak and transcription routes and at a realtime upgrade). A failed
+  step is one error line, its own; the failure chain before it is a warning.
+  Nothing is written per chunk or frame. The GPU provider child writes no
+  log stream of its own.
 - A provider's failed synthesis reaches the service log only as its types,
   errno names or numbers, int error codes and exit statuses, and code frames,
   escaped and at most 4 KB in its FAILED frame, and the provider's stderr

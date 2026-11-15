@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 import uvicorn
+from logline import configure
 from webauth.https_client import fetch_key_set_over_https
 
 from speech_service.callers import SpeechCallers
@@ -28,6 +29,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _CLOSE_GRACE_SECONDS: Final = 5.0
+_SERVICE_NAME: Final = "speech"
+_LOGGER = logging.getLogger(__name__)
 _USAGE_DESCRIPTION = "Serve the speech wire over TCP."
 _USAGE_EPILOG = (
     "Configuration comes from the SPEECH_* environment and the file named by "
@@ -49,20 +52,14 @@ class StopPolicy:
     abort: Callable[[int], object] = os._exit
 
 
-def configure_logging() -> None:
-    """Log at INFO and hold Piper back: it logs its input and phonemes below ERROR."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
-    logging.getLogger("piper").setLevel(logging.ERROR)
-
-
 def main() -> None:
     """Read one configuration and exit nonzero after a fatal lifecycle error."""
     _argument_parser().parse_args()
     settings = load_settings()
-    configure_logging()
+    configure(_SERVICE_NAME)
+    # Piper logs its input and phonemes below ERROR; `configure` holds no cap on it.
+    logging.getLogger("piper").setLevel(logging.ERROR)
+    _LOGGER.info("process.started")
     raise SystemExit(asyncio.run(serve(settings)))
 
 
@@ -99,8 +96,8 @@ async def serve(settings: Settings, stop: StopPolicy = StopPolicy()) -> int:  # 
     try:
         listener = bind_listener(settings)
     except OSError:
-        logging.getLogger(__name__).exception(
-            "speech service cannot listen on %s:%s", settings.host, settings.port
+        _LOGGER.exception(
+            "listener.failed", extra={"host": settings.host, "port": settings.port}
         )
         return 1
     with listener:
@@ -137,11 +134,10 @@ async def _serve_on(
             result = 0
         elif loader in done:
             if loader.exception() is not None:
-                logging.getLogger(__name__).error(
-                    "speech model loading failed", exc_info=loader.exception()
-                )
+                _LOGGER.error("model_load.failed", exc_info=loader.exception())
                 result = 1
             else:
+                _LOGGER.info("process.ready")
                 done, _pending = await asyncio.wait(
                     {server_task, stopped, fatal_task},
                     return_when=asyncio.FIRST_COMPLETED,
@@ -153,6 +149,7 @@ async def _serve_on(
         result = await _stop(
             _Stopping(runtime, server, server_task, loader, settings, stop), result
         )
+        _LOGGER.info("process.stopped", extra={"exit_code": result})
     return result
 
 
@@ -176,7 +173,6 @@ async def _stop(stopping: _Stopping, result: int) -> int:
     `policy.abort`.
     """
     runtime, policy = stopping.runtime, stopping.policy
-    log = logging.getLogger(__name__)
     loop = asyncio.get_running_loop()
     runtime.begin_shutdown()
     drain_left = runtime.hearing.drain_left(
@@ -184,7 +180,7 @@ async def _stop(stopping: _Stopping, result: int) -> int:
     )
     drain_ends = loop.time() + drain_left + policy.grace_seconds
     if not await _finished_within(runtime.abandon_loads, policy.grace_seconds):
-        log.warning("a voice load outlasted the stop")
+        _LOGGER.warning("voice_load.timed_out")
     if result == 0:
         await _until_sessions_end(runtime, drain_ends - loop.time())
     stopping.server.should_exit = True
@@ -194,7 +190,7 @@ async def _stop(stopping: _Stopping, result: int) -> int:
     try:
         closed = await _finished_within(runtime.close, policy.grace_seconds)
     except RuntimeError:
-        log.exception("speech model cleanup failed")
+        _LOGGER.exception("model_cleanup.failed")
         result, closed = 1, True
     ended, _running = await asyncio.wait(
         {stopping.server_task, stopping.loader}, timeout=policy.grace_seconds
@@ -204,7 +200,7 @@ async def _stop(stopping: _Stopping, result: int) -> int:
             task.exception()
     loading = not stopping.loader.done()
     if loading or not closed:
-        log.error("the engines or a model load outlasted the stop; the process ends")
+        _LOGGER.error("stop.timed_out")
         policy.abort(result)
     return result
 
@@ -215,7 +211,7 @@ async def _until_sessions_end(runtime: Runtime, seconds: float) -> None:
         async with asyncio.timeout(seconds):
             await runtime.hearing.sessions_ended()
     except TimeoutError:
-        logging.getLogger(__name__).warning("live hearing sessions outlasted the drain")
+        _LOGGER.warning("drain.timed_out")
 
 
 async def _finished_within(work: Callable[[], None], seconds: float) -> bool:
@@ -253,7 +249,7 @@ class _ServiceServer(uvicorn.Server):
 
 def build_server(app: object) -> uvicorn.Server:
     """Build the uvicorn server for the control application."""
-    return _ServiceServer(uvicorn.Config(app, log_level="info"))
+    return _ServiceServer(uvicorn.Config(app, log_config=None))
 
 
 def _require_config_file(settings: Settings) -> Path:

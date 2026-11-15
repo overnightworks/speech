@@ -11,7 +11,7 @@ ENV PATH=/opt/venv/bin:$PATH
 WORKDIR /app
 
 # uv and git exist only in this stage, because uv needs git to fetch the
-# git-pinned webauth; the final stage copies the environment and carries neither.
+# git-pinned webauth and logline; the final stage copies the environment and carries neither.
 FROM python-base AS dependencies
 COPY --from=uv /uv /usr/local/bin/uv
 # The interpreter is the image's own, so uv never downloads another one.
@@ -27,10 +27,11 @@ COPY packages/client/pyproject.toml packages/client/pyproject.toml
 COPY providers/provider-contract/pyproject.toml providers/provider-contract/pyproject.toml
 # Third-party packages are wheel-only: --no-build refuses a source distribution,
 # whose build script would run third-party code during the image build. The
-# repository's own distributions and the git-pinned webauth are sources and
+# repository's own distributions and the git-pinned webauth and logline are sources and
 # build in the next step, with the exact build tools their pyprojects pin.
 RUN uv sync --locked --no-dev --no-editable --no-install-project --no-build \
     --no-install-package overnightworks-webauth \
+    --no-install-package overnightworks-logline \
     --no-install-package overnightworks-speech-client \
     --no-install-package overnightworks-speech-provider-contract
 COPY packages/client/src packages/client/src
