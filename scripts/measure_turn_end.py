@@ -451,7 +451,7 @@ class LanguageModel:
 
     def __init__(self, file: ModelFile) -> None:
         """Open the pinned model on one thread, and read `READ_SENTENCES` once."""
-        self._session = _one_thread_session(file.fetch())
+        self._session = one_thread_session(file.fetch())
         self._tokenizer = AutoTokenizer.from_pretrained(
             file.repository, revision=file.revision
         )
