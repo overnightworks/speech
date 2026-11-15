@@ -1,88 +1,124 @@
-"""A finished live turn logs its timings and measures, never its text."""
+"""A live turn writes a line per step in one trace, and no line holds what was heard."""
 
 import asyncio
-import logging
+import json
 from typing import TYPE_CHECKING
 
 import pytest
+from logline.testing import configured
 
-from speech_client.wire import Language
-from speech_service.admission_gate import Lease
+from speech_client.wire import RefusalCode
 from speech_service.voice_activity import WINDOW_SECONDS
 from tests.support.clock_support import FakeClock
 from tests.support.hear_support import HEARD_TEXT, FakeHearing, loaded
 from tests.support.live_support import (
-    COMPLETED,
     WAIT_SECONDS,
     append,
     audio,
-    commit,
     commit_a_turn,
     one_question,
     started,
 )
 
 if TYPE_CHECKING:
-    from speech_service.hearing import HearingEngine
+    from collections.abc import Awaitable, Callable
+
 
 # Half a second of speech touches 16 windows.
 SPEECH_WINDOWS = 16
+WAIT = "turn_end_wait.ended"
+HEARING = "hearing.ended"
+Line = dict[str, object]
 
 
-def _marker(engine: HearingEngine) -> None:
-    engine.transcribe(b"\0\0", (Language.DE,))
+def _lines(capsys: pytest.CaptureFixture[str], *events: str) -> list[Line]:
+    written = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    return [line for line in written if line["event"] in events]
 
 
-def _timing_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
-    return [
-        record.getMessage()
-        for record in caplog.records
-        if record.getMessage().startswith("live turn completed")
-    ]
+def _drive(
+    scenario: Callable[[], Awaitable[None]], capsys: pytest.CaptureFixture[str]
+) -> list[Line]:
+    with configured("speech"):
+        asyncio.run(scenario())
+    return _lines(capsys, WAIT, HEARING)
 
 
-def test_a_completed_turn_logs_one_line_with_its_timings(
-    caplog: pytest.LogCaptureFixture,
+async def _one_question_heard(engine: FakeHearing, *, turns: int = 1) -> None:
+    session, _ = await started(loaded(engine, FakeClock()))
+    for _ in range(turns):
+        await one_question(session)
+        await session.settled()
+
+
+def test_a_turn_ended_by_silence_writes_its_wait_and_its_hearing_in_one_trace(
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    async def scenario() -> str:
-        engine = FakeHearing(hold=True)
-        clock = FakeClock()
-        hearing = loaded(engine, clock)
-        session, socket = await started(hearing, final_wait_seconds=WAIT_SECONDS)
-        await session.on_message(append(audio(0.5)))
-        await session.on_tick()
-        clock.jump(0.3)
-        engine.release.set()
-        await session.settled()
-        engine.release.clear()
-        engine.entered.clear()
-        running = hearing.gate.try_acquire()
-        assert running is not None
-        await session.on_message(commit())
-        await clock.until_a_wait_begins()
-        clock.jump(0.2)
-        running.close()
-        assert await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
-        clock.jump(0.5)
-        engine.release.set()
-        await session.settled()
-        return str(socket.of_type(COMPLETED)[0]["item_id"])
+    wait, hearing = _drive(lambda: _one_question_heard(FakeHearing()), capsys)
 
-    caplog.set_level(logging.INFO)
-
-    item_id = asyncio.run(scenario())
-
-    (line,) = _timing_lines(caplog)
-    assert line == (
-        f"live turn completed item_id={item_id} ended_by=client audio_seconds=0.50"
-        " voiced_seconds=0.48 no_speech_prob=none avg_logprob=none"
-        " wait_ms=200 decode_ms=500 completed_ms=700"
-        " partial_count=1 partial_decode_ms=300"
+    assert (wait["event"], wait["outcome"], wait["ended_by"]) == (WAIT, "ok", "silence")
+    assert (hearing["event"], hearing["outcome"]) == (HEARING, "ok")
+    assert wait["item_id"] == hearing["item_id"]
+    assert wait["trace_id"] is not None
+    assert wait["trace_id"] == hearing["trace_id"]
+    assert all(
+        isinstance(line["duration_ms"], float) and line["duration_ms"] >= 0
+        for line in (wait, hearing)
     )
 
 
-def test_a_failed_turn_logs_no_timings_and_none_of_the_heard_text(
-    caplog: pytest.LogCaptureFixture,
+def test_the_hearing_line_tells_when_the_person_stopped_and_what_silence_ended_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _wait, hearing = _drive(lambda: _one_question_heard(FakeHearing()), capsys)
+
+    assert isinstance(hearing["audio_end_ms"], int)
+    assert isinstance(hearing["silence_ms"], int)
+    assert hearing["silence_ms"] > 0
+    stopped_ms = hearing["audio_end_ms"] - hearing["silence_ms"]
+    assert stopped_ms == pytest.approx(SPEECH_WINDOWS * WINDOW_SECONDS * 1000, abs=40)
+
+
+def test_a_turn_the_client_ended_names_that_and_no_silence(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def scenario() -> None:
+        session, _ = await started(loaded(FakeHearing(), FakeClock()))
+        await commit_a_turn(session)
+        await session.settled()
+
+    wait, hearing = _drive(scenario, capsys)
+
+    assert wait["ended_by"] == "client"
+    assert hearing["silence_ms"] == 0
+
+
+def test_every_turn_has_its_own_trace(capsys: pytest.CaptureFixture[str]) -> None:
+    lines = _drive(lambda: _one_question_heard(FakeHearing(), turns=2), capsys)
+
+    first_wait, first_hearing, second_wait, second_hearing = lines
+    assert first_wait["trace_id"] == first_hearing["trace_id"]
+    assert second_wait["trace_id"] == second_hearing["trace_id"]
+    assert first_wait["trace_id"] != second_wait["trace_id"]
+
+
+def test_a_turn_writes_no_line_per_chunk(capsys: pytest.CaptureFixture[str]) -> None:
+    async def scenario() -> None:
+        session, _ = await started(loaded(FakeHearing(), FakeClock()))
+        for _ in range(20):
+            await session.on_message(append(audio(0.05)))
+        await session.on_message(append(audio(0.8, 0)))
+        await session.settled()
+
+    with configured("speech"):
+        asyncio.run(scenario())
+
+    written = [line["event"] for line in _lines(capsys, WAIT, HEARING)]
+    assert written == [WAIT, HEARING]
+
+
+def test_a_failed_decode_ends_the_hearing_as_failed_with_the_error_type_alone(
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     async def scenario() -> None:
         engine = FakeHearing()
@@ -91,29 +127,55 @@ def test_a_failed_turn_logs_no_timings_and_none_of_the_heard_text(
         await commit_a_turn(session)
         await socket.until_closed()
 
-    caplog.set_level(logging.DEBUG)
+    _wait, hearing = _drive(scenario, capsys)
 
-    asyncio.run(scenario())
+    assert hearing["outcome"] == "failed"
+    assert hearing["level"] == "error"
+    assert isinstance(hearing["error_type"], str)
+    assert "exception" not in hearing
 
-    assert _timing_lines(caplog) == []
-    assert HEARD_TEXT not in caplog.text
 
-
-def test_the_timing_line_holds_none_of_the_heard_text(
-    caplog: pytest.LogCaptureFixture,
+def test_a_hearing_the_client_leaves_ends_as_cancelled(
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     async def scenario() -> None:
+        engine = FakeHearing(hold=True)
+        session, _ = await started(loaded(engine, FakeClock()))
+        await one_question(session)
+        assert await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
+        await session.on_disconnect()
+        engine.release.set()
+
+    _wait, hearing = _drive(scenario, capsys)
+
+    assert hearing["outcome"] == "cancelled"
+
+
+def test_a_refused_session_writes_the_reason(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def scenario() -> None:
+        session, socket = await started(loaded(FakeHearing(), FakeClock()))
+        await session.on_message("not an event")
+        await socket.until_closed()
+
+    with configured("speech"):
+        asyncio.run(scenario())
+
+    (refused,) = _lines(capsys, "session.refused")
+    assert refused["reason"] == RefusalCode.INVALID_REQUEST.value
+
+
+def test_no_line_holds_the_heard_text(capsys: pytest.CaptureFixture[str]) -> None:
+    async def scenario() -> None:
         session, _ = await started(loaded(FakeHearing(), FakeClock()))
-        await commit_a_turn(session)
+        await one_question(session)
         await session.settled()
 
-    caplog.set_level(logging.DEBUG)
+    with configured("speech"):
+        asyncio.run(scenario())
 
-    asyncio.run(scenario())
-
-    (line,) = _timing_lines(caplog)
-    assert HEARD_TEXT not in line
-    assert HEARD_TEXT not in caplog.text
+    assert HEARD_TEXT not in capsys.readouterr().out
 
 
 def test_the_decode_of_a_turn_is_given_its_voiced_seconds() -> None:
@@ -127,105 +189,3 @@ def test_the_decode_of_a_turn_is_given_its_voiced_seconds() -> None:
     engine = asyncio.run(scenario())
 
     assert engine.heard_voiced[-1] == pytest.approx(SPEECH_WINDOWS * WINDOW_SECONDS)
-
-
-@pytest.mark.parametrize("text", [HEARD_TEXT, ""], ids=["heard", "judged-no-speech"])
-def test_the_timing_line_carries_the_measures_of_the_decode_and_never_its_text(
-    caplog: pytest.LogCaptureFixture, text: str
-) -> None:
-    async def scenario() -> None:
-        engine = FakeHearing(text)
-        engine.measures = (0.1, -0.3)
-        session, _ = await started(loaded(engine, FakeClock()))
-        await one_question(session)
-        await session.settled()
-
-    caplog.set_level(logging.INFO)
-
-    asyncio.run(scenario())
-
-    (logged,) = _timing_lines(caplog)
-    assert "no_speech_prob=0.100 avg_logprob=-0.300" in logged
-    assert "voiced_seconds=0.51" in logged
-    assert HEARD_TEXT not in caplog.text
-
-
-def test_a_partial_decode_logs_its_measures_and_never_its_text(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    async def scenario() -> None:
-        engine = FakeHearing()
-        engine.measures = (0.2, -0.4)
-        session, _ = await started(loaded(engine, FakeClock()))
-        await session.on_message(append(audio(0.5)))
-        await session.on_tick()
-        await session.settled()
-
-    caplog.set_level(logging.INFO)
-
-    asyncio.run(scenario())
-
-    (logged,) = [
-        record.getMessage()
-        for record in caplog.records
-        if record.getMessage().startswith("live partial decoded")
-    ]
-    assert "no_speech_prob=0.200 avg_logprob=-0.400" in logged
-    assert HEARD_TEXT not in caplog.text
-
-
-def test_a_partial_decoding_when_the_client_leaves_still_logs_its_measures(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    async def scenario() -> None:
-        engine = FakeHearing(hold=True)
-        engine.measures = (0.2, -0.4)
-        hearing = loaded(engine, FakeClock())
-        session, _ = await started(hearing)
-        await session.on_message(append(audio(0.5)))
-        await session.on_tick()
-        assert await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
-        await session.on_disconnect()
-        engine.release.set()
-        # The worker runs one job at a time, so the marker ends after the partial.
-        await asyncio.wrap_future(hearing.submit(Lease(lambda: None), _marker))
-
-    caplog.set_level(logging.INFO)
-
-    asyncio.run(scenario())
-
-    (logged,) = [
-        record.getMessage()
-        for record in caplog.records
-        if record.getMessage().startswith("live partial decoded")
-    ]
-    assert "no_speech_prob=0.200 avg_logprob=-0.400" in logged
-
-
-def test_a_final_decoding_when_the_client_leaves_still_logs_its_measures(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    async def scenario() -> None:
-        engine = FakeHearing(hold=True)
-        engine.measures = (0.2, -0.4)
-        hearing = loaded(engine, FakeClock())
-        session, _ = await started(hearing)
-        await one_question(session)
-        assert await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
-        await session.on_disconnect()
-        engine.release.set()
-        # The worker runs one job at a time, so the marker ends after the final.
-        await asyncio.wrap_future(hearing.submit(Lease(lambda: None), _marker))
-
-    caplog.set_level(logging.INFO)
-
-    asyncio.run(scenario())
-
-    (logged,) = [
-        record.getMessage()
-        for record in caplog.records
-        if record.getMessage().startswith("live final undelivered")
-    ]
-    assert "no_speech_prob=0.200 avg_logprob=-0.400" in logged
-    assert HEARD_TEXT not in caplog.text
-    assert _timing_lines(caplog) == []

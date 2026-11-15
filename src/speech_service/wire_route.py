@@ -364,7 +364,8 @@ class _RealtimeRoute:
 
     async def serve(self, websocket: WebSocket) -> None:
         place = await self._place(websocket)
-        if isinstance(place, JSONResponse):
+        if isinstance(place, _Refusal):
+            logger.info("session.refused", extra={"reason": place.code.value})
             await websocket.send_denial_response(place)
             return
         try:
@@ -403,7 +404,7 @@ class _RealtimeRoute:
             finally:
                 await session.on_disconnect()
 
-    async def _place(self, websocket: WebSocket) -> JSONResponse | Lease:
+    async def _place(self, websocket: WebSocket) -> _Refusal | Lease:
         """The refusal of the upgrade, or the lease on the session's place."""
         admitted = await self._callers.admit(websocket.headers)
         if isinstance(admitted, RefusalCode):
