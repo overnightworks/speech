@@ -669,13 +669,13 @@ def report(findings: Findings) -> tuple[list[str], Verdict]:
 
 
 def summary(verdicts: Mapping[str, Verdict]) -> list[str]:
-    """The Markdown lines naming the candidate that fits, or none."""
+    """The Markdown lines ending with the candidate that fits, or none."""
     fitting = [title for title, v in verdicts.items() if v is Verdict.FITS]
     pending = [title for title, v in verdicts.items() if v is Verdict.PENDING]
-    lines = ["## Summary", "", f"Fitting candidate: {', '.join(fitting) or 'none'}."]
+    lines = ["## Summary", ""]
     if pending:
-        lines.append(f"Not judged on every threshold yet: {', '.join(pending)}.")
-    return lines
+        lines += [f"Not judged on every threshold yet: {', '.join(pending)}.", ""]
+    return [*lines, f"Fitting candidate: {', '.join(fitting) or 'none'}."]
 
 
 def _positive_integer(text: str) -> int:
@@ -793,15 +793,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         verdicts = {tagger.title: verdict}
     if arguments.section:
         return
-    print("\n".join(summary(verdicts)), flush=True)
     if not arguments.operator_recordings:
         print(
             "The määp and own-echo rows need the operator's recordings: `systemd-run"
             " --user --scope -q -p MemoryMax=4G -- probe-run uv run"
             " scripts/probe_sound_detector.py --operator-recordings <directory with"
             f" {' and '.join(OPERATOR_DIRECTORIES)}> --candidates"
-            f" {' '.join(arguments.candidates)}`"
+            f" {' '.join(arguments.candidates)}`\n"
         )
+    print("\n".join(summary(verdicts)), flush=True)
 
 
 if __name__ == "__main__":
