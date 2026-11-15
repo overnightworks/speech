@@ -329,6 +329,19 @@ def _timeout_outcome(
     return Unreachable() if opening.expired() else _failure_outcome(timed_out)
 
 
+def accept_first_event(first_event: ServerEvent, *, bound_expired: bool) -> None:
+    """Accept the first event of an attempt as the opening of its session.
+
+    Raises `ServerEventError` for any first event but `session.created`, and
+    `TimeoutError` once the opening bound has expired: that attempt has failed even
+    with its `session.created` in hand, since the cancel the bound sent ends it.
+    """
+    if not isinstance(first_event, SessionCreated):
+        raise ServerEventError
+    if bound_expired:
+        raise TimeoutError
+
+
 def _left_under_cancellation(exception: BaseException | None) -> bool:
     # A cancel the caller's own code turned into another exception still counts.
     task = asyncio.current_task()
@@ -695,12 +708,7 @@ class HearingSession:
                 raise ServerEventError
             event = parse_server_event(message)
             if not wire.opened.is_set():
-                if not isinstance(event, SessionCreated):
-                    raise ServerEventError
-                # A bound that expires in this very pass has won: the cancel it
-                # sent ends the attempt as unopened, and rescheduling would raise.
-                if opening.expired():
-                    return
+                accept_first_event(event, bound_expired=opening.expired())
                 # The first event proves the session is open, before a slow caller
                 # can hold the queue.
                 opening.reschedule(None)

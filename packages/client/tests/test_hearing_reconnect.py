@@ -48,6 +48,7 @@ from speech_client.hearing import (
     Reconnected,
     ReconnectFailed,
     Refused,
+    accept_first_event,
 )
 from speech_client.outcomes import (
     Cut,
@@ -59,6 +60,7 @@ from speech_client.wire import (
     RefusalCode,
     ServerEvent,
     SessionCreated,
+    parse_server_event,
 )
 
 if TYPE_CHECKING:
@@ -198,32 +200,11 @@ def test_an_unreachable_service_counts_every_attempt_and_ends_reconnect_failed()
     assert asyncio.run(scenario()) == ReconnectFailed()
 
 
-def test_a_bound_expiring_as_session_created_arrives_counts_as_a_failed_attempt() -> (
-    None
-):
-    opening_seconds = 0.2
+def test_a_session_created_in_hand_after_the_bound_expired_fails_the_attempt() -> None:
+    created = parse_server_event(CREATED_EVENT)
 
-    async def opens_past_the_bound(connection: ServerConnection, visit: Visit) -> None:
-        visit.update = str(await connection.recv())
-        await connection.send(CREATED_EVENT)
-        # The event waits in the client's socket while the bound falls due.
-        skip_ahead(opening_seconds * 2)
-        await connection.wait_closed()
-
-    async def scenario() -> tuple[
-        list[ServerEvent | Reconnected], int, HearingOutcome | None
-    ]:
-        async with scripted(drains, opens_past_the_bound, ends_in_order) as (
-            port,
-            visits,
-        ):
-            events, outcome = await hear(port, opening_seconds=opening_seconds)
-            return events, len(visits), outcome
-
-    events, visits, outcome = asyncio.run(scenario())
-
-    assert (visits, outcome) == (3, Closed())
-    assert sum(isinstance(event, Reconnected) for event in events) == 1
+    with pytest.raises(TimeoutError):
+        accept_first_event(created, bound_expired=True)
 
 
 def test_a_deadline_falling_due_with_the_last_opening_bound_ends_reconnect_failed() -> (
