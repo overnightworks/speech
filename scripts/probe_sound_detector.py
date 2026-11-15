@@ -1,8 +1,9 @@
 """Measure, on CPU, which AudioSet sound tagger fits beside the service's voices.
 
 Three candidates run on one thread as ONNX: YAMNet, the sherpa-onnx zipformer
-small audio tagger (its 32-bit and 8-bit files) and PretrainedSED's frame_mn10.
-A candidate whose ONNX output differs from its reference is reported as excluded.
+small audio tagger (its 8-bit file, the one the publisher documents) and
+PretrainedSED's frame_mn10. A candidate whose ONNX output differs from its
+reference is reported as excluded.
 Per candidate the report holds:
 
 - CPU per hop at p95, alone and while two of the service's Piper voices speak and
@@ -19,7 +20,7 @@ Every model, checkpoint and clip is fetched by pinned revision into the cache
 directory or the Hugging Face cache, never into the repository. Load one
 candidate per process, as the added RSS is the process's growth: a run of several
 candidates starts one child process per candidate. The report is Markdown on
-standard output.
+standard output and ends with the candidate that fits every threshold, or none.
 
 Run it as `uv run scripts/probe_sound_detector.py --candidates yamnet`.
 """
@@ -70,6 +71,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
@@ -127,6 +129,7 @@ MIN_ECHO_MINUTES: Final = 30.0
 MIN_SPEECH_MINUTES: Final = 120.0
 MAX_ADDED_RSS_MEGABYTES: Final = 200.0
 
+VERDICT_PREFIX: Final = "Verdict: "
 RECORDING_SECONDS: Final = (8.0, 14.0)
 HEARING_ROUNDS: Final = 3
 PHASE_SECONDS: Final = 40.0
@@ -232,6 +235,11 @@ def hit_rate(peaks: npt.NDArray[np.float32], column: int, threshold: float) -> f
     return float((peaks[:, column] >= threshold).mean())
 
 
+def _rise(alone: Sequence[float], with_detector: Sequence[float]) -> float:
+    """How much the median hearing time rises with the detector running."""
+    return statistics.median(with_detector) / statistics.median(alone) - 1
+
+
 @dataclass(frozen=True, slots=True)
 class Contention:
     """The detector's hops and the hearing's times while two voices speak."""
@@ -239,12 +247,22 @@ class Contention:
     hops: tuple[HopCost, ...]
     hearing_alone: tuple[float, ...]
     hearing_with_detector: tuple[float, ...]
+    round_rises: tuple[float, ...]
 
     @property
     def rise(self) -> float:
-        """How much the median hearing time rises with the detector running."""
-        with_detector = statistics.median(self.hearing_with_detector)
-        return with_detector / statistics.median(self.hearing_alone) - 1
+        """How much the median hearing time rises over all rounds."""
+        return _rise(self.hearing_alone, self.hearing_with_detector)
+
+    @property
+    def too_noisy(self) -> bool:
+        """Whether machine load, not the detector, moves the hearing time.
+
+        The rounds measure the same rise; a spread wider than the threshold being
+        judged, or a hearing that gets faster with the detector, cannot be it.
+        """
+        spread = max(self.round_rises) - min(self.round_rises)
+        return spread > MAX_HEARING_RISE or self.rise < 0
 
 
 def _speak(voice: PiperSpeaking, texts: list[str], stop: threading.Event) -> None:
@@ -320,24 +338,29 @@ def measure_contention(
     windows = [
         w for clip in spread for w in windows_of(clip.samples, tagger.window_samples)
     ]
-    alone, with_detector, hops = [], [], []
+    alone, with_detector, hops, round_rises = [], [], [], []
     for speaker in speakers:
         speaker.start()
     _hear_times(hearing, recording, 1, 0.0)
     for _ in range(HEARING_ROUNDS):
-        alone += _hear_times(hearing, recording, runs, PHASE_SECONDS)
+        round_alone = _hear_times(hearing, recording, runs, PHASE_SECONDS)
         paused = threading.Event()
         detector = threading.Thread(
             target=_detect_paced, args=(tagger, windows, paused, hops), daemon=True
         )
         detector.start()
-        with_detector += _hear_times(hearing, recording, runs, PHASE_SECONDS)
+        round_with = _hear_times(hearing, recording, runs, PHASE_SECONDS)
         paused.set()
         detector.join()
+        alone += round_alone
+        with_detector += round_with
+        round_rises.append(_rise(round_alone, round_with))
     stop.set()
     for speaker in speakers:
         speaker.join()
-    return Contention(tuple(hops), tuple(alone), tuple(with_detector))
+    return Contention(
+        tuple(hops), tuple(alone), tuple(with_detector), tuple(round_rises)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,9 +412,39 @@ def _row(*cells: object) -> str:
     return "| " + " | ".join(str(cell) for cell in cells) + " |"
 
 
-def _rule(text: str, figure: str, *, ok: bool | None) -> str:
-    """One pass threshold, its figure and the verdict; `None` is not judged."""
-    return _row(text, figure, "-" if ok is None else "pass" if ok else "FAIL")
+class Verdict(StrEnum):
+    """What a candidate's pass thresholds add up to."""
+
+    FITS = "fits every threshold"
+    FAILS = "fails a threshold"
+    EXCLUDED = "excluded, its ONNX output differs from its reference"
+    PENDING = "fails none, but a threshold is not judged yet"
+
+
+@dataclass(frozen=True, slots=True)
+class Rule:
+    """One pass threshold, its figure and the verdict; `ok` None is not judged."""
+
+    text: str
+    figure: str
+    ok: bool | None
+
+    def row(self) -> str:
+        """The Markdown table row."""
+        return _row(
+            self.text,
+            self.figure,
+            "-" if self.ok is None else "pass" if self.ok else "FAIL",
+        )
+
+
+def verdict_of(rules: Sequence[Rule]) -> Verdict:
+    """A candidate fits when no threshold fails and every one is judged."""
+    if any(rule.ok is False for rule in rules):
+        return Verdict.FAILS
+    if any(rule.ok is None for rule in rules):
+        return Verdict.PENDING
+    return Verdict.FITS
 
 
 def _share(rate: float) -> str:
@@ -433,7 +486,7 @@ def report_data(corpus: Corpus, cache: Path) -> list[str]:
     ]
 
 
-def _operator_rules(findings: Findings, threshold: float) -> list[str]:
+def _operator_rules(findings: Findings, threshold: float) -> list[Rule]:
     maep, echo = findings.maep, findings.echo
     echo_text = (
         f"false alarms <= {MAX_FALSE_ALARMS_PER_HOUR:g}/h over >="
@@ -442,16 +495,14 @@ def _operator_rules(findings: Findings, threshold: float) -> list[str]:
     maep_text = f"hit rate >= {MIN_HIT_RATE:.0%} for his määp"
     if maep is None or echo is None:
         needs = "not measured: needs the operator's recordings"
-        return [_rule(maep_text, needs, ok=None), _rule(echo_text, needs, ok=None)]
+        return [Rule(maep_text, needs, ok=None), Rule(echo_text, needs, ok=None)]
     rate = hit_rate(maep.peaks, ANY_SOUND, threshold)
     minutes = echo.seconds / 60
     per_hour = echo.false_alarms_per_hour(threshold)
     long_enough = minutes >= MIN_ECHO_MINUTES
     return [
-        _rule(
-            maep_text, f"{_share(rate)} of {len(maep.hops)}", ok=rate >= MIN_HIT_RATE
-        ),
-        _rule(
+        Rule(maep_text, f"{_share(rate)} of {len(maep.hops)}", ok=rate >= MIN_HIT_RATE),
+        Rule(
             echo_text,
             f"{per_hour:.1f}/h over {minutes:.1f} min"
             + ("" if long_enough else ", too short to judge"),
@@ -470,8 +521,8 @@ def _report_header(findings: Findings) -> list[str]:
             f" window {tagger.window_samples / SAMPLE_RATE:.3g} s,"
             f" hop {HOP_SECONDS:g} s."
         ),
-        f"- ONNX against its reference: {check.detail}: "
-        + ("held." if check.passed else "EXCLUDED."),
+        f"- ONNX against its reference: {check.detail}. "
+        + ("Held." if check.passed else "Excluded: the output differs."),
     ]
 
 
@@ -545,10 +596,10 @@ def _threshold_table(clips: Mapping[Sound, Heard], speech: Heard) -> list[str]:
     ]
 
 
-def _speech_rule(speech: Heard, threshold: float, *, operating: bool) -> str:
+def _speech_rule(speech: Heard, threshold: float, *, operating: bool) -> Rule:
     minutes = speech.seconds / 60
     long_enough = minutes >= MIN_SPEECH_MINUTES
-    return _rule(
+    return Rule(
         f"false alarms <= {MAX_FALSE_ALARMS_PER_HOUR:g}/h over >="
         f" {MIN_SPEECH_MINUTES:g} min of speech",
         f"{speech.false_alarms_per_hour(threshold):.1f}/h at threshold {threshold:g}"
@@ -557,24 +608,23 @@ def _speech_rule(speech: Heard, threshold: float, *, operating: bool) -> str:
     )
 
 
-def _pass_rules(findings: Findings, threshold: float, *, operating: bool) -> list[str]:
+def _pass_rules(findings: Findings, threshold: float, *, operating: bool) -> list[Rule]:
     clips, speech, contention = findings.clips, findings.speech, findings.contention
     cpu_p95 = float(np.percentile([c.cpu * 1000 for c in contention.hops], 95))
     rss = findings.added_rss_megabytes
-    lines = [
-        _row("Pass threshold", "Figure", "Verdict"),
-        "|---|---|---|",
-        _rule(
+    rules = [
+        Rule(
             f"CPU per hop <= {MAX_CPU_P95_MILLISECONDS:g} ms at p95, under load",
             f"{cpu_p95:.1f} ms",
             ok=cpu_p95 <= MAX_CPU_P95_MILLISECONDS,
         ),
-        _rule(
+        Rule(
             f"hearing time rise <= {MAX_HEARING_RISE:.0%}",
-            f"{contention.rise:+.1%}",
-            ok=contention.rise <= MAX_HEARING_RISE,
+            f"{contention.rise:+.1%}"
+            + (", too noisy to judge" if contention.too_noisy else ""),
+            ok=None if contention.too_noisy else contention.rise <= MAX_HEARING_RISE,
         ),
-        _rule(
+        Rule(
             f"added RSS <= {MAX_ADDED_RSS_MEGABYTES:g} MB",
             f"{rss:.0f} MB",
             ok=rss <= MAX_ADDED_RSS_MEGABYTES,
@@ -586,26 +636,62 @@ def _pass_rules(findings: Findings, threshold: float, *, operating: bool) -> lis
         text = (
             f"hit rate >= {MIN_HIT_RATE:.0%}, {sound.value}, at threshold {threshold:g}"
         )
-        lines.append(_rule(text, _share(rate), ok=rate >= MIN_HIT_RATE))
-    return lines
+        rules.append(Rule(text, _share(rate), ok=rate >= MIN_HIT_RATE))
+    return rules
 
 
-def report(findings: Findings) -> list[str]:
-    """The Markdown lines of one candidate against every pass threshold."""
+def report(findings: Findings) -> tuple[list[str], Verdict]:
+    """One candidate's Markdown lines, ending with its verdict, and the verdict."""
     lines = _report_header(findings)
+    title = findings.tagger.title
     if not findings.check.passed:
-        return [*lines, ""]
+        verdict = Verdict.EXCLUDED
+        return [*lines, "", f"{VERDICT_PREFIX}{title}: {verdict.value}", ""], verdict
     speech = findings.speech
     operating = _operating_threshold(speech)
     threshold = THRESHOLDS[-1] if operating is None else operating
+    rules = [
+        *_pass_rules(findings, threshold, operating=operating is not None),
+        *_operator_rules(findings, threshold),
+    ]
+    verdict = verdict_of(rules)
     return [
         *lines,
         *_measurements(findings, findings.contention, speech),
         *_threshold_table(findings.clips, speech),
-        *_pass_rules(findings, threshold, operating=operating is not None),
-        *_operator_rules(findings, threshold),
+        _row("Pass threshold", "Figure", "Verdict"),
+        "|---|---|---|",
+        *(rule.row() for rule in rules),
         "",
-    ]
+        f"{VERDICT_PREFIX}{title}: {verdict.value}",
+        "",
+    ], verdict
+
+
+def summary(verdicts: Mapping[str, Verdict]) -> list[str]:
+    """The Markdown lines naming the candidate that fits, or none."""
+    fitting = [title for title, v in verdicts.items() if v is Verdict.FITS]
+    pending = [title for title, v in verdicts.items() if v is Verdict.PENDING]
+    lines = ["## Summary", "", f"Fitting candidate: {', '.join(fitting) or 'none'}."]
+    if pending:
+        lines.append(f"Not judged on every threshold yet: {', '.join(pending)}.")
+    return lines
+
+
+def _positive_integer(text: str) -> int:
+    value = int(text)
+    if value <= 0:
+        message = f"{text} is not a positive whole number"
+        raise argparse.ArgumentTypeError(message)
+    return value
+
+
+def _positive_number(text: str) -> float:
+    value = float(text)
+    if not value > 0:
+        message = f"{text} is not a positive number"
+        raise argparse.ArgumentTypeError(message)
+    return value
 
 
 def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
@@ -613,10 +699,16 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     keys = sorted(CANDIDATES)
     parser.add_argument("--candidates", nargs="+", choices=keys, default=keys)
-    parser.add_argument("--clips-per-sound", type=int, default=30)
-    parser.add_argument("--speech-minutes", type=float, default=120.0)
+    parser.add_argument(
+        "--clips-per-sound",
+        type=_positive_integer,
+        default=30,
+        help="clips per sound, split over the sources that have it and rounded up"
+        " per source; fewer where a clip is too long (the report counts them)",
+    )
+    parser.add_argument("--speech-minutes", type=_positive_number, default=120.0)
     parser.add_argument("--speech-start-minutes", type=float, default=0.0)
-    parser.add_argument("--hearings", type=int, default=3)
+    parser.add_argument("--hearings", type=_positive_integer, default=3)
     parser.add_argument("--operator-recordings", type=Path)
     parser.add_argument("--section", action="store_true", help=argparse.SUPPRESS)
     cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
@@ -624,8 +716,12 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _run_in_own_process(arguments: argparse.Namespace, key: str) -> None:
-    """Measure one candidate in a fresh process, so its RSS growth is its own."""
+def _run_in_own_process(arguments: argparse.Namespace, key: str) -> tuple[str, Verdict]:
+    """Measure one candidate in a fresh process, so its RSS growth is its own.
+
+    Its section is printed when it ends; its title and verdict are read from the
+    section's verdict line.
+    """
     command = [
         sys.executable,
         __file__,
@@ -645,7 +741,17 @@ def _run_in_own_process(arguments: argparse.Namespace, key: str) -> None:
     ]
     if arguments.operator_recordings:
         command += ["--operator-recordings", str(arguments.operator_recordings)]
-    subprocess.run(command, check=True)  # noqa: S603 - argv is this interpreter and this script with its own parsed options and no shell
+    section = subprocess.run(  # noqa: S603 - argv is this interpreter and this script with its own parsed options and no shell
+        command, check=True, stdout=subprocess.PIPE, text=True
+    ).stdout
+    print(section, end="", flush=True)
+    last = next(
+        line
+        for line in reversed(section.splitlines())
+        if line.startswith(VERDICT_PREFIX)
+    )
+    title, _, verdict = last.removeprefix(VERDICT_PREFIX).rpartition(": ")
+    return title, Verdict(verdict)
 
 
 def _corpus(arguments: argparse.Namespace, *, measured: bool) -> Corpus:
@@ -677,17 +783,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         print("\n".join(report_data(corpus, cache)), flush=True)
     if own_processes:
         del corpus
-        for key in arguments.candidates:
-            _run_in_own_process(arguments, key)
+        verdicts = dict(_run_in_own_process(arguments, k) for k in arguments.candidates)
     else:
         spread = corpus.clips[:: max(1, len(corpus.clips) // CHECKED_WINDOWS)]
         checked_on = [windows_of(c.samples, 2 * SAMPLE_RATE)[0] for c in spread]
         tagger = CANDIDATES[arguments.candidates[0]](cache, checked_on)
-        print(
-            "\n".join(report(measure(tagger, corpus, cache, arguments.hearings))),
-            flush=True,
-        )
-    if not arguments.operator_recordings and not arguments.section:
+        lines, verdict = report(measure(tagger, corpus, cache, arguments.hearings))
+        print("\n".join(lines), flush=True)
+        verdicts = {tagger.title: verdict}
+    if arguments.section:
+        return
+    print("\n".join(summary(verdicts)), flush=True)
+    if not arguments.operator_recordings:
         print(
             "The määp and own-echo rows need the operator's recordings: `systemd-run"
             " --user --scope -q -p MemoryMax=4G -- probe-run uv run"

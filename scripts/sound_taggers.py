@@ -158,7 +158,11 @@ class Yamnet:
 
 
 class Zipformer:
-    """The sherpa-onnx zipformer small audio tagger, held to its documentation."""
+    """The sherpa-onnx zipformer small audio tagger, held to its documentation.
+
+    Only the 8-bit file is measured: the publisher's numbers come from it, so the
+    32-bit file has no reference to be held to.
+    """
 
     licence = "Apache-2.0"
     window_samples = 2 * SAMPLE_RATE
@@ -168,6 +172,8 @@ class Zipformer:
         f"audio-tagging-models/{_directory}.tar.bz2"
     )
     _sha256 = "07e2fafcdcbc461f2816188d9b0bbafced12584030cf67d5652e549ef256a2c6"
+    _model_name = "model.int8.onnx"
+    tolerance = 0.02
     # The first result the publisher documents for its test wave N (sherpa-onnx,
     # audio tagging, pretrained models), produced with the 8-bit file.
     documented = {  # noqa: RUF012 - read only
@@ -185,15 +191,18 @@ class Zipformer:
         13: ("Oink", 0.888416),
     }
 
-    def __init__(self, cache: Path, model_name: str, tolerance: float) -> None:
-        """Unpack the pinned release and name the file this variant runs."""
-        self.tolerance = tolerance
-        self.title = f"sherpa-onnx zipformer small, {model_name.removesuffix('.onnx')}"
+    title = "sherpa-onnx zipformer small, 8-bit"
+
+    def __init__(self, cache: Path) -> None:
+        """Unpack the pinned release."""
         archive = fetch_pinned(
             cache, self._url, f"{self._directory}.tar.bz2", self._sha256
         )
         directory = unpack(archive, cache / self._directory)
-        self.files = (directory / model_name, directory / "class_labels_indices.csv")
+        self.files = (
+            directory / self._model_name,
+            directory / "class_labels_indices.csv",
+        )
         self.labels = _labels_of(self.files[1])
 
     def load(self) -> None:
@@ -235,9 +244,13 @@ class Zipformer:
                 wrong.append(number)
         return Check(
             not wrong and worst <= self.tolerance,
-            f"first result differs on test waves {wrong or 'none'}; largest"
-            f" probability difference to the documented {worst:.3f}"
-            f" (limit {self.tolerance:g})",
+            (
+                f"the first result is wrong on test waves {wrong}"
+                if wrong
+                else "the first result is right on every test wave"
+            )
+            + f"; largest probability difference to the publisher's documented"
+            f" value {worst:.3f} (limit {self.tolerance:g})",
         )
 
 
@@ -306,15 +319,17 @@ class FrameMn:
             def forward(self, window):  # noqa: ANN001, ANN202
                 return torch.sigmoid(model(model.mel_forward(window))[0])
 
-        torch.onnx.export(
-            Whole().eval(),
-            (torch.zeros(1, self.window_samples),),
-            str(onnx),
-            input_names=["waveform"],
-            output_names=["scores"],
-            opset_version=18,
-            dynamo=True,
-        )
+        # The export prints its progress; the report owns standard output.
+        with contextlib.redirect_stdout(sys.stderr):
+            torch.onnx.export(
+                Whole().eval(),
+                (torch.zeros(1, self.window_samples),),
+                str(onnx),
+                input_names=["waveform"],
+                output_names=["scores"],
+                opset_version=18,
+                dynamo=True,
+            )
 
     def load(self) -> None:
         """Open the ONNX."""
@@ -346,8 +361,7 @@ class FrameMn:
 
 CANDIDATES: Final[Mapping[str, Callable[[Path, Sequence[Samples]], Tagger]]] = {
     "yamnet": Yamnet,
-    "zipformer-small-fp32": lambda cache, _: Zipformer(cache, "model.onnx", 0.1),
-    "zipformer-small-int8": lambda cache, _: Zipformer(cache, "model.int8.onnx", 0.02),
+    "zipformer-small-int8": lambda cache, _: Zipformer(cache),
     "frame-mn10": FrameMn,
 }
 
