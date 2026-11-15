@@ -64,14 +64,19 @@ jobs:
           rows=$(python3 scripts/check_release.py --rows)
           python_version=$(cat "$GITHUB_WORKSPACE/.python-version")
           pins=""
-          while IFS='|' read -r distribution directory module; do
+          while IFS='|' read -r distribution directory module host_pins; do
             fragment=""
             if [ "$directory" != "." ]; then fragment="#subdirectory=$directory"; fi
             repository="git+https://github.com/$GITHUB_REPOSITORY"
             host="$RUNNER_TEMP/host-$module"
             uv init --bare --no-workspace --python "$python_version" "$host"
-            (cd "$host" && uv add "$distribution @ $repository@$COMMIT$fragment" && uv run python -c "import $module")
+            # The dependencies the distribution declares by name only are pinned
+            # by the host, as a real host does.
+            declared_pins=()
+            if [ -n "$host_pins" ]; then IFS='|' read -ra declared_pins <<<"$host_pins"; fi
+            (cd "$host" && uv add "$distribution @ $repository@$COMMIT$fragment" "${declared_pins[@]}" && uv run python -c "import $module")
             pins+="- \`$distribution @ $repository@v$VERSION$fragment\`"$'\n'
+            for pin in "${declared_pins[@]}"; do pins+="- \`$pin\`"$'\n'; done
           done <<<"$rows"
           delimiter="pins-$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
           {
