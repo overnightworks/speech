@@ -68,15 +68,12 @@ import re
 import statistics
 import subprocess
 import sys
-import threading
-import time
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import numpy as np
-from huggingface_hub import constants
 
 # The service's hearing and Piper voices are read from this checkout: installing
 # the service would pull its private dependencies into the measurement.
@@ -86,11 +83,16 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "providers/provider-contract/src")
 )
 
+from sound_contention import (
+    MAX_HEARING_RISE,
+    SPOKEN_SENTENCES,
+    Contention,
+    measure_contention,
+)
 from sound_corpus import (
     OPERATOR_DIRECTORIES,
     SPEECH_REPOSITORY,
     Corpus,
-    Sentence,
     Sound,
     load_sound_clips,
     operator_recordings,
@@ -99,30 +101,26 @@ from sound_corpus import (
 )
 from sound_taggers import (
     CANDIDATES,
+    HOP_SECONDS,
     SAMPLE_RATE,
     Check,
+    HopCost,
     Samples,
     Tagger,
+    timed,
+    windows_of,
 )
-from speech_client.wire import Language, VoiceId
-from speech_service.hearing import ScoreIdentifier, WhisperHearing
-from speech_service.hearing_models import HearingModel, fetch_model, voiced_floor
-from speech_service.piper_voices import fetch_voice_files
-from speech_service.speaking import PiperSpeaking
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     import numpy.typing as npt
 
-HOP_SAMPLES: Final = SAMPLE_RATE // 2
-HOP_SECONDS: Final = HOP_SAMPLES / SAMPLE_RATE
 REFRACTORY_HOPS: Final = 2
 THRESHOLDS: Final = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 
 # The proposed pass thresholds of the item.
 MAX_CPU_P95_MILLISECONDS: Final = 50.0
-MAX_HEARING_RISE: Final = 0.10
 MIN_HIT_RATE: Final = 0.80
 MAX_FALSE_ALARMS_PER_HOUR: Final = 6.0
 MIN_ECHO_MINUTES: Final = 30.0
@@ -130,17 +128,9 @@ MIN_SPEECH_MINUTES: Final = 120.0
 MAX_ADDED_RSS_MEGABYTES: Final = 200.0
 
 VERDICT_PREFIX: Final = "Verdict: "
-RECORDING_SECONDS: Final = (8.0, 14.0)
-HEARING_ROUNDS: Final = 3
-PHASE_SECONDS: Final = 40.0
 CHECKED_WINDOWS: Final = 8
 WARM_UP_PASSES: Final = 3
-CONTENTION_CLIPS: Final = 40
-SPOKEN_SENTENCES: Final = 40
-HEARING_MODEL: Final = HearingModel.SMALL
-PIPER_VOICES: Final = ((VoiceId.THORSTEN, Language.DE), (VoiceId.NORMAN, Language.EN))
 _MEGABYTE: Final = 1_000_000
-_INT16_PEAK: Final = 32767
 
 
 # Labels that are speech, silence or the room are not a sound for "määp".
@@ -154,28 +144,6 @@ ANY_SOUND: Final = len(Sound)
 def _rss_megabytes() -> float:
     pages = int(Path("/proc/self/statm").read_text(encoding="ascii").split()[1])
     return pages * os.sysconf("SC_PAGE_SIZE") / _MEGABYTE
-
-
-@dataclass(frozen=True, slots=True)
-class HopCost:
-    """What one hop cost the thread that ran it, in seconds."""
-
-    cpu: float
-    wall: float
-
-
-def windows_of(samples: Samples, size: int) -> list[Samples]:
-    """The windows a recording is scored in: one per hop, a short one padded."""
-    padded = np.pad(samples, (0, max(0, size - len(samples))))
-    last = len(padded) - size + 1
-    return [padded[start : start + size] for start in range(0, last, HOP_SAMPLES)]
-
-
-def timed(tagger: Tagger, window: Samples) -> tuple[npt.NDArray[np.float32], HopCost]:
-    """The scores of `window` and what they cost this thread."""
-    cpu, wall = time.thread_time(), time.perf_counter()
-    scores = tagger.scores(window)
-    return scores, HopCost(time.thread_time() - cpu, time.perf_counter() - wall)
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,134 +201,6 @@ class Heard:
 def hit_rate(peaks: npt.NDArray[np.float32], column: int, threshold: float) -> float:
     """The share of recordings (rows) whose best hop reaches the threshold."""
     return float((peaks[:, column] >= threshold).mean())
-
-
-def _rise(alone: Sequence[float], with_detector: Sequence[float]) -> float:
-    """How much the median hearing time rises with the detector running."""
-    return statistics.median(with_detector) / statistics.median(alone) - 1
-
-
-@dataclass(frozen=True, slots=True)
-class Contention:
-    """The detector's hops and the hearing's times while two voices speak."""
-
-    hops: tuple[HopCost, ...]
-    hearing_alone: tuple[float, ...]
-    hearing_with_detector: tuple[float, ...]
-    round_rises: tuple[float, ...]
-
-    @property
-    def rise(self) -> float:
-        """How much the median hearing time rises over all rounds."""
-        return _rise(self.hearing_alone, self.hearing_with_detector)
-
-    @property
-    def too_noisy(self) -> bool:
-        """Whether machine load, not the detector, moves the hearing time.
-
-        The rounds measure the same rise; a spread wider than the threshold being
-        judged, or a hearing that gets faster with the detector, cannot be it.
-        """
-        spread = max(self.round_rises) - min(self.round_rises)
-        return spread > MAX_HEARING_RISE or self.rise < 0
-
-
-def _speak(voice: PiperSpeaking, texts: list[str], stop: threading.Event) -> None:
-    """Synthesise `texts` in a loop at the pace a client plays them."""
-    started, played = time.perf_counter(), 0.0
-    for text in itertools.cycle(texts):
-        for chunk in voice.pcm_chunks(text, ""):
-            played += len(chunk) / 2 / voice.sample_rate
-            if stop.wait(max(0.0, started + played - time.perf_counter())):
-                return
-
-
-def _detect_paced(
-    tagger: Tagger,
-    windows: Sequence[Samples],
-    stop: threading.Event,
-    costs: list[HopCost],
-) -> None:
-    due = time.perf_counter()
-    for window in itertools.cycle(windows):
-        if stop.is_set():
-            return
-        costs.append(timed(tagger, window)[1])
-        due += HOP_SECONDS
-        stop.wait(max(0.0, due - time.perf_counter()))
-
-
-def _hear_times(
-    hearing: WhisperHearing, recording: Sentence, runs: int, seconds: float
-) -> list[float]:
-    """The times of at least `runs` hearings that together last `seconds`."""
-    pcm = (recording.samples * _INT16_PEAK).round().astype("<i2").tobytes()
-    times, begun = [], time.perf_counter()
-    while len(times) < runs or time.perf_counter() - begun < seconds:
-        started = time.perf_counter()
-        hearing.transcribe(pcm, (recording.language,))
-        times.append(time.perf_counter() - started)
-    return times
-
-
-def measure_contention(
-    tagger: Tagger, corpus: Corpus, cache: Path, runs: int
-) -> Contention:
-    """The hearing's time with and without the detector, two voices speaking.
-
-    The two conditions alternate `HEARING_ROUNDS` times, each for `PHASE_SECONDS`
-    and at least `runs` hearings, so that a drifting machine load falls on both.
-    The detector hops at the service's pace over windows of the public clips; the
-    voices speak at the pace of a playing client.
-    """
-    hearing = WhisperHearing(
-        HEARING_MODEL,
-        fetch_model(HEARING_MODEL, Path(constants.HF_HUB_CACHE)),
-        "cpu",
-        ScoreIdentifier(voiced_floor(HEARING_MODEL)),
-    )
-    hearing.load()
-    stop, speakers = threading.Event(), []
-    spoken = corpus.sentences[: 2 * SPOKEN_SENTENCES]
-    for voice_id, language in PIPER_VOICES:
-        fetch_voice_files(voice_id, cache / "voices")
-        voice = PiperSpeaking(voice_id.value, cache / "voices")
-        voice.load()
-        texts = [s.transcript for s in spoken if s.language is language]
-        speakers.append(
-            threading.Thread(target=_speak, args=(voice, texts, stop), daemon=True)
-        )
-    low, high = RECORDING_SECONDS
-    recording = next(
-        s for s in corpus.sentences if low <= len(s.samples) / SAMPLE_RATE <= high
-    )
-    spread = corpus.clips[:: max(1, len(corpus.clips) // CONTENTION_CLIPS)]
-    windows = [
-        w for clip in spread for w in windows_of(clip.samples, tagger.window_samples)
-    ]
-    alone, with_detector, hops, round_rises = [], [], [], []
-    for speaker in speakers:
-        speaker.start()
-    _hear_times(hearing, recording, 1, 0.0)
-    for _ in range(HEARING_ROUNDS):
-        round_alone = _hear_times(hearing, recording, runs, PHASE_SECONDS)
-        paused = threading.Event()
-        detector = threading.Thread(
-            target=_detect_paced, args=(tagger, windows, paused, hops), daemon=True
-        )
-        detector.start()
-        round_with = _hear_times(hearing, recording, runs, PHASE_SECONDS)
-        paused.set()
-        detector.join()
-        alone += round_alone
-        with_detector += round_with
-        round_rises.append(_rise(round_alone, round_with))
-    stop.set()
-    for speaker in speakers:
-        speaker.join()
-    return Contention(
-        tuple(hops), tuple(alone), tuple(with_detector), tuple(round_rises)
-    )
 
 
 @dataclass(frozen=True, slots=True)

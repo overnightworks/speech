@@ -14,6 +14,7 @@ import io
 import shutil
 import sys
 import tarfile
+import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,6 +36,8 @@ if TYPE_CHECKING:
 type Samples = npt.NDArray[np.float32]
 
 SAMPLE_RATE: Final = 16_000
+HOP_SAMPLES: Final = SAMPLE_RATE // 2
+HOP_SECONDS: Final = HOP_SAMPLES / SAMPLE_RATE
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +65,28 @@ class Tagger(Protocol):
 
     def check(self) -> Check:
         """Compare the model with its reference."""
+
+
+@dataclass(frozen=True, slots=True)
+class HopCost:
+    """What one hop cost the thread that ran it, in seconds."""
+
+    cpu: float
+    wall: float
+
+
+def windows_of(samples: Samples, size: int) -> list[Samples]:
+    """The windows a recording is scored in: one per hop, a short one padded."""
+    padded = np.pad(samples, (0, max(0, size - len(samples))))
+    last = len(padded) - size + 1
+    return [padded[start : start + size] for start in range(0, last, HOP_SAMPLES)]
+
+
+def timed(tagger: Tagger, window: Samples) -> tuple[npt.NDArray[np.float32], HopCost]:
+    """The scores of `window` and what they cost this thread."""
+    cpu, wall = time.thread_time(), time.perf_counter()
+    scores = tagger.scores(window)
+    return scores, HopCost(time.thread_time() - cpu, time.perf_counter() - wall)
 
 
 def _labels_of(path: Path) -> tuple[str, ...]:
