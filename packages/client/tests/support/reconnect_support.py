@@ -80,6 +80,7 @@ async def hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
     opening_seconds: float = 1,
     held_limit_bytes: int = 1,
     before: Callable[[HearingSession], None] = lambda _: None,
+    traceparent: str | None = None,
 ) -> tuple[list[ServerEvent | Reconnected], HearingOutcome | None]:
     session = session_to(
         port,
@@ -87,6 +88,7 @@ async def hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
         held_limit_bytes,
         opening_seconds,
         token_source,
+        traceparent=traceparent,
     )
     async with session:
         before(session)

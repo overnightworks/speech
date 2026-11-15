@@ -65,8 +65,8 @@ app's server and hands the app the typed events, never the browser; it ends the 
 when the browser leaves, breaks a frame rule or the app ends it, and closes the
 browser with a code of its own (`NoToken` closes it in order, `ReconnectFailed` as a
 service failure). `speech_client.utterances` builds the session on top
-of the relay and hands the app finished utterances (text, language and audio
-positions), optionally the text so far, a `Reconnected` (it forgets the old session's
+of the relay and hands the app finished utterances (text, language, audio
+positions, the item's id and the turn's `traceparent`, WIRE-150), optionally the text so far, a `Reconnected` (it forgets the old session's
 unfinished items), or the code of a failed item or of an `error` event
 (`ServiceFailed`).
 
@@ -97,8 +97,13 @@ field, and it is answered before any `unavailable` (WIRE-103).
 **WIRE-12** A speak request carries the app's workload token in `Speech-Workload-Token`
 and the person's token as `Authorization: Bearer <token>`.
 `speech_request_headers` in `speech_client.wire` builds them with the
-content type, and `wire.py` owns the header names. The service answers only
-when both tokens are valid and belong together:
+content type, and `wire.py` owns the header names. **WIRE-149** A speak request and a
+realtime upgrade may also carry a W3C `traceparent` header; the service writes the lines
+of that request or session in its trace, and a missing or malformed value starts a trace
+of its own. `speak`, `speak_stream`, `HearingSession` and `hear_utterances` take
+`traceparent=` and send it, by default the trace running at the call (`logline`'s
+`current_traceparent()`). The header parents only a session's own lines, never a turn
+(WIRE-150). The service answers only when both tokens are valid and belong together:
 
 - **WIRE-13** Both come from the configured issuer, name the service in `aud`, and are
   unexpired. The app requests the service's audience scope in its workload
@@ -269,7 +274,7 @@ on a `hearing.measured` line, never its text. Each turn also writes `turn_end_wa
 | WIRE-72 | `input_audio_buffer.speech_stopped` (`item_id`, `audio_end_ms`) | silence or the cap ended the turn, at the position counted as below; not sent after a client commit |
 | WIRE-73 | `input_audio_buffer.committed` (`item_id`, `previous_item_id`) | the turn is closed; `previous_item_id` is `null` for the first |
 | WIRE-74 | `conversation.item.created` (`item`, `previous_item_id`) | right after `committed`; the item is a user message with one `input_audio` part whose `transcript` is `null` |
-| WIRE-75 | `conversation.item.input_audio_transcription.completed` (`item_id`, `content_index` 0, `transcript`, `usage`, `languages`) | the authoritative text, possibly empty, with `usage` `{"type": "duration", "seconds": ...}` and `languages` (WIRE-136); it replaces the deltas |
+| WIRE-75 | `conversation.item.input_audio_transcription.completed` (`item_id`, `content_index` 0, `transcript`, `usage`, `languages`, `traceparent`) | the authoritative text, possibly empty, with `usage` `{"type": "duration", "seconds": ...}`, `languages` (WIRE-136) and the turn's `traceparent` (WIRE-150); it replaces the deltas |
 | WIRE-76 | `conversation.item.input_audio_transcription.failed` (`item_id`, `content_index` 0, `error`) | only as a session ends |
 | WIRE-77 | `error` (`error.type`, `error.code`, `error.message`, `error.param`, `error.event_id`) | the session ends after it |
 
@@ -289,6 +294,14 @@ language the turn was decoded in: also for a session of one language, for a turn
 the main language because the identifier did not know, and for an empty transcript. It is
 never `[]`, which deviates from OpenAI, whose `languages` may come back empty. `failed` and
 `error` carry no language.
+
+**WIRE-150** `completed.traceparent` is the W3C `traceparent` of the trace the service
+started at the turn's end and wrote the turn's `turn_end_wait.ended` and `hearing.ended`
+lines under: a turn has no client message to carry a trace, so the service sends its own,
+a trace of its own for each turn and never the upgrade's (WIRE-149). A client reads it as
+optional: a service from before the field sends none. An app that runs its handling of
+the turn under `logline.unit_trace(traceparent)` writes its lines in the turn's trace;
+`speech_client.utterances` hands it over with the `item_id` in the `Utterance`.
 
 **WIRE-78** Every server event has a fresh `event_id`. Correlate by `item_id`: OpenAI does not
 order completions across items; **WIRE-79** here the second ended turn's `completed` waits

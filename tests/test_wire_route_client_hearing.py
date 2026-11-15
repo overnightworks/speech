@@ -48,6 +48,7 @@ def _session(
     workload_token: str | None = None,
     deadline_seconds: float = DEADLINE_SECONDS,
     held_limit_bytes: int = HELD_LIMIT_BYTES,
+    traceparent: str | None = None,
 ) -> HearingSession:
     pair = valid_pair()
 
@@ -60,6 +61,7 @@ def _session(
         languages=(Language.EN,),
         deadline_seconds=deadline_seconds,
         held_limit_bytes=held_limit_bytes,
+        traceparent=traceparent,
     )
 
 
@@ -119,6 +121,27 @@ def test_a_session_of_one_language_sends_the_set_and_hears_that_language() -> No
     assert (setting.language, setting.languages) == (None, (Language.EN,))
     assert isinstance(events[-1], TranscriptCompleted)
     assert events[-1].languages == (TranscriptLanguage(code=Language.EN),)
+
+
+def test_a_heard_turn_comes_back_with_a_trace_of_its_own_beside_the_callers() -> None:
+    """The turn's `traceparent` is the service's, never the caller's one it joined."""
+    callers_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
+    callers = f"00-{callers_trace_id}-00f067aa0ba902b7-01"
+
+    async def scenario() -> list[ServerEvent]:
+        async with (
+            serving_over_tcp(hear_runtime(FakeHearing())) as server,
+            _session(server.base_url, traceparent=callers) as session,
+        ):
+            session.send(_tone(0.5))
+            session.send(_tone(1.0, level=0))
+            return await asyncio.wait_for(_until_completed(session), 10)
+
+    completed = asyncio.run(scenario())[-1]
+
+    assert isinstance(completed, TranscriptCompleted)
+    assert completed.traceparent is not None
+    assert completed.traceparent.split("-")[1] != callers_trace_id
 
 
 def test_leaving_the_context_ends_the_session_closed() -> None:

@@ -3,9 +3,11 @@
 import asyncio
 import json
 import logging
+import re
 
 import pytest
 from fastapi.testclient import TestClient
+from logline.testing import configured
 from starlette.status import (
     HTTP_200_OK,
     HTTP_400_BAD_REQUEST,
@@ -451,3 +453,68 @@ def test_a_refused_upgrade_writes_a_session_line_with_its_reason(
 
     (line,) = [r for r in caplog.records if r.getMessage() == "session.refused"]
     assert line.reason == RefusalCode.UNAUTHORIZED.value
+
+
+_CALLERS_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+_CALLERS_TRACEPARENT = f"00-{_CALLERS_TRACE_ID}-00f067aa0ba902b7-01"
+_MALFORMED_TRACEPARENT = "00-not-a-traceparent-01"
+_FRESH_TRACE_ID = f"(?!{_CALLERS_TRACE_ID})[0-9a-f]{{32}}"
+
+
+def _written_lines(capsys: pytest.CaptureFixture[str]) -> list[dict[str, object]]:
+    return [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+
+
+def _session_lines(written: list[dict[str, object]]) -> list[dict[str, object]]:
+    return [line for line in written if line["event"] == "session.refused"]
+
+
+def test_a_refused_upgrade_writes_its_session_line_in_the_callers_trace(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """WIRE-149: a refused upgrade joins the caller's trace."""
+    with configured("speech"):
+        _denied(_client(), headers={"traceparent": _CALLERS_TRACEPARENT})
+
+    (line,) = _session_lines(_written_lines(capsys))
+    assert line["trace_id"] == _CALLERS_TRACE_ID
+
+
+@pytest.mark.parametrize(
+    ("sent", "expected_trace_id"),
+    [
+        (_CALLERS_TRACEPARENT, re.escape(_CALLERS_TRACE_ID)),
+        (_MALFORMED_TRACEPARENT, _FRESH_TRACE_ID),
+    ],
+    ids=["a-valid-value", "a-malformed-value"],
+)
+def test_a_session_writes_its_own_line_in_the_upgrades_trace_or_a_fresh_one(
+    sent: str, expected_trace_id: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """WIRE-149: a session joins the upgrade's trace; a malformed value starts one."""
+    headers = {**valid_headers(), "traceparent": sent}
+    with (
+        configured("speech"),
+        _client().websocket_connect(URL, headers=headers) as socket,
+    ):
+        assert socket.receive_json()["type"] == "session.created"
+        socket.send_text("not an event")
+        assert socket.receive_json()["type"] == "error"
+
+    (line,) = _session_lines(_written_lines(capsys))
+    assert re.fullmatch(expected_trace_id, str(line["trace_id"]))
+
+
+def test_a_malformed_traceparent_on_the_upgrade_logs_no_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """WIRE-149: a malformed value starts a fresh trace and logs no error."""
+    headers = {**valid_headers(), "traceparent": _MALFORMED_TRACEPARENT}
+    with (
+        configured("speech"),
+        _client().websocket_connect(URL, headers=headers) as socket,
+    ):
+        assert socket.receive_json()["type"] == "session.created"
+
+    levels = {line["level"] for line in _written_lines(capsys)}
+    assert levels.isdisjoint({"error", "critical"})

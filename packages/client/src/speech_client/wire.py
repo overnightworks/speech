@@ -2,9 +2,8 @@
 
 This module is the one owner of what travels on `POST /v1/audio/speech`,
 `POST /v1/audio/transcriptions` and the Realtime transcription WebSocket: the
-paths, the requests, the transcription answer, the Realtime events, and the
-closed list of refusals with their statuses, messages and the body they are
-answered in (OpenAI's error form). It owns the answer of `GET /health` as well.
+paths, requests, transcription answer, Realtime events, `GET /health` answer and
+the closed list of refusals with their statuses, messages and OpenAI-form body.
 The service and its callers import these types and copy none of them.
 """
 
@@ -53,6 +52,7 @@ CONTENT_TYPE_HEADER: Final = "Content-Type"
 WORKLOAD_TOKEN_HEADER: Final = "Speech-Workload-Token"  # noqa: S105 - a header name and no secret
 AUTHORIZATION_HEADER: Final = "Authorization"
 AUTHENTICATE_HEADER: Final = "WWW-Authenticate"
+TRACEPARENT_HEADER: Final = "traceparent"
 
 RequestField = Literal[
     "file",
@@ -69,10 +69,7 @@ MAX_INSTRUCTIONS_CHARACTERS: Final = 500
 
 
 class ResponseFormat(StrEnum):
-    """The audio formats the service speaks.
-
-    Each owns the media type and the container signature of its answer.
-    """
+    """The audio formats the service speaks, each with its media type and signature."""
 
     WAV = "wav"
     OPUS = "opus"
@@ -419,9 +416,8 @@ class _SessionPart(BaseModel):
 class PcmFormat(_SessionPart):
     """PCM16 little-endian mono at 24 kHz, the one input format.
 
-    A sample is `sample_bytes` bytes and a frame of samples has `channels`
-    channels. Both are class constants, so the session's shape names only
-    `type` and `rate`.
+    A sample is `sample_bytes` bytes and a frame has `channels` channels, both
+    class constants, so the session's shape names only `type` and `rate`.
     """
 
     sample_bytes: ClassVar[int] = 2
@@ -708,6 +704,7 @@ class TranscriptCompleted(_ServerEvent):
     transcript: str
     usage: DurationUsage
     languages: tuple[TranscriptLanguage]
+    traceparent: str | None = None
 
 
 class ItemFailure(BaseModel):

@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
+import re
 import time
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 import httpx2
 import pytest
+from logline import current_traceparent, unit_trace
+from logline.testing import configured
 
 from speech_client.speak import (
     Busy,
@@ -158,6 +162,56 @@ def test_the_call_returns_the_wav_the_service_sent() -> None:
     outcome, sent = asyncio.run(scenario())
 
     assert outcome == Spoken(sent.content)
+
+
+def test_the_service_writes_its_speak_line_in_the_trace_of_the_calling_task(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """WIRE-149: a call made inside a trace needs no argument to join it."""
+
+    async def scenario() -> str | None:
+        async with _serving(FakeSpeaking()) as server:
+            with unit_trace(None):
+                await asyncio.to_thread(_speak, server.base_url)
+                return current_traceparent()
+
+    with configured("speech"):
+        callers = asyncio.run(scenario())
+
+    assert callers is not None
+    written = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    (speak_line,) = (line for line in written if line["event"] == "speak.ended")
+    assert speak_line["trace_id"] == callers.split("-")[1]
+
+
+def test_a_speak_with_a_malformed_traceparent_starts_a_fresh_trace_and_logs_no_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """WIRE-149: a malformed value starts a fresh trace; the call is still spoken."""
+
+    async def scenario() -> httpx2.Response:
+        async with (
+            _serving(FakeSpeaking()) as server,
+            httpx2.AsyncClient(
+                base_url=server.base_url,
+                headers={**valid_headers(), "traceparent": "00-not-a-traceparent-01"},
+            ) as client,
+        ):
+            return await client.post(
+                SPEECH_PATH,
+                content=speech_request_body(
+                    "Hallo", VoiceId.THORSTEN, ResponseFormat.WAV
+                ),
+            )
+
+    with configured("speech"):
+        response = asyncio.run(scenario())
+
+    assert response.status_code == httpx2.codes.OK
+    written = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    (speak_line,) = (line for line in written if line["event"] == "speak.ended")
+    assert re.fullmatch("[0-9a-f]{32}", str(speak_line["trace_id"]))
+    assert {line["level"] for line in written}.isdisjoint({"error", "critical"})
 
 
 def test_the_call_returns_the_ogg_opus_the_service_sent() -> None:

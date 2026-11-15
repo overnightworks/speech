@@ -570,6 +570,27 @@ def test_a_malformed_server_event_is_refused(text: str) -> None:
         parse_server_event(text)
 
 
+def test_a_completed_item_parses_with_and_without_a_traceparent() -> None:
+    """WIRE-75, WIRE-150: the field is optional on reading."""
+    traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    event = TranscriptCompleted(
+        item_id="item",
+        transcript="Wie",
+        usage=DurationUsage(seconds=1.0),
+        languages=(TranscriptLanguage(code=Language.DE),),
+        traceparent=traceparent,
+    )
+    older = json.loads(event.model_dump_json())
+    del older["traceparent"]
+
+    parsed = parse_server_event(event.model_dump_json())
+    assert isinstance(parsed, TranscriptCompleted)
+    assert parsed.traceparent == traceparent
+    undated = parse_server_event(json.dumps(older))
+    assert isinstance(undated, TranscriptCompleted)
+    assert undated.traceparent is None
+
+
 def test_a_completed_item_names_exactly_the_one_language_it_was_heard_in() -> None:
     """WIRE-136: `languages` holds exactly one element, the language of the decode."""
     event = TranscriptCompleted(

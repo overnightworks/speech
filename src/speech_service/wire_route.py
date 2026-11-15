@@ -7,7 +7,7 @@ import logging
 import math
 from typing import TYPE_CHECKING, Final
 
-from logline import StepTimer, set_route
+from logline import StepTimer, set_route, unit_trace
 from pydantic import BaseModel, ValidationError
 from python_multipart.exceptions import FormParserError
 from starlette.background import BackgroundTask
@@ -24,6 +24,7 @@ from speech_client.wire import (
     REALTIME_PATH,
     RETRY_AFTER_HEADER,
     SPEECH_PATH,
+    TRACEPARENT_HEADER,
     TRANSCRIPTIONS_PATH,
     Language,
     RefusalCode,
@@ -382,6 +383,15 @@ class _RealtimeRoute:
         self._callers = callers
 
     async def serve(self, websocket: WebSocket) -> None:
+        """Serve the upgrade; the session's own lines join the caller's trace.
+
+        The request-line middleware handles `http` scopes only, so a socket's trace
+        starts here. Each turn starts a trace of its own inside it.
+        """
+        with unit_trace(websocket.headers.get(TRACEPARENT_HEADER)):
+            await self._serve(websocket)
+
+    async def _serve(self, websocket: WebSocket) -> None:
         place = await self._place(websocket)
         if isinstance(place, _Refusal):
             logger.info("session.refused", extra={"reason": place.code.value})

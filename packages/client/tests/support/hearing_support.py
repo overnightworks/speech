@@ -55,12 +55,14 @@ async def takes_every_event(session: HearingSession) -> None:
         pass
 
 
-def session_to(
+def session_to(  # noqa: PLR0913 - one keyword per thing a scenario varies
     port: int,
     deadline_seconds: float = 5,
     held_limit_bytes: int = 1,
     opening_seconds: float = OPENING_SECONDS,
     token_source: TokenSource = fixed_tokens,
+    *,
+    traceparent: str | None = None,
 ) -> HearingSession:
     return HearingSession(
         f"http://{LOOPBACK}:{port}",
@@ -69,6 +71,7 @@ def session_to(
         deadline_seconds=deadline_seconds,
         held_limit_bytes=held_limit_bytes,
         opening_seconds=opening_seconds,
+        traceparent=traceparent,
     )
 
 
