@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import contextlib
 import http.client
 import json
 import os
@@ -11,7 +13,7 @@ import subprocess
 import sys
 import time
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -20,10 +22,19 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from proof_identity import load_minting, mint_pair, proof_identity
+from speech_client.hearing import (
+    NEEDED_HOLD_BYTES,
+    ReconnectCause,
+    Reconnected,
+    SessionTokens,
+)
+from speech_client.relay import HOP_FRAME_BYTES
+from speech_client.utterances import SpeechStart, Utterance, hear_utterances
 from speech_client.wire import (
     REALTIME_PATH,
     SPEECH_PATH,
     TRANSCRIPTIONS_PATH,
+    Language,
     VoiceId,
     speech_request_headers,
 )
@@ -34,12 +45,18 @@ from tests.support.drain_server_support import (
     RELEASE_FILE_VARIABLE,
 )
 from tests.support.hear_support import HEARD_TEXT, MULTIPART, multipart_body, recording
-from tests.support.live_support import COMPLETED, FAILED, append, audio
+from tests.support.live_support import (
+    COMPLETED,
+    FAILED,
+    SPEECH_LEVEL,
+    append,
+    audio,
+)
 from tests.support.speak_support import speak_body
 from tests.support.tcp_server_support import free_loopback_port, wait_until_listening
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import AsyncIterator, Callable, Iterator
 
     from websockets.asyncio.client import ClientConnection
 
@@ -60,6 +77,10 @@ class _Pair:
     release_file: Path
     hearing_hold_file: Path
     minting_path: Path
+
+    async def tokens(self) -> SessionTokens:
+        """Freshly minted tokens, as a hearing session's token source."""
+        return await mint_pair(load_minting(self.minting_path)).tokens()
 
     def headers(self) -> dict[str, str]:
         """The request headers of freshly minted tokens the processes accept."""
@@ -265,3 +286,189 @@ def test_a_stopped_process_finishes_a_recording_already_being_heard(
     assert status == http.HTTPStatus.OK
     assert answer["text"] == HEARD_TEXT
     assert exit_code == 0
+
+
+_FRAME_MS = 100
+
+
+class _Browser:
+    """The app's browser socket: frames fed to it arrive in order, in hop frames."""
+
+    def __init__(self) -> None:
+        self._frames: asyncio.Queue[bytes] = asyncio.Queue()
+        self.fed_ms = 0
+        self.closed_with: list[int] = []
+
+    def feed(self, seconds: float, level: int = SPEECH_LEVEL) -> None:
+        pcm = base64.b64decode(audio(seconds, level))
+        for start in range(0, len(pcm), HOP_FRAME_BYTES):
+            self._frames.put_nowait(pcm[start : start + HOP_FRAME_BYTES])
+        self.fed_ms += int(seconds * 1000)
+
+    async def receive(self) -> dict[str, object]:
+        return {
+            "type": "websocket.receive",
+            "bytes": await self._frames.get(),
+            "text": None,
+        }
+
+    async def close(self, code: int) -> None:
+        self.closed_with.append(code)
+
+
+@dataclass
+class _Hearing:
+    """What the app's callbacks of one hearing saw, and when."""
+
+    utterances: list[Utterance] = field(default_factory=list)
+    reconnected: list[Reconnected] = field(default_factory=list)
+    started: asyncio.Event = field(default_factory=asyncio.Event)
+    heard: asyncio.Event = field(default_factory=asyncio.Event)
+    reconnected_event: asyncio.Event = field(default_factory=asyncio.Event)
+    heard_at: float = 0.0
+    reconnected_at: float = 0.0
+    ended: asyncio.Event = field(default_factory=asyncio.Event)
+
+    async def on_utterance(self, utterance: Utterance) -> None:
+        self.utterances.append(utterance)
+        self.heard_at = time.monotonic()
+        self.heard.set()
+
+    async def on_speech_started(self, _: SpeechStart) -> None:
+        self.started.set()
+
+    async def on_reconnected(self, reconnected: Reconnected) -> None:
+        self.reconnected.append(reconnected)
+        self.reconnected_at = time.monotonic()
+        self.reconnected_event.set()
+
+
+async def _within(event: asyncio.Event) -> None:
+    async with asyncio.timeout(_WAIT_SECONDS):
+        await event.wait()
+
+
+@contextlib.asynccontextmanager
+async def _hearing_through_the_balancer(
+    pair: _Pair, backend_ended: dict[int, float]
+) -> AsyncIterator[tuple[_Browser, _Hearing]]:
+    """An app hearing a browser through the balancer, until the block ends."""
+    browser, hearing = _Browser(), _Hearing()
+    async with balancing([pair.first_port, pair.second_port], backend_ended) as entry:
+        hop = asyncio.create_task(
+            hear_utterances(
+                browser,
+                f"http://{_LOOPBACK}:{entry}",
+                token_source=pair.tokens,
+                languages=(Language.DE,),
+                deadline_seconds=_WAIT_SECONDS * 4,
+                held_limit_bytes=NEEDED_HOLD_BYTES,
+                ended=hearing.ended,
+                on_utterance=hearing.on_utterance,
+                on_speech_started=hearing.on_speech_started,
+                on_reconnected=hearing.on_reconnected,
+            )
+        )
+        try:
+            yield browser, hearing
+        finally:
+            hearing.ended.set()
+            await asyncio.wait_for(hop, _WAIT_SECONDS)
+
+
+def test_a_hearing_goes_on_at_the_other_process_after_a_stopped_one_finished_its_turn(
+    pair: _Pair, record_property: Callable[[str, object], None]
+) -> None:
+    """The drained turn's utterance arrives once, then the hearing goes on."""
+
+    async def scenario() -> tuple[_Hearing, int, dict[int, float], list[float]]:
+        backend_ended: dict[int, float] = {}
+        async with _hearing_through_the_balancer(pair, backend_ended) as (
+            browser,
+            hearing,
+        ):
+            browser.feed(0.5)
+            await _within(hearing.started)
+            stopped_at = time.monotonic()
+            pair.first.send_signal(signal.SIGTERM)
+            await _until_not_ready(pair.first_port)
+            browser.feed(1.0, level=0)
+            fed_silence_at = time.monotonic()
+            await _within(hearing.reconnected_event)
+            hearing.heard.clear()
+            browser.feed(0.5)
+            browser.feed(1.0, level=0)
+            await _within(hearing.heard)
+            return (
+                hearing,
+                browser.fed_ms,
+                backend_ended,
+                [stopped_at, fed_silence_at],
+            )
+
+    hearing, fed_ms, backend_ended, (sigterm_at, fed_silence_at) = asyncio.run(
+        scenario()
+    )
+
+    first, second = hearing.utterances
+    assert first.text == second.text == HEARD_TEXT
+    (reconnected,) = hearing.reconnected
+    assert reconnected.cause is ReconnectCause.DRAIN
+    assert first.audio_end_ms is not None
+    assert reconnected.unheard_start_ms >= first.audio_end_ms
+    assert second.audio_start_ms is not None
+    assert second.audio_start_ms >= reconnected.unheard_end_ms
+    assert second.audio_end_ms is not None
+    assert second.audio_end_ms <= fed_ms
+    closed_at = backend_ended[pair.first_port]
+    span_ms = reconnected.unheard_end_ms - reconnected.unheard_start_ms
+    record_property("seconds_sigterm_to_close", closed_at - sigterm_at)
+    record_property("seconds_silence_fed_to_close", closed_at - fed_silence_at)
+    record_property("seconds_close_to_reconnected", hearing.reconnected_at - closed_at)
+    record_property("unheard_milliseconds", span_ms)
+    assert pair.second.poll() is None
+
+
+def test_audio_fed_while_the_drained_turn_is_held_is_lost_counted_and_in_the_span(
+    pair: _Pair,
+) -> None:
+    """A burst after the drained turn's end is never heard, and its time is counted."""
+    pair.hearing_hold_file.touch()
+    entered = pair.hearing_hold_file.with_suffix(HEARING_ENTERED_SUFFIX)
+
+    async def scenario() -> tuple[_Hearing, int, int]:
+        async with _hearing_through_the_balancer(pair, {}) as (browser, hearing):
+            browser.feed(0.5)
+            await _within(hearing.started)
+            pair.first.send_signal(signal.SIGTERM)
+            await _until_not_ready(pair.first_port)
+            browser.feed(1.0, level=0)
+            deadline = time.monotonic() + _WAIT_SECONDS
+            while not entered.exists():
+                assert time.monotonic() < deadline, "the turn was never decoded"
+                await asyncio.sleep(0.05)
+            burst_from_ms = browser.fed_ms
+            browser.feed(0.5)
+            burst_to_ms = browser.fed_ms
+            hearing.heard.clear()
+            pair.hearing_hold_file.unlink()
+            await _within(hearing.heard)
+            await _within(hearing.reconnected_event)
+            heard_before = len(hearing.utterances)
+            browser.feed(0.5)
+            browser.feed(1.0, level=0)
+            hearing.heard.clear()
+            await _within(hearing.heard)
+            assert heard_before == 1
+            return hearing, burst_from_ms, burst_to_ms
+
+    hearing, burst_from_ms, burst_to_ms = asyncio.run(scenario())
+
+    drained, next_turn = hearing.utterances
+    (reconnected,) = hearing.reconnected
+    assert drained.audio_end_ms is not None
+    assert reconnected.unheard_start_ms >= drained.audio_end_ms
+    assert reconnected.unheard_start_ms <= burst_from_ms
+    assert reconnected.unheard_end_ms >= burst_to_ms
+    assert next_turn.audio_start_ms is not None
+    assert next_turn.audio_start_ms >= reconnected.unheard_end_ms

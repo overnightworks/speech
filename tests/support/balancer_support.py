@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import http.client
+import time
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -64,10 +65,13 @@ async def _relay(
 
 
 @asynccontextmanager
-async def balancing(backend_ports: Sequence[int]) -> AsyncIterator[int]:
+async def balancing(
+    backend_ports: Sequence[int], backend_ended: dict[int, float] | None = None
+) -> AsyncIterator[int]:
     """Yield the port of a balancer sending each connection to the first ready backend.
 
-    A connection finds no ready backend closed at once.
+    A connection finds no ready backend closed at once. When a connection ends,
+    `backend_ended` gets the monotonic time of its end under its backend's port.
     """
 
     async def route(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -76,6 +80,8 @@ async def balancing(backend_ports: Sequence[int]) -> AsyncIterator[int]:
                 with contextlib.suppress(ConnectionError):
                     backend = await asyncio.open_connection(_LOOPBACK, port)
                     await _relay((reader, writer), backend)
+                if backend_ended is not None:
+                    backend_ended[port] = time.monotonic()
                 return
         writer.close()
 
