@@ -1,7 +1,0 @@
-claim_id = "3bdd705a2e9b4d5c97ef2ef85f9a0ba0"
-agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
-role = "builder"
-base = "fe9d51c4e86add26f71babb656f17adec5495860"
-branch = "claude/issue-412-turn-end-measurement"
-scope = ["scripts/measure_turn_end.py"]
-opened_commit = "3184b1d7fc1acb01cc3aafd3da786581bfa68228"
