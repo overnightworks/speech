@@ -1,0 +1,7 @@
+claim_id = "a9c9c0c887f44c77bed8afb8e8227e2a"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "8b4ba03d1b7a4b7538f48869d6cae24419c896b6"
+branch = "claude/issue-414-sound-detector-probe"
+scope = ["scripts/probe_sound_detector.py"]
+opened_commit = "553d0a030e1103ef6e656906d95bd470fb6ba5cb"
