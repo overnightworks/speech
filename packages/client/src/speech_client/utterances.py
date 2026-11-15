@@ -14,6 +14,10 @@ the relay's hard end holds, so after `ended` is set no callback is called again.
   event, the moment a person starts speaking, in event order with the other
   callbacks: before that item's partials and its utterance. Without it nothing
   of the event reaches the app.
+- `on_speech_stopped`, if given, gets a `SpeechStop` for each `speech_stopped`
+  event, the moment the service ends a person's turn, `audio_end_ms` into the
+  audio, in event order with the other callbacks: before that item's utterance
+  and `on_turn_ended`. Without it nothing of the event reaches the app.
 - `on_turn_ended`, if given, gets a `TurnEnd` for each finished item, empty or
   not, after that item's `on_utterance`: `heard_words` is false when the
   transcript was empty, a cough for one. Without it nothing of an empty turn
@@ -82,6 +86,13 @@ class SpeechStart:
 
 
 @dataclass(frozen=True, slots=True)
+class SpeechStop:
+    """The service ended a person's turn, `audio_end_ms` into the audio."""
+
+    audio_end_ms: int
+
+
+@dataclass(frozen=True, slots=True)
 class TurnEnd:
     """A person's turn ended; `heard_words` is false when it carried no words."""
 
@@ -133,6 +144,7 @@ class _Mapping:
     on_utterance: Callable[[Utterance], Awaitable[None]]
     on_partial: Callable[[Partial], Awaitable[None]] | None
     on_speech_started: Callable[[SpeechStart], Awaitable[None]] | None
+    on_speech_stopped: Callable[[SpeechStop], Awaitable[None]] | None
     on_turn_ended: Callable[[TurnEnd], Awaitable[None]] | None
     on_reconnected: Callable[[Reconnected], Awaitable[None]] | None
     ended: asyncio.Event
@@ -150,6 +162,8 @@ class _Mapping:
                     await self.on_speech_started(SpeechStart(event.audio_start_ms))
             case SpeechStopped():
                 self.items.stopped[event.item_id] = event.audio_end_ms
+                if self.on_speech_stopped is not None:
+                    await self.on_speech_stopped(SpeechStop(event.audio_end_ms))
             case TranscriptDelta() if self.on_partial is not None:
                 text = self.items.text.get(event.item_id, "") + event.delta
                 self.items.text[event.item_id] = text
@@ -188,6 +202,7 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
     on_utterance: Callable[[Utterance], Awaitable[None]],
     on_partial: Callable[[Partial], Awaitable[None]] | None = None,
     on_speech_started: Callable[[SpeechStart], Awaitable[None]] | None = None,
+    on_speech_stopped: Callable[[SpeechStop], Awaitable[None]] | None = None,
     on_turn_ended: Callable[[TurnEnd], Awaitable[None]] | None = None,
     on_reconnected: Callable[[Reconnected], Awaitable[None]] | None = None,
     opening_seconds: float = OPENING_SECONDS,
@@ -210,6 +225,7 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
                 on_utterance,
                 on_partial,
                 on_speech_started,
+                on_speech_stopped,
                 on_turn_ended,
                 on_reconnected,
                 ended,
