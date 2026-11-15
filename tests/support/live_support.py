@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 SPEECH_LEVEL = 5000
 INPUT_RATE = 24_000
 WAIT_SECONDS = 5.0
+SPEECH_STOPPED = "input_audio_buffer.speech_stopped"
 COMPLETED = "conversation.item.input_audio_transcription.completed"
 FAILED = "conversation.item.input_audio_transcription.failed"
 

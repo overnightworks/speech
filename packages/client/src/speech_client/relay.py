@@ -21,14 +21,18 @@ shorter. An app may pass `HOP_FRAME_BYTES` as `frame_limit_bytes`.
 `relay` returns one `RelayOutcome`, a closed union a caller matches with
 `assert_never`: the session's own `HearingOutcome`, or a hop end (`BrowserLeft`,
 `AppEnded`, `RuleBroken`). Unless the browser left, the relay closes the browser
-socket with the `HopClose` of that end. `app_ended` ends the browser hop at once,
-and the end is hard: a frame the relay receives, or an event the session yields,
-after `app_ended` is set, also when it was set before the call, reaches neither
-the session nor `on_event`, and the hop returns `AppEnded`. A browser that
-disconnects in the same pass still ends the hop as `BrowserLeft`. Two limits
-stay: frames the relay accepted before the end and the session still holds may be
-written to the service until the session is left (at most the session's held
-limit), and an `on_event` call already running when the end is set is cancelled.
+socket with the `HopClose` of that end: `NoToken` closes it as in order and
+`ReconnectFailed` as `SERVICE_FAILED`. The session's `Reconnected` reaches
+`on_event` like an event, and an exception of the session's token source is
+raised from `relay` with the browser socket left to the app. `app_ended` ends
+the browser hop at once, and the end is hard: a frame the relay receives, or an
+event the session yields, after `app_ended` is set, also when it was set before
+the call, reaches neither the session nor `on_event`, and the hop returns
+`AppEnded`. A browser that disconnects in the same pass still ends the hop as
+`BrowserLeft`. Two limits stay: frames the relay accepted before the end and the
+session still holds may be written to the service until the session is left (at
+most the session's held limit), and an `on_event` call already running when
+the end is set is cancelled.
 `relay` itself returns when the session has closed: within the socket's close
 timeout, or at the session's deadline when the service no longer reads. A cancel
 of `relay`, a caller's timeout included, aborts the service socket at once,
@@ -46,7 +50,15 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import TYPE_CHECKING, Final, Protocol, assert_never
 
-from speech_client.hearing import Closed, HearingOutcome, HearingSession, Refused
+from speech_client.hearing import (
+    Closed,
+    HearingOutcome,
+    HearingSession,
+    NoToken,
+    Reconnected,
+    ReconnectFailed,
+    Refused,
+)
 from speech_client.outcomes import (
     Busy,
     Cut,
@@ -118,7 +130,7 @@ def _close_for(outcome: RelayOutcome) -> HopClose | None:  # noqa: PLR0911 - one
     match outcome:
         case BrowserLeft():
             return None
-        case Closed() | AppEnded():
+        case Closed() | NoToken() | AppEnded():
             return HopClose.NORMAL
         case RuleBroken(close):
             return close
@@ -128,7 +140,7 @@ def _close_for(outcome: RelayOutcome) -> HopClose | None:  # noqa: PLR0911 - one
             return HopClose.BUSY
         case PastDeadline():
             return HopClose.PAST_DEADLINE
-        case Refused() | Malformed() | Cut() | Unreachable():
+        case Refused() | Malformed() | Cut() | Unreachable() | ReconnectFailed():
             return HopClose.SERVICE_FAILED
         case _:
             assert_never(outcome)
@@ -156,7 +168,7 @@ async def _forward(
 
 async def _deliver(
     session: HearingSession,
-    on_event: Callable[[ServerEvent], Awaitable[None]],
+    on_event: Callable[[ServerEvent | Reconnected], Awaitable[None]],
     app_ended: asyncio.Event,
 ) -> RelayOutcome:
     async with contextlib.aclosing(session.events()) as events:
@@ -180,7 +192,7 @@ async def relay(
     session: HearingSession,
     *,
     app_ended: asyncio.Event,
-    on_event: Callable[[ServerEvent], Awaitable[None]],
+    on_event: Callable[[ServerEvent | Reconnected], Awaitable[None]],
     frame_limit_bytes: int,
 ) -> RelayOutcome:
     """Relay `browser` to `session` until the first end; see the module."""

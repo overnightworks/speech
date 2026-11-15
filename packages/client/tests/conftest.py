@@ -9,6 +9,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from packages.client.tests.support.reconnect_support import BOUND
+from speech_client import hearing
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -85,3 +88,9 @@ def refused_url() -> Iterator[str]:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as bound:
         bound.bind(("127.0.0.1", 0))
         yield f"http://127.0.0.1:{bound.getsockname()[1]}"
+
+
+@pytest.fixture
+def quick_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reopen with a bound short enough for a scenario to run it out."""
+    monkeypatch.setattr(hearing, "RECONNECT_BOUND", BOUND)

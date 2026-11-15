@@ -8,8 +8,18 @@ from typing import TYPE_CHECKING
 
 from websockets.asyncio.server import serve
 
-from speech_client.hearing import OPENING_SECONDS, HearingSession
-from speech_client.wire import Language, TranscriptDelta
+from speech_client.hearing import (
+    OPENING_SECONDS,
+    HearingSession,
+    SessionTokens,
+    TokenSource,
+)
+from speech_client.wire import (
+    Language,
+    SessionCreated,
+    TranscriptDelta,
+    TranscriptionSession,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -27,6 +37,15 @@ AT_ONCE_SECONDS = 1
 OPENING_MARGIN = 2  # met in time, below the close timeout (10 s)
 
 
+CREATED_EVENT = SessionCreated(
+    session=TranscriptionSession(type="transcription")
+).model_dump_json()
+
+
+async def fixed_tokens() -> SessionTokens:
+    return SessionTokens(WORKLOAD_TOKEN, PERSON_TOKEN)
+
+
 async def silent_peer(reader: asyncio.StreamReader, _: object) -> None:
     await reader.read()
 
@@ -41,11 +60,11 @@ def session_to(
     deadline_seconds: float = 5,
     held_limit_bytes: int = 1,
     opening_seconds: float = OPENING_SECONDS,
+    token_source: TokenSource = fixed_tokens,
 ) -> HearingSession:
     return HearingSession(
         f"http://{LOOPBACK}:{port}",
-        workload_token=WORKLOAD_TOKEN,
-        person_token=PERSON_TOKEN,
+        token_source=token_source,
         languages=(Language.DE,),
         deadline_seconds=deadline_seconds,
         held_limit_bytes=held_limit_bytes,
@@ -67,9 +86,12 @@ async def outcome_at(
 
 @contextlib.asynccontextmanager
 async def stalled_service(
-    says_first: tuple[str, ...] = (),
+    says_first: tuple[str, ...] = (CREATED_EVENT,),
 ) -> AsyncIterator[tuple[int, asyncio.Event]]:
-    """A service that reads the first frame, then stops reading; yields port, opened."""
+    """A service that reads the first frame, then stops reading; yields port, opened.
+
+    It says `session.created` first unless told otherwise.
+    """
     released = asyncio.Event()
     opened = asyncio.Event()
 

@@ -37,14 +37,38 @@ cap and answers with a typed outcome; the outcomes the calls share live in
 `speech_client.outcomes`. `speech_client.hearing` runs the live hearing
 session: audio in, typed events out, one closed outcome when it ends, within a total
 deadline and an opening bound; a service that does not open the session in time ends
-it with `Unreachable`.
+it with `Unreachable`. It takes its tokens from a token source (an async callable
+returning `SessionTokens`, or `None`), which it awaits before every opening, so each
+opening is an upgrade (WIRE-140) with current tokens: `None` ends the hearing with
+`NoToken`, and an exception of the source is raised from leaving the session, with
+nothing more opened. Once one opening has succeeded, a session that closes with `1012`
+(`DRAIN_CLOSE_CODE`, WIRE-146) or is cut after its `session.created`, having sent no
+`error` and no failed item, is reopened at the same origin with the same
+`session.update`; any other end ends the hearing as before. `RECONNECT_BOUND` bounds
+the reopening (attempts, a pause between them, a total time), counted from the end of
+the open session and reset by a successful opening; a refusal `unavailable` or `busy`,
+`Unreachable`, a cut before `session.created` and an expired opening bound each cost
+one attempt, any other refusal or `Malformed` ends the hearing with it, and a bound
+that runs out ends it with `ReconnectFailed`. Audio is held under the caller's byte
+limit meanwhile (`NEEDED_HOLD_BYTES` covers the opening bound and a whole reconnect),
+a chunk leaves the held audio when its write begins and is never written again, and
+audio is written only after a session's `session.created`. The positions of
+`speech_started` and `speech_stopped` lie on one audio timeline across sessions: the
+service's position plus the audio of every chunk whose write began on an earlier
+session, in whole milliseconds, rounded down, lost audio included. Before the new
+session's events `events()` yields `Reconnected` (a client-side record, no wire event):
+its cause (`DRAIN` or `CUT`) and the span of audio, on that timeline, that may have gone
+unheard, from the end of the last turn the old session delivered to the new session's
+first position. The new session's items start afresh.
 `speech_client.relay` relays a browser's binary audio frames to such a session for an
 app's server and hands the app the typed events, never the browser; it ends the hop
 when the browser leaves, breaks a frame rule or the app ends it, and closes the
-browser with a code of its own. `speech_client.utterances` builds the session on top
+browser with a code of its own (`NoToken` closes it in order, `ReconnectFailed` as a
+service failure). `speech_client.utterances` builds the session on top
 of the relay and hands the app finished utterances (text, language and audio
-positions), optionally the text so far, or the code of a failed item or of an
-`error` event (`ServiceFailed`).
+positions), optionally the text so far, a `Reconnected` (it forgets the old session's
+unfinished items), or the code of a failed item or of an `error` event
+(`ServiceFailed`).
 
 ## Request
 
@@ -172,7 +196,9 @@ events of OpenAI's Realtime transcription session that this service applies, and
 nothing else. **WIRE-50** Both tokens travel in the upgrade request's headers, as on the
 other routes; a client sends them from a server, never from a browser.
 **WIRE-140** The tokens are checked once, at the upgrade; a session runs on after either
-token expires until it ends, so the app ends a hearing when its right to hear ends.
+token expires until it ends, so the app ends a hearing when its right to hear ends. A
+client that opens another session after a drain presents tokens again: each opening is
+a new upgrade.
 
 **Upgrade.** **WIRE-51** A refusal before the session is an HTTP answer in the refusal form
 below, in this order: the tokens, the
@@ -288,8 +314,8 @@ running finishes whole; a speak request still waiting for the engine is refused.
 **WIRE-146** Each live session keeps taking audio until its open turn ends, by silence or
 the cap, or by the drain: an open turn ends itself 30 s after the drain began. Audio after
 that turn's end opens no new turn. The session delivers that turn's `completed` and every
-final ahead of it, then closes with `1012` (Service Restart) and no `error`, since nothing
-failed. A session with no open turn closes with `1012`
+final ahead of it, then closes with `1012` (Service Restart, `DRAIN_CLOSE_CODE` in
+`speech_client.wire`) and no `error`, since nothing failed. A session with no open turn closes with `1012`
 at its next poll (0.3 s). A client reconnects with a new session; its items start afresh.
 **WIRE-147** The drain is bounded by 30 s plus `SPEECH_HEARING_FINAL_WAIT_SECONDS`
 (WIRE-120): a final waits at most that long, as WIRE-85 says. The service then closes its

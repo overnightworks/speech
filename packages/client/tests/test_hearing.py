@@ -17,12 +17,14 @@ from websockets.frames import CloseCode
 
 from packages.client.tests.support.hearing_support import (
     AT_ONCE_SECONDS,
+    CREATED_EVENT,
     HEARD_DELTA,
     HEARD_TEXT,
     LOOPBACK,
     OPENING_MARGIN,
     PERSON_TOKEN,
     WORKLOAD_TOKEN,
+    fixed_tokens,
     outcome_at,
     session_to,
     silent_peer,
@@ -317,26 +319,26 @@ def test_a_caller_cancelled_while_leaving_a_stalled_service_is_not_held_by_it() 
 def test_a_send_after_the_held_limit_is_passed_never_reaches_the_peer() -> None:
     async def scenario() -> tuple[HearingOutcome | None, list[bytes]]:
         received: list[bytes] = []
-        setup_received = asyncio.Event()
+        first_audio = asyncio.Event()
         closed = asyncio.Event()
 
         async def records(connection: ServerConnection) -> None:
             try:
+                await connection.recv()
+                await connection.send(CREATED_EVENT)
                 async for message in connection:
-                    audio = json.loads(message).get("audio")
-                    if audio is None:
-                        setup_received.set()
-                    else:
-                        received.append(base64.b64decode(audio))
+                    received.append(base64.b64decode(json.loads(message)["audio"]))
+                    first_audio.set()
             finally:
                 closed.set()
 
         async with serve(records, LOOPBACK, 0) as server:
             port = server.sockets[0].getsockname()[1]
             async with session_to(port, held_limit_bytes=2) as session:
+                session.send(b"a")
                 async with asyncio.timeout(5):
-                    await setup_received.wait()
-                for pcm in (b"a", b"bcd", b"e"):
+                    await first_audio.wait()
+                for pcm in (b"bcd", b"e"):
                     session.send(pcm)
                 async with asyncio.timeout(5):
                     async for _ in session.events():
@@ -389,6 +391,7 @@ def test_every_orderly_end_closes_the_connection_with_the_normal_code(
 
         async def records(connection: ServerConnection) -> None:
             await connection.recv()
+            await connection.send(CREATED_EVENT)
             for message in says:
                 await connection.send(message)
             opened.set()
@@ -494,7 +497,7 @@ def _fails_the_writer(session: HearingSession) -> None:
 
 @pytest.mark.parametrize(
     "says_first",
-    [(), (HEARD_DELTA, HEARD_DELTA)],
+    [(CREATED_EVENT,), (CREATED_EVENT, HEARD_DELTA, HEARD_DELTA)],
     ids=["quiet", "reader-blocked-on-full-queue"],
 )
 def test_a_failing_writer_ends_the_session_at_once_and_is_raised_from_leaving(
@@ -625,8 +628,7 @@ def test_a_base_url_that_is_not_an_origin_raises_value_error(base_url: str) -> N
     with pytest.raises(ValueError, match="base_url"):
         HearingSession(
             base_url,
-            workload_token=WORKLOAD_TOKEN,
-            person_token=PERSON_TOKEN,
+            token_source=fixed_tokens,
             languages=(Language.DE,),
             deadline_seconds=1,
             held_limit_bytes=1,

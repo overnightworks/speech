@@ -17,6 +17,7 @@ from speech_client.wire import (
     DurationUsage,
     Language,
     RefusalCode,
+    SessionCreated,
     SessionUpdated,
     TranscriptCompleted,
     TranscriptionSession,
@@ -93,8 +94,8 @@ async def never_handles(_: ServerConnection) -> None:
 
 def test_an_accepted_upgrade_gives_no_outcome() -> None:
     async def accepting(connection: ServerConnection) -> None:
-        updated = SessionUpdated(session=TranscriptionSession(type="transcription"))
-        await connection.send(updated.model_dump_json())
+        created = SessionCreated(session=TranscriptionSession(type="transcription"))
+        await connection.send(created.model_dump_json())
         await connection.wait_closed()
 
     async def scenario() -> object:

@@ -15,7 +15,7 @@ import contextlib
 import json
 import sys
 
-from speech_client.hearing import HearingSession
+from speech_client.hearing import HearingSession, SessionTokens
 from speech_client.wire import Language, TranscriptCompleted, TranscriptDelta
 
 
@@ -32,10 +32,15 @@ async def turn(specification: dict[str, object]) -> dict[str, object]:
     """Run the turn; a session that ends before a final is an `error`."""
     frames = [base64.b64decode(frame) for frame in specification["frames"]]
     partials: list[str] = []
+
+    async def tokens() -> SessionTokens:
+        return SessionTokens(
+            specification["workload_token"], specification["person_token"]
+        )
+
     async with HearingSession(
         specification["base_url"],
-        workload_token=specification["workload_token"],
-        person_token=specification["person_token"],
+        token_source=tokens,
         languages=tuple(map(Language, specification["languages"])),
         deadline_seconds=specification["wait_seconds"],
         held_limit_bytes=sum(map(len, frames)),
