@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from faster_whisper.vad import get_vad_model
 
+from speech_service.config import DEFAULT_LIVE_SILENCE_SECONDS
 from speech_service.hearing_session import HearingSession, SpeechStart, TurnEnd
 from speech_service.pcm import pcm_from_wav
 from speech_service.voice_activity import (
@@ -93,7 +94,9 @@ def test_a_voice_is_one_turn_whatever_its_loudness(detectors: SileroDetectors) -
     """A faint voice is a turn like a loud one: loudness is no part of speech."""
     speech = np.frombuffer(_speech(), dtype="<i2").astype(np.float32)
     for gain in (1.0, 0.03):
-        session = HearingSession(lambda: 0.0, detectors.open())
+        session = HearingSession(
+            lambda: 0.0, detectors.open(), DEFAULT_LIVE_SILENCE_SECONDS
+        )
         audio = _noise(1.0, 20) + _pcm(speech * gain) + _noise(1.0, 20)
 
         events = [
@@ -110,7 +113,9 @@ def test_a_voice_is_one_turn_whatever_its_loudness(detectors: SileroDetectors) -
 
 
 def test_loud_noise_opens_no_turn(detectors: SileroDetectors) -> None:
-    session = HearingSession(lambda: 0.0, detectors.open())
+    session = HearingSession(
+        lambda: 0.0, detectors.open(), DEFAULT_LIVE_SILENCE_SECONDS
+    )
 
     events = session.add(_noise(20.0, 10000))
 

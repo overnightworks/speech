@@ -2,7 +2,7 @@
 
 import tomllib
 from pathlib import Path
-from typing import Annotated, Self
+from typing import Annotated, Final, Self
 
 from huggingface_hub import constants as huggingface_hub_constants
 from pydantic import (
@@ -19,6 +19,7 @@ from speech_client.wire import VoiceId
 from speech_service.hearing_models import HearingModel
 from speech_service.voices import PIPER_VOICES
 
+DEFAULT_LIVE_SILENCE_SECONDS: Final = 0.5
 _PROVIDER_ROOT_ERROR = "provider root must be absolute"
 _VOICES_ERROR = (
     "SPEECH_VOICES must list catalogue voice ids separated by commas, each at most once"
@@ -55,6 +56,9 @@ class Settings(BaseSettings):
     hearing_max_waiting_requests: int = Field(default=3, ge=0)
     max_hearing_sessions: int = Field(default=1, ge=1)
     hearing_final_wait_seconds: float = Field(default=60.0, gt=0, allow_inf_nan=False)
+    live_silence_seconds: float = Field(
+        default=DEFAULT_LIVE_SILENCE_SECONDS, gt=0, le=10, allow_inf_nan=False
+    )
     max_recording_bytes: int = Field(default=25 * 1024 * 1024, ge=1)
     max_recording_seconds: float = Field(default=300.0, gt=0, allow_inf_nan=False)
     config_file: Path | None = None

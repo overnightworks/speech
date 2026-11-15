@@ -97,8 +97,9 @@ mishear a question, so `large-v3` is the model to use where the meaning counts.
 ## Settings
 
 Every setting is read from `SPEECH_*` in the environment. The wire's settings
-(the offered voices, the waits and limits, the hearing model and its limits, the
-caller file) are in [`docs/wire.md`](docs/wire.md), Settings that shape the wire.
+(the offered voices, the waits and limits, the hearing model and its limits, the live
+turn's silence `SPEECH_LIVE_SILENCE_SECONDS`, the caller file) are in
+[`docs/wire.md`](docs/wire.md), Settings that shape the wire.
 The process's own:
 
 | Variable | Default | Meaning |

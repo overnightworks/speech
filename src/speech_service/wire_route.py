@@ -356,6 +356,7 @@ class _RealtimeRoute:
             session = LiveSession(
                 self._runtime.hearing,
                 final_wait_seconds=self._settings.hearing_final_wait_seconds,
+                silence_seconds=self._settings.live_silence_seconds,
                 send=websocket.send_text,
                 close=websocket.close,
             )

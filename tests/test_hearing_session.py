@@ -4,9 +4,9 @@ import struct
 
 import pytest
 
+from speech_service.config import DEFAULT_LIVE_SILENCE_SECONDS
 from speech_service.hearing_session import (
     MAX_TURN_SECONDS,
-    SILENCE_SECONDS,
     HearingSession,
     SpeechStart,
     TurnEnd,
@@ -21,7 +21,7 @@ from speech_service.voice_activity import (
 from tests.support.detector_support import LOUD_LEVEL, LevelDetector, ScriptedDetector
 
 BYTES_PER_SECOND = SAMPLE_RATE * 2
-SILENT_WINDOWS = round(SILENCE_SECONDS / WINDOW_SECONDS + 0.5)
+SILENT_WINDOWS = round(DEFAULT_LIVE_SILENCE_SECONDS / WINDOW_SECONDS + 0.5)
 PRE_ROLL_MS = int(PRE_ROLL_SECONDS * 1000)
 
 
@@ -51,7 +51,7 @@ def _quiet(count: int) -> bytes:
 
 def _session() -> tuple[HearingSession, _Clock]:
     clock = _Clock()
-    return HearingSession(clock, LevelDetector()), clock
+    return HearingSession(clock, LevelDetector(), DEFAULT_LIVE_SILENCE_SECONDS), clock
 
 
 def _ends(events: list[SpeechStart | TurnEnd]) -> list[TurnEnd]:
@@ -95,6 +95,19 @@ def test_a_turn_ends_once_the_silence_is_complete_and_not_a_window_before() -> N
     assert not ended.by_client
 
 
+def test_a_turn_ends_after_the_configured_silence_and_not_the_default() -> None:
+    longer = DEFAULT_LIVE_SILENCE_SECONDS * 3
+    session = HearingSession(_Clock(), LevelDetector(), longer)
+    long_windows = round(longer / WINDOW_SECONDS + 0.5)
+    session.add(_speech(30))
+
+    after_the_default = session.add(_quiet(SILENT_WINDOWS))
+    after_the_configured = session.add(_quiet(long_windows - SILENT_WINDOWS))
+
+    assert _ends(after_the_default) == []
+    assert len(_ends(after_the_configured)) == 1
+
+
 def test_a_dip_shorter_than_the_silence_does_not_end_the_turn() -> None:
     session, _ = _session()
 
@@ -119,7 +132,9 @@ def test_a_turn_counts_the_voiced_windows_of_its_pre_roll_and_no_older_ones(
     """Windows from the end threshold up are voiced, confirmed or not."""
     faint, speech = 0.4, 0.9
     probabilities = [faint] * leading + [speech] * 50 + [0.0] * SILENT_WINDOWS
-    session = HearingSession(_Clock(), ScriptedDetector(probabilities))
+    session = HearingSession(
+        _Clock(), ScriptedDetector(probabilities), DEFAULT_LIVE_SILENCE_SECONDS
+    )
 
     (ended,) = _ends(session.add(_quiet(len(probabilities))))
 

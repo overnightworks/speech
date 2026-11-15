@@ -8,6 +8,7 @@ import json
 import struct
 from typing import TYPE_CHECKING
 
+from speech_service.config import DEFAULT_LIVE_SILENCE_SECONDS
 from speech_service.live_session import LiveSession
 
 if TYPE_CHECKING:
@@ -137,6 +138,7 @@ async def started(
     session = LiveSession(
         hearing,
         final_wait_seconds=final_wait_seconds,
+        silence_seconds=DEFAULT_LIVE_SILENCE_SECONDS,
         send=socket.send,
         close=socket.close,
     )

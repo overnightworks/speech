@@ -20,9 +20,9 @@ from typing import TYPE_CHECKING, Final
 import numpy as np
 
 from speech_client.wire import Language, RefusalCode
+from speech_service.config import DEFAULT_LIVE_SILENCE_SECONDS
 from speech_service.hearing_session import (
     MAX_TURN_SECONDS,
-    SILENCE_SECONDS,
     HearingSession,
     TurnEnd,
 )
@@ -230,7 +230,9 @@ def _voiced_windows(pcm: bytes) -> list[bool]:
 
 def _turns(pcm: bytes) -> list[TurnEnd]:
     """The turns the service ends on 24 kHz `pcm` and the silence that follows it."""
-    session = HearingSession(lambda: 0.0, _silero().open())
+    session = HearingSession(
+        lambda: 0.0, _silero().open(), DEFAULT_LIVE_SILENCE_SECONDS
+    )
     resampler = Resampler()
     events = []
     for frame in frames_with_closing_silence(pcm):
@@ -246,12 +248,13 @@ def voiced_seconds(pcm: bytes, rate: int) -> float:
 def check_continuous_turn(pcm: bytes) -> float:
     """Fail loud unless `pcm` (24 kHz) is one turn the service hears whole.
 
-    The service ends a turn at `SILENCE_SECONDS` without speech; a clip with such
-    a pause inside it would arrive as two turns, and the clip with the silence that
-    ends it must stay below the turn cap. Returns the clip's seconds.
+    By default the service ends a turn at `DEFAULT_LIVE_SILENCE_SECONDS` without
+    speech; a clip with such a pause inside it would arrive as two turns, and the
+    clip with the silence that ends it must stay below the turn cap. Returns the
+    clip's seconds.
     """
     seconds = seconds_of(pcm)
-    if seconds + SILENCE_SECONDS + PRE_ROLL_SECONDS >= MAX_TURN_SECONDS:
+    if seconds + DEFAULT_LIVE_SILENCE_SECONDS + PRE_ROLL_SECONDS >= MAX_TURN_SECONDS:
         message = (
             f"the clip is {seconds:.1f} s; with the closing silence it must stay"
             f" below the {MAX_TURN_SECONDS:.0f} s turn cap"
@@ -264,7 +267,8 @@ def check_continuous_turn(pcm: bytes) -> float:
     if len(turns) > 1:
         at = turns[0].end_ms / 1000
         message = (
-            f"a pause of {SILENCE_SECONDS} s at {at:.1f} s would end the turn early"
+            f"a pause of {DEFAULT_LIVE_SILENCE_SECONDS} s at {at:.1f} s"
+            " would end the turn early"
         )
         raise ClipError(message)
     return seconds
