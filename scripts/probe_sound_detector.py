@@ -645,35 +645,44 @@ def _run_in_own_process(arguments: argparse.Namespace, key: str) -> None:
     ]
     if arguments.operator_recordings:
         command += ["--operator-recordings", str(arguments.operator_recordings)]
-    subprocess.run(command, check=True)  # noqa: S603 - argv is this interpreter, this script and its own parsed options, no shell
+    subprocess.run(command, check=True)  # noqa: S603 - argv is this interpreter and this script with its own parsed options and no shell
+
+
+def _corpus(arguments: argparse.Namespace, *, measured: bool) -> Corpus:
+    """What a run listens to; the parent of several candidates only reports the data."""
+    maep, echo = (
+        operator_recordings(arguments.operator_recordings)
+        if measured and arguments.operator_recordings
+        else ([], [])
+    )
+    return Corpus(
+        load_sound_clips(arguments.clips_per_sound, arguments.cache),
+        speech_with_silence(arguments.speech_start_minutes, arguments.speech_minutes),
+        list(itertools.islice(speech_sentences(), 2 * SPOKEN_SENTENCES))
+        if measured
+        else [],
+        maep,
+        echo,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Fetch the data, measure each candidate and print the report."""
     arguments = parse_arguments(sys.argv[1:] if argv is None else argv)
-    maep, echo = (
-        operator_recordings(arguments.operator_recordings)
-        if arguments.operator_recordings
-        else ([], [])
-    )
     cache = arguments.cache
-    corpus = Corpus(
-        load_sound_clips(arguments.clips_per_sound, cache),
-        speech_with_silence(arguments.speech_start_minutes, arguments.speech_minutes),
-        list(itertools.islice(speech_sentences(), 2 * SPOKEN_SENTENCES)),
-        maep,
-        echo,
-    )
-    spread = corpus.clips[:: max(1, len(corpus.clips) // CHECKED_WINDOWS)]
-    checked_on = [windows_of(c.samples, 2 * SAMPLE_RATE)[0] for c in spread]
+    own_processes = len(arguments.candidates) > 1
+    corpus = _corpus(arguments, measured=not own_processes)
     if not arguments.section:
         print("# Sound tagger probe\n")
         print("\n".join(report_data(corpus, cache)), flush=True)
-    for key in arguments.candidates:
-        if len(arguments.candidates) > 1:
+    if own_processes:
+        del corpus
+        for key in arguments.candidates:
             _run_in_own_process(arguments, key)
-            continue
-        tagger = CANDIDATES[key](cache, checked_on)
+    else:
+        spread = corpus.clips[:: max(1, len(corpus.clips) // CHECKED_WINDOWS)]
+        checked_on = [windows_of(c.samples, 2 * SAMPLE_RATE)[0] for c in spread]
+        tagger = CANDIDATES[arguments.candidates[0]](cache, checked_on)
         print(
             "\n".join(report(measure(tagger, corpus, cache, arguments.hearings))),
             flush=True,
