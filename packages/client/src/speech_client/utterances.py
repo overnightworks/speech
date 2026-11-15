@@ -1,10 +1,10 @@
 """Finished utterances from a browser's live audio, for an app's server.
 
-`hear_utterances` builds the `HearingSession`, relays the browser's audio to it
-with `speech_client.relay.relay` and hands the app what the service heard as
-typed records. The app keeps the route, its admission, the token choice, its
-rule and when a hearing ends: it sets `ended` to end it, and the relay's hard
-end holds, so after `ended` is set no callback is called again.
+`hear_utterances` builds the `HearingSession` on a token source, relays the
+browser's audio to it with `speech_client.relay.relay` and hands the app what
+the service heard as typed records. The app keeps the route, its admission, the
+token choice, its rule and when a hearing ends: it sets `ended` to end it, and
+the relay's hard end holds, so after `ended` is set no callback is called again.
 
 - `on_utterance` gets an `Utterance` for each finished item with a non-empty
   transcript: its text, its decoded language and the positions, in milliseconds
@@ -20,6 +20,10 @@ end holds, so after `ended` is set no callback is called again.
   reaches the app.
 - `on_partial`, if given, gets a `Partial` for each delta: the item's text so far.
   Without it nothing of a delta reaches the app.
+- `on_reconnected`, if given, gets the `Reconnected` of a session that was
+  reopened (`speech_client.hearing`): the old session's unfinished items are
+  forgotten, as the new session's items start afresh. Without it nothing of a
+  reconnect reaches the app.
 - A failed item or an `error` event ends the hearing: the browser is closed
   with `HopClose.SERVICE_FAILED` and the outcome is `ServiceFailed`, which names
   the event's code and nothing else of it.
@@ -36,7 +40,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from speech_client.hearing import OPENING_SECONDS, HearingSession
+from speech_client.hearing import (
+    OPENING_SECONDS,
+    HearingSession,
+    Reconnected,
+)
 from speech_client.relay import HOP_FRAME_BYTES, HopClose, RelayOutcome, relay
 from speech_client.wire import (
     ErrorEvent,
@@ -51,6 +59,7 @@ if TYPE_CHECKING:
     import asyncio
     from collections.abc import Awaitable, Callable
 
+    from speech_client.hearing import TokenSource
     from speech_client.relay import BrowserSocket
     from speech_client.wire import Language, RefusalCode, ServerEvent
 
@@ -125,11 +134,16 @@ class _Mapping:
     on_partial: Callable[[Partial], Awaitable[None]] | None
     on_speech_started: Callable[[SpeechStart], Awaitable[None]] | None
     on_turn_ended: Callable[[TurnEnd], Awaitable[None]] | None
+    on_reconnected: Callable[[Reconnected], Awaitable[None]] | None
     ended: asyncio.Event
     items: _Items = field(default_factory=_Items)
 
-    async def on_event(self, event: ServerEvent) -> None:
+    async def on_event(self, event: ServerEvent | Reconnected) -> None:
         match event:
+            case Reconnected():
+                self.items = _Items()
+                if self.on_reconnected is not None:
+                    await self.on_reconnected(event)
             case SpeechStarted():
                 self.items.started[event.item_id] = event.audio_start_ms
                 if self.on_speech_started is not None:
@@ -141,32 +155,32 @@ class _Mapping:
                 self.items.text[event.item_id] = text
                 await self.on_partial(Partial(text))
             case TranscriptCompleted():
-                start, end = self.items.finish(event.item_id)
-                if event.transcript:
-                    await self.on_utterance(
-                        Utterance(
-                            event.transcript,
-                            event.languages[0].code,
-                            audio_start_ms=start,
-                            audio_end_ms=end,
-                        )
-                    )
-                if self.on_turn_ended is not None and not self.ended.is_set():
-                    await self.on_turn_ended(
-                        TurnEnd(heard_words=bool(event.transcript))
-                    )
+                await self._completed(event)
             case TranscriptFailed() | ErrorEvent():
                 raise _ServiceFailedError(event.error.code)
             case _:
                 return
+
+    async def _completed(self, event: TranscriptCompleted) -> None:
+        start, end = self.items.finish(event.item_id)
+        if event.transcript:
+            await self.on_utterance(
+                Utterance(
+                    event.transcript,
+                    event.languages[0].code,
+                    audio_start_ms=start,
+                    audio_end_ms=end,
+                )
+            )
+        if self.on_turn_ended is not None and not self.ended.is_set():
+            await self.on_turn_ended(TurnEnd(heard_words=bool(event.transcript)))
 
 
 async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
     browser: BrowserSocket,
     origin: str,
     *,
-    workload_token: str,
-    person_token: str,
+    token_source: TokenSource,
     languages: tuple[Language, ...],
     deadline_seconds: float,
     held_limit_bytes: int,
@@ -175,13 +189,13 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
     on_partial: Callable[[Partial], Awaitable[None]] | None = None,
     on_speech_started: Callable[[SpeechStart], Awaitable[None]] | None = None,
     on_turn_ended: Callable[[TurnEnd], Awaitable[None]] | None = None,
+    on_reconnected: Callable[[Reconnected], Awaitable[None]] | None = None,
     opening_seconds: float = OPENING_SECONDS,
 ) -> UtteranceOutcome:
     """Hear `browser`'s audio at the service at `origin`; see the module."""
     session = HearingSession(
         origin,
-        workload_token=workload_token,
-        person_token=person_token,
+        token_source=token_source,
         languages=languages,
         deadline_seconds=deadline_seconds,
         held_limit_bytes=held_limit_bytes,
@@ -193,7 +207,12 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
             session,
             app_ended=ended,
             on_event=_Mapping(
-                on_utterance, on_partial, on_speech_started, on_turn_ended, ended
+                on_utterance,
+                on_partial,
+                on_speech_started,
+                on_turn_ended,
+                on_reconnected,
+                ended,
             ).on_event,
             frame_limit_bytes=HOP_FRAME_BYTES,
         )

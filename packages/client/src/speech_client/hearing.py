@@ -1,14 +1,26 @@
-"""The live hearing session: one `WS /v1/realtime`, bounded in time and memory.
+"""The live hearing session: `WS /v1/realtime`, bounded in time and memory.
 
 `HearingSession` is an async context manager. It starts opening the connection
 on entry, takes every input from its call site, and never logs, and keeps its
 socket's logger above debug; no outcome and no repr carries a token or heard text.
 
-- `send(pcm)` queues PCM16 audio at 24 kHz. Audio queued before the connection
-  is open, or faster than it is written, is held up to `held_limit_bytes`; one
-  byte over ends the session with `OverCap`. There is no commit: the service
-  ends turns itself (WIRE-65), and a commit with no audio is refused (WIRE-64).
-- `events()` yields the typed server events until the session ends.
+- The tokens come from a `TokenSource`, an async callable with no arguments that
+  returns `SessionTokens` or `None`. The session awaits it before every opening,
+  reconnects included, within that opening's bound: the service checks tokens
+  only at the upgrade (WIRE-140), so each opening presents the source's current
+  ones. `None` ends the session with `NoToken`. An `Exception` the source
+  raises ends the session at once, nothing more is opened and `outcome` stays
+  `None`; leaving the context raises it. A bound that expires while the source
+  runs ends the session as that bound says.
+- `send(pcm)` queues PCM16 audio at 24 kHz. Audio queued before a session is
+  open, or faster than it is written, is held up to `held_limit_bytes`; one byte
+  over ends the session with `OverCap`, at any moment. A chunk leaves the held
+  audio when its write begins, and audio is written only after the session's
+  `session.created`. `NEEDED_HOLD_BYTES` is the limit that covers the opening
+  bound and a whole reconnect. There is no commit: the service ends turns
+  itself (WIRE-65), and a commit with no audio is refused (WIRE-64).
+- `events()` yields the typed server events until the session ends, and the
+  client-side `Reconnected` between two wire sessions.
 - `outcome` is `None` while the session runs and one `HearingOutcome` after
   `events()` ran out, a closed union a caller matches with `assert_never`:
   - `Closed`: the connection ended in order, by the service or by leaving the
@@ -17,15 +29,36 @@ socket's logger above debug; no outcome and no repr carries a token or heard tex
   - `Busy`: the refusal is `busy`, with the wait the service asks for, as for
     `speak`; a `busy` without a whole-second `Retry-After` is `Malformed`.
   - `OverCap`: the held audio would pass `held_limit_bytes`.
-  - `Malformed`: a server message is not an event the wire names, or the
-    upgrade was answered off the wire, a redirect included: none is followed, so
-    no token travels to another origin.
+  - `Malformed`: a server message is not an event the wire names, the first
+    event of a session is not `session.created` (WIRE-68), or the upgrade was
+    answered off the wire, a redirect included: none is followed, so no token
+    travels to another origin.
+  - `NoToken`: the token source returned `None`.
+  - `ReconnectFailed`: the reconnect bound ran out.
   - `Cut`, `PastDeadline` and `Unreachable`, as for `speak`
     (`speech_client.outcomes`); `deadline_seconds` bounds the whole
-    session, opening included. `opening_seconds` (default `OPENING_SECONDS`)
-    bounds the opening: the handshake and the wait for the first event, which
-    the service sends first (WIRE-68). A service that does not speak by then
-    ends the session with `Unreachable`; a strictly smaller deadline wins.
+    hearing, reopenings included. `opening_seconds` (default `OPENING_SECONDS`)
+    bounds each opening: the token source, the handshake and the wait for the
+    first event, which the service sends first. A service that does not speak by
+    then ends the opening with `Unreachable`; a strictly smaller deadline wins.
+
+Once the hearing has had one successful opening, a session that closes with
+`DRAIN_CLOSE_CODE` or is cut after its `session.created`, having sent no `error`
+and no `failed` item, is reopened at the same origin with the same
+`session.update`: `Reconnected` reports why and which stretch of audio went
+unheard, and the new session's items start afresh. Any other end, and any end
+before the first success, ends the hearing as it did. `RECONNECT_BOUND` bounds
+the reopening from the end of the open session; only a successful opening
+resets it. A refusal `unavailable` or `busy` (its `Retry-After` is not waited
+for), `Unreachable`, a cut before `session.created` and an expired opening bound
+each count as one failed attempt; any other refusal or `Malformed` ends the
+hearing with that outcome.
+
+The positions `events()` yields (`audio_start_ms`, `audio_end_ms`) lie on one
+audio timeline across reconnects: the service's position plus the audio of every
+chunk whose write began on an earlier session, in whole milliseconds, rounded
+down. A chunk whose write began on a session that ended is lost, never written
+again, and still counted.
 
 A failure outside these outcomes ends the session at once; `outcome` stays
 `None` and leaving the context raises the failure.
@@ -46,12 +79,13 @@ import base64
 import contextlib
 import logging
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import StrEnum
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Final, Self
 
 from pydantic import ValidationError
-from websockets.asyncio.client import connect
+from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import (
     ConnectionClosed,
     InvalidHandshake,
@@ -71,17 +105,25 @@ from speech_client.outcomes import (
     busy_wait,
 )
 from speech_client.wire import (
+    DRAIN_CLOSE_CODE,
     REALTIME_INTENT,
     REALTIME_INTENT_PARAM,
     REALTIME_PATH,
     AudioAppend,
+    ErrorEvent,
     Language,
+    PcmFormat,
     Refusal,
     RefusalCode,
     ServerEventError,
     SessionAudio,
+    SessionCreated,
     SessionInput,
     SessionUpdate,
+    SpeechStarted,
+    SpeechStopped,
+    TranscriptCompleted,
+    TranscriptFailed,
     TranscriptionSession,
     TranscriptionSetting,
     parse_server_event,
@@ -89,10 +131,8 @@ from speech_client.wire import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Awaitable, Callable
     from types import TracebackType
-
-    from websockets.asyncio.client import ClientConnection
 
     from speech_client.wire import ServerEvent
 
@@ -110,11 +150,81 @@ class Refused:
     code: RefusalCode | None
 
 
+@dataclass(frozen=True, slots=True)
+class NoToken:
+    """The token source returned `None`; nothing more was opened."""
+
+
+@dataclass(frozen=True, slots=True)
+class ReconnectFailed:
+    """The reconnect bound ran out before a session opened."""
+
+
 type HearingOutcome = (
-    Closed | Refused | Busy | OverCap | Malformed | PastDeadline | Cut | Unreachable
+    Closed
+    | Refused
+    | Busy
+    | OverCap
+    | Malformed
+    | NoToken
+    | ReconnectFailed
+    | PastDeadline
+    | Cut
+    | Unreachable
 )
 
+
+@dataclass(frozen=True, slots=True)
+class SessionTokens:
+    """The two tokens of one opening; neither is shown in a repr."""
+
+    workload_token: str = field(repr=False)
+    person_token: str = field(repr=False)
+
+
+type TokenSource = Callable[[], Awaitable[SessionTokens | None]]
+
+
+@dataclass(frozen=True, slots=True)
+class ReconnectBound:
+    """How long and how often the session tries to reopen."""
+
+    attempts: int
+    pause_seconds: float
+    within_seconds: float
+
+
+class ReconnectCause(StrEnum):
+    """Why a session was reopened."""
+
+    DRAIN = "drain"
+    CUT = "cut"
+
+
+@dataclass(frozen=True, slots=True)
+class Reconnected:
+    """A new session replaced one that ended; client side, not a wire event.
+
+    The audio from `unheard_start_ms` to `unheard_end_ms`, on the session's
+    audio timeline, may not have been heard: it follows the last turn the old
+    session delivered and precedes the new session's first position.
+    """
+
+    cause: ReconnectCause
+    unheard_start_ms: int
+    unheard_end_ms: int
+
+
 OPENING_SECONDS: Final = 5.0
+RECONNECT_BOUND: Final = ReconnectBound(
+    attempts=5, pause_seconds=0.5, within_seconds=10
+)
+_BYTES_PER_SECOND: Final = (
+    SessionInput().format.rate * PcmFormat.sample_bytes * PcmFormat.channels
+)
+NEEDED_HOLD_BYTES: Final = int(
+    max(OPENING_SECONDS, RECONNECT_BOUND.within_seconds) * _BYTES_PER_SECOND
+)
 
 # The socket logs request headers and frame texts at debug; this logger never
 # passes them on unless an app raises it on purpose.
@@ -127,6 +237,35 @@ class _Connect(connect):
 
     def process_redirect(self, exc: Exception) -> Exception:
         return exc
+
+
+class _SourceFailedError(Exception):
+    """Carries an exception of the token source past the outcome mapping."""
+
+    def __init__(self, original: Exception) -> None:
+        super().__init__()
+        self.original = original
+
+
+@dataclass(frozen=True, slots=True)
+class _Interrupted:
+    """The reconnect under way: why, and where the unheard audio starts."""
+
+    cause: ReconnectCause
+    unheard_start_ms: int
+
+
+@dataclass(slots=True)
+class _Wire:
+    """One wire session: where its audio starts on the timeline and how it went."""
+
+    offset_ms: int
+    last_turn_end_ms: int
+    opened: asyncio.Event = field(default_factory=asyncio.Event)
+    close_code: int | None = None
+    failed_sent: bool = False
+    stopped: dict[str, int] = field(default_factory=dict)
+    ended: HearingOutcome | None = None
 
 
 def realtime_url(base_url: str) -> str:
@@ -161,7 +300,7 @@ def _refusal_code(body: bytes) -> RefusalCode | None:
 
 
 # In order: a timeout is an `OSError` too. A dropped handshake is the one
-# `InvalidMessage` that is `Cut`; `_session` handles it first.
+# `InvalidMessage` that is `Cut`; `_wire_session` handles it first.
 _FAILURE_OUTCOMES: tuple[tuple[type[Exception], HearingOutcome], ...] = (
     (TimeoutError, PastDeadline()),
     (InvalidHandshake, Malformed()),
@@ -215,12 +354,16 @@ async def _settled(*tasks: asyncio.Task[object]) -> None:
             raise failure
 
 
-async def _abandoned(opening: asyncio.Task[ClientConnection]) -> None:
+async def _abandoned(opening: asyncio.Task[ClientConnection | NoToken]) -> None:
+    # A bound or an end that won the race beats what the token source raised.
     try:
-        await _settled(opening)
+        with contextlib.suppress(_SourceFailedError):
+            await _settled(opening)
     finally:
         if not opening.cancelled() and opening.exception() is None:
-            opening.result().transport.abort()
+            opened = opening.result()
+            if isinstance(opened, ClientConnection):
+                opened.transport.abort()
 
 
 def _refusal_outcome(refused: InvalidStatus) -> HearingOutcome:
@@ -236,6 +379,20 @@ def _refusal_outcome(refused: InvalidStatus) -> HearingOutcome:
     return Refused(answer.status_code, _refusal_code(answer.body))
 
 
+def _is_failed_attempt(outcome: HearingOutcome) -> bool:
+    match outcome:
+        case Busy() | Unreachable() | Cut():
+            return True
+        case Refused(code=RefusalCode.UNAVAILABLE):
+            return True
+        case _:
+            return False
+
+
+def _milliseconds(audio_bytes: int) -> int:
+    return audio_bytes * 1000 // _BYTES_PER_SECOND
+
+
 class HearingSession:
     """A live hearing session; see the module for its calls and outcomes."""
 
@@ -243,8 +400,7 @@ class HearingSession:
         self,
         base_url: str,
         *,
-        workload_token: str,
-        person_token: str,
+        token_source: TokenSource,
         languages: tuple[Language, ...],
         deadline_seconds: float,
         held_limit_bytes: int,
@@ -256,18 +412,22 @@ class HearingSession:
             message = "opening_seconds must be above 0"
             raise ValueError(message)
         self._url = realtime_url(base_url)
-        self._headers = token_headers(
-            workload_token=workload_token, person_token=person_token
-        )
+        self._token_source = token_source
         self._update = session_update(languages)
         self._deadline_seconds = deadline_seconds
         self._opening_seconds = opening_seconds
         self._held_limit_bytes = held_limit_bytes
+        self._bound = RECONNECT_BOUND
         self._held: deque[bytes] = deque()
         self._held_bytes = 0
         self._held_changed = asyncio.Event()
+        self._written_bytes = 0
+        self._wire: _Wire | None = None
+        self._interrupted: _Interrupted | None = None
         self._end: asyncio.Future[HearingOutcome] | None = None
-        self._received: asyncio.Queue[ServerEvent | None] = asyncio.Queue(maxsize=1)
+        self._received: asyncio.Queue[ServerEvent | Reconnected | None] = asyncio.Queue(
+            maxsize=1
+        )
         self._runner: asyncio.Task[None] | None = None
         self.outcome: HearingOutcome | None = None
 
@@ -308,7 +468,7 @@ class HearingSession:
         self._held_bytes += len(pcm)
         self._held_changed.set()
 
-    async def events(self) -> AsyncIterator[ServerEvent]:
+    async def events(self) -> AsyncIterator[ServerEvent | Reconnected]:
         """The server events, in order, until the session ends."""
         while True:
             if (
@@ -323,36 +483,99 @@ class HearingSession:
             yield event
 
     async def _run(self, end: asyncio.Future[HearingOutcome]) -> None:
+        source_failure: Exception | None = None
         try:
-            self.outcome = await self._session(end)
+            self.outcome = await self._hear(end)
         except asyncio.CancelledError:
             self.outcome = Closed()
             raise
+        except _SourceFailedError as failed:
+            source_failure = failed.original
         finally:
             # Wakes a caller waiting in `events()`; when an event is still queued,
             # that caller sees the session ended after taking it.
             with contextlib.suppress(asyncio.QueueFull):
                 self._received.put_nowait(None)
+        if source_failure is not None:
+            raise source_failure
 
-    async def _session(self, end: asyncio.Future[HearingOutcome]) -> HearingOutcome:
-        ended: HearingOutcome | None = None
-        opening = asyncio.timeout(self._opening_seconds)
+    async def _hear(self, end: asyncio.Future[HearingOutcome]) -> HearingOutcome:
         try:
-            async with asyncio.timeout(self._deadline_seconds), opening:
+            async with asyncio.timeout(self._deadline_seconds):
+                return await self._reopening(end)
+        except TimeoutError:
+            # A deadline that cuts the polite close of an end keeps that end.
+            ended = self._wire.ended if self._wire is not None else None
+            return PastDeadline() if ended is None else ended
+
+    async def _reopening(self, end: asyncio.Future[HearingOutcome]) -> HearingOutcome:
+        """Run one wire session after another until the hearing ends."""
+        clock = asyncio.get_running_loop().time
+        attempts = 0
+        interrupted_at = 0.0
+        while True:
+            if end.done():
+                return end.result()
+            opening_seconds = self._opening_seconds
+            if self._interrupted is not None:
+                remaining = self._bound.within_seconds - (clock() - interrupted_at)
+                if attempts >= self._bound.attempts or remaining <= 0:
+                    return ReconnectFailed()
+                opening_seconds = min(opening_seconds, remaining)
+            self._wire = _Wire(
+                offset_ms=_milliseconds(self._written_bytes),
+                last_turn_end_ms=_milliseconds(self._written_bytes),
+            )
+            outcome = await self._wire_session(end, opening_seconds)
+            wire, self._wire = self._wire, None
+            if wire.opened.is_set():
+                cause = self._reopening_cause(outcome, wire)
+                if cause is None:
+                    return outcome
+                self._interrupted = _Interrupted(cause, wire.last_turn_end_ms)
+                attempts, interrupted_at = 0, clock()
+            elif self._interrupted is not None and _is_failed_attempt(outcome):
+                attempts += 1
+                pause = min(
+                    self._bound.pause_seconds,
+                    self._bound.within_seconds - (clock() - interrupted_at),
+                )
+                await asyncio.wait({end}, timeout=max(pause, 0))
+            else:
+                return outcome
+
+    @staticmethod
+    def _reopening_cause(outcome: HearingOutcome, wire: _Wire) -> ReconnectCause | None:
+        if not isinstance(outcome, Cut) or wire.failed_sent:
+            return None
+        if wire.close_code == DRAIN_CLOSE_CODE:
+            return ReconnectCause.DRAIN
+        return ReconnectCause.CUT
+
+    async def _wire_session(  # noqa: PLR0911 - one return per way a session ends
+        self, end: asyncio.Future[HearingOutcome], opening_seconds: float
+    ) -> HearingOutcome:
+        wire = self._wire
+        assert wire is not None  # noqa: S101 - set by the caller
+        opening = asyncio.timeout(opening_seconds)
+        try:
+            async with opening:
                 socket = await self._open(end)
                 if socket is None:
                     return end.result()
+                if isinstance(socket, NoToken):
+                    return socket
                 try:
                     await socket.send(self._update)
-                    ended = await self._converse(socket, end, opening)
+                    wire.ended = await self._converse(socket, end, opening, wire)
                     await socket.close()
-                    return ended
+                    return wire.ended
                 finally:
                     # A stalled peer holds a polite close past the deadline or a
                     # cancel; aborting after a completed close is a no-op.
                     socket.transport.abort()
         except TimeoutError as timed_out:
-            return _timeout_outcome(timed_out, ended, opening)
+            return _timeout_outcome(timed_out, wire.ended, opening)
         except InvalidStatus as refused:
             return _refusal_outcome(refused)
         except InvalidMessage as unparsed:
@@ -362,7 +585,7 @@ class HearingSession:
 
     async def _open(
         self, end: asyncio.Future[HearingOutcome]
-    ) -> ClientConnection | None:
+    ) -> ClientConnection | NoToken | None:
         opening = asyncio.create_task(self._connect())
         try:
             await asyncio.wait({opening, end}, return_when=asyncio.FIRST_COMPLETED)
@@ -374,10 +597,18 @@ class HearingSession:
         await _abandoned(opening)
         return None
 
-    async def _connect(self) -> ClientConnection:
+    async def _connect(self) -> ClientConnection | NoToken:
+        try:
+            tokens = await self._token_source()
+        except Exception as failure:  # noqa: BLE001 - re-raised unchanged by `_run`
+            raise _SourceFailedError(failure) from None
+        if tokens is None:
+            return NoToken()
         return await _Connect(
             self._url,
-            additional_headers=self._headers,
+            additional_headers=token_headers(
+                workload_token=tokens.workload_token, person_token=tokens.person_token
+            ),
             open_timeout=None,
             logger=_SOCKET_LOGGER,
         )
@@ -387,9 +618,10 @@ class HearingSession:
         socket: ClientConnection,
         end: asyncio.Future[HearingOutcome],
         opening: asyncio.Timeout,
+        wire: _Wire,
     ) -> HearingOutcome:
-        reader = asyncio.create_task(self._read(socket, opening))
-        writer = asyncio.create_task(self._write(socket))
+        reader = asyncio.create_task(self._read(socket, opening, wire))
+        writer = asyncio.create_task(self._write(socket, wire))
         pending = {reader, writer, end}
         try:
             while reader in pending and end in pending:
@@ -402,33 +634,71 @@ class HearingSession:
             await _settled(reader, writer)
         for child in (reader, writer):
             if not child.cancelled() and (failure := child.exception()) is not None:
+                if isinstance(failure, ConnectionClosed):
+                    wire.close_code = socket.close_code
                 return _failure_outcome(failure)
         return end.result() if reader.cancelled() else Closed()
 
-    async def _read(self, socket: ClientConnection, opening: asyncio.Timeout) -> None:
+    async def _read(
+        self, socket: ClientConnection, opening: asyncio.Timeout, wire: _Wire
+    ) -> None:
         async for message in socket:
             if not isinstance(message, str):
                 raise ServerEventError
             event = parse_server_event(message)
-            # The first event proves the session is open, before a slow caller can
-            # hold the queue. A bound that expires in this very pass has won:
-            # rescheduling then raises.
-            if not opening.expired():
-                opening.reschedule(None)
-            await self._received.put(event)
+            if not wire.opened.is_set():
+                if not isinstance(event, SessionCreated):
+                    raise ServerEventError
+                # The first event proves the session is open, before a slow caller
+                # can hold the queue. A bound that expires in this very pass has
+                # won: rescheduling then raises.
+                if not opening.expired():
+                    opening.reschedule(None)
+                wire.opened.set()
+                await self._announce_reconnect(wire)
+            await self._received.put(self._on_timeline(event, wire))
 
-    async def _write(self, socket: ClientConnection) -> None:
+    async def _announce_reconnect(self, wire: _Wire) -> None:
+        interrupted, self._interrupted = self._interrupted, None
+        if interrupted is not None:
+            await self._received.put(
+                Reconnected(
+                    interrupted.cause, interrupted.unheard_start_ms, wire.offset_ms
+                )
+            )
+
+    @staticmethod
+    def _on_timeline(event: ServerEvent, wire: _Wire) -> ServerEvent:
+        """Put the service's positions on the hearing's audio timeline."""
+        match event:
+            case SpeechStarted():
+                return event.model_copy(
+                    update={"audio_start_ms": event.audio_start_ms + wire.offset_ms}
+                )
+            case SpeechStopped():
+                moved = event.audio_end_ms + wire.offset_ms
+                wire.stopped[event.item_id] = moved
+                return event.model_copy(update={"audio_end_ms": moved})
+            case TranscriptCompleted() if event.item_id in wire.stopped:
+                wire.last_turn_end_ms = wire.stopped.pop(event.item_id)
+            case TranscriptFailed() | ErrorEvent():
+                wire.failed_sent = True
+        return event
+
+    async def _write(self, socket: ClientConnection, wire: _Wire) -> None:
         # The reader tells how the connection ended.
         with contextlib.suppress(ConnectionClosed):
+            await wire.opened.wait()
             while True:
-                await self._held_changed.wait()
-                self._held_changed.clear()
                 while self._held:
                     pcm = self._held.popleft()
+                    self._held_bytes -= len(pcm)
+                    self._written_bytes += len(pcm)
                     await socket.send(
                         AudioAppend(
                             type="input_audio_buffer.append",
                             audio=base64.b64encode(pcm).decode(),
                         ).model_dump_json(exclude_none=True)
                     )
-                    self._held_bytes -= len(pcm)
+                self._held_changed.clear()
+                await self._held_changed.wait()

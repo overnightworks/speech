@@ -45,6 +45,9 @@ REALTIME_PATH: Final = "/v1/realtime"
 HEALTH_PATH: Final = "/health"
 REALTIME_INTENT_PARAM: Final = "intent"
 REALTIME_INTENT: Final = "transcription"
+# A stopping service closes a hearing session with this code once its turns are
+# delivered, and sends no `error`: nothing failed, and the client opens another.
+DRAIN_CLOSE_CODE: Final = 1012
 API_VERSION: Final = 1
 MODEL: Final = "speech"
 RETRY_AFTER_HEADER: Final = "Retry-After"

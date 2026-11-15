@@ -142,8 +142,7 @@ async def _second_hearing_first_event(base_url: str) -> object:
     pair = valid_pair()
     async with HearingSession(
         base_url,
-        workload_token=pair.workload,
-        person_token=pair.person,
+        token_source=pair.tokens,
         languages=(Language.EN,),
         deadline_seconds=WAIT_SECONDS,
         held_limit_bytes=1024 * 1024,
