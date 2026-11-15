@@ -31,6 +31,7 @@ from speech_client.hearing import (
 from speech_client.relay import HOP_FRAME_BYTES
 from speech_client.utterances import SpeechStart, Utterance, hear_utterances
 from speech_client.wire import (
+    DRAIN_CLOSE_CODE,
     REALTIME_PATH,
     SPEECH_PATH,
     TRANSCRIPTIONS_PATH,
@@ -49,6 +50,7 @@ from tests.support.live_support import (
     COMPLETED,
     FAILED,
     SPEECH_LEVEL,
+    SPEECH_STOPPED,
     append,
     audio,
 )
@@ -62,7 +64,6 @@ if TYPE_CHECKING:
 
 _LOOPBACK = "127.0.0.1"
 _WAIT_SECONDS = 30
-_SERVICE_RESTART = 1012
 _SESSION_URL = "ws://{host}:{port}" + f"{REALTIME_PATH}?intent=transcription"
 
 
@@ -172,6 +173,15 @@ def _stream_speech(pair: _Pair, port: int) -> tuple[http.client.HTTPResponse, by
     return response, response.read(1)
 
 
+async def _until_entered(pair: _Pair, never: str) -> None:
+    """Wait until the hearing holds the turn the hold file stops."""
+    entered = pair.hearing_hold_file.with_suffix(HEARING_ENTERED_SUFFIX)
+    deadline = time.monotonic() + _WAIT_SECONDS
+    while not entered.exists():
+        assert time.monotonic() < deadline, never
+        await asyncio.sleep(0.05)
+
+
 async def _until_not_ready(port: int) -> None:
     deadline = time.monotonic() + _WAIT_SECONDS
     while await asyncio.to_thread(is_ready, port):
@@ -224,7 +234,7 @@ def test_a_stopped_process_finishes_its_turn_and_stream_while_another_takes_work
     assert types[-1] == COMPLETED
     assert "error" not in types
     assert FAILED not in types
-    assert code == _SERVICE_RESTART
+    assert code == DRAIN_CLOSE_CODE
     assert speech.startswith(b"RIFF")
     assert exit_code == 0
     assert pair.second.poll() is None
@@ -242,7 +252,7 @@ def test_a_stopped_process_closes_an_idle_session_at_once(pair: _Pair) -> None:
     events, code, exit_code = asyncio.run(scenario())
 
     assert events == []
-    assert code == _SERVICE_RESTART
+    assert code == DRAIN_CLOSE_CODE
     assert exit_code == 0
 
 
@@ -269,11 +279,7 @@ def test_a_stopped_process_finishes_a_recording_already_being_heard(
         transcribing = asyncio.create_task(
             asyncio.to_thread(_transcribe, pair, pair.first_port)
         )
-        entered = pair.hearing_hold_file.with_suffix(HEARING_ENTERED_SUFFIX)
-        deadline = time.monotonic() + _WAIT_SECONDS
-        while not entered.exists():
-            assert time.monotonic() < deadline, "the recording was never heard"
-            await asyncio.sleep(0.05)
+        await _until_entered(pair, "the recording was never heard")
 
         pair.first.send_signal(signal.SIGTERM)
         await _until_not_ready(pair.first_port)
@@ -286,9 +292,6 @@ def test_a_stopped_process_finishes_a_recording_already_being_heard(
     assert status == http.HTTPStatus.OK
     assert answer["text"] == HEARD_TEXT
     assert exit_code == 0
-
-
-_FRAME_MS = 100
 
 
 class _Browser:
@@ -350,11 +353,15 @@ async def _within(event: asyncio.Event) -> None:
 
 @contextlib.asynccontextmanager
 async def _hearing_through_the_balancer(
-    pair: _Pair, backend_ended: dict[int, float]
+    pair: _Pair,
+    backend_ended: dict[int, float],
+    backend_said: Callable[[int, str], None] | None = None,
 ) -> AsyncIterator[tuple[_Browser, _Hearing]]:
     """An app hearing a browser through the balancer, until the block ends."""
     browser, hearing = _Browser(), _Hearing()
-    async with balancing([pair.first_port, pair.second_port], backend_ended) as entry:
+    async with balancing(
+        [pair.first_port, pair.second_port], backend_ended, backend_said
+    ) as entry:
         hop = asyncio.create_task(
             hear_utterances(
                 browser,
@@ -380,35 +387,31 @@ def test_a_hearing_goes_on_at_the_other_process_after_a_stopped_one_finished_its
     pair: _Pair, record_property: Callable[[str, object], None]
 ) -> None:
     """The drained turn's utterance arrives once, then the hearing goes on."""
+    speech_stopped_at: dict[int, float] = {}
 
-    async def scenario() -> tuple[_Hearing, int, dict[int, float], list[float]]:
+    def noting_speech_stopped(port: int, message: str) -> None:
+        if json.loads(message)["type"] == SPEECH_STOPPED:
+            speech_stopped_at.setdefault(port, time.monotonic())
+
+    async def scenario() -> tuple[_Hearing, int, dict[int, float], float]:
         backend_ended: dict[int, float] = {}
-        async with _hearing_through_the_balancer(pair, backend_ended) as (
-            browser,
-            hearing,
-        ):
+        async with _hearing_through_the_balancer(
+            pair, backend_ended, noting_speech_stopped
+        ) as (browser, hearing):
             browser.feed(0.5)
             await _within(hearing.started)
-            stopped_at = time.monotonic()
+            sigterm_at = time.monotonic()
             pair.first.send_signal(signal.SIGTERM)
             await _until_not_ready(pair.first_port)
             browser.feed(1.0, level=0)
-            fed_silence_at = time.monotonic()
             await _within(hearing.reconnected_event)
             hearing.heard.clear()
             browser.feed(0.5)
             browser.feed(1.0, level=0)
             await _within(hearing.heard)
-            return (
-                hearing,
-                browser.fed_ms,
-                backend_ended,
-                [stopped_at, fed_silence_at],
-            )
+            return hearing, browser.fed_ms, backend_ended, sigterm_at
 
-    hearing, fed_ms, backend_ended, (sigterm_at, fed_silence_at) = asyncio.run(
-        scenario()
-    )
+    hearing, fed_ms, backend_ended, sigterm_at = asyncio.run(scenario())
 
     first, second = hearing.utterances
     assert first.text == second.text == HEARD_TEXT
@@ -423,7 +426,10 @@ def test_a_hearing_goes_on_at_the_other_process_after_a_stopped_one_finished_its
     closed_at = backend_ended[pair.first_port]
     span_ms = reconnected.unheard_end_ms - reconnected.unheard_start_ms
     record_property("seconds_sigterm_to_close", closed_at - sigterm_at)
-    record_property("seconds_silence_fed_to_close", closed_at - fed_silence_at)
+    record_property(
+        "seconds_speech_stopped_to_close",
+        closed_at - speech_stopped_at[pair.first_port],
+    )
     record_property("seconds_close_to_reconnected", hearing.reconnected_at - closed_at)
     record_property("unheard_milliseconds", span_ms)
     assert pair.second.poll() is None
@@ -434,7 +440,6 @@ def test_audio_fed_while_the_drained_turn_is_held_is_lost_counted_and_in_the_spa
 ) -> None:
     """A burst after the drained turn's end is never heard, and its time is counted."""
     pair.hearing_hold_file.touch()
-    entered = pair.hearing_hold_file.with_suffix(HEARING_ENTERED_SUFFIX)
 
     async def scenario() -> tuple[_Hearing, int, int]:
         async with _hearing_through_the_balancer(pair, {}) as (browser, hearing):
@@ -443,10 +448,7 @@ def test_audio_fed_while_the_drained_turn_is_held_is_lost_counted_and_in_the_spa
             pair.first.send_signal(signal.SIGTERM)
             await _until_not_ready(pair.first_port)
             browser.feed(1.0, level=0)
-            deadline = time.monotonic() + _WAIT_SECONDS
-            while not entered.exists():
-                assert time.monotonic() < deadline, "the turn was never decoded"
-                await asyncio.sleep(0.05)
+            await _until_entered(pair, "the turn was never decoded")
             burst_from_ms = browser.fed_ms
             browser.feed(0.5)
             burst_to_ms = browser.fed_ms
