@@ -117,7 +117,6 @@ def test_the_hearing_settings_are_read_from_the_environment(
     settings = Settings()
 
     assert settings.live_silence_seconds == float("1.2")
-
     assert settings.hearing_model is HearingModel.LARGE_V3
     assert settings.hearing_busy_wait_seconds == 0
     assert settings.hearing_max_waiting_requests == 0

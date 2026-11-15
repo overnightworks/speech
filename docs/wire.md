@@ -221,8 +221,8 @@ turn ended is a protocol violation.
 **Turns.** **WIRE-66** Speech is what Silero VAD hears as a voice, whatever its loudness
 or distance: any voice, a television's included, is speech, and noise is not. A turn opens
 once three consecutive 32 ms windows are speech and decodes from 0.35 s before the first
-of them. The service ends it after speech followed by the silence of WIRE-148 (0.5 s by default) without speech, or at 30 s of
-audio, pre-roll included; the rest of the audio opens the next turn. Between turns the
+of them. The service ends it after speech followed by the silence of WIRE-148 (0.5 s by
+default) without speech, or at 30 s of audio, pre-roll included; the rest of the audio opens the next turn. Between turns the
 service drops all audio older than that pre-roll. **WIRE-67** A session holds at most two
 ended turns, both queued to be heard from their turn's end, and the open turn, so at most
 90 s of audio. The wire carries no confidence value; the service logs each finished
