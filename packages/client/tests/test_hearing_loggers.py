@@ -46,7 +46,7 @@ class Browser:
 
 
 async def hear():
-    from speech_client.utterances import hear_utterances
+    from speech_client.utterances import HearingCallbacks, hear_utterances
 
     async def tokens():
         return SessionTokens("w", "p")
@@ -71,7 +71,7 @@ async def hear():
             Browser(), f"http://127.0.0.1:{port}",
             token_source=tokens, languages=(Language.DE,),
             deadline_seconds=5, held_limit_bytes=1 << 20, opening_seconds=5,
-            ended=ended, on_utterance=on_utterance, on_partial=None,
+            ended=ended, callbacks=HearingCallbacks(on_utterance),
         ), 10)
 
 
