@@ -507,6 +507,7 @@ def _sent_traceparents(request: bytes) -> list[str]:
 def test_a_speaking_call_sends_the_callers_traceparent_or_the_ambient_one_or_none(
     call: Callable[[str, str | None], object], trace: str, raw_listener: RawListener
 ) -> None:
+    """WIRE-149: the header is the caller's, else the running trace's, else absent."""
     given = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
     with raw_listener(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b"")) as (
         base_url,

@@ -114,6 +114,7 @@ def _trace_id_of(traceparent: object) -> str:
 def test_every_transcript_event_carries_the_traceparent_of_its_turns_trace(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """WIRE-75, WIRE-150: the event names the trace of the turn's lines."""
     completed: list[dict[str, object]] = []
 
     async def scenario() -> None:

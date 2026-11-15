@@ -496,6 +496,7 @@ def test_the_speech_request_headers_are_the_token_headers_and_the_json_type() ->
 def test_a_request_with_a_traceparent_carries_it_and_one_without_carries_none(
     headers: Callable[..., dict[str, str]],
 ) -> None:
+    """WIRE-149: the header builders add `traceparent` only when given."""
     tokens = {"workload_token": "app", "person_token": "person"}
     traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 
@@ -591,6 +592,7 @@ def test_a_malformed_server_event_is_refused(text: str) -> None:
 
 
 def test_a_completed_item_parses_with_and_without_a_traceparent() -> None:
+    """WIRE-75, WIRE-150: the field is optional on reading."""
     traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
     event = TranscriptCompleted(
         item_id="item",

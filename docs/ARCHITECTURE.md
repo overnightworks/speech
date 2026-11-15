@@ -247,7 +247,10 @@ the old pod stops (a rolling update that never lowers the ready count).
   A live turn writes `turn_end_wait.ended` and `hearing.ended`, and a speak
   request `speak.ended`, each with `duration_ms` and `outcome`, timed by
   logline's step timer. A turn's lines share one trace the session starts at the
-  turn's end and re-enters in the task that hears it. A refusal writes its reason
+  turn's end and re-enters in the task that hears it; its `traceparent` goes
+  to the app in the turn's transcript event. A speak request's and a realtime
+  upgrade's own `traceparent` header parents the request's or session's other
+  lines. A refusal writes its reason
   (on the speak and transcription routes and at a realtime upgrade). A failed
   step is one error line, its own; the failure chain before it is a warning.
   Nothing is written per chunk or frame. The GPU provider child writes no

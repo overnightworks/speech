@@ -79,6 +79,7 @@ def test_the_source_is_awaited_before_every_opening_and_its_tokens_travel() -> N
 def test_every_opening_sends_the_callers_traceparent_or_the_ambient_one_or_none(
     trace: str,
 ) -> None:
+    """WIRE-149: every upgrade carries the same traceparent, reopenings included."""
     given = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 
     async def scenario() -> tuple[list[str | None], str | None]:

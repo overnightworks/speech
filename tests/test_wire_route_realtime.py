@@ -466,6 +466,7 @@ def _session_lines(capsys: pytest.CaptureFixture[str]) -> list[dict[str, object]
 def test_a_refused_upgrade_writes_its_session_line_in_the_callers_trace(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """WIRE-149: a refused upgrade joins the caller's trace."""
     with configured("speech"):
         _denied(_client(), headers={"traceparent": _CALLERS_TRACEPARENT})
 
@@ -476,6 +477,7 @@ def test_a_refused_upgrade_writes_its_session_line_in_the_callers_trace(
 def test_a_session_writes_its_own_line_in_the_trace_of_the_upgrades_traceparent(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """WIRE-149: an accepted session's own lines join the caller's trace."""
     headers = {**valid_headers(), "traceparent": _CALLERS_TRACEPARENT}
     with (
         configured("speech"),

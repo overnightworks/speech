@@ -332,6 +332,7 @@ def test_one_session_goes_to_the_origin_with_both_tokens_and_the_languages() -> 
 def test_the_session_upgrade_carries_the_callers_traceparent_or_the_ambient_one_or_none(
     trace: str,
 ) -> None:
+    """WIRE-149: the upgrade carries the caller's or the running trace's traceparent."""
     given = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
     arrived: list[str | None] = []
 
@@ -366,6 +367,7 @@ def test_a_completed_transcript_reaches_the_app_once_with_its_text_and_language(
 
 
 def test_an_utterance_carries_the_item_and_the_trace_of_its_transcript() -> None:
+    """WIRE-150: the utterance names its item and its turn's traceparent."""
     traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
     recorder = _Recorder()
 
