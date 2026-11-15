@@ -3,6 +3,6 @@ agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
 role = "builder"
 base = "e9c9f368a8c59093687eb4b256817cc0473f1e00"
 branch = "claude/issue-429-wire-traceparent"
-scope = ["docs/ARCHITECTURE.md", "docs/wire.md", "packages/client/pyproject.toml", "packages/client/src/speech_client/hearing.py", "packages/client/src/speech_client/speak.py", "packages/client/src/speech_client/utterances.py", "packages/client/src/speech_client/wire.py", "packages/client/tests", "scripts", "src/speech_service/live_session.py", "src/speech_service/wire_route.py", "tests", "uv.lock"]
+scope = ["docs/ARCHITECTURE.md", "docs/wire.md", "packages/client/pyproject.toml", "packages/client/src/speech_client/_traceparent.py", "packages/client/src/speech_client/hearing.py", "packages/client/src/speech_client/speak.py", "packages/client/src/speech_client/utterances.py", "packages/client/src/speech_client/wire.py", "packages/client/tests", "scripts", "src/speech_service/live_session.py", "src/speech_service/wire_route.py", "tests", "uv.lock"]
 opened_commit = "98c53e2926017bc6a88884ca64fc0c860d344208"
 whole_reason = "One additive wire field and its client types, server emit and docs ship together in one client release; the tests fan out because the transcript event and Utterance are built in many fixtures."
