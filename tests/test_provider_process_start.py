@@ -430,7 +430,10 @@ def test_a_failure_during_a_cancel_drain_logs_its_request(
     (failed,) = (r for r in caplog.records if r.getMessage() == "synthesis.failed")
     assert failed.request_id == 1
     assert not hasattr(failed, "cause")
-    assert "OSError" in caplog.text
+    carrying = [
+        r for r in caplog.records if "builtins.OSError[EIO]" in caplog.handler.format(r)
+    ]
+    assert carrying == [failed]
     assert engine.ready is False
 
 

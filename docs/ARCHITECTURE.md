@@ -256,10 +256,13 @@ the old pod stops (a rolling update that never lowers the ready count).
   step is one error line, its own; the failure chain before it is a warning.
   Nothing is written per chunk or frame. The GPU provider child writes no
   log stream of its own.
-- A provider's failed synthesis reaches the service log only as its types,
-  errno names or numbers, int error codes and exit statuses, and code frames,
-  escaped and at most 4 KB in its FAILED frame, and the provider's stderr
-  after READY stays /dev/null.
+- A provider's failure lines carry only closed codes and numbers:
+  `synthesis.failed` its request id, `provider.exited` its phase, exit status
+  and, before READY, a closed reason. The provider's own text, its FAILED
+  chain (types, errno names or numbers, int error codes and exit statuses, and
+  code frames, escaped and at most 4 KB) or its startup stderr, travels as the
+  exception's note and reaches the log once, where the exception stops. The
+  provider's stderr after READY stays /dev/null.
 - Qwen's server is the worker's child, reachable only through a Unix socket in
   the worker's private directory, a fresh path per start, so no port opens and a
   server left by an earlier start is never mistaken for the new one. Readiness
