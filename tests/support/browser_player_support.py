@@ -34,7 +34,7 @@ from tests.support.browser_support import (
     write_marker_sound,
     write_sound,
 )
-from tests.support.fakes_support import FakeSpeaking
+from tests.support.fakes_support import PCM_FULL_SCALE, TONE_AMPLITUDE, FakeSpeaking
 from tests.support.tcp_server_support import serving_asgi, serving_over_tcp
 
 if TYPE_CHECKING:
@@ -53,8 +53,8 @@ SOUND_SECONDS = {
     "long.wav": 4.0,
     "natural.wav": 1.2,
 }
-# The tone's amplitude (`sine_pcm`'s 16000 of 32768): a quantum of it peaks here.
-TONE_PEAK = 16_000 / 32_768
+# The tone's amplitude as the ear reads it: a quantum of the tone peaks here.
+TONE_PEAK = TONE_AMPLITUDE / PCM_FULL_SCALE
 # The ear reports the peak of each render quantum, `RENDER_QUANTUM_FRAMES` samples.
 RENDER_QUANTUM_FRAMES = 128
 # A quantum under this is silent: 26 dB below the tone, no step to or from it is heard.
