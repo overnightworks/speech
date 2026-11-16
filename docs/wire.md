@@ -51,16 +51,16 @@ nothing more opened. Once one opening has succeeded, a session that closes with 
 `session.update`; any other end ends the hearing as before. `RECONNECT_BOUND` bounds
 the reopening (attempts, a pause between them, a total time), counted from the end of
 the open session and reset by a session that answered, one that sent an event about the
-audio or a transcript after its `session.created` (`session.updated` does not answer); a
-refusal `unavailable` or `busy`, `Unreachable`, a cut before `session.created`, an
-expired opening bound and a session that ended without answering each cost one attempt.
-A session that ended without answering does not restart the total time, which runs from
-the end of the last session that answered, or of the first session when none did. Any
-other refusal or `Malformed` ends the hearing with it, and a bound that runs out ends it
-with `ReconnectFailed`. Audio is held under the caller's byte
-limit meanwhile (`NEEDED_HOLD_BYTES` covers the opening bound and a whole reconnect),
-a chunk leaves the held audio when its write begins and is never written again, and
-audio is written only after a session's `session.created`. The positions of
+audio or a transcript after its `session.created` (a repeated `session.created` and
+`session.updated` do not answer); a refusal `unavailable` or `busy`, `Unreachable`, a
+cut before `session.created`, an expired opening bound and a session that ended without
+answering each cost one attempt. A session that ended without answering does not restart
+the total time, which runs from the end of the last session that answered, or of the
+first session when none did. Any other refusal or `Malformed` ends the hearing with it,
+and a bound that runs out ends it with `ReconnectFailed`. Audio is held under the
+caller's byte limit meanwhile (`NEEDED_HOLD_BYTES` covers the opening bound and a whole
+reconnect), a chunk leaves the held audio when its write begins and is never written
+again, and audio is written only after a session's `session.created`. The positions of
 `speech_started` and `speech_stopped` lie on one audio timeline across sessions: the
 service's position plus the audio of every chunk whose write began on an earlier
 session, in whole milliseconds, rounded down, lost audio included. Before the new

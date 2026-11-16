@@ -382,6 +382,16 @@ def test_slow_unanswered_sessions_run_the_bound_out_not_the_deadline() -> None:
     assert ended == ReconnectFailed()
 
 
+def test_a_repeated_session_created_does_not_answer() -> None:
+    created_again = says(CREATED_EVENT, then_close=DRAIN_CLOSE_CODE)
+
+    visits, ended = visits_and_outcome(
+        answers_then_drains, *(created_again,) * (BOUND.attempts + 2), ends_in_order
+    )
+
+    assert (visits, ended) == (1 + BOUND.attempts, ReconnectFailed())
+
+
 def test_the_reconnect_bound_ends_the_hearing_within_its_time() -> None:
     long_bound = ReconnectBound(attempts=100, pause_seconds=0.1, within_seconds=0.45)
 

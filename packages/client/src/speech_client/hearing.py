@@ -53,13 +53,14 @@ unheard, and the new session's items start afresh. Any other end, and any end
 before the first success, ends the hearing as it did. `RECONNECT_BOUND` bounds
 the reopening from the end of the open session; a session that answered resets
 it. A session answers with an event about the audio or a transcript after its
-`session.created`, `session.updated` aside. A refusal `unavailable` or `busy`
-(its `Retry-After` is not waited for), `Unreachable`, a cut before
-`session.created`, an expired opening bound and a session that ended without
-answering each count as one failed attempt. A session that ended without
-answering does not restart the total time, which runs from the end of the last
-session that answered, or of the first session when none did. Any other refusal
-or `Malformed` ends the hearing with that outcome.
+`session.created`; a repeated `session.created` and `session.updated` do not.
+A refusal `unavailable` or `busy` (its `Retry-After` is not waited for),
+`Unreachable`, a cut before `session.created`, an expired opening bound and a
+session that ended without answering each count as one failed attempt. A
+session that ended without answering does not restart the total time, which
+runs from the end of the last session that answered, or of the first session
+when none did. Any other refusal or `Malformed` ends the hearing with that
+outcome.
 
 The positions `events()` yields (`audio_start_ms`, `audio_end_ms`) lie on one
 audio timeline across reconnects: the service's position plus the audio of every
@@ -340,6 +341,11 @@ def _timeout_outcome(
     if ended is not None:
         return ended
     return Unreachable() if opening.expired() else _failure_outcome(timed_out)
+
+
+def _answers(event: ServerEvent) -> bool:
+    """Whether an event after `session.created` is about the audio or a transcript."""
+    return not isinstance(event, SessionCreated | SessionUpdated)
 
 
 def accept_first_event(first_event: ServerEvent, *, bound_expired: bool) -> None:
@@ -751,7 +757,7 @@ class HearingSession:
                 raise ServerEventError
             event = parse_server_event(message)
             if wire.opened.is_set():
-                wire.answered = wire.answered or not isinstance(event, SessionUpdated)
+                wire.answered = wire.answered or _answers(event)
             else:
                 accept_first_event(event, bound_expired=opening.expired())
                 # The first event proves the session is open, before a slow caller
