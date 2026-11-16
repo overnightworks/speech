@@ -250,7 +250,8 @@ def _signed(
 ) -> Generator[_Content]:
     """`items`, once the first audio bytes begin like the ordered container.
 
-    Marks that come before a whole signature are judged with the audio that came.
+    Marks that come before a whole signature make the answer `Malformed`: no
+    container signature is shorter than that.
     """
     remaining = iter(items)
     head = bytearray()
@@ -265,8 +266,6 @@ def _signed(
         judged = _judged_head(head, response_format)
         yield judged
         if not isinstance(judged, Malformed):
-            if isinstance(item, SentenceMarks):
-                yield item
             yield from remaining
         return
     yield _judged_head(head, response_format)
