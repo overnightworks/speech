@@ -395,14 +395,22 @@ class PlayerRun {
   }
 
   /**
-   * Reports the sound's start once its first sample can be heard: not while the player is paused, where a streamed
-   * body's first samples queue until `resume()` and the sound may still end before it has played.
+   * Reports the sound's start once its first sample can be heard: while the player runs, or while it pauses and the
+   * sample starts before the pause ramp ends. Not once it is paused, where a streamed body's first samples queue until
+   * `resume()` and the sound may still end before it has played.
    */
   #announceStart(scheduled: Scheduled): void {
     const first = scheduled.chunks[0];
-    if (first !== undefined && this.#flow === "running" && this.#context.state === "running") {
+    if (first !== undefined && this.#context.state === "running" && this.#heardFrom(first.start)) {
       scheduled.item.begin(first.start, this.#context);
     }
+  }
+
+  #heardFrom(start: number): boolean {
+    if (this.#flow === "pausing") {
+      return this.#ramp !== undefined && start < this.#ramp.endsAt;
+    }
+    return this.#flow === "running";
   }
 
   /** Back to back on the context's clock: each chunk starts where the one before ends. */

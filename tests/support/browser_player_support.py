@@ -22,6 +22,7 @@ from speech_service.service import Runtime
 from tests.support.browser_support import (
     CUT_LATE_PATH,
     CUT_PATH,
+    HEADED_LEAD_BYTES,
     HEADED_PATH,
     HELD_PATH,
     SOUNDS_PATH,
@@ -37,7 +38,7 @@ from tests.support.fakes_support import FakeSpeaking
 from tests.support.tcp_server_support import serving_asgi, serving_over_tcp
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Mapping
     from pathlib import Path
 
     from playwright.async_api import Page
@@ -107,6 +108,11 @@ def bytes_of(key: str) -> dict[str, str]:
     return {"bytes": key}
 
 
+def fed(key: str) -> dict[str, str | int]:
+    """A streamed sound the page feeds: the bytes under `key`, headed at once."""
+    return {"fed": key, "lead": HEADED_LEAD_BYTES}
+
+
 JUNK = {"junk": "bytes no decoder reads"}
 
 
@@ -137,7 +143,7 @@ class Stage:
             "([key, route]) => window.playerPage.prepareBytes(key, route)", [key, route]
         )
 
-    async def hand_over(self, *sounds: dict[str, str]) -> list[int]:
+    async def hand_over(self, *sounds: Mapping[str, str | int]) -> list[int]:
         """Hand the sounds to the player in one task; their ids on the page."""
         return await self.page.evaluate(
             "sounds => window.playerPage.play(...sounds)", list(sounds)

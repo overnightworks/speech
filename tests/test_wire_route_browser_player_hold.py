@@ -40,6 +40,7 @@ from tests.support.browser_player_support import (
     audible_seconds,
     edge_peaks,
     ends,
+    fed,
     largest_step,
     peaks_inside,
     peaks_outside_edges,
@@ -173,6 +174,31 @@ def test_a_streamed_sound_whose_first_samples_arrive_while_paused_starts_only_by
         assert (starts(seen), ends(seen)) == (["playing"], ["played"])
     else:
         assert (starts(seen), ends(seen)) == (["ended"], ["stopped"])
+
+
+@pytest.mark.parametrize("then", ["stop", "mute", "close"])
+def test_a_streamed_sound_first_heard_in_the_pause_ramp_reports_its_start_and_playing(
+    tmp_path: Path, then: str
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.prepare_bytes("short", SHORT)
+            await stage.hand_over(fed("short"))
+            await stage.settle()
+            await stage.act("feedWhile", "short", "pause")
+            await stage.until(SUSPENDED)
+            if then == "mute":
+                await stage.set_muted(muted=True)
+            else:
+                await stage.act(then)
+            await stage.until("s.sounds[0].endedValue !== null")
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    assert starts(seen) == ["playing"]
+    assert ends(seen) == ["muted" if then == "mute" else "stopped"]
+    assert seen["sounds"][0]["playedSeconds"] > 0
 
 
 def test_pause_and_resume_on_an_idle_player_report_and_start_nothing(

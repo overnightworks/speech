@@ -61,6 +61,8 @@ const trackedSources = new WeakSet();
 const held = { decode: [], resume: [] };
 const heldNow = [];
 const byteStore = new Map();
+const fedBodies = new Map();
+const feeders = new Map();
 let nextNodeId = 0;
 let stopOnSourceEnd = false;
 let rejectNextResume = false;
@@ -210,7 +212,35 @@ setInterval(() => {
   }
 }, SAMPLE_MS);
 
+// A body the page feeds itself: its first `lead` bytes are there at once and `feedWhile` hands on the rest, so that
+// the first samples reach the player in the task of a switch, with no timing between them.
+const pageFetch = window.fetch;
+window.fetch = (input, init) => {
+  const body = fedBodies.get(String(input));
+  if (body === undefined) return pageFetch(input, init);
+  return Promise.resolve(new Response(body, { headers: { "content-type": "audio/wav" } }));
+};
+
+function fedUrl({ fed, lead }) {
+  const bytes = new Uint8Array(byteStore.get(fed));
+  const address = new URL(`/fed/${fed}`, location.href).href;
+  fedBodies.set(
+    address,
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(bytes.slice(0, lead));
+        feeders.set(fed, () => {
+          controller.enqueue(bytes.slice(lead));
+          controller.close();
+        });
+      },
+    }),
+  );
+  return address;
+}
+
 function argumentOf(spec) {
+  if (spec.fed !== undefined) return fedUrl(spec);
   if (spec.url !== undefined) return spec.url;
   if (spec.urlObject !== undefined) return new URL(spec.urlObject, location.href);
   if (spec.bytes !== undefined) return byteStore.get(spec.bytes);
@@ -280,6 +310,8 @@ window.playerPage = {
   resume: () => act("resume", () => player.resume()),
   // The switches of one task: each runs after the one before, with no render quantum of its own between them.
   inOneTask: (...names) => act(names.join("+"), () => names.forEach((name) => player[name]())),
+  // The switch `name` and the rest of the fed body `key`, in one task.
+  feedWhile: (key, name) => act(`${name}+feed`, () => { player[name](); feeders.get(key)(); }),
   // The switch `first`, then `second` as soon as the volume it set moves: the second reverses the ramp of the first.
   reverse: async (first, second) => {
     await act(first, () => player[first]());
