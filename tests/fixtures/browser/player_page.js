@@ -244,10 +244,27 @@ function handOver(spec) {
 async function act(name, action) {
   seen.lastActionAt = performance.now();
   seen.contextAtAction = contexts[0].currentTime;
-  seen.actions.push({ name, at: seen.contextAtAction });
+  seen.actions.push({ name, at: seen.contextAtAction, gain: outputGain?.gain.value ?? null });
   action();
   await Promise.resolve();
   seen.endedAtAction = seen.sounds.map((sound) => sound.endedValue);
+}
+
+function nextTurn() {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = resolve;
+    channel.port2.postMessage(null);
+  });
+}
+
+// A switch of the app thrown once the volume has left the value it had when the call began, so that it reverses a ramp
+// under way. The throw records the volume it found: a ramp that never began, or is over, shows there.
+async function actWhileFading(name, action) {
+  const from = outputGain.gain.value;
+  const giveUp = performance.now() + SILENCE_GIVE_UP_MS;
+  while (outputGain.gain.value === from && performance.now() < giveUp) await nextTurn();
+  return act(name, action);
 }
 
 window.playerPage = {
@@ -263,6 +280,11 @@ window.playerPage = {
   resume: () => act("resume", () => player.resume()),
   // The switches of one task: each runs after the one before, with no render quantum of its own between them.
   inOneTask: (...names) => act(names.join("+"), () => names.forEach((name) => player[name]())),
+  // The switch `first`, then `second` as soon as the volume it set moves: the second reverses the ramp of the first.
+  reverse: async (first, second) => {
+    await act(first, () => player[first]());
+    return actWhileFading(second, () => player[second]());
+  },
   mute: (muted) => act("mute", () => player.setMuted(muted)),
   close: () => act("close", () => player.close()),
   listening: () => Promise.all(earsReady),

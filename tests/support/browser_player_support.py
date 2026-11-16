@@ -223,6 +223,11 @@ def action_times(seen: dict[str, object], name: str) -> list[float]:
     return [action["at"] for action in seen["actions"] if action["name"] == name]
 
 
+def action_gains(seen: dict[str, object], name: str) -> list[float]:
+    """The volume the output had when the app's switch `name` was thrown, in order."""
+    return [action["gain"] for action in seen["actions"] if action["name"] == name]
+
+
 def edge_peaks(
     seen: dict[str, object], name: str, until: float | None = None
 ) -> list[float]:

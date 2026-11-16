@@ -33,6 +33,7 @@ from tests.support.browser_player_support import (
     STOP_BOUND_MS,
     STREAMED,
     TONE_PEAK,
+    action_gains,
     action_times,
     activated,
     audible_seconds,
@@ -260,13 +261,15 @@ def test_resume_while_the_pause_is_still_ramping_plays_on_without_a_click(
         async with activated(tmp_path) as stage:
             await stage.hand_over(url(MARKER))
             await stage.until(AUDIBLE_CONDITION)
-            await stage.act("pause")
-            await stage.act("resume")
+            await stage.act("reverse", "pause", "resume")
             return await stage.finish()
 
     seen = asyncio.run(scenario())
 
     start = start_of(seen)
+    [gain_at_resume] = action_gains(seen, "resume")
+    assert 0 < gain_at_resume < 1
+    assert seen["contextStates"] == ["running"]
     assert ends(seen) == ["played"]
     assert largest_step([peak for _, peak in tone_quanta(seen, start)]) < CLICK_STEP
     assert min(peaks_outside_edges(seen, start)) >= FULL_PEAK
@@ -281,9 +284,7 @@ def test_pause_while_the_resume_is_still_ramping_up_holds_the_sound_without_a_cl
             await stage.until(AUDIBLE_CONDITION)
             await stage.act("pause")
             await stage.until(SUSPENDED)
-            await stage.act("resume")
-            await stage.until(RUNNING)
-            await stage.act("pause")
+            await stage.act("reverse", "resume", "pause")
             await stage.until(SUSPENDED)
             await stage.settle()
             held = await stage.snapshot()
@@ -294,6 +295,8 @@ def test_pause_while_the_resume_is_still_ramping_up_holds_the_sound_without_a_cl
 
     start = start_of(seen)
     [*_, last_pause] = action_times(held, "pause")
+    [*_, gain_at_pause] = action_gains(held, "pause")
+    assert 0 < gain_at_pause < 1
     assert ends(held) == [None]
     assert audible_seconds(held, last_pause + EDGE_SECONDS, math.inf) == 0
     assert ends(seen) == ["played"]
