@@ -23,12 +23,16 @@ if TYPE_CHECKING:
 
 SPEAK_SAMPLE_RATE = 22_050
 GATE_TIMEOUT_SECONDS = 5.0
+# The tone's peak sample and the largest 16-bit sample it is read against.
+TONE_AMPLITUDE = 16_000
+PCM_FULL_SCALE = 32_768
 
 
 def sine_pcm(seconds: float, rate: int, freq: float = 440.0) -> bytes:
     n = int(seconds * rate)
     samples = [
-        int(16_000 * math.sin(2 * math.pi * freq * index / rate)) for index in range(n)
+        int(TONE_AMPLITUDE * math.sin(2 * math.pi * freq * index / rate))
+        for index in range(n)
     ]
     return struct.pack(f"<{n}h", *samples)
 
