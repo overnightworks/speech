@@ -1,4 +1,4 @@
-"""An app's browser plays sounds one after another and cuts them.
+"""An app's browser plays sounds one after another, holds them and cuts them.
 
 The flows run in Chromium on the stand-in app's page; see the shared stage.
 """
@@ -121,7 +121,7 @@ def test_a_route_of_the_app_plays_once_whether_handed_as_text_or_as_a_url_object
     assert side.requests == [VOICE_PATH]
 
 
-def test_stop_ends_the_playing_and_waiting_sounds_at_once_and_aborts_the_held_fetch(
+def test_stop_ends_waiting_sounds_at_once_the_playing_one_after_its_edge_and_aborts(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> tuple[dict[str, object], float]:
@@ -131,13 +131,16 @@ def test_stop_ends_the_playing_and_waiting_sounds_at_once_and_aborts_the_held_fe
             await stage.side.arrival(HELD)
             await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
             await stage.act("stop")
+            at_stop = (await stage.snapshot())["endedAtAction"]
             silent_ms = await stage.silent_within()
             await asyncio.wait_for(stage.side.held_aborted.wait(), WAIT_SECONDS)
-            return await stage.snapshot(), silent_ms
+            await stage.until("s.sounds[0].endedValue !== null")
+            return {**await stage.snapshot(), "atStop": at_stop}, silent_ms
 
     seen, silent_ms = asyncio.run(scenario())
 
-    assert seen["endedAtAction"] == ["stopped"] * 3
+    assert seen["atStop"] == [None, "stopped", "stopped"]
+    assert ends(seen) == ["stopped"] * 3
     assert starts(seen) == ["playing", "ended", "ended"]
     assert silent_ms < STOP_BOUND_MS
 
@@ -150,15 +153,15 @@ def test_a_stopped_sound_reports_nothing_more_at_its_natural_end_and_starts_noth
             await stage.hand_over(url(NATURAL), url(SHORT))
             await stage.until("s.sounds[0].startedValue === 'playing'")
             await stage.act("stop")
-            await stage.until("s.sourcesEnded >= 1")
+            await stage.until("s.sounds[0].endedValue !== null")
             await stage.settle()
             return await stage.snapshot()
 
     seen = asyncio.run(scenario())
 
-    assert events(seen) == [
+    assert sorted(events(seen)) == sorted(
         (event, sound) for sound in range(2) for event in ("started", "ended")
-    ]
+    )
     assert ends(seen) == ["stopped", "stopped"]
     assert starts(seen) == ["playing", "ended"]
 
@@ -296,11 +299,12 @@ def test_stop_silences_a_streamed_wav_at_once_and_aborts_its_fetch(
             await stage.act("stop")
             silent_ms = await stage.silent_within()
             await asyncio.wait_for(stage.side.held_aborted.wait(), WAIT_SECONDS)
+            await stage.until("s.sounds[0].endedValue !== null")
             return await stage.snapshot(), silent_ms
 
     seen, silent_ms = asyncio.run(scenario())
 
-    assert seen["endedAtAction"] == ["stopped"]
+    assert ends(seen) == ["stopped"]
     assert silent_ms < STOP_BOUND_MS
 
 
@@ -562,9 +566,18 @@ def test_a_cut_sound_reports_the_seconds_the_context_clock_passed_since_it_start
     seen = asyncio.run(scenario())
 
     cut_sound, waiting = seen["sounds"]
-    elapsed = cut_sound["contextAtEnd"] - cut_sound["start"]["contextTime"]
+    start = cut_sound["start"]["contextTime"]
+    elapsed = cut_sound["contextAtEnd"] - start
     assert elapsed > 0
-    assert cut_sound["playedSeconds"] == pytest.approx(elapsed, abs=seen["clockStep"])
+    if cut == "mute":
+        assert cut_sound["playedSeconds"] == pytest.approx(
+            elapsed, abs=seen["clockStep"]
+        )
+    else:
+        # A stopped sound plays on through its edge, up to the end it reports.
+        step = seen["clockStep"]
+        assert cut_sound["playedSeconds"] >= seen["contextAtAction"] - start - step
+        assert cut_sound["playedSeconds"] <= elapsed + step
     assert waiting["playedSeconds"] == 0
 
 

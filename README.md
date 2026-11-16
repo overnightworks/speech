@@ -160,8 +160,10 @@ own microphone stream to the app's relay route as PCM16 at 24 kHz, and hands the
 app, through an optional `onMessage`, each message its own route writes on that
 socket. `createPlayer`
 plays sounds one after another, each handed over as bytes or as the URL of the
-app's own route, with stop, mute and close, and reports each sound's start and
-end once. The app keeps the routes and the tokens, and none of the tokens reach the
+app's own route, with pause and resume (the sounds play on where they paused),
+stop, mute and close, and reports each sound's start and end once. Pause and
+stop act at once, with a ramp of a few tens of milliseconds that keeps the cut
+from clicking. The app keeps the routes and the tokens, and none of the tokens reach the
 browser; the switches are the app's own controls on its page.
 
 `scripts/check_release.py` holds the distributions and the browser package at

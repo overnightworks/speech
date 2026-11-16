@@ -38,7 +38,7 @@ from speech_client.wire import (
     TranscriptDelta,
     VoiceId,
 )
-from speech_service.pcm import wav_header
+from speech_service.pcm import BYTES_PER_SAMPLE, wav_header
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE, sine_pcm
 from tests.support.identity_support import valid_pair
 from tests.support.page_coverage_support import PageCoverage
@@ -61,6 +61,9 @@ SOUNDS_PATH = "/sounds"
 HELD_PATH = "/held"
 STREAMED_PATH = "/streamed"
 STREAMED_LEAD_BYTES = 16 * 1024
+HEADED_PATH = "/headed"
+# What the headed route sends before it holds the samples back: the whole WAV header.
+HEADED_LEAD_BYTES = len(wav_header(SPEAK_SAMPLE_RATE))
 CUT_PATH = "/cut"
 CUT_LATE_PATH = "/cutlate"
 CHROMIUM_FLAGS = (
@@ -210,7 +213,7 @@ async def _until_disconnect(receive: Receive) -> None:
 def _install_sounds(
     app: FastAPI, service_url: str, side: AppSide, recordings: Path
 ) -> None:
-    """The routes that answer a sound: spoken, whole, held or streamed."""
+    """The routes that answer a sound: spoken, whole, held, headed or streamed."""
 
     @app.get(VOICE_PATH)
     async def voice(request: Request) -> Response:
@@ -246,6 +249,13 @@ def _install_sounds(
         side.record_request(request.url.path)
         return HeldResponse(
             (recordings / name).read_bytes(), side, lead=STREAMED_LEAD_BYTES
+        )
+
+    @app.get(f"{HEADED_PATH}/{{name}}")
+    async def headed(name: str, request: Request) -> Response:
+        side.record_request(request.url.path)
+        return HeldResponse(
+            (recordings / name).read_bytes(), side, lead=HEADED_LEAD_BYTES
         )
 
     _install_cut_sounds(app, side, recordings)
@@ -374,6 +384,22 @@ def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
 def write_sound(path: Path, seconds: float) -> None:
     """Write a WAV of a tone `seconds` long, in the voice's format."""
     pcm = sine_pcm(seconds, SPEAK_SAMPLE_RATE)
+    path.write_bytes(wav_header(SPEAK_SAMPLE_RATE, len(pcm)) + pcm)
+
+
+def write_marker_sound(
+    path: Path, tone_seconds: float, gap_seconds: float, tail_seconds: float
+) -> None:
+    """Write a WAV of a tone, a silent gap and a shorter tone, in the voice's format.
+
+    The gap marks a position that a clock reading can place.
+    """
+    silence = bytes(int(gap_seconds * SPEAK_SAMPLE_RATE) * BYTES_PER_SAMPLE)
+    pcm = (
+        sine_pcm(tone_seconds, SPEAK_SAMPLE_RATE)
+        + silence
+        + sine_pcm(tail_seconds, SPEAK_SAMPLE_RATE)
+    )
     path.write_bytes(wav_header(SPEAK_SAMPLE_RATE, len(pcm)) + pcm)
 
 

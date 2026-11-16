@@ -49,6 +49,9 @@ const seen = {
   endedAtAction: null,
   peakRms: 0,
   heardOnsets: [],
+  heardPeaks: [],
+  contextAtAction: null,
+  actions: [],
 };
 const contexts = [];
 const clockReads = new Map();
@@ -58,6 +61,8 @@ const trackedSources = new WeakSet();
 const held = { decode: [], resume: [] };
 const heldNow = [];
 const byteStore = new Map();
+const fedBodies = new Map();
+const feeders = new Map();
 let nextNodeId = 0;
 let stopOnSourceEnd = false;
 let rejectNextResume = false;
@@ -84,13 +89,16 @@ function meterOf(context) {
 const earsReady = [];
 
 // The page's own ear: a worklet in the graph (`ear_processor.js`) that notes the context time of the first sample
-// of each stretch of sound that reaches the output.
+// of each stretch of sound that reaches the output and the peak of each render quantum.
 function listenTo(output) {
   const context = output.context;
   earsReady.push(
     context.audioWorklet.addModule("/ear_processor.js").then(() => {
       const ear = new AudioWorkletNode(context, "ear");
-      ear.port.onmessage = (event) => seen.heardOnsets.push(event.data);
+      ear.port.onmessage = ({ data }) => {
+        if (data.onset !== undefined) seen.heardOnsets.push(data.onset);
+        else seen.heardPeaks.push([data.quantum, data.peak]);
+      };
       Page.connect.call(output, ear);
       Page.connect.call(ear, context.destination);
     }),
@@ -204,7 +212,35 @@ setInterval(() => {
   }
 }, SAMPLE_MS);
 
+// A body the page feeds itself: its first `lead` bytes are there at once and `feedWhile` hands on the rest, so that
+// the first samples reach the player in the task of a switch, with no timing between them.
+const pageFetch = window.fetch;
+window.fetch = (input, init) => {
+  const body = fedBodies.get(String(input));
+  if (body === undefined) return pageFetch(input, init);
+  return Promise.resolve(new Response(body, { headers: { "content-type": "audio/wav" } }));
+};
+
+function fedUrl({ fed, lead }) {
+  const bytes = new Uint8Array(byteStore.get(fed));
+  const address = new URL(`/fed/${fed}`, location.href).href;
+  fedBodies.set(
+    address,
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(bytes.slice(0, lead));
+        feeders.set(fed, () => {
+          controller.enqueue(bytes.slice(lead));
+          controller.close();
+        });
+      },
+    }),
+  );
+  return address;
+}
+
 function argumentOf(spec) {
+  if (spec.fed !== undefined) return fedUrl(spec);
   if (spec.url !== undefined) return spec.url;
   if (spec.urlObject !== undefined) return new URL(spec.urlObject, location.href);
   if (spec.bytes !== undefined) return byteStore.get(spec.bytes);
@@ -235,11 +271,30 @@ function handOver(spec) {
 }
 
 // A switch of the app: it records when it happened and what had ended by the end of its own task.
-async function act(action) {
+async function act(name, action) {
   seen.lastActionAt = performance.now();
+  seen.contextAtAction = contexts[0].currentTime;
+  seen.actions.push({ name, at: seen.contextAtAction, gain: outputGain?.gain.value ?? null });
   action();
   await Promise.resolve();
   seen.endedAtAction = seen.sounds.map((sound) => sound.endedValue);
+}
+
+function nextTurn() {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = resolve;
+    channel.port2.postMessage(null);
+  });
+}
+
+// A switch of the app thrown once the volume has left the value it had when the call began, so that it reverses a ramp
+// under way. The throw records the volume it found: a ramp that never began, or is over, shows there.
+async function actWhileFading(name, action) {
+  const from = outputGain.gain.value;
+  const giveUp = performance.now() + SILENCE_GIVE_UP_MS;
+  while (outputGain.gain.value === from && performance.now() < giveUp) await nextTurn();
+  return act(name, action);
 }
 
 window.playerPage = {
@@ -250,9 +305,20 @@ window.playerPage = {
     byteStore.set(key, bytes);
     seen.bytes[key] = { before: bytes.byteLength, after: null };
   },
-  stop: () => act(() => player.stop()),
-  mute: (muted) => act(() => player.setMuted(muted)),
-  close: () => act(() => player.close()),
+  stop: () => act("stop", () => player.stop()),
+  pause: () => act("pause", () => player.pause()),
+  resume: () => act("resume", () => player.resume()),
+  // The switches of one task: each runs after the one before, with no render quantum of its own between them.
+  inOneTask: (...names) => act(names.join("+"), () => names.forEach((name) => player[name]())),
+  // The switch `name` and the rest of the fed body `key`, in one task.
+  feedWhile: (key, name) => act(`${name}+feed`, () => { player[name](); feeders.get(key)(); }),
+  // The switch `first`, then `second` as soon as the volume it set moves: the second reverses the ramp of the first.
+  reverse: async (first, second) => {
+    await act(first, () => player[first]());
+    return actWhileFading(second, () => player[second]());
+  },
+  mute: (muted) => act("mute", () => player.setMuted(muted)),
+  close: () => act("close", () => player.close()),
   listening: () => Promise.all(earsReady),
   hold: (kind) => held[kind].push(Promise.withResolvers()),
   release: () => heldNow.splice(0).forEach((gate) => gate.resolve()),
