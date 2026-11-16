@@ -365,6 +365,12 @@ def test_every_piper_voice_has_a_proof_sentence_in_its_language() -> None:
     assert all(VOICES[voice].languages[0] in PROVE.SENTENCES for voice in PIPER_VOICES)
 
 
+def test_every_piper_voice_has_a_marks_text_in_its_language() -> None:
+    assert all(
+        VOICES[voice].languages[0] in PROVE.MARKED_TEXTS for voice in PIPER_VOICES
+    )
+
+
 @pytest.mark.parametrize(
     "offered",
     [{*PIPER_VOICES}, {*PIPER_VOICES, VoiceId.RYAN}, {VoiceId.RYAN}],
