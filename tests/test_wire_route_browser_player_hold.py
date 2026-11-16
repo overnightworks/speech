@@ -197,7 +197,10 @@ def test_a_streamed_sound_first_heard_in_the_pause_ramp_reports_its_start_and_pl
             await stage.prepare_bytes("short", SHORT)
             await stage.hand_over(fed("short"))
             await stage.settle()
+            await stage.act("freezeClock")
             await stage.act("feedWhile", "short", "pause")
+            await stage.until("s.sounds[0].startedValue !== null")
+            await stage.act("thawClock")
             await stage.until(SUSPENDED)
             heard = await stage.snapshot()
             if then == "mute":
@@ -210,12 +213,12 @@ def test_a_streamed_sound_first_heard_in_the_pause_ramp_reports_its_start_and_pl
     heard, seen = asyncio.run(scenario())
 
     [paused_at] = action_times(seen, "pause+feed")
-    # The pause and the rest of the body go out in one task; the pump schedules the
-    # chunk inside the pause's ramp. A start reported only after the suspend is a
-    # precondition that did not hold, not a defect of the player.
+    # The context clock stands still from before the pause until the start is
+    # reported, so the chunk is scheduled inside the pause's ramp whatever the
+    # page's timing.
     first_heard = heard["sounds"][0]["start"]
-    assert first_heard is not None, "first samples were scheduled after the suspend"
-    assert paused_at <= first_heard["contextTime"]
+    assert first_heard is not None
+    assert paused_at <= first_heard["contextTime"] < paused_at + EDGE_SECONDS
     assert starts(seen) == ["playing"]
     assert ends(seen) == ["muted" if then == "mute" else "stopped"]
     assert seen["sounds"][0]["playedSeconds"] > 0
