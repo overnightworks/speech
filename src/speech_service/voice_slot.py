@@ -258,8 +258,8 @@ class VoiceSlot:
                 "voice_files.missing",
                 extra={
                     "voice": self.voice.value,
-                    "missing_files": ", ".join(missing),
-                    "hint": "fetch the voice with speech-fetch-voice",
+                    "reason": "not_installed",
+                    "missing_file_count": len(missing),
                 },
             )
             message = f"voice {self.voice.value} is not installed"

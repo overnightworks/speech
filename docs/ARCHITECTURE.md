@@ -253,7 +253,8 @@ the old pod stops (a rolling update that never lowers the ready count).
   upgrade's own `traceparent` header parents the request's or session's other
   lines. A refusal writes its reason
   (on the speak and transcription routes and at a realtime upgrade). A failed
-  step is one error line, its own; the failure chain before it is a warning.
+  step is one error line, its own; the failure chain before it is a warning, logged once as a message-free
+  exception.
   Nothing is written per chunk or frame. The GPU provider child writes no
   log stream of its own.
 - A provider's failure lines carry only closed codes and numbers:

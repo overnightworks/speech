@@ -94,9 +94,7 @@ async def serve(settings: Settings, stop: StopPolicy = StopPolicy()) -> int:  # 
     try:
         listener = bind_listener(settings)
     except OSError:
-        _LOGGER.exception(
-            "listener.failed", extra={"host": settings.host, "port": settings.port}
-        )
+        _LOGGER.exception("listener.failed", extra={"port": settings.port})
         return 1
     with listener:
         return await _serve_on(settings, callers, listener, stop)

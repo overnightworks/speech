@@ -215,7 +215,9 @@ def test_an_offered_piper_voice_without_its_files_ends_the_start_naming_the_voic
     assert outcome == 1
     (missing,) = [r for r in caplog.records if r.getMessage() == "voice_files.missing"]
     assert missing.voice == VoiceId.NORMAN.value
-    assert "speech-fetch-voice" in missing.hint
+    assert missing.reason == "not_installed"
+    assert missing.missing_file_count > 0
+    assert not hasattr(missing, "hint")
     assert not listens_on(settings.port)
 
 
@@ -640,4 +642,5 @@ def test_serve_exits_nonzero_naming_the_address_before_any_runtime_work(
 
     assert outcome == 1
     (record,) = [r for r in caplog.records if r.getMessage() == "listener.failed"]
-    assert (record.host, record.port) == (host, port)
+    assert record.port == port
+    assert not hasattr(record, "host")
