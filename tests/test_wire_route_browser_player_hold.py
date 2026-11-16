@@ -192,22 +192,33 @@ def test_a_streamed_sound_whose_first_samples_arrive_while_paused_starts_only_by
 def test_a_streamed_sound_first_heard_in_the_pause_ramp_reports_its_start_and_playing(
     tmp_path: Path, then: str
 ) -> None:
-    async def scenario() -> dict[str, object]:
+    async def scenario() -> tuple[dict[str, object], dict[str, object]]:
         async with activated(tmp_path) as stage:
             await stage.prepare_bytes("short", SHORT)
             await stage.hand_over(fed("short"))
             await stage.settle()
+            await stage.act("freezeClock")
             await stage.act("feedWhile", "short", "pause")
+            await stage.until("s.sounds[0].startedValue !== null")
+            await stage.act("thawClock")
             await stage.until(SUSPENDED)
+            heard = await stage.snapshot()
             if then == "mute":
                 await stage.set_muted(muted=True)
             else:
                 await stage.act(then)
             await stage.until("s.sounds[0].endedValue !== null")
-            return await stage.snapshot()
+            return heard, await stage.snapshot()
 
-    seen = asyncio.run(scenario())
+    heard, seen = asyncio.run(scenario())
 
+    [paused_at] = action_times(seen, "pause+feed")
+    # The context clock stands still from before the pause until the start is
+    # reported, so the chunk is scheduled inside the pause's ramp whatever the
+    # page's timing.
+    first_heard = heard["sounds"][0]["start"]
+    assert first_heard is not None
+    assert paused_at <= first_heard["contextTime"] < paused_at + EDGE_SECONDS
     assert starts(seen) == ["playing"]
     assert ends(seen) == ["muted" if then == "mute" else "stopped"]
     assert seen["sounds"][0]["playedSeconds"] > 0
