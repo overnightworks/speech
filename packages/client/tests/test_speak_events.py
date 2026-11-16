@@ -320,6 +320,19 @@ def test_an_event_that_never_ends_stops_over_the_cap(
     assert items == [OverCap()]
 
 
+def test_a_whole_event_over_the_size_of_the_cap_stops_over_the_cap(
+    scenario: Scenario, raw_listener: RawListener
+) -> None:
+    """A whole event over the limit is refused as a partial one is."""
+    padded = audio_event(AudioEventType.DONE, padding="A" * 70_000)
+    answer = scenario.answer(scenario.delta(scenario.wav), padded)
+
+    with raw_listener(answer) as (base_url, _):
+        items = scenario.stream(base_url, cap_bytes=1024)
+
+    assert items[-1] == OverCap()
+
+
 def test_audio_past_the_cap_ends_over_the_cap(
     scenario: Scenario, raw_listener: RawListener
 ) -> None:

@@ -199,6 +199,9 @@ def _frames(
     for piece in body_pieces(response):
         pending += piece
         while (end := pending.find(_EVENT_END_BYTES)) >= 0:
+            if end > limit_bytes:
+                yield OverCap()
+                return
             yield bytes(pending[:end])
             del pending[: end + len(_EVENT_END_BYTES)]
         if len(pending) > limit_bytes:
