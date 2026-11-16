@@ -300,7 +300,7 @@ def test_ready_provider_logs_no_startup_record_and_its_stderr_reaches_no_log(
     assert (tmp_path / "cache/stderr-target").read_text() == os.devnull
 
 
-def _failed_synthesis_log(
+def _failed_synthesis_chain(
     tmp_path: Path, caplog: pytest.LogCaptureFixture, synthesis: str
 ) -> str:
     engine = _provider(tmp_path, _FAILING_BODY.format(synthesis=synthesis))
@@ -322,10 +322,10 @@ def _assert_no_sentence(caplog: pytest.LogCaptureFixture) -> None:
     assert _SENTENCE not in _logged_everywhere(caplog)
 
 
-def test_a_failed_synthesis_logs_its_errno_and_frame_and_an_ended_record(
+def test_a_failed_synthesis_chains_its_errno_and_frame_and_an_ended_record(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    message = _failed_synthesis_log(
+    message = _failed_synthesis_chain(
         tmp_path,
         caplog,
         "    raise OSError(errno.EROFS, text, '/' + text)",
@@ -339,7 +339,7 @@ def test_a_failed_synthesis_logs_its_errno_and_frame_and_an_ended_record(
 def test_a_failed_synthesis_with_the_sentence_as_errno_names_no_errno(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    message = _failed_synthesis_log(tmp_path, caplog, "    raise OSError(text, 'x')")
+    message = _failed_synthesis_chain(tmp_path, caplog, "    raise OSError(text, 'x')")
 
     assert "builtins.OSError" in message
     assert "builtins.OSError[" not in message
@@ -361,7 +361,7 @@ def test_a_failed_synthesis_renders_only_an_exact_int_error_code(
     raised: str,
     rendered: str | None,
 ) -> None:
-    message = _failed_synthesis_log(tmp_path, caplog, f"    raise {raised}")
+    message = _failed_synthesis_chain(tmp_path, caplog, f"    raise {raised}")
 
     if rendered is None:
         assert "error_code" not in message
@@ -373,7 +373,7 @@ def test_a_failed_synthesis_renders_only_an_exact_int_error_code(
 def test_a_failed_synthesis_leaves_its_notes_unrendered(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    message = _failed_synthesis_log(
+    message = _failed_synthesis_chain(
         tmp_path,
         caplog,
         "    error = RuntimeError()\n    error.add_note(text)\n    raise error",
@@ -385,7 +385,7 @@ def test_a_failed_synthesis_leaves_its_notes_unrendered(
 def test_a_failed_synthesis_names_its_chain_from_the_root_cause_with_its_frames(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    message = _failed_synthesis_log(
+    message = _failed_synthesis_chain(
         tmp_path,
         caplog,
         "    try:\n        raise KeyError(text)\n    except KeyError as error:\n"
@@ -400,7 +400,7 @@ def test_a_failed_synthesis_names_its_chain_from_the_root_cause_with_its_frames(
 def test_a_failed_synthesis_escapes_control_and_non_ascii_source_characters(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    message = _failed_synthesis_log(
+    message = _failed_synthesis_chain(
         tmp_path,
         caplog,
         "    raise RuntimeError()  # tab\there, feed\x0chere, \xe9",

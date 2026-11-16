@@ -141,7 +141,7 @@ class ProviderStartFailure(StrEnum):
     EXITED = "exited"
     """The provider ended by itself."""
     START_FAILED = "start_failed"
-    """The service stopped the provider because its start failed."""
+    """A signal ended the provider: the service stopped it or the system killed it."""
     STDERR_OVERSIZED = "stderr_oversized"
     """The provider wrote more startup stderr than the service keeps."""
 
