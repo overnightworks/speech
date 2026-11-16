@@ -31,6 +31,8 @@ from speech_provider_contract import (
     write_frame,
 )
 
+from speech_service.failures import PayloadFreeError
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
@@ -73,7 +75,7 @@ class ProviderFailedError(RuntimeError):
             self.add_note(startup_stderr)
 
 
-class ProviderSynthesisFailedError(RuntimeError):
+class ProviderSynthesisFailedError(PayloadFreeError):
     """The provider reported that one synthesis request failed.
 
     The provider's FAILED chain travels as a note, which the layer that stops
@@ -468,6 +470,13 @@ class ProviderProcess:
     ) -> None:
         try:
             self._drain_cancelled(process, request_id)
+        except ProviderSynthesisFailedError as failure:
+            logger.warning(
+                "synthesis.failed",
+                extra={"request_id": request_id},
+                exc_info=failure,
+            )
+            self._mark_failed()
         except ProviderProtocolError, OSError, ValueError, EOFError:
             self._mark_failed()
 
@@ -486,8 +495,7 @@ class ProviderProcess:
             if frame.kind in {FrameKind.COMPLETE, FrameKind.CANCELLED}:
                 return
             if frame.kind is FrameKind.FAILED:
-                _log_synthesis_failure(request_id)
-                raise ProviderProtocolError
+                raise ProviderSynthesisFailedError(failure_cause(frame.payload))
 
     def _mark_failed(self) -> None:
         self._set_failed()
