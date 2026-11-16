@@ -56,8 +56,9 @@ class MarkingEngine(Protocol):
 
 def gives_marks(speaking: object) -> GivesMarks:
     """The marks `speaking` gives; none before it is loaded."""
-    words = isinstance(speaking, MarkingEngine) and speaking.gives_word_marks
-    return GivesMarks(words=words, sounds=False)
+    marks = isinstance(speaking, MarkingEngine) and speaking.gives_word_marks
+    # Piper's sounds come from the pass that proves its words.
+    return GivesMarks(words=marks, sounds=marks)
 
 
 def load_piper_voice(onnx: Path) -> PiperVoice:

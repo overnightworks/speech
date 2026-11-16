@@ -317,12 +317,14 @@ def _marked_chunks(
 def _events(
     chunks: Iterator[bytes | SentenceMarks], step: StepTimer
 ) -> Iterator[bytes]:
-    """The events of `chunks`, then `done`; `step` counts the words marked."""
+    """The events of `chunks`, then `done`; `step` counts the marks sent."""
     words = 0
+    sounds = 0
     for chunk in chunks:
         if isinstance(chunk, SentenceMarks):
             words += len(chunk.words or ())
-            step.add(marks_words=words)
+            sounds += len(chunk.sounds or ())
+            step.add(marks_words=words, marks_sounds=sounds)
             yield audio_event(AudioEventType.MARKS, **chunk.model_dump(mode="json"))
         else:
             step.first_output()

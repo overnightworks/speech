@@ -99,13 +99,13 @@ def test_health_lists_exactly_the_offered_voices() -> None:
 
 
 @pytest.mark.parametrize(
-    ("speaking", "words"), [(FakeMarkingSpeaking(), True), (FakeSpeaking(), False)]
+    ("speaking", "marks"), [(FakeMarkingSpeaking(), True), (FakeSpeaking(), False)]
 )
 def test_health_reports_the_marks_a_voice_gives(
-    speaking: FakeSpeaking, *, words: bool
+    speaking: FakeSpeaking, *, marks: bool
 ) -> None:
     """WIRE-122, WIRE-125: `gives_marks` says which kinds a voice marks."""
     body = TestClient(an_app(speaking, memory_probe=lambda: 1)).get("/health").json()
 
     voice = body["speaking"]["voices"][VoiceId.THORSTEN.value]
-    assert voice["gives_marks"] == {"words": words, "sounds": False}
+    assert voice["gives_marks"] == {"words": marks, "sounds": marks}
