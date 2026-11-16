@@ -20,6 +20,10 @@ class SpeakingFailedError(Exception):
         super().__init__("speaking failed")
 
 
+class PayloadFreeError(RuntimeError):
+    """An error whose message and notes never hold what a person spoke or heard."""
+
+
 def log_failure(
     logger: logging.Logger,
     event: str,
@@ -34,7 +38,9 @@ def log_failure(
     ERROR, so the failure is one error line, the step's.
 
     An exception message, argument or local variable can hold the text a person
-    spoke or heard, so none of them is ever logged.
+    spoke or heard, so none of them is ever logged. A `PayloadFreeError` is the
+    exception: its message and notes are payload-free by construction, so the
+    logger renders it through `exc_info`, once.
     """
     lines: list[str] = []
     for link in failure_links(error):
@@ -48,6 +54,7 @@ def log_failure(
             "error_type": type(error).__name__,
             "failure_chain": "\n".join(lines),
         },
+        exc_info=error if isinstance(error, PayloadFreeError) else None,
     )
 
 
@@ -91,7 +98,12 @@ class PayloadFreeFailure:
         del exception_type, traceback
         if not isinstance(error, Exception) or isinstance(error, self._expected):
             return False
-        log_failure(self._logger, self._event, error, level=self._level)
+        log_failure(
+            self._logger,
+            self._event,
+            error,
+            level=self._level,
+        )
         self.failed = True
         if self._reraise_as is not None:
             raise self._reraise_as from None

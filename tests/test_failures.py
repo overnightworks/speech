@@ -7,7 +7,12 @@ import logging
 
 import pytest
 
-from speech_service.failures import log_failure
+from speech_service.failures import (
+    PayloadFreeFailure,
+    SpeakingFailedError,
+    log_failure,
+)
+from speech_service.provider_process import ProviderSynthesisFailedError
 
 _SENTENCE = "Ein Satz, den nur der Aufrufer kennt"
 
@@ -107,3 +112,38 @@ def test_control_characters_in_a_type_name_are_escaped(
     lines = message.split("\n")
     assert lines[0].endswith(".Broken\\tLine\\nName\\xe9")
     assert all(" " <= character <= "~" for line in lines for character in line)
+
+
+def test_a_stopping_layer_logs_the_chain_a_provider_error_carries_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    logger = logging.getLogger("tests.failures")
+    chain = "builtins.OSError[EIO]\n  File provider.py, line 3, in synthesize"
+
+    with (
+        caplog.at_level(logging.WARNING, logger=logger.name),
+        pytest.raises(SpeakingFailedError),
+        PayloadFreeFailure(logger, "speaking.failed", reraise_as=SpeakingFailedError),
+    ):
+        raise ProviderSynthesisFailedError(chain)
+
+    assert caplog.text.count("File provider.py, line 3, in synthesize") == 1
+    assert chain not in "".join(
+        str(vars(record)["failure_chain"]) for record in caplog.records
+    )
+
+
+def test_a_stopping_layer_never_logs_the_notes_of_an_ordinary_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    logger = logging.getLogger("tests.failures")
+    error = RuntimeError("x")
+    error.add_note(_SENTENCE)
+
+    with (
+        caplog.at_level(logging.WARNING, logger=logger.name),
+        PayloadFreeFailure(logger, "speaking.failed"),
+    ):
+        raise error
+
+    assert _SENTENCE not in caplog.text

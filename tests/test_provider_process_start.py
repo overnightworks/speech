@@ -19,6 +19,7 @@ from speech_service.provider_process import (
     ProviderLaunch,
     ProviderProcess,
     ProviderProtocolError,
+    ProviderStartFailure,
     ProviderSynthesisFailedError,
     provider_entrypoint,
 )
@@ -179,6 +180,11 @@ def _ended_records(
     ]
 
 
+def _failure_text(error: BaseException) -> str:
+    """The text a stopping layer's `exc_info` renders beyond the message."""
+    return "\n".join(getattr(error, "__notes__", []))
+
+
 def _logged_everywhere(caplog: pytest.LogCaptureFixture) -> str:
     """Every message, rendered exception and extra field the records carry."""
     return "\n".join(
@@ -192,16 +198,19 @@ def test_provider_failing_to_import_logs_the_module_and_its_own_exit_status(
 ) -> None:
     engine = _provider(tmp_path, "import module_that_is_not_installed")
 
-    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError):
+    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError) as failed:
         engine.load()
     engine.close()
 
     (ended,) = _ended_records(caplog, "before_ready")
     assert ended.exit_status == 1
+    assert ended.reason == ProviderStartFailure.EXITED
     assert (
         "ModuleNotFoundError: No module named 'module_that_is_not_installed'"
-        in ended.stderr_tail
+        in _failure_text(failed.value)
     )
+    assert not hasattr(ended, "stderr_tail")
+    assert "module_that_is_not_installed" not in _logged_everywhere(caplog)
 
 
 def test_provider_failing_to_load_the_model_logs_its_cause_and_a_reaped_status(
@@ -209,12 +218,13 @@ def test_provider_failing_to_load_the_model_logs_its_cause_and_a_reaped_status(
 ) -> None:
     engine = _provider(tmp_path, _CONTRACT_BODY.format(fail_load=True))
 
-    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError):
+    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError) as failed:
         engine.load()
     engine.close()
 
     (ended,) = _ended_records(caplog, "before_ready")
-    assert "RuntimeError: model weights unreadable" in ended.stderr_tail
+    assert "RuntimeError: model weights unreadable" in _failure_text(failed.value)
+    assert "model weights unreadable" not in _logged_everywhere(caplog)
     # Whether the service's stop or the provider's own exit comes first is a
     # race; either way the reaped provider has a status.
     assert isinstance(ended.exit_status, int)
@@ -235,12 +245,11 @@ def test_a_root_cause_printed_before_a_long_traceback_reaches_the_log(
 ) -> None:
     engine = _provider(tmp_path, _failing_start_after_writing(20 * 1024))
 
-    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError):
+    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError) as failed:
         engine.load()
     engine.close()
 
-    (ended,) = _ended_records(caplog, "before_ready")
-    assert "ROOT CAUSE: engine core failed" in ended.stderr_tail
+    assert "ROOT CAUSE: engine core failed" in _failure_text(failed.value)
 
 
 def test_a_provider_writing_without_end_cannot_grow_the_log_without_limit(
@@ -249,13 +258,31 @@ def test_a_provider_writing_without_end_cannot_grow_the_log_without_limit(
     written = 1024 * 1024
     engine = _provider(tmp_path, _failing_start_after_writing(written))
 
+    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError) as failed:
+        engine.load()
+    engine.close()
+
+    (ended,) = _ended_records(caplog, "before_ready")
+    assert ended.reason == ProviderStartFailure.STDERR_OVERSIZED
+    assert len(_failure_text(failed.value)) < written // 4
+    assert "ROOT CAUSE" not in _failure_text(failed.value)
+
+
+def test_a_provider_that_breaks_the_handshake_logs_a_failed_start_reason(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    engine = _provider(
+        tmp_path,
+        "import sys, time\nsys.stdout.buffer.write(b'not a frame')\n"
+        "sys.stdout.flush()\ntime.sleep(60)",
+    )
+
     with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError):
         engine.load()
     engine.close()
 
     (ended,) = _ended_records(caplog, "before_ready")
-    assert len(ended.stderr_tail) < written // 4
-    assert "ROOT CAUSE" not in ended.stderr_tail
+    assert ended.reason == ProviderStartFailure.START_FAILED
 
 
 def test_ready_provider_logs_no_startup_record_and_its_stderr_reaches_no_log(
@@ -273,13 +300,13 @@ def test_ready_provider_logs_no_startup_record_and_its_stderr_reaches_no_log(
     assert (tmp_path / "cache/stderr-target").read_text() == os.devnull
 
 
-def _failed_synthesis_log(
+def _failed_synthesis_chain(
     tmp_path: Path, caplog: pytest.LogCaptureFixture, synthesis: str
 ) -> str:
     engine = _provider(tmp_path, _FAILING_BODY.format(synthesis=synthesis))
     with caplog.at_level(logging.DEBUG):
         engine.load()
-        with pytest.raises(ProviderSynthesisFailedError):
+        with pytest.raises(ProviderSynthesisFailedError) as raised:
             list(engine.pcm_chunks(_SENTENCE, "de"))
         engine.close()
     _assert_no_sentence(caplog)
@@ -287,17 +314,18 @@ def _failed_synthesis_log(
         record for record in caplog.records if record.getMessage() == "synthesis.failed"
     )
     assert record.request_id == 1
-    return str(record.cause)
+    assert not hasattr(record, "cause")
+    return _failure_text(raised.value)
 
 
 def _assert_no_sentence(caplog: pytest.LogCaptureFixture) -> None:
     assert _SENTENCE not in _logged_everywhere(caplog)
 
 
-def test_a_failed_synthesis_logs_its_errno_and_frame_and_an_ended_record(
+def test_a_failed_synthesis_chains_its_errno_and_frame_and_an_ended_record(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    message = _failed_synthesis_log(
+    message = _failed_synthesis_chain(
         tmp_path,
         caplog,
         "    raise OSError(errno.EROFS, text, '/' + text)",
@@ -311,7 +339,7 @@ def test_a_failed_synthesis_logs_its_errno_and_frame_and_an_ended_record(
 def test_a_failed_synthesis_with_the_sentence_as_errno_names_no_errno(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    message = _failed_synthesis_log(tmp_path, caplog, "    raise OSError(text, 'x')")
+    message = _failed_synthesis_chain(tmp_path, caplog, "    raise OSError(text, 'x')")
 
     assert "builtins.OSError" in message
     assert "builtins.OSError[" not in message
@@ -333,7 +361,7 @@ def test_a_failed_synthesis_renders_only_an_exact_int_error_code(
     raised: str,
     rendered: str | None,
 ) -> None:
-    message = _failed_synthesis_log(tmp_path, caplog, f"    raise {raised}")
+    message = _failed_synthesis_chain(tmp_path, caplog, f"    raise {raised}")
 
     if rendered is None:
         assert "error_code" not in message
@@ -345,7 +373,7 @@ def test_a_failed_synthesis_renders_only_an_exact_int_error_code(
 def test_a_failed_synthesis_leaves_its_notes_unrendered(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    message = _failed_synthesis_log(
+    message = _failed_synthesis_chain(
         tmp_path,
         caplog,
         "    error = RuntimeError()\n    error.add_note(text)\n    raise error",
@@ -357,7 +385,7 @@ def test_a_failed_synthesis_leaves_its_notes_unrendered(
 def test_a_failed_synthesis_names_its_chain_from_the_root_cause_with_its_frames(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    message = _failed_synthesis_log(
+    message = _failed_synthesis_chain(
         tmp_path,
         caplog,
         "    try:\n        raise KeyError(text)\n    except KeyError as error:\n"
@@ -372,7 +400,7 @@ def test_a_failed_synthesis_names_its_chain_from_the_root_cause_with_its_frames(
 def test_a_failed_synthesis_escapes_control_and_non_ascii_source_characters(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    message = _failed_synthesis_log(
+    message = _failed_synthesis_chain(
         tmp_path,
         caplog,
         "    raise RuntimeError()  # tab\there, feed\x0chere, \xe9",
@@ -381,7 +409,7 @@ def test_a_failed_synthesis_escapes_control_and_non_ascii_source_characters(
     assert "# tab\\there, feed\\x0chere, \\xe9" in message
 
 
-def test_a_failure_during_a_cancel_drain_logs_its_cause(
+def test_a_failure_during_a_cancel_drain_logs_its_request(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     engine = _provider(
@@ -400,7 +428,12 @@ def test_a_failure_during_a_cancel_drain_logs_its_cause(
 
     _assert_no_sentence(caplog)
     (failed,) = (r for r in caplog.records if r.getMessage() == "synthesis.failed")
-    assert failed.cause.startswith("builtins.GeneratorExit -> builtins.OSError[EIO]\n")
+    assert failed.request_id == 1
+    assert not hasattr(failed, "cause")
+    carrying = [
+        r for r in caplog.records if "builtins.OSError[EIO]" in caplog.handler.format(r)
+    ]
+    assert carrying == [failed]
     assert engine.ready is False
 
 
