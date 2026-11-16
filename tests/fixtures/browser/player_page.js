@@ -55,6 +55,7 @@ const seen = {
 };
 const contexts = [];
 const clockReads = new Map();
+const frozenClocks = new Map();
 const meters = new WeakMap();
 const nodeIds = new WeakMap();
 const trackedSources = new WeakSet();
@@ -134,6 +135,7 @@ function gateFor(kind, result) {
 Object.defineProperty(BaseAudioContext.prototype, "currentTime", {
   configurable: true,
   get() {
+    if (frozenClocks.has(this)) return frozenClocks.get(this);
     if (!clockReads.has(this)) {
       clockReads.set(this, Page.clock.get.call(this));
       setTimeout(() => clockReads.delete(this));
@@ -317,6 +319,10 @@ window.playerPage = {
     await act(first, () => player[first]());
     return actWhileFading(second, () => player[second]());
   },
+  // The context clock stands still, as the player and the page read it, until `thawClock`: what the player does before
+  // the clock moves again happens inside the ramp it started, whatever the page's timing.
+  freezeClock: () => contexts.forEach((context) => frozenClocks.set(context, context.currentTime)),
+  thawClock: () => frozenClocks.clear(),
   mute: (muted) => act("mute", () => player.setMuted(muted)),
   close: () => act("close", () => player.close()),
   listening: () => Promise.all(earsReady),
