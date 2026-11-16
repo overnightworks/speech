@@ -3,5 +3,6 @@ agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
 role = "builder"
 base = "a5e820f1768b799a1e22697f70ed2647adc64c87"
 branch = "claude/issue-451-provider-failure-codes"
-scope = ["src/speech_service/provider_process.py", "tests/test_provider_process.py", "tests/test_provider_process_start.py"]
+scope = ["src/speech_service/failures.py", "src/speech_service/provider_process.py", "tests/test_failures.py", "tests/test_provider_process.py", "tests/test_provider_process_start.py"]
 opened_commit = "c2921f36fbaeeb28ad22756661bb580d0cc78ff9"
+whole_reason = "The provider lines, the speaking path that stops their exception, and the architecture sentence that describes them change together."
