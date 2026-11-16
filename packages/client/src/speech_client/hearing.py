@@ -59,8 +59,9 @@ A refusal `unavailable` or `busy` (its `Retry-After` is not waited for),
 session that ended without answering each count as one failed attempt. A
 session that ended without answering does not restart the total time, which
 runs from the end of the last session that answered, or of the first session
-when none did. Any other refusal or `Malformed` ends the hearing with that
-outcome.
+when none did, and it keeps running while a reopened session stays unanswered
+after an attempt failed. Any other refusal or `Malformed` ends the hearing with
+that outcome.
 
 The positions `events()` yields (`audio_start_ms`, `audio_end_ms`) lie on one
 audio timeline across reconnects: the service's position plus the audio of every
@@ -335,12 +336,15 @@ def _failure_outcome(failure: BaseException) -> HearingOutcome:
 
 
 def _timeout_outcome(
-    timed_out: TimeoutError, ended: HearingOutcome | None, opening: asyncio.Timeout
+    timed_out: TimeoutError, wire: _Wire, opening: asyncio.Timeout
 ) -> HearingOutcome:
     # A bound that cuts the polite close of an end keeps that end.
-    if ended is not None:
-        return ended
-    return Unreachable() if opening.expired() else _failure_outcome(timed_out)
+    if wire.ended is not None:
+        return wire.ended
+    if not opening.expired():
+        return _failure_outcome(timed_out)
+    # The bound of an open session is the reconnect's total time.
+    return ReconnectFailed() if wire.opened.is_set() else Unreachable()
 
 
 def _answers(event: ServerEvent) -> bool:
@@ -560,7 +564,7 @@ class HearingSession:
         if opening_at is None or opening_at > deadline_at:
             return PastDeadline()
         if self._interrupted is None:
-            return Unreachable()
+            return ReconnectFailed() if wire.opened.is_set() else Unreachable()
         # A reopening counts the attempt the bound ended, as when it wins alone.
         now = asyncio.get_running_loop().time()
         ended = self._ended_by(Unreachable(), wire, now)
@@ -681,7 +685,7 @@ class HearingSession:
                     # cancel; aborting after a completed close is a no-op.
                     socket.transport.abort()
         except TimeoutError as timed_out:
-            return _timeout_outcome(timed_out, wire.ended, opening)
+            return _timeout_outcome(timed_out, wire, opening)
         except InvalidStatus as refused:
             return _refusal_outcome(refused)
         except InvalidMessage as unparsed:
@@ -757,15 +761,25 @@ class HearingSession:
                 raise ServerEventError
             event = parse_server_event(message)
             if wire.opened.is_set():
-                wire.answered = wire.answered or _answers(event)
+                if not wire.answered and _answers(event):
+                    wire.answered = True
+                    opening.reschedule(None)
             else:
                 accept_first_event(event, bound_expired=opening.expired())
                 # The first event proves the session is open, before a slow caller
-                # can hold the queue.
-                opening.reschedule(None)
+                # can hold the queue. A reopening that has already failed an attempt
+                # keeps its total time until a session answers.
+                opening.reschedule(self._unanswered_bound_end())
                 wire.opened.set()
                 await self._announce_reconnect(wire)
             await self._received.put(self._on_timeline(event, wire))
+
+    def _unanswered_bound_end(self) -> float | None:
+        """When the total time of a reconnect with a failed attempt runs out."""
+        interrupted = self._interrupted
+        if interrupted is None or interrupted.failed_attempts == 0:
+            return None
+        return interrupted.at + self._bound.within_seconds
 
     async def _announce_reconnect(self, wire: _Wire) -> None:
         interrupted, self._interrupted = self._interrupted, None

@@ -39,6 +39,7 @@ from packages.client.tests.support.scripted_hearing_support import (
     ends_in_order,
     errored,
     failed,
+    opens,
     says,
     scripted,
     speech_started,
@@ -380,6 +381,57 @@ def test_slow_unanswered_sessions_run_the_bound_out_not_the_deadline() -> None:
         ended = asyncio.run(scenario())
 
     assert ended == ReconnectFailed()
+
+
+def test_a_reopened_session_that_stays_unanswered_runs_the_bound_out() -> None:
+    long_bound = ReconnectBound(attempts=100, pause_seconds=0.1, within_seconds=0.45)
+
+    async def scenario() -> tuple[HearingOutcome | None, float]:
+        async with scripted(answers_then_drains, drains, says()) as (port, _):
+            started = time.monotonic()
+            outcome = (await hear(port, opening_seconds=30, deadline_seconds=5))[1]
+            return outcome, time.monotonic() - started
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(hearing, "RECONNECT_BOUND", long_bound)
+        outcome, elapsed = asyncio.run(scenario())
+
+    assert outcome == ReconnectFailed()
+    assert long_bound.within_seconds <= elapsed < long_bound.within_seconds + 1
+
+
+def test_a_deadline_due_with_an_unanswered_sessions_bound_ends_reconnect_failed() -> (
+    None
+):
+    long_bound = ReconnectBound(attempts=100, pause_seconds=0.1, within_seconds=0.45)
+    deadline_seconds = 1.5
+
+    hearings: list[HearingSession] = []
+
+    async def stalls_past_both(connection: ServerConnection, visit: Visit) -> None:
+        await opens(connection, visit)
+        # The audio proves the client took the session.created.
+        hearings[0].send(CHUNK)
+        await takes_audio(connection, visit, 1)
+        # Both bounds are due in the pass that follows, before the session ends.
+        skip_ahead(deadline_seconds + 0.1)
+        await connection.wait_closed()
+
+    async def scenario() -> HearingOutcome | None:
+        async with scripted(answers_then_drains, drains, stalls_past_both) as (port, _):
+            return (
+                await hear(
+                    port,
+                    opening_seconds=30,
+                    deadline_seconds=deadline_seconds,
+                    held_limit_bytes=hearing.NEEDED_HOLD_BYTES,
+                    before=hearings.append,
+                )
+            )[1]
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(hearing, "RECONNECT_BOUND", long_bound)
+        assert asyncio.run(scenario()) == ReconnectFailed()
 
 
 def test_a_repeated_session_created_does_not_answer() -> None:
