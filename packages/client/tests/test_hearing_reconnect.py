@@ -15,6 +15,7 @@ from packages.client.tests.support.hearing_support import (
     CREATED_EVENT,
     HEARD_DELTA,
     LOOPBACK,
+    fixed_tokens,
     session_to,
 )
 from packages.client.tests.support.reconnect_support import (
@@ -23,6 +24,7 @@ from packages.client.tests.support.reconnect_support import (
     UNAVAILABLE,
     Tokens,
     hear,
+    jumpable_clock,
     outcome_of,
     skip_ahead,
     visits_and_outcome,
@@ -30,6 +32,7 @@ from packages.client.tests.support.reconnect_support import (
 from packages.client.tests.support.scripted_hearing_support import (
     Refusal,
     Visit,
+    answers_then_drains,
     drains,
     drains_before_opening,
     drops_after_opening,
@@ -40,6 +43,7 @@ from packages.client.tests.support.scripted_hearing_support import (
     scripted,
     speech_started,
     takes_audio,
+    updated,
 )
 from speech_client import hearing
 from speech_client.hearing import (
@@ -63,7 +67,7 @@ if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection
 
     from packages.client.tests.support.scripted_hearing_support import Script
-    from speech_client.hearing import HearingOutcome, HearingSession
+    from speech_client.hearing import HearingOutcome, HearingSession, SessionTokens
 pytestmark = pytest.mark.usefixtures("quick_bound")
 
 
@@ -141,7 +145,9 @@ def test_these_ends_do_not_reopen_the_hearing(
 def test_a_failed_attempt_is_retried_until_the_hearing_goes_on(
     unopened: Script,
 ) -> None:
-    visits, ended = visits_and_outcome(drains, unopened, unopened, ends_in_order)
+    visits, ended = visits_and_outcome(
+        answers_then_drains, unopened, unopened, ends_in_order
+    )
 
     assert (visits, ended) == (4, Closed())
 
@@ -171,7 +177,7 @@ def test_attempts_that_all_fail_end_the_hearing_with_reconnect_failed(
     failing: Script,
 ) -> None:
     started = time.monotonic()
-    visits, ended = visits_and_outcome(drains, failing)
+    visits, ended = visits_and_outcome(answers_then_drains, failing)
 
     assert (visits, ended) == (1 + BOUND.attempts, ReconnectFailed())
     # A `busy` is not waited out: its Retry-After is 30 s.
@@ -217,7 +223,7 @@ def test_a_deadline_falling_due_with_the_last_opening_bound_ends_reconnect_faile
     silent_attempts = (stays_silent,) * (BOUND.attempts - 1)
 
     visits, outcome = visits_and_outcome(
-        drains,
+        answers_then_drains,
         *silent_attempts,
         stalls_past_both,
         opening_seconds=0.2,
@@ -311,73 +317,69 @@ def test_no_audio_reaches_a_session_before_its_session_created() -> None:
     assert asyncio.run(scenario()) == (True, [b"a", b"b"])
 
 
-def visits_and_outcome_with_audio_flowing(
-    *scripts: Script,
-) -> tuple[int, HearingOutcome | None]:
-    async def scenario() -> tuple[int, HearingOutcome | None]:
-        async def streams(session: HearingSession) -> None:
-            while True:
-                session.send(CHUNK)
-                await asyncio.sleep(0.01)
-
-        feeders: list[asyncio.Task[None]] = []
-        async with scripted(*scripts) as (port, visits):
-            _, outcome = await hear(
-                port,
-                deadline_seconds=2,
-                held_limit_bytes=hearing.NEEDED_HOLD_BYTES,
-                before=lambda session: feeders.append(
-                    asyncio.create_task(streams(session))
-                ),
-            )
-            feeders[0].cancel()
-            return len(visits), outcome
-
-    return asyncio.run(scenario())
-
-
 @pytest.mark.parametrize(
     "dropping",
     [
         pytest.param(drains, id="drain"),
         pytest.param(drops_after_opening, id="cut"),
+        pytest.param(says(updated(), then_close=DRAIN_CLOSE_CODE), id="updated-only"),
     ],
 )
+@pytest.mark.parametrize("audio", [(), (CHUNK,)], ids=["silent", "audio-offered"])
 def test_sessions_that_end_unanswered_end_the_hearing_with_reconnect_failed(
-    dropping: Script,
+    dropping: Script, audio: tuple[bytes, ...]
 ) -> None:
-    visits, ended = visits_and_outcome_with_audio_flowing(dropping)
+    def offers(session: HearingSession) -> None:
+        for chunk in audio:
+            session.send(chunk)
+
+    visits, ended = visits_and_outcome(
+        dropping, held_limit_bytes=hearing.NEEDED_HOLD_BYTES, before=offers
+    )
 
     assert (visits, ended) == (BOUND.attempts, ReconnectFailed())
 
 
-def test_a_session_that_answered_its_audio_resets_the_bound() -> None:
-    answers_then_drains = says(speech_started("i", 0), then_close=DRAIN_CLOSE_CODE)
-
-    visits, ended = visits_and_outcome_with_audio_flowing(
-        drains,
-        drains,
-        answers_then_drains,
-        drains,
-        drains,
-        ends_in_order,
+def test_a_session_that_answered_resets_the_bound() -> None:
+    visits, ended = visits_and_outcome(
+        drains, drains, answers_then_drains, drains, drains, ends_in_order
     )
 
     assert (visits, ended) == (6, Closed())
 
 
-def test_a_successful_opening_resets_the_bound() -> None:
+def test_a_successful_opening_that_answered_resets_the_bound() -> None:
     visits, ended = visits_and_outcome(
-        drains,
+        answers_then_drains,
         UNAVAILABLE,
         UNAVAILABLE,
-        drains,
+        answers_then_drains,
         UNAVAILABLE,
         UNAVAILABLE,
         ends_in_order,
     )
 
     assert (visits, ended) == (7, Closed())
+
+
+def test_slow_unanswered_sessions_run_the_bound_out_not_the_deadline() -> None:
+    slow_bound = ReconnectBound(attempts=100, pause_seconds=0.05, within_seconds=3)
+
+    async def scenario() -> HearingOutcome | None:
+        jump = jumpable_clock()
+
+        async def slow_tokens() -> SessionTokens:
+            jump(slow_bound.within_seconds * 2 / 3)
+            return await fixed_tokens()
+
+        async with scripted(drains) as (port, _):
+            return (await hear(port, token_source=slow_tokens, opening_seconds=10))[1]
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(hearing, "RECONNECT_BOUND", slow_bound)
+        ended = asyncio.run(scenario())
+
+    assert ended == ReconnectFailed()
 
 
 def test_the_reconnect_bound_ends_the_hearing_within_its_time() -> None:

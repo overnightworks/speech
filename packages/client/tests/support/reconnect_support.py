@@ -124,6 +124,23 @@ def skip_ahead(seconds: float) -> None:
     loop.call_soon(lambda: delattr(loop, "time"))
 
 
+def jumpable_clock() -> Callable[[float], None]:
+    """Make the running loop's clock movable; the returned function moves it on.
+
+    Call it before the session starts: the session reads the clock it finds then.
+    """
+    loop = asyncio.get_running_loop()
+    clock = loop.time
+    moved = 0.0
+
+    def jump(seconds: float) -> None:
+        nonlocal moved
+        moved += seconds
+
+    loop.time = lambda: clock() + moved  # type: ignore[method-assign]
+    return jump
+
+
 async def hear_through(session: HearingSession) -> None:
     async with session:
         async with asyncio.timeout(WHOLE_RUN_SECONDS):
