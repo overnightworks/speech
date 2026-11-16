@@ -1,8 +1,0 @@
-claim_id = "556e37b9faf645e18264238f673c2402"
-agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
-role = "builder"
-base = "783c9a985e962b37d47615a0ef7aa660983fb78d"
-branch = "claude/issue-457-release-0-21-0"
-scope = ["packages/browser/package.json", "packages/client/pyproject.toml", "providers/provider-contract/pyproject.toml", "providers/qwen/uv.lock", "pyproject.toml", "uv.lock"]
-opened_commit = "f71d67df3311c4644cb217034f3156c307b23cc4"
-whole_reason = "One version moves in every distribution and both locks at once."
