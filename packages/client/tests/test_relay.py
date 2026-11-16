@@ -24,6 +24,12 @@ from speech_client.outcomes import (
     PastDeadline,
     Unreachable,
 )
+from speech_client.realtime_wire import (
+    DurationUsage,
+    TranscriptCompleted,
+    TranscriptDelta,
+    TranscriptLanguage,
+)
 from speech_client.relay import (
     AppEnded,
     BrowserLeft,
@@ -31,14 +37,7 @@ from speech_client.relay import (
     RuleBroken,
     relay,
 )
-from speech_client.wire import (
-    DurationUsage,
-    Language,
-    RefusalCode,
-    TranscriptCompleted,
-    TranscriptDelta,
-    TranscriptLanguage,
-)
+from speech_client.wire import Language, RefusalCode
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -46,8 +45,8 @@ if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection
 
     from speech_client.hearing import HearingOutcome
+    from speech_client.realtime_wire import ServerEvent
     from speech_client.relay import RelayOutcome
-    from speech_client.wire import ServerEvent
 
 FRAME_LIMIT = 8
 # Well below the socket close timeout (10 s) and the session deadline (30 s).

@@ -20,14 +20,14 @@ import pytest
 from playwright.async_api import async_playwright
 
 from speech_client.hearing import HearingSession
-from speech_client.relay import HOP_FRAME_BYTES, HopClose
-from speech_client.wire import (
-    Language,
+from speech_client.realtime_wire import (
     PcmFormat,
     SessionInput,
     TranscriptCompleted,
     TranscriptDelta,
 )
+from speech_client.relay import HOP_FRAME_BYTES, HopClose
+from speech_client.wire import Language
 from speech_service.config import DEFAULT_LIVE_SILENCE_SECONDS
 from speech_service.voice_activity import PRE_ROLL_SECONDS
 from tests.support.browser_support import (

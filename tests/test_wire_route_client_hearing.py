@@ -14,14 +14,13 @@ from speech_client.hearing import (
     SessionTokens,
 )
 from speech_client.outcomes import OverCap, PastDeadline, Unreachable
-from speech_client.wire import (
-    Language,
-    RefusalCode,
+from speech_client.realtime_wire import (
     SessionCreated,
     SessionUpdated,
     TranscriptCompleted,
     TranscriptLanguage,
 )
+from speech_client.wire import Language, RefusalCode
 from tests.support.hear_support import HEARD_TEXT, FakeHearing, hear_runtime
 from tests.support.identity_support import valid_pair
 from tests.support.live_support import INPUT_RATE, SPEECH_LEVEL
@@ -31,7 +30,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from speech_client.hearing import HearingOutcome
-    from speech_client.wire import ServerEvent
+    from speech_client.realtime_wire import ServerEvent
 
 NOT_A_TOKEN = "no"  # noqa: S105 - a scenario value
 DEADLINE_SECONDS = 10.0

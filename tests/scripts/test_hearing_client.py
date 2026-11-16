@@ -13,17 +13,15 @@ from websockets.datastructures import Headers
 from websockets.http11 import Request, Response
 
 from speech_client.hearing import Refused
-from speech_client.wire import (
+from speech_client.realtime_wire import (
     DurationUsage,
-    Language,
-    RefusalCode,
     SessionCreated,
     SessionUpdated,
     TranscriptCompleted,
     TranscriptionSession,
     TranscriptLanguage,
-    refusal,
 )
+from speech_client.wire import Language, RefusalCode, refusal
 from tests.support.identity_support import MINTING
 from tests.support.script_support import script_module
 
@@ -33,7 +31,7 @@ if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection
 
     from hearing_figures import LiveTurn
-    from speech_client.wire import ServerEvent
+    from speech_client.realtime_wire import ServerEvent
 
 CLIENT = script_module("hearing_client")
 

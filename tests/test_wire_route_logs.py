@@ -14,7 +14,7 @@ from starlette.status import HTTP_200_OK
 from speech_client.wire import SPEECH_PATH, RefusalCode, VoiceId
 from speech_service.config import Settings
 from speech_service.failures import SpeakingFailedError
-from tests.support.fakes_support import FakeSpeaking
+from tests.support.fakes_support import FakeMarkingSpeaking, FakeSpeaking
 from tests.support.identity_support import valid_headers
 from tests.support.speak_support import (
     ASGI_TIMEOUT_SECONDS,
@@ -27,6 +27,7 @@ from tests.support.speak_support import (
     speak_body,
     speak_once,
     speak_scope,
+    sse_body,
     status_of,
 )
 
@@ -217,6 +218,32 @@ def test_a_spoken_request_writes_one_speak_line_with_its_voice_and_first_audio(
     assert line.outcome == "ok"
     assert line.voice == VoiceId.THORSTEN.value
     assert 0 <= line.first_output_ms <= line.duration_ms
+    assert _SPOKEN not in f"{caplog.text} {vars(line)}"
+
+
+@pytest.mark.parametrize(
+    ("body", "stream_format", "marked_words"),
+    [(speak_body(text=_SPOKEN), "audio", 0), (sse_body(text=_SPOKEN), "sse", 2)],
+    ids=["audio", "sse"],
+)
+def test_a_speak_line_counts_the_words_it_marked_and_never_names_them(
+    caplog: pytest.LogCaptureFixture,
+    body: bytes,
+    stream_format: str,
+    marked_words: int,
+) -> None:
+    """WIRE-67: `speak.ended` carries its stream format and counts only."""
+    caplog.set_level(logging.DEBUG)
+
+    response = post_speech(TestClient(speak_app(FakeMarkingSpeaking())), body)
+
+    assert response.status_code == HTTP_200_OK
+    (line,) = _speak_lines(caplog)
+    assert (line.stream_format, line.marks_words, line.marks_sounds) == (
+        stream_format,
+        marked_words,
+        0,
+    )
     assert _SPOKEN not in f"{caplog.text} {vars(line)}"
 
 

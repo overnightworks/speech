@@ -16,7 +16,8 @@ import json
 import sys
 
 from speech_client.hearing import HearingSession, SessionTokens
-from speech_client.wire import Language, TranscriptCompleted, TranscriptDelta
+from speech_client.realtime_wire import TranscriptCompleted, TranscriptDelta
+from speech_client.wire import Language
 
 
 async def send_frames(

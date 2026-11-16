@@ -13,13 +13,8 @@ from websockets.asyncio.server import serve
 from websockets.frames import CloseCode
 
 from packages.client.tests.support.hearing_support import CREATED_EVENT, LOOPBACK
-from speech_client.wire import (
-    DRAIN_CLOSE_CODE,
-    REFUSAL_STATUS,
-    RETRY_AFTER_HEADER,
+from speech_client.realtime_wire import (
     DurationUsage,
-    Language,
-    RefusalCode,
     SpeechStarted,
     SpeechStopped,
     TranscriptCompleted,
@@ -27,6 +22,13 @@ from speech_client.wire import (
     TranscriptLanguage,
     error_event,
     item_failure,
+)
+from speech_client.wire import (
+    DRAIN_CLOSE_CODE,
+    REFUSAL_STATUS,
+    RETRY_AFTER_HEADER,
+    Language,
+    RefusalCode,
     refusal,
 )
 

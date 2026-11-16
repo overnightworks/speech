@@ -40,11 +40,8 @@ from speech_client.outcomes import (
     OverCap,
     PastDeadline,
 )
-from speech_client.wire import (
-    Language,
-    RefusalCode,
-    TranscriptDelta,
-)
+from speech_client.realtime_wire import TranscriptDelta
+from speech_client.wire import Language, RefusalCode
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterator

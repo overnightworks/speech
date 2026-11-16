@@ -7,7 +7,7 @@ import struct
 import threading
 from typing import TYPE_CHECKING
 
-from speech_client.wire import VoiceId
+from speech_client.wire import SentenceMarks, VoiceId, Word
 from speech_service.config import Settings
 from speech_service.control import create_control_app
 from speech_service.pcm import BYTES_PER_SAMPLE
@@ -70,6 +70,34 @@ class FakeSpeaking:
 
     def close(self) -> None:
         """The in-memory fake owns no external resources."""
+
+
+MARKED_SENTENCES = (
+    Word(text="Hallo", start_char=0, end_char=5, start=0.0, end=0.1),
+    Word(text="Welt", start_char=6, end_char=10, start=0.15, end=0.25),
+)
+
+
+class FakeMarkingSpeaking(FakeSpeaking):
+    """A voice that speaks two sentences and marks one word in each after its audio."""
+
+    gives_word_marks = True
+
+    def __init__(self) -> None:
+        """Start ready, with nothing produced yet."""
+        super().__init__()
+        self.produced: list[str] = []
+
+    def marked_chunks(
+        self, text: str, language: str, instructions: str | None = None
+    ) -> Iterator[bytes | SentenceMarks]:
+        """Yield each sentence's audio, then its marks, as the work is done."""
+        audio = list(super().pcm_chunks(text, language, instructions))
+        for word, pcm in zip(MARKED_SENTENCES, audio, strict=True):
+            self.produced.append(f"audio {word.text}")
+            yield pcm
+            self.produced.append(f"marks {word.text}")
+            yield SentenceMarks(words=(word,))
 
 
 class GateTimeoutError(RuntimeError):

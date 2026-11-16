@@ -21,12 +21,8 @@ from speech_client.hearing import (
     Reconnected,
     SessionTokens,
 )
-from speech_client.wire import (
-    PcmFormat,
-    RefusalCode,
-    ServerEvent,
-    SessionInput,
-)
+from speech_client.realtime_wire import PcmFormat, ServerEvent, SessionInput
+from speech_client.wire import RefusalCode
 
 if TYPE_CHECKING:
     from collections.abc import Callable

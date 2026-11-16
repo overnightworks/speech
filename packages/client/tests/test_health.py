@@ -47,6 +47,7 @@ _HEALTH = {
                 "name": "A name",
                 "languages": [Language.DE.value],
                 "takes_instructions": False,
+                "gives_marks": {"words": False, "sounds": False},
                 "ready": True,
                 "sample_rate": 22050,
             }
