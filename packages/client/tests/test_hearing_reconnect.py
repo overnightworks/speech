@@ -61,7 +61,11 @@ from speech_client.outcomes import (
     Malformed,
     PastDeadline,
 )
-from speech_client.realtime_wire import ServerEvent, SessionCreated, parse_server_event
+from speech_client.realtime_wire import (
+    ServerEvent,
+    SessionCreated,
+    parse_server_event,
+)
 from speech_client.wire import DRAIN_CLOSE_CODE, RefusalCode
 
 if TYPE_CHECKING:
@@ -383,11 +387,22 @@ def test_slow_unanswered_sessions_run_the_bound_out_not_the_deadline() -> None:
     assert ended == ReconnectFailed()
 
 
-def test_a_reopened_session_that_stays_unanswered_runs_the_bound_out() -> None:
+@pytest.mark.parametrize(
+    "scripts",
+    [
+        pytest.param((answers_then_drains, says()), id="straight-after-an-answer"),
+        pytest.param(
+            (answers_then_drains, drains, says()), id="after-a-failed-attempt"
+        ),
+    ],
+)
+def test_a_reopened_session_that_stays_unanswered_runs_the_bound_out(
+    scripts: tuple[Script, ...],
+) -> None:
     long_bound = ReconnectBound(attempts=100, pause_seconds=0.1, within_seconds=0.45)
 
     async def scenario() -> tuple[HearingOutcome | None, float]:
-        async with scripted(answers_then_drains, drains, says()) as (port, _):
+        async with scripted(*scripts) as (port, _):
             started = time.monotonic()
             outcome = (await hear(port, opening_seconds=30, deadline_seconds=5))[1]
             return outcome, time.monotonic() - started

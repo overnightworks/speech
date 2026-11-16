@@ -59,9 +59,8 @@ A refusal `unavailable` or `busy` (its `Retry-After` is not waited for),
 session that ended without answering each count as one failed attempt. A
 session that ended without answering does not restart the total time, which
 runs from the end of the last session that answered, or of the first session
-when none did, and it keeps running while a reopened session stays unanswered
-after an attempt failed. Any other refusal or `Malformed` ends the hearing with
-that outcome.
+when none did, and it keeps running while a reopened session stays unanswered. Any
+other refusal or `Malformed` ends the hearing with that outcome.
 
 The positions `events()` yields (`audio_start_ms`, `audio_end_ms`) lie on one
 audio timeline across reconnects: the service's position plus the audio of every
@@ -767,17 +766,17 @@ class HearingSession:
             else:
                 accept_first_event(event, bound_expired=opening.expired())
                 # The first event proves the session is open, before a slow caller
-                # can hold the queue. A reopening that has already failed an attempt
-                # keeps its total time until a session answers.
+                # can hold the queue. A reopening keeps its total time until a
+                # session answers.
                 opening.reschedule(self._unanswered_bound_end())
                 wire.opened.set()
                 await self._announce_reconnect(wire)
             await self._received.put(self._on_timeline(event, wire))
 
     def _unanswered_bound_end(self) -> float | None:
-        """When the total time of a reconnect with a failed attempt runs out."""
+        """When the total time of the reconnect under way runs out."""
         interrupted = self._interrupted
-        if interrupted is None or interrupted.failed_attempts == 0:
+        if interrupted is None:
             return None
         return interrupted.at + self._bound.within_seconds
 
