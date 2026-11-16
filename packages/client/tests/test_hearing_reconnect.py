@@ -22,6 +22,7 @@ from packages.client.tests.support.reconnect_support import (
     BOUND,
     CHUNK,
     UNAVAILABLE,
+    WHOLE_RUN_SECONDS,
     Tokens,
     hear,
     jumpable_clock,
@@ -30,6 +31,7 @@ from packages.client.tests.support.reconnect_support import (
     visits_and_outcome,
 )
 from packages.client.tests.support.scripted_hearing_support import (
+    CLOSE_ENDS_IN_ORDER,
     Refusal,
     Visit,
     answers_then_drains,
@@ -64,6 +66,7 @@ from speech_client.outcomes import (
 from speech_client.realtime_wire import (
     ServerEvent,
     SessionCreated,
+    SpeechStarted,
     parse_server_event,
 )
 from speech_client.wire import DRAIN_CLOSE_CODE, RefusalCode
@@ -413,6 +416,29 @@ def test_a_reopened_session_that_stays_unanswered_runs_the_bound_out(
 
     assert outcome == ReconnectFailed()
     assert long_bound.within_seconds <= elapsed < long_bound.within_seconds + 1
+
+
+def test_a_session_that_answers_while_the_caller_is_busy_resets_the_bound() -> None:
+    long_bound = ReconnectBound(attempts=100, pause_seconds=0.1, within_seconds=0.45)
+    answers = says(speech_started("j", 0), then_close=CLOSE_ENDS_IN_ORDER)
+
+    async def scenario() -> HearingOutcome | None:
+        async with scripted(answers_then_drains, UNAVAILABLE, answers) as (port, _):
+            session = session_to(port, 5, opening_seconds=30)
+            busy = True
+            async with session:
+                async with asyncio.timeout(WHOLE_RUN_SECONDS):
+                    async for event in session.events():
+                        if busy and isinstance(event, SpeechStarted):
+                            # Past the bound, with the reopened session's events
+                            # waiting behind the one-event queue.
+                            busy = False
+                            await asyncio.sleep(long_bound.within_seconds * 2)
+            return session.outcome
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(hearing, "RECONNECT_BOUND", long_bound)
+        assert asyncio.run(scenario()) == Closed()
 
 
 def test_a_deadline_due_with_an_unanswered_sessions_bound_ends_reconnect_failed() -> (
