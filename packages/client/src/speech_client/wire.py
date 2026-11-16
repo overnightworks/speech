@@ -295,6 +295,21 @@ class Word(BaseModel):
     end: float
 
 
+class Sound(BaseModel):
+    """A sound of a word as IPA and when it is spoken.
+
+    `start` and `end` are seconds from the answer's first sample; `estimated`
+    says they are an estimate, not what the voice reported.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    ipa: str
+    start: float
+    end: float
+    estimated: StrictBool
+
+
 class SentenceMarks(BaseModel):
     """The marks of one voice sentence; `None` where they are not proven.
 
@@ -305,7 +320,7 @@ class SentenceMarks(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     words: tuple[Word, ...] | None = None
-    sounds: None = None
+    sounds: tuple[Sound, ...] | None = None
 
 
 def audio_event(event_type: AudioEventType, **fields: object) -> bytes:

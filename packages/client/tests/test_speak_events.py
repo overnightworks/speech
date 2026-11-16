@@ -17,6 +17,7 @@ from speech_client.speak import (
     Malformed,
     OverCap,
     SentenceMarks,
+    Sound,
     Word,
     speak_stream,
 )
@@ -136,6 +137,35 @@ def test_a_marks_item_without_words_or_sounds_holds_none(
         items = scenario.stream(base_url)
 
     assert SentenceMarks(words=None, sounds=None) in items
+
+
+def test_a_marks_item_carries_the_sounds_with_their_times(
+    scenario: Scenario, raw_listener: RawListener
+) -> None:
+    sound = Sound(ipa="a", start=0.0, end=0.05, estimated=True)
+    with_sounds = audio_event(
+        AudioEventType.MARKS, words=None, sounds=[sound.model_dump(mode="json")]
+    )
+    answer = scenario.answer(scenario.delta(scenario.wav), with_sounds, scenario.done)
+
+    with raw_listener(answer) as (base_url, _):
+        items = scenario.stream(base_url)
+
+    assert SentenceMarks(sounds=(sound,)) in items
+
+
+def test_a_sound_without_its_flag_breaks_the_wire(
+    scenario: Scenario, raw_listener: RawListener
+) -> None:
+    unflagged = audio_event(
+        AudioEventType.MARKS, words=None, sounds=[{"ipa": "a", "start": 0, "end": 1}]
+    )
+    answer = scenario.answer(scenario.delta(scenario.wav), unflagged, scenario.done)
+
+    with raw_listener(answer) as (base_url, _):
+        items = scenario.stream(base_url)
+
+    assert items[-1] == Malformed()
 
 
 def test_a_field_the_reader_does_not_know_is_ignored(
@@ -303,4 +333,6 @@ def test_audio_past_the_cap_ends_over_the_cap(
 
 
 def test_every_marks_record_is_exported_from_the_speak_module() -> None:
-    assert {"SentenceMarks", "Word", "MarkedStreamItem"} <= set(speak_module.__all__)
+    assert {"SentenceMarks", "Word", "Sound", "MarkedStreamItem"} <= set(
+        speak_module.__all__
+    )
