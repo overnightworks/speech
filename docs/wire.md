@@ -72,7 +72,7 @@ unfinished items), or the code of a failed item or of an `error` event
 
 ## Request
 
-**WIRE-04** A JSON object with exactly these fields, all required but `language` and `instructions`, all strict JSON types:
+**WIRE-04** A JSON object with exactly these fields, all required but `language`, `instructions` and `stream_format`, all strict JSON types:
 
 | ID | Field | Accepted value |
 |---|---|---|
@@ -83,10 +83,11 @@ unfinished items), or the code of a failed item or of an `error` event
 | WIRE-10 | `response_format` | `wav` or `opus`. OpenAI defaults an absent field to `mp3`, so it is required here. |
 | WIRE-138 | `language` | An extension to OpenAI's request, which has no such field. `de` or `en`, the codes of WIRE-34; `null` counts as not named. A voice of one language speaks it, and the field is optional but, when named, must be that language. A voice of several languages (`ryan`: `de`, `en`) speaks the language named, and the field is required. A value other than `de` or `en`, or a language the voice does not speak, or no language for a voice of several, is refused. |
 | WIRE-141 | `instructions` | OpenAI's field of that name: how to speak the text, for example its tone. A string with at least one letter and at most 500 characters; `null` counts as not named, and a request without it speaks as before. Otherwise it is refused. The voice speaks the text in the manner the instructions name. |
+| WIRE-151 | `stream_format` | OpenAI's field of that name: `audio` (the default, when absent) answers with the audio itself as WIRE-88 and WIRE-133 say, byte for byte as without the field; `sse` answers with the event stream below. Any other value is refused. |
 | WIRE-142 | `instructions` | `speaking.voices` in health lists for each voice whether it `takes_instructions`: `ryan` does, the Piper voices do not. A request that names instructions for a voice that takes none is refused, never ignored. |
 
 **WIRE-11** Each voice speaks the languages `speaking.voices` in health lists for it, and
-any field not listed here (`speed`, `stream_format`, ...) is refused.
+any field not listed here (`speed`, ...) is refused.
 **WIRE-139** The request is checked in the order `model`, `voice`, `language`,
 `instructions`: a refused `language` or `instructions` is `invalid_request` with `param`
 `language` or `instructions` unless an earlier field is refused first, which names that
@@ -261,7 +262,7 @@ utterance's audio and voiced milliseconds, no-speech probability and average log
 on a `hearing.measured` line, never its text. Each turn also writes `turn_end_wait.ended`
 (the wait that ended it) and `hearing.ended` (from its end to the transcript, with the
 `audio_end_ms` it ended at and the `silence_ms` that ended it), and each speak request writes
-`speak.ended` (with its `voice` and `first_output_ms`), all in the shape of logline.
+`speak.ended` (with its `voice`, `first_output_ms`, `stream_format` and the counts `marks_words` and `marks_sounds` of what it marked, never a word), all in the shape of logline.
 
 **Server events**, in the order one turn produces them:
 
@@ -355,13 +356,58 @@ speaks. RFC 7845 names `audio/ogg`; OpenAI lists `audio/opus` among its answer t
 and names no container, so the media type deviates from OpenAI's. **WIRE-134** Every
 Ogg Opus carries the AI mark as `DESCRIPTION=<mark>` in its OpusTags.
 
+## Event stream
+
+**WIRE-158** With `stream_format` `sse` the answer is `200` with `Content-Type: text/event-stream`, in the
+same chunked way. Each event is one line `data: <JSON object>` and a blank line; the object's `type` names
+it, and a reader ignores a field it does not know. There are three types:
+
+- `speech.audio.delta` `{"audio": "<base64>"}`: the bytes of the audio the default answer carries for the
+  same `response_format`, in order, so the decoded deltas joined are that audio.
+- `speech.audio.marks` `{"words", "sounds"}`: an extension to OpenAI's stream, which has no such event. See below.
+- `speech.audio.done` `{}`: the last event. It carries no `usage`, which deviates from OpenAI's.
+
+A stream that ends without `done` failed, as WIRE-90 says. The status and headers leave before synthesis
+as for the audio, so a failure aborts the connection and no `done` follows.
+
+**WIRE-152** A voice sentence is a sentence its voice speaks as one piece of audio. A Piper voice sends one marks event for each of its
+sentences; a voice that marks nothing sends one after all its audio, with both kinds `null`. `words` is a list of the words of
+the sentence, `[]` where it holds none, or `null` where they could not be proven; the audio is sent anyway.
+A word missing from the list is unproven, which is not the same as silent. `sounds` is `null` for every
+voice: `gives_marks.sounds` (WIRE-122) is false. A kind whose `gives_marks` flag is false is always `null`;
+otherwise `null` means that sentence's marks failed.
+
+**WIRE-153** A word is `{"text", "start_char", "end_char", "start", "end"}`. `start_char` and `end_char` count
+Unicode code points of `input` as received, unnormalized, `end_char` exclusive, so `text` is
+`input[start_char:end_char]`. `start` and `end` are seconds from the answer's first sample, continued across
+sentences, whatever the format: the header of a WAV does not count, and an Opus counts decoded time after its
+pre-skip. They are rounded to milliseconds, the starts of one answer increase, and no `end` lies after the audio.
+They are Piper's predicted durations for the word's sounds, not a measured onset; a cut at a played position is
+accurate to one Piper phoneme.
+
+**WIRE-154** One word may cover several spoken words (`in the` is one entry): its `text` is the exact `input`
+span, without the whitespace and punctuation after it. A symbol spoken as several names (an emoji) is one entry.
+
+**WIRE-155** The words of a sentence are given only when the service proved them: they follow what the voice
+spoke, in order, and no word is another's text. A sentence that fails a check has `words` `null`, and so has
+every sentence after it in the answer; the sentences before it keep theirs. Input with a raw phoneme block
+(`[[ ... ]]`) has no words in any sentence.
+
+**WIRE-156** `gives_marks.words` is true for a Piper voice once its start load checked the means of the words
+(WIRE-122); where the check fails the voice speaks as before, its `sse` answers carry `null` words, and the
+service logs one error line. The words never delay the audio: a sentence's marks follow its audio, and the
+next sentence waits for them, not the first. An answer that the caller leaves loses the marks not yet sent.
+
+**WIRE-157** A marks event follows the audio of its sentence. With `opus`, up to one Ogg page of that
+sentence (at most 100 ms) may follow its marks; the times stay on the answer's own clock.
+
 ## Refusals
 
 **WIRE-91** Every refusal is `Content-Type: application/json` in OpenAI's error form,
 `{"error": {"message", "type", "param", "code"}}`. **WIRE-92** `message` is a fixed
 sentence per code and never echoes the request. **WIRE-93** `type` is
 `invalid_request_error` for a 4xx and `server_error` for a 5xx. **WIRE-94** `param` is one
-of `file`, `model`, `input`, `voice`, `language`, `response_format`, `intent`, or `null`
+of `file`, `model`, `input`, `voice`, `language`, `response_format`, `stream_format`, `intent`, or `null`
 when no request field is at fault (an unknown field, a body that is not a JSON
 object). Apps read `code`. With several faults in one request, which field `param`
 names is not part of the contract, but for WIRE-139.
@@ -431,13 +477,13 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
 ## Health
 
 **WIRE-122** `GET /health` answers without a token, so a supervisor can poll it:
-`{"speaking": {"ready", "voices": {"<voice id>": {"model", "name", "languages", "takes_instructions", "ready", "sample_rate"}}}, "hearing": {"model", "ready"}, "card_memory_mb"}`.
+`{"speaking": {"ready", "voices": {"<voice id>": {"model", "name", "languages", "takes_instructions", "gives_marks", "ready", "sample_rate"}}}, "hearing": {"model", "ready"}, "card_memory_mb"}`.
 **WIRE-123** It answers while the models are still loading, with `ready` false.
 **WIRE-124** `speaking.ready` is the speaking service's own readiness: the start load has
 ended, the drain has not begun (WIRE-144), and every offered Piper voice (with WIRE-143, every offered voice)
 can speak. With no such voice offered, it is true once the start load ends. **WIRE-125** `speaking.voices` lists
 the offered voices by id. Each reports, loaded or not, its `model` (the request's
-`model`), its `name`, its `languages` (the codes it speaks), whether it `takes_instructions` (WIRE-142) and its WAV `sample_rate` (a
+`model`), its `name`, its `languages` (the codes it speaks), whether it `takes_instructions` (WIRE-142), what it `gives_marks` as `{"words", "sounds"}` (WIRE-156; none until it is loaded) and its WAV `sample_rate` (a
 Piper voice's is 0 until it is loaded). A client reads each id as a string, so a voice id it
 does not know, under a model and in languages it knows, does not break its reading of
 health. **WIRE-126** A voice's `ready` is true exactly when a request for it

@@ -174,6 +174,13 @@ class _Collector:
         return _CONTINUE
 
 
+def _drop_events(*_arguments: object) -> int:
+    return _CONTINUE
+
+
+_DROP_EVENTS = _Callback(_drop_events)
+
+
 class EspeakEvents:
     """Passes of espeak-ng over a text, run through the bridge Piper links in."""
 
@@ -196,6 +203,7 @@ class EspeakEvents:
                 from piper import espeakbridge
 
                 espeakbridge.set_voice(espeak_voice)
+                self._drain_stale_events()
                 self._library.espeak_SetSynthCallback(callback)
                 try:
                     status = self._library.espeak_Synth(
@@ -216,6 +224,18 @@ class EspeakEvents:
         if status != 0 or collector.failed:
             return None
         return SentencePass(tuple(collector.events), collector.next_start)
+
+    def _drain_stale_events(self) -> None:
+        """Hand espeak's queued events to a callback that drops them.
+
+        espeak queues an event for each voice it sets and each text it phonemizes,
+        and only speaking empties the queue. Once enough pile up, the next pass
+        loses its first events; speaking nothing delivers them elsewhere.
+        """
+        self._library.espeak_SetSynthCallback(_DROP_EVENTS)
+        self._library.espeak_Synth(
+            b"", 1, 0, _CHARACTER_POSITIONS, 0, _UTF8_TEXT, None, None
+        )
 
 
 def load_espeak_events(voice: PiperVoice) -> EspeakEvents | None:

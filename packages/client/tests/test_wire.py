@@ -879,7 +879,7 @@ def test_a_refusal_names_stream_format_as_a_request_field() -> None:
 
 
 def test_an_event_is_one_data_line_with_the_type_and_a_blank_line() -> None:
-    """WIRE-151: an event is `data: <JSON object with type>` and a blank line."""
+    """WIRE-158: an event is `data: <JSON object with type>` and a blank line."""
     frame = audio_event(AudioEventType.DELTA, audio="AAA=")
 
     assert frame.endswith(b"\n\n")

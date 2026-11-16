@@ -246,3 +246,16 @@ def test_a_voice_espeak_does_not_know_gives_no_pass(
 
     assert found is None
     assert [record.getMessage() for record in caplog.records] == ["marks.pass_failed"]
+
+
+def test_a_sentence_spoken_after_much_phonemizing_still_has_all_its_words() -> None:
+    """WIRE-155: espeak's queue of stale events never costs a pass its first events."""
+    voice = a_voice("de")
+    events = loaded(voice)
+    text = "Die Kamera zeigt den Vortragenden."
+    for _ in range(300):
+        voice.phonemize(text)
+
+    assert words_of(voice, events, text) == [
+        ["Die", "Kamera", "zeigt", "den", "Vortragenden"]
+    ]

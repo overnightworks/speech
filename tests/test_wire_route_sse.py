@@ -1,4 +1,4 @@
-"""POST /v1/audio/speech with `stream_format` `sse`: audio, marks, done (WIRE-151)."""
+"""POST /v1/audio/speech with `stream_format` `sse`: audio, marks, done (WIRE-158)."""
 
 from __future__ import annotations
 
@@ -75,7 +75,7 @@ def test_the_event_stream_answers_as_text_event_stream() -> None:
 def test_the_deltas_of_the_event_stream_are_the_audio_the_default_answer_holds() -> (
     None
 ):
-    """WIRE-151: the deltas are today's bytes in order."""
+    """WIRE-158: the deltas are today's bytes in order."""
     events = sse_events(_speak(FakeMarkingSpeaking(), StreamFormat.SSE))
 
     assert sse_audio(events) == _speak(FakeMarkingSpeaking(), StreamFormat.AUDIO)
@@ -84,7 +84,7 @@ def test_the_deltas_of_the_event_stream_are_the_audio_the_default_answer_holds()
 def test_each_sentence_is_its_audio_then_its_marks_and_the_stream_ends_with_done() -> (
     None
 ):
-    """WIRE-151: one marks event per sentence after its audio; `done` comes last."""
+    """WIRE-158: one marks event per sentence after its audio; `done` comes last."""
     events = sse_events(_speak(FakeMarkingSpeaking(), StreamFormat.SSE))
 
     kinds = [event["type"] for event in events]
