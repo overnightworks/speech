@@ -21,11 +21,13 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    SerializerFunctionWrapHandler,
     StrictBool,
     StrictInt,
     TypeAdapter,
     ValidationInfo,
     field_validator,
+    model_serializer,
 )
 
 if TYPE_CHECKING:
@@ -296,10 +298,11 @@ class Word(BaseModel):
 
 
 class Sound(BaseModel):
-    """A sound of a word as IPA and when it is spoken.
+    """A sound of a sentence as IPA and when it is spoken.
 
     `start` and `end` are seconds from the answer's first sample; `estimated`
-    says they are an estimate, not what the voice reported.
+    says they are an estimate, not what the voice reported. A voice that reports
+    its own times leaves the field off the wire.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -307,7 +310,16 @@ class Sound(BaseModel):
     ipa: str
     start: float
     end: float
-    estimated: StrictBool
+    estimated: StrictBool = False
+
+    @model_serializer(mode="wrap")
+    def _without_the_flag_when_the_times_are_the_voices_own(
+        self, serialize: SerializerFunctionWrapHandler
+    ) -> dict[str, object]:
+        fields: dict[str, object] = serialize(self)
+        if not self.estimated:
+            del fields["estimated"]
+        return fields
 
 
 class SentenceMarks(BaseModel):
