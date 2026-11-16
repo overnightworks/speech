@@ -185,7 +185,7 @@ def test_the_plain_audio_asks_piper_for_no_alignment(tmp_path: Path) -> None:
 
 
 def test_a_voice_that_is_not_loaded_cannot_speak_with_marks() -> None:
-    engine = PiperSpeaking("local-voice", Path())
+    chunks = PiperSpeaking("local-voice", Path()).marked_chunks("Ja.", "de")
 
     with pytest.raises(RuntimeError):
-        next(engine.marked_chunks("Ja.", "de"))
+        next(chunks)

@@ -139,8 +139,10 @@ BAD_ANSWERS: dict[str, Callable[[list], list]] = {
 def test_an_answer_that_breaks_a_ruled_sentence_fails_the_proof(
     change: Callable[[list], list],
 ) -> None:
+    events = change(wav_events())
+
     with pytest.raises(SystemExit):
-        judged(change(wav_events()), ResponseFormat.WAV)
+        judged(events, ResponseFormat.WAV)
 
 
 @pytest.mark.parametrize(
@@ -160,8 +162,10 @@ def test_a_body_that_is_not_framed_as_events_fails_the_proof(body: bytes) -> Non
 
 
 def test_audio_that_is_not_the_format_asked_for_fails_the_proof() -> None:
+    events = wav_events()
+
     with pytest.raises(SystemExit):
-        judged(wav_events(), ResponseFormat.OPUS)
+        judged(events, ResponseFormat.OPUS)
 
 
 def test_every_voice_is_proved_in_every_format_with_its_own_text(
