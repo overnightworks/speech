@@ -214,6 +214,18 @@ def peaks_between(seen: dict[str, object], since: float, until: float) -> list[f
     return [peak for at, peak in seen["heardPeaks"] if since <= at < until]
 
 
+def start_of(seen: dict[str, object], sound: int = 0) -> float:
+    """The context time at which the app's sound number `sound` starts."""
+    return seen["sounds"][sound]["start"]["contextTime"]
+
+
+def peaks_inside(seen: dict[str, object], sound: int, seconds: float) -> list[float]:
+    """The peaks of sound number `sound`, `seconds` long, less 3 quanta at each end."""
+    start = start_of(seen, sound)
+    margin = 3 * quantum_seconds(seen)
+    return peaks_between(seen, start + margin, start + seconds - margin)
+
+
 def audible_seconds(seen: dict[str, object], since: float, until: float) -> float:
     """The seconds of [`since`, `until`) in which the output was not silent."""
     audible = [peak for peak in peaks_between(seen, since, until) if peak > SILENT_PEAK]

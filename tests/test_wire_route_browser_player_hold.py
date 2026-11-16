@@ -41,9 +41,10 @@ from tests.support.browser_player_support import (
     edge_peaks,
     ends,
     largest_step,
-    peaks_between,
+    peaks_inside,
     peaks_outside_edges,
     quantum_seconds,
+    start_of,
     starts,
     tone_quanta,
     unactivated,
@@ -59,10 +60,6 @@ pytestmark = pytest.mark.browser
 AUDIBLE_CONDITION = f"s.sounds[0].peakRms > {AUDIBLE_RMS}"
 SUSPENDED = "s.contextStates[0] === 'suspended'"
 RUNNING = "s.contextStates[0] === 'running'"
-
-
-def start_of(seen: dict[str, object], sound: int = 0) -> float:
-    return seen["sounds"][sound]["start"]["contextTime"]
 
 
 @pytest.mark.parametrize("sound", [MARKER, MARKER_STREAMED], ids=["whole", "streamed"])
@@ -226,11 +223,7 @@ def test_stop_ramps_down_without_a_click_then_ends_and_the_next_sound_is_at_full
     assert seen["sounds"][0]["endedAt"] - seen["lastActionAt"] < STOP_BOUND_MS
     assert largest_step(edge) < CLICK_STEP
     assert edge[-1] < SILENT_PEAK
-    short = start_of(seen, 1)
-    margin = 3 * quantum_seconds(seen)
-    heard = peaks_between(
-        seen, short + margin, short + SOUND_SECONDS["short.wav"] - margin
-    )
+    heard = peaks_inside(seen, 1, SOUND_SECONDS["short.wav"])
     assert heard
     assert min(heard) >= FULL_PEAK
 
@@ -346,17 +339,8 @@ def test_resume_after_stop_changes_nothing_and_the_next_sound_plays_at_full_volu
 
     seen = asyncio.run(scenario())
 
-    short = start_of(seen, 1)
-    margin = 3 * quantum_seconds(seen)
     assert ends(seen) == ["stopped", "played"]
-    assert (
-        min(
-            peaks_between(
-                seen, short + margin, short + SOUND_SECONDS["short.wav"] - margin
-            )
-        )
-        >= FULL_PEAK
-    )
+    assert min(peaks_inside(seen, 1, SOUND_SECONDS["short.wav"])) >= FULL_PEAK
 
 
 def test_pause_twice_and_resume_twice_act_once(tmp_path: Path) -> None:
