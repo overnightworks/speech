@@ -59,9 +59,9 @@ A refusal `unavailable` or `busy` (its `Retry-After` is not waited for),
 session that ended without answering each count as one failed attempt. A
 session that ended without answering does not restart the total time, which
 runs from the end of the last session that answered, or of the first session
-when none did, and it keeps running while a reopened session stays unanswered, except
-while the client waits for the caller to take an event. Any other refusal or
-`Malformed` ends the hearing with that outcome.
+when none did. No timer of it runs while a session is open, so a reopened
+session that stays open, silent or not, runs to the hearing deadline. Any other
+refusal or `Malformed` ends the hearing with that outcome.
 
 The positions `events()` yields (`audio_start_ms`, `audio_end_ms`) lie on one
 audio timeline across reconnects: the service's position plus the audio of every
@@ -336,15 +336,12 @@ def _failure_outcome(failure: BaseException) -> HearingOutcome:
 
 
 def _timeout_outcome(
-    timed_out: TimeoutError, wire: _Wire, opening: asyncio.Timeout
+    timed_out: TimeoutError, ended: HearingOutcome | None, opening: asyncio.Timeout
 ) -> HearingOutcome:
     # A bound that cuts the polite close of an end keeps that end.
-    if wire.ended is not None:
-        return wire.ended
-    if not opening.expired():
-        return _failure_outcome(timed_out)
-    # The bound of an open session is the reconnect's total time.
-    return ReconnectFailed() if wire.opened.is_set() else Unreachable()
+    if ended is not None:
+        return ended
+    return Unreachable() if opening.expired() else _failure_outcome(timed_out)
 
 
 def _answers(event: ServerEvent) -> bool:
@@ -564,7 +561,7 @@ class HearingSession:
         if opening_at is None or opening_at > deadline_at:
             return PastDeadline()
         if self._interrupted is None:
-            return ReconnectFailed() if wire.opened.is_set() else Unreachable()
+            return Unreachable()
         # A reopening counts the attempt the bound ended, as when it wins alone.
         now = asyncio.get_running_loop().time()
         ended = self._ended_by(Unreachable(), wire, now)
@@ -685,7 +682,7 @@ class HearingSession:
                     # cancel; aborting after a completed close is a no-op.
                     socket.transport.abort()
         except TimeoutError as timed_out:
-            return _timeout_outcome(timed_out, wire, opening)
+            return _timeout_outcome(timed_out, wire.ended, opening)
         except InvalidStatus as refused:
             return _refusal_outcome(refused)
         except InvalidMessage as unparsed:
@@ -761,55 +758,25 @@ class HearingSession:
                 raise ServerEventError
             event = parse_server_event(message)
             if wire.opened.is_set():
-                if not wire.answered and _answers(event):
-                    wire.answered = True
-                    opening.reschedule(None)
+                wire.answered = wire.answered or _answers(event)
             else:
                 accept_first_event(event, bound_expired=opening.expired())
                 # The first event proves the session is open, before a slow caller
-                # can hold the queue. A reopening keeps its total time until a
-                # session answers.
-                opening.reschedule(self._unanswered_bound_end())
+                # can hold the queue.
+                opening.reschedule(None)
                 wire.opened.set()
-                await self._announce_reconnect(wire, opening)
-            await self._deliver(self._on_timeline(event, wire), opening)
+                await self._announce_reconnect(wire)
+            await self._received.put(self._on_timeline(event, wire))
 
-    def _unanswered_bound_end(self) -> float | None:
-        """When the total time of the reconnect under way runs out."""
-        interrupted = self._interrupted
-        if interrupted is None:
-            return None
-        return interrupted.at + self._bound.within_seconds
-
-    async def _announce_reconnect(self, wire: _Wire, opening: asyncio.Timeout) -> None:
+    async def _announce_reconnect(self, wire: _Wire) -> None:
         interrupted, self._interrupted = self._interrupted, None
         if interrupted is not None:
             wire.carried = interrupted
-            await self._deliver(
+            await self._received.put(
                 Reconnected(
                     interrupted.cause, interrupted.unheard_start_ms, wire.offset_ms
-                ),
-                opening,
+                )
             )
-
-    async def _deliver(
-        self, item: ServerEvent | Reconnected, opening: asyncio.Timeout
-    ) -> None:
-        """Queue an item for the caller; the bound waits while the caller is busy.
-
-        The reader takes no further message from the service while the queue is
-        full, so an answer already sent stays unseen: the bound counts the
-        service's silence, not the caller's pace.
-        """
-        bound_ends_at = opening.when()
-        if bound_ends_at is None or not self._received.full():
-            await self._received.put(item)
-            return
-        clock = asyncio.get_running_loop().time
-        held_at = clock()
-        opening.reschedule(None)
-        await self._received.put(item)
-        opening.reschedule(bound_ends_at + clock() - held_at)
 
     @staticmethod
     def _on_timeline(event: ServerEvent, wire: _Wire) -> ServerEvent:
