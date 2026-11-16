@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from speech_client.wire import VOICES, VoiceHealth
 from speech_service.admission_gate import AdmissionGate
 from speech_service.failures import log_failure
+from speech_service.speaking import gives_marks
 from speech_service.voices import sample_rate_before_load
 
 if TYPE_CHECKING:
@@ -188,6 +189,7 @@ class VoiceSlot:
             name=catalogued.name,
             languages=catalogued.languages,
             takes_instructions=catalogued.takes_instructions,
+            gives_marks=gives_marks(speaking),
             ready=loaded and ready,
             sample_rate=(
                 speaking.sample_rate

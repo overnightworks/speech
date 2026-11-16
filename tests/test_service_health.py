@@ -4,11 +4,12 @@ import pytest
 from fastapi.testclient import TestClient
 from speech_provider_contract import QWEN_SAMPLE_RATE
 
-from speech_client.wire import VOICES, VoiceHealth, VoiceId
+from speech_client.wire import VOICES, GivesMarks, VoiceHealth, VoiceId
 from speech_service.service import Runtime
 from speech_service.voices import PIPER_VOICES
 from tests.support.fakes_support import (
     SPEAK_SAMPLE_RATE,
+    FakeMarkingSpeaking,
     FakeSpeaking,
     an_app,
 )
@@ -35,6 +36,7 @@ def test_health_answers_while_models_are_not_ready() -> None:
                 "name": VOICES[VoiceId.THORSTEN].name,
                 "languages": [*VOICES[VoiceId.THORSTEN].languages],
                 "takes_instructions": VOICES[VoiceId.THORSTEN].takes_instructions,
+                "gives_marks": {"words": False, "sounds": False},
                 "ready": False,
                 "sample_rate": SPEAK_SAMPLE_RATE,
             }
@@ -80,6 +82,7 @@ def test_a_voice_that_is_not_loaded_reports_its_catalogue_facts_not_ready(
         name=VOICES[voice].name,
         languages=VOICES[voice].languages,
         takes_instructions=VOICES[voice].takes_instructions,
+        gives_marks=GivesMarks(words=False, sounds=False),
         ready=False,
         sample_rate=reported.sample_rate,
     )
@@ -93,3 +96,16 @@ def test_health_lists_exactly_the_offered_voices() -> None:
     health = Runtime(offered, memory_probe=lambda: 0).health()
 
     assert set(health.speaking.voices) == {voice.value for voice in offered}
+
+
+@pytest.mark.parametrize(
+    ("speaking", "words"), [(FakeMarkingSpeaking(), True), (FakeSpeaking(), False)]
+)
+def test_health_reports_the_marks_a_voice_gives(
+    speaking: FakeSpeaking, *, words: bool
+) -> None:
+    """WIRE-122, WIRE-125: `gives_marks` says which kinds a voice marks."""
+    body = TestClient(an_app(speaking, memory_probe=lambda: 1)).get("/health").json()
+
+    voice = body["speaking"]["voices"][VoiceId.THORSTEN.value]
+    assert voice["gives_marks"] == {"words": words, "sounds": False}

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Final
 import av
 import numpy as np
 
+from speech_client.wire import SentenceMarks
 from speech_service.pcm import AI_MARK
 
 if TYPE_CHECKING:
@@ -19,6 +20,10 @@ if TYPE_CHECKING:
 _OPUS_RATE: Final = 48_000
 # The muxer holds pages for about 2 s unless told otherwise.
 _PAGE_DURATION_MICROSECONDS: Final = "100000"
+# The muxer writes a page only once the next packet would overfill it, so up to two
+# pages of audio are unsent; at 40 ms that stays under the 100 ms a sentence's
+# marks may lead its audio.
+_MARKED_PAGE_DURATION_MICROSECONDS: Final = "40000"
 _PCM_FORMAT: Final = "s16"
 _MONO: Final = "mono"
 
@@ -40,16 +45,27 @@ class _Sink:
         return taken
 
 
-def ogg_opus_chunks(pcm_chunks: Iterable[bytes], sample_rate: int) -> Iterator[bytes]:
+def ogg_opus_chunks(
+    pcm_chunks: Iterable[bytes | SentenceMarks],
+    sample_rate: int,
+    *,
+    marked: bool = False,
+) -> Iterator[bytes | SentenceMarks]:
     """One Ogg Opus stream from `pcm_chunks` at `sample_rate`, mono at 48 kHz.
 
+    A `SentenceMarks` among the chunks passes through where it stands, so it follows
+    the pages of the audio before it. With `marked` the pages are short enough
+    that less than 100 ms of that audio is still held back when it passes.
     Pages leave as the voice speaks. The end page is written only once every
     chunk was encoded; a failure or a departure closes the container and
     leaves what the close writes unread, so nothing follows the audio already sent.
     """
     sink = _Sink()
+    page_duration = (
+        _MARKED_PAGE_DURATION_MICROSECONDS if marked else _PAGE_DURATION_MICROSECONDS
+    )
     container = av.open(
-        sink, "w", format="ogg", options={"page_duration": _PAGE_DURATION_MICROSECONDS}
+        sink, "w", format="ogg", options={"page_duration": page_duration}
     )
     complete = False
     try:
@@ -57,6 +73,9 @@ def ogg_opus_chunks(pcm_chunks: Iterable[bytes], sample_rate: int) -> Iterator[b
         stream.metadata["comment"] = AI_MARK
         resampler = av.AudioResampler(format=_PCM_FORMAT, layout=_MONO, rate=_OPUS_RATE)
         for pcm in pcm_chunks:
+            if isinstance(pcm, SentenceMarks):
+                yield pcm
+                continue
             _encode(container, stream, resampler.resample(_frame(pcm, sample_rate)))
             if pages := sink.take():
                 yield pages

@@ -1,4 +1,4 @@
-// Generated from speech_client.wire and speech_client.relay by scripts/generate_browser_wire.py. Do not edit.
+// Generated from speech_client.realtime_wire and speech_client.relay by scripts/generate_browser_wire.py. Do not edit.
 // Rewrite it with: uv run --locked python scripts/generate_browser_wire.py
 
 export const SAMPLE_RATE = 24000;

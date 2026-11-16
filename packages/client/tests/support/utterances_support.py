@@ -18,6 +18,14 @@ from packages.client.tests.support.hearing_support import (
     fixed_tokens,
     silent_peer,
 )
+from speech_client.realtime_wire import (
+    DurationUsage,
+    SpeechStarted,
+    SpeechStopped,
+    TranscriptCompleted,
+    TranscriptDelta,
+    TranscriptLanguage,
+)
 from speech_client.relay import HOP_FRAME_BYTES
 from speech_client.utterances import (
     HearingCallbacks,
@@ -26,15 +34,7 @@ from speech_client.utterances import (
     Utterance,
     hear_utterances,
 )
-from speech_client.wire import (
-    DurationUsage,
-    Language,
-    SpeechStarted,
-    SpeechStopped,
-    TranscriptCompleted,
-    TranscriptDelta,
-    TranscriptLanguage,
-)
+from speech_client.wire import Language
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -44,8 +44,8 @@ if TYPE_CHECKING:
     from websockets.http11 import Request
 
     from speech_client.hearing import Reconnected, TokenSource
+    from speech_client.realtime_wire import ServerEvent
     from speech_client.utterances import UtteranceOutcome
-    from speech_client.wire import ServerEvent
 
 type Peer = Callable[[], contextlib.AbstractAsyncContextManager[int]]
 

@@ -16,6 +16,11 @@ from websockets.exceptions import ConnectionClosed
 
 from speech_client.hearing import HearingSession, SessionTokens
 from speech_client.outcomes import Busy
+from speech_client.realtime_wire import (
+    SessionCreated,
+    TranscriptCompleted,
+    TranscriptLanguage,
+)
 from speech_client.relay import (
     AppEnded,
     BrowserLeft,
@@ -24,12 +29,7 @@ from speech_client.relay import (
     RuleBroken,
     relay,
 )
-from speech_client.wire import (
-    Language,
-    SessionCreated,
-    TranscriptCompleted,
-    TranscriptLanguage,
-)
+from speech_client.wire import Language
 from tests.support.hear_support import HEARD_TEXT, FakeHearing, hear_runtime
 from tests.support.identity_support import valid_pair
 from tests.support.live_support import INPUT_RATE, SPEECH_LEVEL
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
     import pytest
 
-    from speech_client.wire import ServerEvent
+    from speech_client.realtime_wire import ServerEvent
 
 WAIT_SECONDS = 10
 FRAME_LIMIT_BYTES = 64 * 1024

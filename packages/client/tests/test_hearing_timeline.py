@@ -48,13 +48,13 @@ from speech_client.hearing import (
 from speech_client.outcomes import (
     OverCap,
 )
-from speech_client.wire import (
-    DRAIN_CLOSE_CODE,
+from speech_client.realtime_wire import (
     PcmFormat,
     ServerEvent,
     SessionInput,
     SpeechStarted,
 )
+from speech_client.wire import DRAIN_CLOSE_CODE
 
 if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection

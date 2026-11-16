@@ -55,13 +55,8 @@ from speech_client.outcomes import (
     Malformed,
     PastDeadline,
 )
-from speech_client.wire import (
-    DRAIN_CLOSE_CODE,
-    RefusalCode,
-    ServerEvent,
-    SessionCreated,
-    parse_server_event,
-)
+from speech_client.realtime_wire import ServerEvent, SessionCreated, parse_server_event
+from speech_client.wire import DRAIN_CLOSE_CODE, RefusalCode
 
 if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection

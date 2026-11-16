@@ -16,15 +16,17 @@ import hearing_figures as figures
 from hearing_figures import LiveTurn
 from proof_identity import Minting, mint_pair
 from speech_client.hearing import HearingSession
-from speech_client.wire import (
-    MODEL,
-    TRANSCRIPTIONS_PATH,
+from speech_client.realtime_wire import (
     ErrorEvent,
-    Language,
-    Refusal,
     TranscriptCompleted,
     TranscriptDelta,
     TranscriptFailed,
+)
+from speech_client.wire import (
+    MODEL,
+    TRANSCRIPTIONS_PATH,
+    Language,
+    Refusal,
     Transcription,
     TranscriptionRequest,
     token_headers,
@@ -37,7 +39,7 @@ if TYPE_CHECKING:
         RunningSpeech,
     )
     from speech_client.hearing import HearingOutcome
-    from speech_client.wire import ServerEvent
+    from speech_client.realtime_wire import ServerEvent
 
 
 LIVE_WAIT_SECONDS = 180.0

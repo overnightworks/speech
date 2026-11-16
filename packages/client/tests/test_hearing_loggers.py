@@ -12,10 +12,11 @@ import asyncio, logging, sys
 from websockets.asyncio.server import serve
 import speech_client.hearing, speech_client.relay
 from speech_client.hearing import SessionTokens
-from speech_client.wire import (
-    DurationUsage, Language, SessionCreated, TranscriptCompleted,
+from speech_client.realtime_wire import (
+    DurationUsage, SessionCreated, TranscriptCompleted,
     TranscriptionSession, TranscriptLanguage,
 )
+from speech_client.wire import Language
 
 CREATED_EVENT = SessionCreated(
     session=TranscriptionSession(type="transcription")

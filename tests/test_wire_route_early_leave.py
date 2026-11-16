@@ -11,12 +11,12 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from speech_client.hearing import HearingSession
+from speech_client.realtime_wire import SessionCreated
 from speech_client.wire import (
     REALTIME_INTENT,
     REALTIME_INTENT_PARAM,
     REALTIME_PATH,
     Language,
-    SessionCreated,
 )
 from speech_service.config import Settings
 from speech_service.control import create_control_app

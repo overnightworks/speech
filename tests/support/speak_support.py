@@ -1,6 +1,7 @@
 """Raw-ASGI drivers and WAV readers for the speak wire."""
 
 import asyncio
+import base64
 import itertools
 import json
 import time
@@ -15,6 +16,7 @@ from speech_client.wire import (
     Language,
     RefusalCode,
     ResponseFormat,
+    StreamFormat,
     VoiceId,
     speech_request_body,
 )
@@ -153,6 +155,37 @@ def speak_body(
     if language is None and len(languages) > 1:
         language = languages[0]
     return speech_request_body(text, voice, response_format, language, instructions)
+
+
+def sse_body(
+    voice: VoiceId = VoiceId.THORSTEN,
+    text: str = "Hallo",
+    response_format: ResponseFormat = ResponseFormat.WAV,
+) -> bytes:
+    """The body of a speak request that asks for the event stream."""
+    body = json.loads(speak_body(voice, text, response_format))
+    return json.dumps(body | {"stream_format": StreamFormat.SSE.value}).encode()
+
+
+def sse_events(body: bytes) -> list[dict[str, object]]:
+    """The events of a `sse` answer: each one `data: <JSON>` line and a blank line."""
+    frames = body.decode("ascii").split("\n\n")
+    assert frames.pop() == ""
+    events: list[dict[str, object]] = []
+    for frame in frames:
+        assert frame.startswith("data: ")
+        assert "\n" not in frame
+        events.append(json.loads(frame.removeprefix("data: ")))
+    return events
+
+
+def sse_audio(events: list[dict[str, object]]) -> bytes:
+    """The audio the `speech.audio.delta` events carry, in order."""
+    return b"".join(
+        base64.b64decode(str(event["audio"]))
+        for event in events
+        if event["type"] == "speech.audio.delta"
+    )
 
 
 def wav_body(messages: list[dict[str, object]]) -> bytes:

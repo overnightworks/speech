@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Final
 from urllib.parse import urlsplit
 
 import speaking_figures as figures
+import speaking_marks
 from hearing_client import Service, hear_file
 from hearing_figures import speech_only, to_wire_rate
 from proof_identity import (
@@ -72,6 +73,12 @@ ENGLISH_SENTENCE = (
     "the next slide is being prepared automatically."
 )
 SENTENCES: Final = {Language.DE: SENTENCE, Language.EN: ENGLISH_SENTENCE}
+ENGLISH_SECOND = "The next slide, please."
+MARKED_SENTENCES: Final = 2
+MARKED_TEXTS: Final = {
+    Language.DE: f"{SENTENCE} {SECOND}",
+    Language.EN: f"{ENGLISH_SENTENCE} {ENGLISH_SECOND}",
+}
 THIS_SCRIPT = Path(__file__).resolve()
 SETPRIV = "setpriv"
 PROBE_RUN = "probe-run"
@@ -539,6 +546,16 @@ def _prove_speaking(
         SENTENCES,
         limit=PIPER_FIRST_BYTE_LIMIT_S,
     )
+    speaking_marks.require_gives_words(service.running.health, PIPER_VOICES)
+    marks = speaking_marks.prove_marks(
+        functools.partial(
+            speaking_marks.speak_sse, service.base_url, minting=service.minting
+        ),
+        PIPER_VOICES,
+        MARKED_TEXTS,
+        sentences=MARKED_SENTENCES,
+    )
+    print("speak_sse_record", json.dumps(marks, sort_keys=True))
     german = (
         singles[voice].wav
         if voice in singles
@@ -669,7 +686,7 @@ def _prove() -> None:
                     _nvidia_compute_pids(),
                     f"speech_pid={running.process.pid}",
                 )
-                running.spoken_texts.append(ENGLISH_SENTENCE)
+                running.spoken_texts.extend([ENGLISH_SENTENCE, *MARKED_TEXTS.values()])
                 _require_speaking(running.health, voice)
                 print("gpu_resident", nvidia_memory())
                 print("piper_cache", PIPER_CACHE)

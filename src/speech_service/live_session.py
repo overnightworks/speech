@@ -18,16 +18,13 @@ from typing import TYPE_CHECKING, Final
 from logline import StepTimer, current_traceparent, unit_trace
 from starlette.status import WS_1000_NORMAL_CLOSURE
 
-from speech_client.wire import (
-    DRAIN_CLOSE_CODE,
+from speech_client.realtime_wire import (
     AudioAppend,
     AudioCommit,
     AudioCommitted,
     ClientEventError,
     DurationUsage,
     ItemCreated,
-    Language,
-    RefusalCode,
     SessionCreated,
     SessionUpdate,
     SessionUpdated,
@@ -44,6 +41,7 @@ from speech_client.wire import (
     new_item_id,
     parse_client_event,
 )
+from speech_client.wire import DRAIN_CLOSE_CODE, Language, RefusalCode
 from speech_service.failures import log_failure
 from speech_service.hearing_session import (
     MAX_TURN_SECONDS,

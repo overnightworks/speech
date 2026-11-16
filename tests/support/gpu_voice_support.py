@@ -83,7 +83,9 @@ def install_piper(monkeypatch: pytest.MonkeyPatch, voice_cache: Path) -> None:
     monkeypatch.setitem(
         sys.modules,
         "piper",
-        SimpleNamespace(PiperVoice=SimpleNamespace(load=lambda _path: LocalVoice())),
+        SimpleNamespace(
+            PiperVoice=SimpleNamespace(load=lambda _path, **_options: LocalVoice())
+        ),
     )
     voice_cache.mkdir(exist_ok=True)
     for voice in PIPER_VOICES:
