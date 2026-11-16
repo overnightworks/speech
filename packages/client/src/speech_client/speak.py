@@ -14,6 +14,13 @@ exactly one last item, which is never missing:
   before any audio, as every refusal does. A body that broke off is a failure,
   never `Finished`.
 
+With `stream_format` `StreamFormat.SSE` the same stream carries the event
+stream (WIRE-158): the audio chunks in order, each sentence's `SentenceMarks`
+(WIRE-152) after the audio of that sentence, then `Finished` once `done` came.
+A body that ends without `done` is `Cut`, as one that broke off is; an event the
+wire does not know, one after `done` and audio that is no WAV are `Malformed`.
+Without it every item is as above, and no `SentenceMarks` comes.
+
 The deadline starts with the first item asked for. Close the stream
 (`contextlib.closing`) to end the call early.
 
@@ -49,7 +56,7 @@ from __future__ import annotations
 from contextlib import closing
 from dataclasses import dataclass, field
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal, overload
 
 from pydantic import ValidationError
 
@@ -71,20 +78,27 @@ from speech_client.outcomes import (
     busy_wait,
 )
 from speech_client.wire import (
+    EVENT_END,
     SPEECH_PATH,
     Language,
     Refusal,
     RefusalCode,
     RequestField,
     ResponseFormat,
+    SentenceMarks,
+    Sound,
+    StreamFormat,
     VoiceId,
+    Word,
+    answer_media_type,
+    read_audio_event,
     refusal,
     speech_request_body,
     speech_request_headers,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator, Iterable
     from http.client import HTTPConnection, HTTPResponse
 
 __all__ = [
@@ -92,13 +106,17 @@ __all__ = [
     "Cut",
     "Finished",
     "Malformed",
+    "MarkedStreamItem",
     "OverCap",
     "PastDeadline",
     "Refused",
+    "SentenceMarks",
+    "Sound",
     "SpeakOutcome",
     "SpeakStreamItem",
     "Spoken",
     "Unreachable",
+    "Word",
     "speak",
     "speak_stream",
 ]
@@ -111,6 +129,9 @@ _BYTES_PER_SAMPLE: Final = 2
 _CHUNK_HEADER_BYTES: Final = 8
 _RIFF_HEADER_BYTES: Final = 12
 _SAMPLE_RATE_AT: Final = slice(24, 28)
+_EVENT_END_BYTES: Final = EVENT_END.encode()
+# What an event may carry beyond its audio: the envelope and one sentence's marks.
+_EVENT_EXTRA_BYTES: Final = 64 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +168,8 @@ type StreamFailure = (
 )
 type SpeakOutcome = Spoken | StreamFailure
 type SpeakStreamItem = bytes | Finished | StreamFailure
+type MarkedStreamItem = SpeakStreamItem | SentenceMarks
+type _Content = bytes | SentenceMarks | OverCap | Malformed | Cut
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,36 +186,108 @@ def _judged_head(head: bytearray, response_format: ResponseFormat) -> bytes | Ma
     return Malformed()
 
 
-def _audio(
-    response: HTTPResponse, cap_bytes: int, response_format: ResponseFormat
+def _event_limit(cap_bytes: int) -> int:
+    """The most one event holds: `cap_bytes` of audio in base64 and its marks."""
+    return (cap_bytes + 2) // 3 * 4 + _EVENT_EXTRA_BYTES
+
+
+def _frames(
+    response: HTTPResponse, limit_bytes: int
 ) -> Generator[bytes | OverCap | Malformed]:
-    if (
-        response.headers.get_content_type() != response_format.media_type
-        or not response.chunked
-    ):
-        yield Malformed()
-        return
-    # The signature is judged on the first bytes, before any audio leaves.
-    head = bytearray()
-    signed = False
-    received = 0
+    """The events of the body, each without its blank line."""
+    pending = bytearray()
     for piece in body_pieces(response):
-        received += len(piece)
-        if received > cap_bytes:
+        pending += piece
+        while (end := pending.find(_EVENT_END_BYTES)) >= 0:
+            if end > limit_bytes:
+                yield OverCap()
+                return
+            yield bytes(pending[:end])
+            del pending[: end + len(_EVENT_END_BYTES)]
+        if len(pending) > limit_bytes:
             yield OverCap()
             return
-        if signed:
-            yield piece
-            continue
-        head += piece
-        if len(head) >= _SIGNATURE_BYTES:
-            judged = _judged_head(head, response_format)
-            yield judged
-            if isinstance(judged, Malformed):
+    if pending:
+        yield Malformed()
+
+
+def _events(frames: Iterable[bytes | OverCap | Malformed]) -> Generator[_Content]:
+    """The audio and marks the events carry, ended by `done` or by a failure."""
+    done = False
+    for frame in frames:
+        if not isinstance(frame, bytes):
+            yield frame
+            return
+        if done:
+            yield Malformed()
+            return
+        try:
+            content = read_audio_event(frame)
+        except ValueError:
+            yield Malformed()
+            return
+        if content is None:
+            done = True
+        else:
+            yield content
+    if not done:
+        yield Cut()
+
+
+def _within_cap(items: Iterable[_Content], cap_bytes: int) -> Generator[_Content]:
+    received = 0
+    for item in items:
+        if isinstance(item, bytes):
+            received += len(item)
+            if received > cap_bytes:
+                yield OverCap()
                 return
-            signed = True
-    if not signed:
-        yield _judged_head(head, response_format)
+        yield item
+
+
+def _signed(
+    items: Iterable[_Content], response_format: ResponseFormat
+) -> Generator[_Content]:
+    """`items`, once the first audio bytes begin like the ordered container.
+
+    Marks that come before a whole signature make the answer `Malformed`: no
+    container signature is shorter than that.
+    """
+    remaining = iter(items)
+    head = bytearray()
+    for item in remaining:
+        if isinstance(item, OverCap | Malformed | Cut):
+            yield item
+            return
+        if isinstance(item, bytes):
+            head += item
+            if len(head) < _SIGNATURE_BYTES:
+                continue
+        judged = _judged_head(head, response_format)
+        yield judged
+        if not isinstance(judged, Malformed):
+            yield from remaining
+        return
+    yield _judged_head(head, response_format)
+
+
+def _delivered(
+    response: HTTPResponse,
+    cap_bytes: int,
+    response_format: ResponseFormat,
+    stream_format: StreamFormat,
+) -> Generator[_Content]:
+    marked = stream_format is StreamFormat.SSE
+    media_type = answer_media_type(response_format, stream_format)
+    if response.headers.get_content_type() != media_type or not response.chunked:
+        yield Malformed()
+        return
+    items = (
+        _events(_frames(response, _event_limit(cap_bytes)))
+        if marked
+        else body_pieces(response)
+    )
+    yield from _signed(_within_cap(items, cap_bytes), response_format)
 
 
 def _refusal(response: HTTPResponse) -> SpeakOutcome:
@@ -215,13 +310,12 @@ def _answer(
     connection: HTTPConnection,
     body: bytes,
     headers: dict[str, str],
-    cap_bytes: int,
-    response_format: ResponseFormat,
-) -> Generator[bytes | StreamFailure]:
+    delivered: Callable[[HTTPResponse], Generator[_Content]],
+) -> Generator[bytes | SentenceMarks | StreamFailure]:
     connection.request("POST", SPEECH_PATH, body, headers)
     response = connection.getresponse()
     if response.status == HTTPStatus.OK:
-        yield from _audio(response, cap_bytes, response_format)
+        yield from delivered(response)
     else:
         yield _refusal(response)
 
@@ -284,10 +378,18 @@ def _chunks(  # noqa: PLR0913
     deadline_seconds: float,
     cap_bytes: int,
     traceparent: str | None = None,
-) -> Generator[bytes | StreamFailure]:
+    stream_format: StreamFormat = StreamFormat.AUDIO,
+) -> Generator[bytes | SentenceMarks | StreamFailure]:
     """The one transport: the body's chunks, or the failure that ends them."""
     origin = checked_origin(base_url, deadline_seconds, cap_bytes)
-    body = speech_request_body(text, voice, response_format, language, instructions)
+    body = speech_request_body(
+        text,
+        voice,
+        response_format,
+        language,
+        instructions,
+        stream_format=stream_format,
+    )
     headers = {
         **speech_request_headers(
             workload_token=workload_token, person_token=person_token
@@ -298,18 +400,25 @@ def _chunks(  # noqa: PLR0913
         origin,
         deadline_seconds,
         lambda connection: _answer(
-            connection, body, headers, cap_bytes, response_format
+            connection,
+            body,
+            headers,
+            lambda response: _delivered(
+                response, cap_bytes, response_format, stream_format
+            ),
         ),
     )
 
 
 def _with_length(
-    chunks: Generator[bytes | StreamFailure],
-) -> Generator[SpeakStreamItem]:
+    chunks: Generator[bytes | SentenceMarks | StreamFailure],
+) -> Generator[MarkedStreamItem]:
     length = _WavLength()
     with closing(chunks):
         for item in chunks:
             yield item
+            if isinstance(item, SentenceMarks):
+                continue
             if not isinstance(item, bytes):
                 return
             length.feed(item)
@@ -317,7 +426,42 @@ def _with_length(
     yield Malformed() if seconds is None else Finished(seconds)
 
 
-# Every input comes from the call site; only `language` and `instructions` default.
+# Every input comes from the call site; only `language`, `instructions` and
+# `stream_format` default.
+@overload
+def speak_stream(
+    base_url: str,
+    text: str,
+    voice: VoiceId,
+    *,
+    language: Language | None = None,
+    instructions: str | None = None,
+    stream_format: Literal[StreamFormat.AUDIO] = StreamFormat.AUDIO,
+    workload_token: str,
+    person_token: str,
+    deadline_seconds: float,
+    cap_bytes: int,
+    traceparent: str | None = None,
+) -> Generator[SpeakStreamItem]: ...
+
+
+@overload
+def speak_stream(
+    base_url: str,
+    text: str,
+    voice: VoiceId,
+    *,
+    language: Language | None = None,
+    instructions: str | None = None,
+    stream_format: Literal[StreamFormat.SSE],
+    workload_token: str,
+    person_token: str,
+    deadline_seconds: float,
+    cap_bytes: int,
+    traceparent: str | None = None,
+) -> Generator[MarkedStreamItem]: ...
+
+
 def speak_stream(  # noqa: PLR0913
     base_url: str,
     text: str,
@@ -325,16 +469,18 @@ def speak_stream(  # noqa: PLR0913
     *,
     language: Language | None = None,
     instructions: str | None = None,
+    stream_format: StreamFormat = StreamFormat.AUDIO,
     workload_token: str,
     person_token: str,
     deadline_seconds: float,
     cap_bytes: int,
     traceparent: str | None = None,
-) -> Generator[SpeakStreamItem]:
+) -> Generator[MarkedStreamItem]:
     """Speak `text` with `voice` as a WAV, its chunks yielded as they arrive.
 
     `language` is required for a voice of several languages. `instructions` name
-    the tone, for a voice that takes them. `deadline_seconds` bounds the whole
+    the tone, for a voice that takes them. `stream_format` `sse` adds each
+    sentence's `SentenceMarks` to the items. `deadline_seconds` bounds the whole
     stream, `cap_bytes` the audio. `traceparent` joins the service's lines to a
     trace; it defaults to the trace running at the call. See the module for the
     last item and for what raises, which happens at the call.
@@ -352,6 +498,7 @@ def speak_stream(  # noqa: PLR0913
             deadline_seconds=deadline_seconds,
             cap_bytes=cap_bytes,
             traceparent=traceparent,
+            stream_format=stream_format,
         )
     )
 

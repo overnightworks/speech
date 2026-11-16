@@ -222,10 +222,14 @@ def _marks_of(event: dict[str, object]) -> SentenceMarks:
         message = "sse marks event does not hold exactly words and sounds"
         raise SystemExit(message)
     try:
-        return SentenceMarks.model_validate(fields)
+        marks = SentenceMarks.model_validate(fields)
     except ValidationError:
         message = "sse marks event is not words and no sounds"
         raise SystemExit(message) from None
+    if marks.sounds is not None:
+        message = "sse marks event is not words and no sounds"
+        raise SystemExit(message)
+    return marks
 
 
 def _require_word(word: Word, text: str, audio_seconds: float, before: float) -> None:
