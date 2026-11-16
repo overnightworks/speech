@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import subprocess
+import sys
 from functools import partial
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
@@ -27,6 +31,16 @@ if TYPE_CHECKING:
 SAMPLE_RATE = 22_050
 SAMPLES_PER_TOKEN = 100
 OUTPUTS_WITH_ALIGNMENT = 2
+PHONEMES_BEFORE_AND_AFTER = """
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from test_espeak_marks_bridge import a_voice, loaded
+
+voice = a_voice("de")
+before = voice.phonemize(sys.argv[2])
+loaded(voice)
+print(json.dumps([before, voice.phonemize(sys.argv[2])]))
+"""
 
 
 def a_voice(espeak_voice: str, *, outputs: int = OUTPUTS_WITH_ALIGNMENT) -> PiperVoice:
@@ -80,13 +94,26 @@ def test_the_load_check_passes_on_the_locked_bridge(espeak_voice: str) -> None:
 
 
 def test_phonemizing_gives_the_same_phonemes_after_the_load_check_as_before() -> None:
-    voice = a_voice("de")
+    """Piper starts espeak once per process, so only a fresh process has a before."""
     text = "Ärger für Öl 😀 schön. Viele Tiere, z.B. Hunde, mögen Wasser."
-    before = voice.phonemize(text)
 
-    loaded(voice)
+    ran = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            PHONEMES_BEFORE_AND_AFTER,
+            str(Path(__file__).parent),
+            text,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=120,
+    )
 
-    assert voice.phonemize(text) == before
+    before, after = json.loads(ran.stdout)
+    assert before
+    assert after == before
 
 
 @pytest.mark.parametrize(
