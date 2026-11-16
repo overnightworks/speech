@@ -389,7 +389,7 @@ class WordMarker:
                 index += 1
             begin = pieces[first].begin
             stop = min(pieces[index - 1].end, audio_samples)
-            if remaining != 0 or not begin < stop:
+            if remaining != 0 or begin >= stop:
                 return None
             words.append(
                 Word(
