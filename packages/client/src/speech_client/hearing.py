@@ -98,11 +98,17 @@ from pydantic import ValidationError
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import (
     ConnectionClosed,
-    InvalidHandshake,
     InvalidMessage,
     InvalidStatus,
 )
 
+from speech_client._failures import (
+    FAILURES,
+    SourceFailedError,
+    failure_outcome,
+    left_under_cancellation,
+    settled,
+)
 from speech_client._traceparent import traceparent_headers
 from speech_client._transport import base_origin
 from speech_client.outcomes import (
@@ -253,14 +259,6 @@ class _Connect(connect):
         return exc
 
 
-class _SourceFailedError(Exception):
-    """Carries an exception of the token source past the outcome mapping."""
-
-    def __init__(self, original: Exception) -> None:
-        super().__init__()
-        self.original = original
-
-
 @dataclass(slots=True)
 class _Interrupted:
     """The reconnect under way: why, from when, and how many attempts failed."""
@@ -319,31 +317,13 @@ def _refusal_code(body: bytes) -> RefusalCode | None:
         return None
 
 
-# In order: a timeout is an `OSError` too. A dropped handshake is the one
-# `InvalidMessage` that is `Cut`; `_wire_session` handles it first.
-_FAILURE_OUTCOMES: tuple[tuple[type[Exception], HearingOutcome], ...] = (
-    (TimeoutError, PastDeadline()),
-    (InvalidHandshake, Malformed()),
-    (ConnectionClosed, Cut()),
-    (ServerEventError, Malformed()),
-    (OSError, Unreachable()),
-)
-_FAILURES = tuple(kind for kind, _ in _FAILURE_OUTCOMES)
-
-
-def _failure_outcome(failure: BaseException) -> HearingOutcome:
-    return next(
-        outcome for kind, outcome in _FAILURE_OUTCOMES if isinstance(failure, kind)
-    )
-
-
 def _timeout_outcome(
     timed_out: TimeoutError, ended: HearingOutcome | None, opening: asyncio.Timeout
 ) -> HearingOutcome:
     # A bound that cuts the polite close of an end keeps that end.
     if ended is not None:
         return ended
-    return Unreachable() if opening.expired() else _failure_outcome(timed_out)
+    return Unreachable() if opening.expired() else failure_outcome(timed_out)
 
 
 def _answers(event: ServerEvent) -> bool:
@@ -364,39 +344,11 @@ def accept_first_event(first_event: ServerEvent, *, bound_expired: bool) -> None
         raise TimeoutError
 
 
-def _left_under_cancellation(exception: BaseException | None) -> bool:
-    # A cancel the caller's own code turned into another exception still counts.
-    task = asyncio.current_task()
-    return isinstance(exception, asyncio.CancelledError) or (
-        task is not None and task.cancelling() > 0
-    )
-
-
-async def _settled(*tasks: asyncio.Task[object]) -> None:
-    """Cancel `tasks` and wait until each is done, retrieving every result.
-
-    A failure outside the outcome mapping is raised, even over a cancel that
-    landed meanwhile, as in a task group; otherwise that cancel is raised again.
-    The cancel count is left as it is, for `asyncio.timeout` and the caller.
-    """
-    for task in tasks:
-        task.cancel()
-    try:
-        await asyncio.wait(tasks)
-    except asyncio.CancelledError:
-        await _settled(*tasks)
-        raise
-    failures = [task.exception() for task in tasks if not task.cancelled()]
-    for failure in failures:
-        if failure is not None and not isinstance(failure, _FAILURES):
-            raise failure
-
-
 async def _abandoned(opening: asyncio.Task[ClientConnection | NoToken]) -> None:
     # A bound or an end that won the race beats what the token source raised.
     try:
-        with contextlib.suppress(_SourceFailedError):
-            await _settled(opening)
+        with contextlib.suppress(SourceFailedError):
+            await settled(opening)
     finally:
         if not opening.cancelled() and opening.exception() is None:
             opened = opening.result()
@@ -487,7 +439,7 @@ class HearingSession:
         """Close the connection and wait until the session is gone."""
         assert self._runner is not None  # noqa: S101 - entered
         assert self._end is not None  # noqa: S101 - entered
-        if _left_under_cancellation(exception):
+        if left_under_cancellation(exception):
             self._runner.cancel()
         elif not self._end.done():
             self._end.set_result(Closed())
@@ -529,7 +481,7 @@ class HearingSession:
         except asyncio.CancelledError:
             self.outcome = Closed()
             raise
-        except _SourceFailedError as failed:
+        except SourceFailedError as failed:
             source_failure = failed.original
         finally:
             # Wakes a caller waiting in `events()`; when an event is still queued,
@@ -695,8 +647,8 @@ class HearingSession:
             return _refusal_outcome(refused)
         except InvalidMessage as unparsed:
             return Cut() if isinstance(unparsed.__cause__, EOFError) else Malformed()
-        except _FAILURES as failure:
-            return _failure_outcome(failure)
+        except FAILURES as failure:
+            return failure_outcome(failure)
 
     async def _open(
         self, end: asyncio.Future[HearingOutcome]
@@ -716,7 +668,7 @@ class HearingSession:
         try:
             tokens = await self._token_source()
         except Exception as failure:  # noqa: BLE001 - re-raised unchanged by `_run`
-            raise _SourceFailedError(failure) from None
+            raise SourceFailedError(failure) from None
         if tokens is None:
             return NoToken()
         return await _Connect(
@@ -750,12 +702,12 @@ class HearingSession:
                 if writer in done and writer.exception() is not None:
                     break
         finally:
-            await _settled(reader, writer)
+            await settled(reader, writer)
         for child in (reader, writer):
             if not child.cancelled() and (failure := child.exception()) is not None:
                 if isinstance(failure, ConnectionClosed):
                     wire.close_code = socket.close_code
-                return _failure_outcome(failure)
+                return failure_outcome(failure)
         return end.result() if reader.cancelled() else Closed()
 
     async def _read(
