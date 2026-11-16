@@ -5,10 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-import pytest
-
 from speech_client.speak import (
-    Cut,
     Finished,
     SentenceMarks,
     speak_stream,
@@ -26,7 +23,6 @@ from tests.support.fakes_support import (
     FakeSpeaking,
 )
 from tests.support.identity_support import valid_pair
-from tests.support.speak_support import FailingSpeaking
 from tests.support.tcp_server_support import serving_over_tcp
 
 if TYPE_CHECKING:
@@ -159,17 +155,6 @@ def test_a_voice_that_marks_nothing_sends_one_marks_item_without_words() -> None
         SentenceMarks(words=None)
     ]
     assert isinstance(end, Finished)
-
-
-@pytest.mark.parametrize("chunks_before_failing", [0, 1])
-def test_a_marked_stream_the_service_aborted_ends_cut_and_never_finished(
-    chunks_before_failing: int,
-) -> None:
-    """WIRE-158: a stream without `done` failed."""
-    items = _marked(FailingSpeaking(chunks_before_failing=chunks_before_failing))
-
-    assert items[-1] == Cut()
-    assert not any(isinstance(item, Finished) for item in items)
 
 
 def test_a_marked_preference_names_the_voice_first_then_audio_marks_and_the_end() -> (

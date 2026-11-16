@@ -39,6 +39,7 @@ from speech_client.wire import (
     Language,
     RefusalCode,
     ResponseFormat,
+    StreamFormat,
     VoiceId,
     refusal,
     speech_request_body,
@@ -60,7 +61,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
 
     from proof_identity import TokenPair
-    from speech_client.speak import SpeakOutcome, SpeakStreamItem
+    from speech_client.speak import MarkedStreamItem, SpeakOutcome, SpeakStreamItem
     from speech_client.voice_preference import (
         PreferenceOutcome,
         PreferenceStreamItem,
@@ -95,20 +96,22 @@ def _speak(  # noqa: PLR0913 - one keyword per call-site option
     )
 
 
-def _speak_stream(
+def _speak_stream(  # noqa: PLR0913 - one keyword per call-site option
     base_url: str,
     *,
     voice: VoiceId = VoiceId.THORSTEN,
     language: Language | None = None,
+    stream_format: StreamFormat = StreamFormat.AUDIO,
     deadline_seconds: float = GATE_TIMEOUT_SECONDS,
     cap_bytes: int = CAP_BYTES,
-) -> Iterator[SpeakStreamItem]:
+) -> Iterator[MarkedStreamItem]:
     pair = valid_pair()
     return speak_stream(
         base_url,
         "Hallo",
         voice,
         language=language,
+        stream_format=stream_format,
         workload_token=pair.workload,
         person_token=pair.person,
         deadline_seconds=deadline_seconds,
@@ -384,10 +387,17 @@ def test_a_streamed_preference_names_the_voice_before_the_audio_and_ends_finishe
     assert isinstance(end, Finished)
 
 
-def _streamed(voice: FakeSpeaking | GatedSpeaking) -> list[SpeakStreamItem]:
-    async def scenario() -> list[SpeakStreamItem]:
+def _streamed(
+    voice: FakeSpeaking | GatedSpeaking,
+    stream_format: StreamFormat = StreamFormat.AUDIO,
+) -> list[MarkedStreamItem]:
+    async def scenario() -> list[MarkedStreamItem]:
         async with _serving(voice) as server:
-            return await asyncio.to_thread(lambda: list(_speak_stream(server.base_url)))
+            return await asyncio.to_thread(
+                lambda: list(
+                    _speak_stream(server.base_url, stream_format=stream_format)
+                )
+            )
 
     return asyncio.run(scenario())
 
@@ -465,12 +475,15 @@ def test_a_streamed_preference_hands_over_the_first_audio_while_the_voice_render
     assert isinstance(rest[-1], Finished)
 
 
+@pytest.mark.parametrize("stream_format", [StreamFormat.AUDIO, StreamFormat.SSE])
 @pytest.mark.parametrize("chunks_before_failing", [0, 1])
 def test_a_stream_the_service_aborted_ends_cut_and_never_finished(
-    chunks_before_failing: int,
+    chunks_before_failing: int, stream_format: StreamFormat
 ) -> None:
-    """WIRE-90: a body without its end is a failure, not a short sound."""
-    items = _streamed(FailingSpeaking(chunks_before_failing=chunks_before_failing))
+    """WIRE-90, WIRE-158: a body without its end is a failure, not a short sound."""
+    items = _streamed(
+        FailingSpeaking(chunks_before_failing=chunks_before_failing), stream_format
+    )
 
     assert items[-1] == Cut()
     assert not any(isinstance(item, Finished) for item in items)
