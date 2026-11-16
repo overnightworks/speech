@@ -487,13 +487,16 @@ def test_an_offered_voice_whose_files_are_missing_is_refused_and_named_in_the_lo
     assert stage.starts() == []
     assert health.speaking.voices[VoiceId.RYAN].ready is False
     named = QWEN_ARTIFACTS if missing == "weights" else (worker.name,)
-    missing_logged = " ".join(
-        str(record.missing_files)
+    logged = [
+        record
         for record in caplog.records
         if record.getMessage() == "voice_files.missing"
         and record.voice == VoiceId.RYAN.value
-    )
-    assert all(name in missing_logged for name in named)
+    ]
+    assert logged
+    assert all(record.reason == "not_installed" for record in logged)
+    assert all(record.missing_file_count == len(named) for record in logged)
+    assert not any(hasattr(record, "missing_files") for record in logged)
 
 
 def test_while_the_start_load_runs_no_voice_is_ready_and_every_voice_is_refused(

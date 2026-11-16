@@ -32,30 +32,34 @@ def log_failure(
     level: int = logging.ERROR,
     **fields: str,
 ) -> None:
-    """Log `event` with `fields`, the error class and its rendered chain.
+    """Log `event` with `fields` and the error class; the chain is the exception.
 
     A failure that a timed step's own line ends as failed passes `level` below
     ERROR, so the failure is one error line, the step's.
 
     An exception message, argument or local variable can hold the text a person
-    spoke or heard, so none of them is ever logged. A `PayloadFreeError` is the
-    exception: its message and notes are payload-free by construction, so the
-    logger renders it through `exc_info`, once.
+    spoke or heard, so none of them is ever logged. A `PayloadFreeError` is
+    payload-free by construction and is logged as it is; any other error is
+    logged as a message-free `PayloadFreeError` whose note is its rendered
+    chain. Either reaches the log once, through `exc_info`.
     """
+    logged = error if isinstance(error, PayloadFreeError) else _chain_error(error)
+    logger.log(
+        level,
+        event,
+        extra={**fields, "error_type": type(error).__name__},
+        exc_info=logged,
+    )
+
+
+def _chain_error(error: BaseException) -> PayloadFreeError:
     lines: list[str] = []
     for link in failure_links(error):
         lines.append(link.label)
         lines.extend(line for frame in link.frames for line in frame)
-    logger.log(
-        level,
-        event,
-        extra={
-            **fields,
-            "error_type": type(error).__name__,
-            "failure_chain": "\n".join(lines),
-        },
-        exc_info=error if isinstance(error, PayloadFreeError) else None,
-    )
+    chain_error = PayloadFreeError()
+    chain_error.add_note("\n".join(lines))
+    return chain_error
 
 
 class PayloadFreeFailure:
@@ -98,12 +102,7 @@ class PayloadFreeFailure:
         del exception_type, traceback
         if not isinstance(error, Exception) or isinstance(error, self._expected):
             return False
-        log_failure(
-            self._logger,
-            self._event,
-            error,
-            level=self._level,
-        )
+        log_failure(self._logger, self._event, error, level=self._level)
         self.failed = True
         if self._reraise_as is not None:
             raise self._reraise_as from None

@@ -78,10 +78,12 @@ def _assert_failure_logged_without_text(
     caplog: pytest.LogCaptureFixture, raised: BaseException
 ) -> None:
     (failure,) = (r for r in caplog.records if r.getMessage() == "speaking.failed")
-    assert "_SentenceCarryingError" in failure.failure_chain
-    assert "KeyError" in failure.failure_chain
-    assert 'File "' in failure.failure_chain
-    assert _SPOKEN not in f"{caplog.text} {vars(failure)}"
+    assert not hasattr(failure, "failure_chain")
+    exception = logging.Formatter().formatException(failure.exc_info)
+    assert "_SentenceCarryingError" in exception
+    assert "KeyError" in exception
+    assert 'File "' in exception
+    assert _SPOKEN not in f"{caplog.text} {vars(failure)} {exception}"
     assert _SPOKEN not in "".join(traceback.format_exception(raised))
 
 
