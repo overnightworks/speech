@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Final
 import av
 import numpy as np
 
+from speech_client.wire import SentenceMarks
 from speech_service.pcm import AI_MARK
 
 if TYPE_CHECKING:
@@ -40,9 +41,13 @@ class _Sink:
         return taken
 
 
-def ogg_opus_chunks(pcm_chunks: Iterable[bytes], sample_rate: int) -> Iterator[bytes]:
+def ogg_opus_chunks(
+    pcm_chunks: Iterable[bytes | SentenceMarks], sample_rate: int
+) -> Iterator[bytes | SentenceMarks]:
     """One Ogg Opus stream from `pcm_chunks` at `sample_rate`, mono at 48 kHz.
 
+    A `SentenceMarks` among the chunks passes through where it stands, so it follows
+    the pages of the audio before it; the page still held back may follow it.
     Pages leave as the voice speaks. The end page is written only once every
     chunk was encoded; a failure or a departure closes the container and
     leaves what the close writes unread, so nothing follows the audio already sent.
@@ -57,6 +62,9 @@ def ogg_opus_chunks(pcm_chunks: Iterable[bytes], sample_rate: int) -> Iterator[b
         stream.metadata["comment"] = AI_MARK
         resampler = av.AudioResampler(format=_PCM_FORMAT, layout=_MONO, rate=_OPUS_RATE)
         for pcm in pcm_chunks:
+            if isinstance(pcm, SentenceMarks):
+                yield pcm
+                continue
             _encode(container, stream, resampler.resample(_frame(pcm, sample_rate)))
             if pages := sink.take():
                 yield pages

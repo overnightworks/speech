@@ -163,7 +163,14 @@ class _SpeechRoute:
         parsed = await self._checked(request)
         if isinstance(parsed, _Refusal):
             return _ended_refused(received, parsed)
-        step = StepTimer("speak.ended", logger, voice=parsed.voice.value)
+        step = StepTimer(
+            "speak.ended",
+            logger,
+            voice=parsed.voice.value,
+            stream_format=parsed.stream_format.value,
+            marks_words=0,
+            marks_sounds=0,
+        )
         engine = await self._engine(parsed.voice, accepted)
         if isinstance(engine, _Refusal):
             return _ended_refused(step, engine)
@@ -207,7 +214,7 @@ class _SpeechRoute:
         if lease is None:
             return _ended_refused(step, self._busy())
         chunks = audio_chunks(speaking, request, step)
-        return ClosingAudioResponse(chunks, lease, request.response_format.media_type)
+        return ClosingAudioResponse(chunks, lease, request.media_type)
 
     async def _loaded(self, voice: VoiceId) -> SpeakingEngine | None:
         """The engine of `voice` once its shared load ends; `None` if none may run."""

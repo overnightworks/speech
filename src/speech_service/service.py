@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import threading
 from dataclasses import dataclass
@@ -9,11 +10,15 @@ from typing import TYPE_CHECKING, Final, Protocol
 
 from speech_client.wire import (
     HEALTH_PATH,
+    AudioEventType,
     Health,
     HearingHealth,
     ResponseFormat,
+    SentenceMarks,
     SpeakingHealth,
+    StreamFormat,
     VoiceId,
+    audio_event,
 )
 from speech_service.card import card_memory_mb
 from speech_service.clock import LoopClock
@@ -21,7 +26,7 @@ from speech_service.failures import PayloadFreeFailure, SpeakingFailedError
 from speech_service.hearing import Hearing, hearing_from_settings
 from speech_service.ogg_opus import ogg_opus_chunks
 from speech_service.pcm import wav_header
-from speech_service.speaking import speaking_for_voice
+from speech_service.speaking import MarkingEngine, speaking_for_voice
 from speech_service.voice_slot import VoiceSlot
 from speech_service.voices import loads_at_start, missing_artifacts
 
@@ -238,8 +243,11 @@ def audio_chunks(
 ) -> Iterator[bytes]:
     """`request` spoken by `speaking` in its format, as the voice produces it.
 
-    `step` times the speaking: it marks the first chunk and ends with the stream,
-    whatever ends it, a close before the first chunk included.
+    The chunks are the audio itself, or for `sse` its events: the audio as deltas,
+    each sentence's marks after its audio, and `done` once the voice finished.
+    `step` times the speaking: it marks the first chunk, counts the words marked
+    and ends with the stream, whatever ends it, a close before the first chunk
+    included.
     """
     stream = _timed_chunks(speaking, request, step)
     # Started here, a close before the first chunk still ends `step`: a generator
@@ -261,8 +269,12 @@ def _timed_chunks(
         ),
     ):
         yield b""
-        synthesis = speaking.pcm_chunks(
-            request.input, request.spoken_language, request.instructions
+        synthesis = (
+            _marked_chunks(speaking, request)
+            if request.stream_format is StreamFormat.SSE
+            else speaking.pcm_chunks(
+                request.input, request.spoken_language, request.instructions
+            )
         )
         try:
             chunks = (
@@ -270,18 +282,61 @@ def _timed_chunks(
                 if request.response_format is ResponseFormat.OPUS
                 else _wav_chunks(synthesis, speaking.sample_rate)
             )
-            for chunk in chunks:
-                step.first_output()
-                yield chunk
+            if request.stream_format is StreamFormat.SSE:
+                yield from _events(chunks, step)
+            else:
+                for chunk in chunks:
+                    step.first_output()
+                    yield chunk
         finally:
             synthesis.close()
 
 
-def _wav_chunks(pcm_chunks: Iterator[bytes], sample_rate: int) -> Iterator[bytes]:
-    """One WAV: its header leaves with the first PCM chunk."""
+def _marked_chunks(
+    speaking: SpeakingEngine, request: SpeechRequest
+) -> Generator[bytes | SentenceMarks]:
+    """The voice's PCM with its marks after each sentence's audio.
+
+    A voice that marks nothing ends its audio with one marks event of nulls.
+    """
+    if isinstance(speaking, MarkingEngine):
+        yield from speaking.marked_chunks(
+            request.input, request.spoken_language, request.instructions
+        )
+        return
+    yield from speaking.pcm_chunks(
+        request.input, request.spoken_language, request.instructions
+    )
+    yield SentenceMarks()
+
+
+def _events(
+    chunks: Iterator[bytes | SentenceMarks], step: StepTimer
+) -> Iterator[bytes]:
+    """The events of `chunks`, then `done`; `step` counts the words marked."""
+    words = 0
+    for chunk in chunks:
+        if isinstance(chunk, SentenceMarks):
+            words += len(chunk.words or ())
+            step.add(marks_words=words)
+            yield audio_event(AudioEventType.MARKS, **chunk.model_dump(mode="json"))
+        else:
+            step.first_output()
+            yield audio_event(
+                AudioEventType.DELTA, audio=base64.b64encode(chunk).decode("ascii")
+            )
+    yield audio_event(AudioEventType.DONE)
+
+
+def _wav_chunks(
+    pcm_chunks: Iterator[bytes | SentenceMarks], sample_rate: int
+) -> Iterator[bytes | SentenceMarks]:
+    """One WAV: its header leaves with the first PCM chunk; marks pass through."""
     first = True
     for pcm in pcm_chunks:
-        if first:
+        if isinstance(pcm, SentenceMarks):
+            yield pcm
+        elif first:
             yield wav_header(sample_rate) + pcm
             first = False
         else:

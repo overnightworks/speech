@@ -9,6 +9,7 @@ from speech_service.service import Runtime
 from speech_service.voices import PIPER_VOICES
 from tests.support.fakes_support import (
     SPEAK_SAMPLE_RATE,
+    FakeMarkingSpeaking,
     FakeSpeaking,
     an_app,
 )
@@ -95,3 +96,16 @@ def test_health_lists_exactly_the_offered_voices() -> None:
     health = Runtime(offered, memory_probe=lambda: 0).health()
 
     assert set(health.speaking.voices) == {voice.value for voice in offered}
+
+
+@pytest.mark.parametrize(
+    ("speaking", "words"), [(FakeMarkingSpeaking(), True), (FakeSpeaking(), False)]
+)
+def test_health_reports_the_marks_a_voice_gives(
+    speaking: FakeSpeaking, *, words: bool
+) -> None:
+    """WIRE-122, WIRE-125: `gives_marks` says which kinds a voice marks."""
+    body = TestClient(an_app(speaking, memory_probe=lambda: 1)).get("/health").json()
+
+    voice = body["speaking"]["voices"][VoiceId.THORSTEN.value]
+    assert voice["gives_marks"] == {"words": words, "sounds": False}
