@@ -352,3 +352,32 @@ def test_a_sentence_of_the_marker_is_one_marks_event_even_when_it_is_null() -> N
 
     assert len(marks) == len([JA, JA])
     assert all(mark.sounds is None for mark in marks)
+
+
+def test_a_unit_that_covers_no_text_joins_the_word_before_it() -> None:
+    """WIRE-154: a word event on punctuation adds its sounds to the word before."""
+    sentence = spoken(["j", "a", "x", "."])
+    events = (word(1), sound("j"), sound("a"), word(4), sound("x"))
+
+    [mark] = marked("Ja -.", [sentence], [SentencePass(events, None)])
+
+    [only] = mark.words or ()
+    assert (only.text, only.end) == ("Ja", 4 * SAMPLES_PER_TOKEN / SAMPLE_RATE)
+
+
+@pytest.mark.parametrize(
+    ("text", "events"),
+    [
+        ("- Ja.", (word(1), word(3), sound("j"), sound("a"))),
+        ("Ja Ja.", (word(1), sound("j"), sound("a"), word(4))),
+    ],
+    ids=["no text for the first unit", "no sounds for a unit"],
+)
+def test_a_word_without_text_or_without_sounds_is_not_proven(
+    text: str, events: tuple[EspeakEvent, ...]
+) -> None:
+    sentence = spoken(["j", "a", "."])
+
+    [mark] = marked(text, [sentence], [SentencePass(events, None)])
+
+    assert mark.words is None

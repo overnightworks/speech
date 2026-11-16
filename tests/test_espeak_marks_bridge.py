@@ -6,6 +6,7 @@ import logging
 from functools import partial
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -141,6 +142,20 @@ def test_the_words_of_real_sentences_are_the_spans_of_the_input(
             WordsOffReason.SELF_TEST,
             lambda mp: mp.setattr(espeak_marks, "_SELF_TEST_PASSES", (((2,), None),)),
         ),
+        (
+            WordsOffReason.SELF_TEST,
+            lambda mp: mp.setattr(
+                espeak_marks, "_SELF_TEST_PASSES", (((1, 5), 10), ((2,), None))
+            ),
+        ),
+        (
+            WordsOffReason.SELF_TEST,
+            lambda mp: mp.setattr(
+                espeak_marks,
+                "_SELF_TEST_PASSES",
+                (((1, 5), 10), ((10,), None), ((10,), None)),
+            ),
+        ),
     ],
 )
 def test_an_unexpected_bridge_switches_words_off_once_and_loudly(
@@ -164,11 +179,70 @@ def test_a_voice_without_the_alignment_output_switches_words_off() -> None:
     assert load_espeak_events(a_voice("en-us", outputs=1)) is None
 
 
+@pytest.mark.parametrize(
+    ("reason", "replacement"),
+    [(WordsOffReason.LIBRARY, None), (WordsOffReason.LOCK, object())],
+    ids=["missing", "not a lock"],
+)
 def test_a_lock_that_piper_does_not_have_switches_words_off(
+    reason: WordsOffReason,
+    replacement: object,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """WIRE-156: the load check needs the lock Piper phonemizes under."""
     import piper.voice
 
-    monkeypatch.delattr(piper.voice, "_ESPEAK_PHONEMIZER_LOCK")
+    if replacement is None:
+        monkeypatch.delattr(piper.voice, "_ESPEAK_PHONEMIZER_LOCK")
+    else:
+        monkeypatch.setattr(piper.voice, "_ESPEAK_PHONEMIZER_LOCK", replacement)
+
+    with caplog.at_level(logging.ERROR):
+        events = load_espeak_events(a_voice("en-us"))
+
+    assert events is None
+    assert [record.reason for record in caplog.records] == [reason.value]  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    "refusing", ["espeak_ng_InitializeOutput", "espeak_ng_SetPhonemeEvents"]
+)
+def test_a_bridge_that_refuses_its_setup_switches_words_off(
+    refusing: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    library = MagicMock()
+    library.espeak_Info.return_value = espeak_marks.ESPEAK_VERSION.encode("ascii")
+    library.espeak_ng_InitializeOutput.return_value = 0
+    library.espeak_ng_SetPhonemeEvents.return_value = 0
+    getattr(library, refusing).return_value = 1
+    monkeypatch.setattr(espeak_marks.ctypes, "CDLL", lambda _path: library)
 
     assert load_espeak_events(a_voice("en-us")) is None
+
+
+def test_a_callback_that_fails_nulls_its_sentence_and_every_later_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WIRE-155: a failure of the callback is caught, and the audio would go on."""
+    voice = a_voice("de")
+    events = loaded(voice)
+
+    def failing(*_arguments: object) -> int:
+        raise RuntimeError
+
+    monkeypatch.setattr(espeak_marks._Collector, "_collect", failing)  # noqa: SLF001
+
+    assert words_of(voice, events, "Ja. Nein.") == [None, None]
+
+
+def test_a_voice_espeak_does_not_know_gives_no_pass(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    events = loaded(a_voice("de"))
+
+    with caplog.at_level(logging.WARNING):
+        found = events.read("Ja.", "no-such-voice", 1)
+
+    assert found is None
+    assert [record.getMessage() for record in caplog.records] == ["marks.pass_failed"]
