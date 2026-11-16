@@ -28,16 +28,14 @@ from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
 from speech_client.hearing import HearingSession, SessionTokens
-from speech_client.relay import HOP_FRAME_BYTES, relay
-from speech_client.speak import Spoken, speak
-from speech_client.wire import (
-    Language,
-    ResponseFormat,
+from speech_client.realtime_wire import (
     ServerEvent,
     TranscriptCompleted,
     TranscriptDelta,
-    VoiceId,
 )
+from speech_client.relay import HOP_FRAME_BYTES, relay
+from speech_client.speak import Spoken, speak
+from speech_client.wire import Language, ResponseFormat, VoiceId
 from speech_service.pcm import BYTES_PER_SAMPLE, wav_header
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE, sine_pcm
 from tests.support.identity_support import valid_pair

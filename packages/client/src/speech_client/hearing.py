@@ -108,17 +108,10 @@ from speech_client.outcomes import (
     Unreachable,
     busy_wait,
 )
-from speech_client.wire import (
-    DRAIN_CLOSE_CODE,
-    REALTIME_INTENT,
-    REALTIME_INTENT_PARAM,
-    REALTIME_PATH,
+from speech_client.realtime_wire import (
     AudioAppend,
     ErrorEvent,
-    Language,
     PcmFormat,
-    Refusal,
-    RefusalCode,
     ServerEventError,
     SessionAudio,
     SessionCreated,
@@ -131,6 +124,15 @@ from speech_client.wire import (
     TranscriptionSession,
     TranscriptionSetting,
     parse_server_event,
+)
+from speech_client.wire import (
+    DRAIN_CLOSE_CODE,
+    REALTIME_INTENT,
+    REALTIME_INTENT_PARAM,
+    REALTIME_PATH,
+    Language,
+    Refusal,
+    RefusalCode,
     token_headers,
 )
 
@@ -138,7 +140,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
     from types import TracebackType
 
-    from speech_client.wire import ServerEvent
+    from speech_client.realtime_wire import ServerEvent
 
 
 @dataclass(frozen=True, slots=True)

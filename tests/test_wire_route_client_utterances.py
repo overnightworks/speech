@@ -13,6 +13,7 @@ from fastapi import FastAPI, WebSocket
 from websockets.asyncio.client import connect
 
 from speech_client.hearing import HearingSession
+from speech_client.realtime_wire import SessionCreated
 from speech_client.relay import HOP_FRAME_BYTES, AppEnded, HopClose
 from speech_client.utterances import (
     HearingCallbacks,
@@ -23,7 +24,7 @@ from speech_client.utterances import (
     Utterance,
     hear_utterances,
 )
-from speech_client.wire import Language, SessionCreated
+from speech_client.wire import Language
 from tests.support.hear_support import FakeHearing, hear_runtime
 from tests.support.identity_support import valid_pair
 from tests.support.live_support import INPUT_RATE, SPEECH_LEVEL

@@ -16,8 +16,9 @@ Realtime transcription WebSocket `/v1/realtime?intent=transcription`, described
 under [Hearing live](#hearing-live).
 
 `speech_client.wire` (the `overnightworks-speech-client`
-distribution) owns the paths, the request types, the transcription answer, the
-Realtime events and the refusal list; build the body and read the refusals through it.
+distribution) owns the paths, the request types, the transcription answer and the
+refusal list, and `speech_client.realtime_wire` the Realtime session and events;
+build the body and read the refusals through them.
 `speech_client.speak` makes the speaking call itself, within a total deadline and a
 byte cap, and answers with a typed outcome; its module documents them. `speak` and
 `speech_request_body` take `language`; one the voice lacks, or none for a voice of

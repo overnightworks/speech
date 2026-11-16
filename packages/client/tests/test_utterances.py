@@ -63,6 +63,7 @@ from speech_client.outcomes import (
     PastDeadline,
     Unreachable,
 )
+from speech_client.realtime_wire import TranscriptFailed, error_event, item_failure
 from speech_client.relay import (
     HOP_FRAME_BYTES,
     AppEnded,
@@ -75,15 +76,7 @@ from speech_client.utterances import (
     ServiceFailed,
     Utterance,
 )
-from speech_client.wire import (
-    DRAIN_CLOSE_CODE,
-    Language,
-    RefusalCode,
-    TranscriptFailed,
-    error_event,
-    item_failure,
-    token_headers,
-)
+from speech_client.wire import DRAIN_CLOSE_CODE, Language, RefusalCode, token_headers
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Mapping
@@ -91,8 +84,8 @@ if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection
 
     from packages.client.tests.support.scripted_hearing_support import Script
+    from speech_client.realtime_wire import ServerEvent
     from speech_client.utterances import UtteranceOutcome
-    from speech_client.wire import ServerEvent
 
 type Peer = Callable[[], contextlib.AbstractAsyncContextManager[int]]
 

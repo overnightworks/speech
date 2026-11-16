@@ -67,12 +67,12 @@ from speech_client.outcomes import (
     PastDeadline,
     Unreachable,
 )
-from speech_client.wire import PcmFormat, SessionInput
+from speech_client.realtime_wire import PcmFormat, SessionInput
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
-    from speech_client.wire import ServerEvent
+    from speech_client.realtime_wire import ServerEvent
 
 
 HOP_FRAME_SAMPLES: Final = SessionInput().format.rate // 10

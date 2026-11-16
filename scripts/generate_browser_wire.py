@@ -1,6 +1,6 @@
 """Write the browser package's copy of the hop: its frame format and close codes.
 
-`speech_client.wire` owns the frame format and `speech_client.relay` the hop's
+`speech_client.realtime_wire` owns the frame format and `speech_client.relay` the hop's
 frame size and close codes; this generator renders them into one TypeScript
 module. `--check` writes nothing and fails when the committed module differs
 from the rendering or is missing, so CI catches drift.
@@ -12,8 +12,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from speech_client.realtime_wire import PcmFormat, SessionInput
 from speech_client.relay import HOP_FRAME_BYTES, HOP_FRAME_SAMPLES, HopClose
-from speech_client.wire import PcmFormat, SessionInput
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -50,7 +50,7 @@ def render() -> str:
         )
     )
     header = (
-        "// Generated from speech_client.wire and speech_client.relay"
+        "// Generated from speech_client.realtime_wire and speech_client.relay"
         " by scripts/generate_browser_wire.py. Do not edit.\n"
         f"// Rewrite it with: {COMMAND}\n"
     )

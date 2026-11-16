@@ -14,12 +14,12 @@ from speech_client.hearing import (
     SessionTokens,
     TokenSource,
 )
-from speech_client.wire import (
-    Language,
+from speech_client.realtime_wire import (
     SessionCreated,
     TranscriptDelta,
     TranscriptionSession,
 )
+from speech_client.wire import Language
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

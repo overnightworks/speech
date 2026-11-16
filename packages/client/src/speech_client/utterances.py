@@ -56,8 +56,7 @@ from speech_client.hearing import (
     HearingSession,
     Reconnected,
 )
-from speech_client.relay import HOP_FRAME_BYTES, HopClose, RelayOutcome, relay
-from speech_client.wire import (
+from speech_client.realtime_wire import (
     ErrorEvent,
     SpeechStarted,
     SpeechStopped,
@@ -65,14 +64,16 @@ from speech_client.wire import (
     TranscriptDelta,
     TranscriptFailed,
 )
+from speech_client.relay import HOP_FRAME_BYTES, HopClose, RelayOutcome, relay
 
 if TYPE_CHECKING:
     import asyncio
     from collections.abc import Awaitable, Callable
 
     from speech_client.hearing import TokenSource
+    from speech_client.realtime_wire import ServerEvent
     from speech_client.relay import BrowserSocket
-    from speech_client.wire import Language, RefusalCode, ServerEvent
+    from speech_client.wire import Language, RefusalCode
 
 
 @dataclass(frozen=True, slots=True)
