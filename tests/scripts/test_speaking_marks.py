@@ -40,11 +40,29 @@ def delta(audio: bytes) -> dict[str, object]:
     return {"type": "speech.audio.delta", "audio": base64.b64encode(audio).decode()}
 
 
+SOUNDS = [
+    [
+        ("j", 0.03, 0.12),
+        ("a", 0.12, 0.2),
+        ("g", 0.25, 0.3),
+        ("\u025b", 0.3, 0.35),
+        ("\u0250", 0.35, 0.4),
+        ("n", 0.4, 0.45),
+    ],
+    [("n", 0.55, 0.6), ("a\u026a", 0.6, 0.75), ("n", 0.75, 0.75), ("d", 0.8, 0.95)],
+]
+
+
+def sound(entry: tuple[str, float, float]) -> dict[str, object]:
+    ipa, start, end = entry
+    return {"ipa": ipa, "start": start, "end": end}
+
+
 def sentence_marks(index: int) -> dict[str, object]:
     return {
         "type": "speech.audio.marks",
         "words": [word(entry) for entry in WORDS[index]],
-        "sounds": None,
+        "sounds": [sound(entry) for entry in SOUNDS[index]],
     }
 
 
@@ -87,19 +105,32 @@ def judged(
 def test_a_wav_answer_with_marks_in_order_is_judged_by_its_figures() -> None:
     figures = judged(wav_events(), ResponseFormat.WAV)
 
-    assert (figures.marks, figures.words) == (2, 4)
+    assert (figures.marks, figures.words, figures.sounds) == (2, 4, 10)
     assert figures.audio_seconds == pytest.approx(2 * SENTENCE_SECONDS, abs=0.01)
 
 
 def test_an_opus_answer_with_marks_in_order_is_judged_by_its_figures() -> None:
     figures = judged(opus_events(), ResponseFormat.OPUS)
 
-    assert (figures.marks, figures.words) == (2, 4)
+    assert (figures.marks, figures.words, figures.sounds) == (2, 4, 10)
 
 
 def replaced(index: int, event: dict[str, object]) -> Callable[[list], list]:
     def change(events: list[dict[str, object]]) -> list[dict[str, object]]:
         return [*events[:index], event, *events[index + 1 :]]
+
+    return change
+
+
+def with_sound(
+    index: int, position: int, entry: tuple[str, float, float]
+) -> Callable[[list], list]:
+    def change(events: list[dict[str, object]]) -> list[dict[str, object]]:
+        marked = dict(events[index])
+        listed = list(marked["sounds"])  # type: ignore[call-overload]
+        listed[position] = sound(entry)
+        marked["sounds"] = listed
+        return replaced(index, marked)(events)
 
     return change
 
@@ -125,7 +156,27 @@ BAD_ANSWERS: dict[str, Callable[[list], list]] = {
     "marks before any audio": lambda events: [events[1], events[0], *events[2:]],
     "an unknown event": replaced(2, {"type": "speech.audio.other"}),
     "words null": replaced(1, {**sentence_marks(0), "words": None}),
-    "sounds given": replaced(1, {**sentence_marks(0), "sounds": []}),
+    "sounds null": replaced(1, {**sentence_marks(0), "sounds": None}),
+    "no sounds for a sentence that holds words": replaced(
+        1, {**sentence_marks(0), "sounds": []}
+    ),
+    "a sound with its stress mark": with_sound(1, 0, ("\u02c8j", 0.03, 0.12)),
+    "a sound that is not NFC": with_sound(1, 0, ("a\u0303", 0.03, 0.12)),
+    "a sound without text": with_sound(1, 0, ("", 0.03, 0.12)),
+    "a sound start that decreases": with_sound(1, 1, ("a", 0.02, 0.2)),
+    "a sound that ends before its start": with_sound(1, 1, ("a", 0.2, 0.12)),
+    "a sound after the audio": with_sound(3, 3, ("d", 0.8, 1.5)),
+    "a sound outside every word": with_sound(1, 1, ("a", 0.21, 0.24)),
+    "a sound that says it is estimated": replaced(
+        1,
+        {
+            **sentence_marks(0),
+            "sounds": [
+                {**sound(SOUNDS[0][0]), "estimated": False},
+                *map(sound, SOUNDS[0][1:]),
+            ],
+        },
+    ),
     "one marks event too few": lambda events: [*events[:3], *events[4:]],
     "a span that is not its text": with_word(1, 1, ("gern", 3, 8, 0.25, 0.45)),
     "a start that does not increase": with_word(3, 0, ("Nein", 9, 13, 0.1, 0.75)),
@@ -197,14 +248,14 @@ def test_every_voice_is_proved_in_every_format_with_its_own_text(
         for voice in (VoiceId.THORSTEN, VoiceId.NORMAN)
         for fmt in ResponseFormat
     }
-    assert "words=4" in capsys.readouterr().out
+    assert "words=4 sounds=10" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
     ("words", "sounds", "passes"),
-    [(True, False, True), (False, False, False), (True, True, False)],
+    [(True, True, True), (False, True, False), (True, False, False)],
 )
-def test_the_proof_needs_health_to_give_words_and_no_sounds(
+def test_the_proof_needs_health_to_give_words_and_sounds(
     *, words: bool, sounds: bool, passes: bool
 ) -> None:
     health = Health.model_validate(
@@ -229,7 +280,7 @@ def test_the_proof_needs_health_to_give_words_and_no_sounds(
     )
 
     if passes:
-        marks.require_gives_words(health, [VoiceId.THORSTEN])
+        marks.require_gives_marks(health, [VoiceId.THORSTEN])
     else:
         with pytest.raises(SystemExit):
-            marks.require_gives_words(health, [VoiceId.THORSTEN])
+            marks.require_gives_marks(health, [VoiceId.THORSTEN])

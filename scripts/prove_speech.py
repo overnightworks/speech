@@ -546,7 +546,7 @@ def _prove_speaking(
         SENTENCES,
         limit=PIPER_FIRST_BYTE_LIMIT_S,
     )
-    speaking_marks.require_gives_words(service.running.health, PIPER_VOICES)
+    speaking_marks.require_gives_marks(service.running.health, PIPER_VOICES)
     marks = speaking_marks.prove_marks(
         functools.partial(
             speaking_marks.speak_sse, service.base_url, minting=service.minting

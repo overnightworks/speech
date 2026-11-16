@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import http.client
 import json
+import unicodedata
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 from urllib.parse import urlsplit
@@ -27,6 +28,7 @@ from speech_client.wire import (
     Health,
     ResponseFormat,
     SentenceMarks,
+    Sound,
     SpeechRequest,
     StreamFormat,
     Word,
@@ -48,17 +50,20 @@ SPEAK_TIMEOUT_SECONDS: Final = 120
 MAX_AUDIO_SECONDS: Final = 60.0
 CONTAINER_SLACK_SECONDS: Final = 0.05
 """What a container's frames may add to the audio a mark's time stays within."""
+_STRESS_MARKS: Final = "\u02c8\u02cc"
+_SOUND_FIELDS: Final = {"ipa", "start", "end"}
 _EVENT_SEPARATOR: Final = "\n\n"
 _DATA_PREFIX: Final = "data: "
 
 
 @dataclass(frozen=True)
 class MarksFigures:
-    """What a judged answer held: its events, marked words and audio."""
+    """What a judged answer held: its events, marked words and sounds, and audio."""
 
     deltas: int
     marks: int
     words: int
+    sounds: int
     audio_seconds: float
 
 
@@ -137,10 +142,11 @@ def read_events(body: bytes) -> list[dict[str, object]]:
 def judge_sse_answer(
     body: bytes, text: str, response_format: ResponseFormat, *, sentences: int
 ) -> MarksFigures:
-    """Hold the answer to docs/wire.md: its order, its audio and its marked words.
+    """Hold the answer to docs/wire.md: its order, its audio and its marks.
 
     Each of the `sentences` of `text` has one marks event after audio, whose words
-    are spans of `text` with strictly increasing seconds within the audio.
+    are spans of `text` with strictly increasing seconds within the audio, and whose
+    sounds are NFC text without stress on the same clock, each ending inside a word.
     """
     events = read_events(body)
     _require_order(events, sentences)
@@ -150,7 +156,7 @@ def judge_sse_answer(
         if event["type"] == AudioEventType.DELTA
     )
     seconds = _audio_seconds(audio, response_format)
-    words = _require_words(
+    words, sounds = _require_marks(
         [event for event in events if event["type"] == AudioEventType.MARKS],
         text,
         seconds,
@@ -159,6 +165,7 @@ def judge_sse_answer(
         deltas=len(events) - sentences - 1,
         marks=sentences,
         words=words,
+        sounds=sounds,
         audio_seconds=seconds,
     )
 
@@ -194,26 +201,37 @@ def _audio_seconds(audio: bytes, response_format: ResponseFormat) -> float:
     return len(pcm) / BYTES_PER_SAMPLE / rate
 
 
-def _require_words(
+def _require_marks(
     marks: list[dict[str, object]], text: str, audio_seconds: float
-) -> int:
+) -> tuple[int, int]:
     covered: set[int] = set()
-    previous_start = -1.0
-    count = 0
+    previous_word_start = -1.0
+    previous_sound_start = -1.0
+    words = 0
+    sounds = 0
     for event in marks:
         parsed = _marks_of(event)
-        if parsed.words is None:
-            message = "sse marks hold no words for a sentence the voice proves"
+        if parsed.words is None or parsed.sounds is None:
+            message = (
+                "sse marks hold no words or sounds for a sentence the voice proves"
+            )
+            raise SystemExit(message)
+        if parsed.words and not parsed.sounds:
+            message = "sse marks hold words for a sentence and no sound in it"
             raise SystemExit(message)
         for word in parsed.words:
-            _require_word(word, text, audio_seconds, previous_start)
-            previous_start = word.start
+            _require_word(word, text, audio_seconds, previous_word_start)
+            previous_word_start = word.start
             covered.update(range(word.start_char, word.end_char))
-            count += 1
+            words += 1
+        for sound in parsed.sounds:
+            _require_sound(sound, parsed.words, audio_seconds, previous_sound_start)
+            previous_sound_start = sound.start
+            sounds += 1
     if not all(index in covered for index, char in enumerate(text) if char.isalnum()):
         message = "sse marks leave a word of the text out"
         raise SystemExit(message)
-    return count
+    return words, sounds
 
 
 def _marks_of(event: dict[str, object]) -> SentenceMarks:
@@ -224,10 +242,10 @@ def _marks_of(event: dict[str, object]) -> SentenceMarks:
     try:
         marks = SentenceMarks.model_validate(fields)
     except ValidationError:
-        message = "sse marks event is not words and no sounds"
+        message = "sse marks event is not words and sounds"
         raise SystemExit(message) from None
-    if marks.sounds is not None:
-        message = "sse marks event is not words and no sounds"
+    if any(set(entry) != _SOUND_FIELDS for entry in fields["sounds"] or ()):  # type: ignore[attr-defined]
+        message = "sse sound does not hold exactly ipa, start and end"
         raise SystemExit(message)
     return marks
 
@@ -265,19 +283,44 @@ def prove_marks(
                 f"deltas={figures.deltas}",
                 f"marks={figures.marks}",
                 f"words={figures.words}",
+                f"sounds={figures.sounds}",
                 f"audio_s={figures.audio_seconds:.3f}",
             )
             record[label] = {
                 "words": figures.words,
+                "sounds": figures.sounds,
                 "audio_s": round(figures.audio_seconds, 3),
             }
     return record
 
 
-def require_gives_words(health: Health, voices: Iterable[VoiceId]) -> None:
-    """Every voice in `voices` reports words as given and sounds as not given."""
+def require_gives_marks(health: Health, voices: Iterable[VoiceId]) -> None:
+    """Every voice in `voices` reports words and sounds as given."""
     for voice in voices:
         gives = health.speaking.voices[voice.value].gives_marks
-        if not gives.words or gives.sounds:
+        if not (gives.words and gives.sounds):
             message = f"health gives_marks of {voice.value} is {gives!r}"
             raise SystemExit(message)
+
+
+def _require_sound(
+    sound: Sound, words: tuple[Word, ...], audio_seconds: float, before: float
+) -> None:
+    if (
+        not sound.ipa
+        or unicodedata.normalize("NFC", sound.ipa) != sound.ipa
+        or any(mark in sound.ipa for mark in _STRESS_MARKS)
+    ):
+        message = "sse sound is not NFC text without a stress mark"
+        raise SystemExit(message)
+    if (
+        not before
+        <= sound.start
+        <= sound.end
+        <= audio_seconds + CONTAINER_SLACK_SECONDS
+    ):
+        message = "sse sound times do not increase within the audio"
+        raise SystemExit(message)
+    if not any(word.start <= sound.end <= word.end for word in words):
+        message = "sse sound does not end inside a word of its sentence"
+        raise SystemExit(message)
