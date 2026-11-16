@@ -60,7 +60,6 @@ pytestmark = pytest.mark.browser
 
 AUDIBLE_CONDITION = f"s.sounds[0].peakRms > {AUDIBLE_RMS}"
 SUSPENDED = "s.contextStates[0] === 'suspended'"
-RUNNING = "s.contextStates[0] === 'running'"
 
 
 @pytest.mark.parametrize("sound", [MARKER, MARKER_STREAMED], ids=["whole", "streamed"])
