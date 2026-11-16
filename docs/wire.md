@@ -23,6 +23,9 @@ build the body and read the refusals through them.
 byte cap, and answers with a typed outcome; its module documents them. `speak` and
 `speech_request_body` take `language`; one the voice lacks, or none for a voice of
 several languages, raises the request's validation error before the network.
+`speak_stream` and `speak_stream_with_preference` take `stream_format` `sse`
+(WIRE-158) and then also yield each sentence's `SentenceMarks` after its audio;
+a stream that ends without `done` ends `Cut`. Their items are unchanged without it.
 `speech_client.voice_preference` speaks with an ordered preference of voices instead of
 one: it reads health, speaks with the first voice that `speaking.voices` offers as
 `ready` in the requested language, sends `instructions` only to a voice that

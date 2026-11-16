@@ -11,7 +11,8 @@ this order:
   out. They go only to a voice that takes them (WIRE-142); for any other voice
   they are left out and the item says so. It comes just before the first chunk,
   so a consumer knows the voice before any audio.
-- the `bytes` chunks of the WAV.
+- the `bytes` chunks of the WAV, and with `stream_format` `StreamFormat.SSE`
+  each sentence's `SentenceMarks` after its audio (`speech_client.speak`).
 - `Finished` with the exact seconds of audio, or a failure: `Refused`, `Busy`,
   `Cut`, `PastDeadline`, `OverCap`, `Malformed` or `Unreachable`, as for `speak`
   (`speech_client.outcomes`). A failure before any chunk is the only item.
@@ -43,7 +44,7 @@ from __future__ import annotations
 from contextlib import closing
 from dataclasses import dataclass, field
 from time import monotonic
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal, overload
 
 from speech_client._transport import checked_origin
 from speech_client.health import UnexpectedStatus, fetch_health
@@ -67,6 +68,8 @@ from speech_client.wire import (
     Language,
     RefusalCode,
     ResponseFormat,
+    SentenceMarks,
+    StreamFormat,
     VoiceId,
     refusal,
     speech_request_body,
@@ -83,6 +86,7 @@ __all__ = [
     "Cut",
     "Finished",
     "Malformed",
+    "MarkedPreferenceStreamItem",
     "OverCap",
     "PastDeadline",
     "PreferenceOutcome",
@@ -116,6 +120,7 @@ class VoiceChosen:
 
 
 type PreferenceStreamItem = VoiceChosen | bytes | Finished | StreamFailure
+type MarkedPreferenceStreamItem = PreferenceStreamItem | SentenceMarks
 type PreferenceOutcome = (
     SpokenWithPreference
     | Refused
@@ -138,7 +143,7 @@ def _unhealthy(health: HealthOutcome) -> PreferenceOutcome:
     return health
 
 
-def _is_unavailable(item: bytes | StreamFailure) -> bool:
+def _is_unavailable(item: bytes | SentenceMarks | StreamFailure) -> bool:
     return isinstance(item, Refused) and item.refusal == refusal(
         RefusalCode.UNAVAILABLE, "voice"
     )
@@ -202,6 +207,7 @@ def _checked_speakers(  # noqa: PLR0913
     response_format: ResponseFormat,
     deadline_seconds: float,
     cap_bytes: int,
+    stream_format: StreamFormat = StreamFormat.AUDIO,
 ) -> tuple[VoiceId, ...]:
     """Check every bound and request, then keep the voices that speak `language`."""
     if not preference:
@@ -218,23 +224,24 @@ def _checked_speakers(  # noqa: PLR0913
             response_format,
             language,
             _instructions_for(voice, instructions),
+            stream_format=stream_format,
         )
     return speakers
 
 
 @dataclass(frozen=True, slots=True)
 class _Speaking:
-    """The voice that answered with audio, its first chunk and the chunks after it."""
+    """The voice that answered with audio, its first item and the items after it."""
 
     chosen: VoiceChosen
-    first: bytes
-    chunks: Generator[bytes | StreamFailure]
+    first: bytes | SentenceMarks
+    chunks: Generator[bytes | SentenceMarks | StreamFailure]
     seconds_left: Callable[[], float]
 
-    def resumed(self) -> Generator[bytes | StreamFailure]:
-        """The first chunk and the ones after it, unless the deadline passed.
+    def resumed(self) -> Generator[bytes | SentenceMarks | StreamFailure]:
+        """The first item and the ones after it, unless the deadline passed.
 
-        The first chunk is already read, so no socket read ends it at the
+        The first item is already read, so no socket read ends it at the
         deadline; the consumer may have held the stream past it.
         """
         if self.seconds_left() <= 0:
@@ -257,6 +264,7 @@ def _choose(  # noqa: PLR0913
     deadline_seconds: float,
     cap_bytes: int,
     clock: Callable[[], float],
+    stream_format: StreamFormat,
 ) -> _Speaking | StreamFailure:
     """The first voice that does not answer `unavailable` before any audio."""
     remaining = speakers
@@ -283,9 +291,10 @@ def _choose(  # noqa: PLR0913
             person_token=person_token,
             deadline_seconds=seconds_left,
             cap_bytes=cap_bytes,
+            stream_format=stream_format,
         )
         first = next(chunks)
-        if isinstance(first, bytes):
+        if isinstance(first, bytes | SentenceMarks):
             return _Speaking(
                 VoiceChosen(
                     voice,
@@ -315,7 +324,8 @@ def _stream(  # noqa: PLR0913
     deadline_seconds: float,
     cap_bytes: int,
     clock: Callable[[], float],
-) -> Generator[PreferenceStreamItem]:
+    stream_format: StreamFormat = StreamFormat.AUDIO,
+) -> Generator[MarkedPreferenceStreamItem]:
     """The one stream: the voice, its chunks and the end a WAV carries."""
     speaking = _choose(
         base_url,
@@ -329,6 +339,7 @@ def _stream(  # noqa: PLR0913
         deadline_seconds=deadline_seconds,
         cap_bytes=cap_bytes,
         clock=clock,
+        stream_format=stream_format,
     )
     if not isinstance(speaking, _Speaking):
         yield speaking
@@ -342,7 +353,42 @@ def _stream(  # noqa: PLR0913
                 yield from speaking.resumed()
 
 
-# Every input comes from the call site; only `language` and `instructions` default.
+# Every input comes from the call site; only `language`, `instructions`,
+# `stream_format` and `clock` default.
+@overload
+def speak_stream_with_preference(
+    base_url: str,
+    text: str,
+    preference: Sequence[VoiceId],
+    *,
+    language: Language | None = None,
+    instructions: str | None = None,
+    stream_format: Literal[StreamFormat.AUDIO] = StreamFormat.AUDIO,
+    workload_token: str,
+    person_token: str,
+    deadline_seconds: float,
+    cap_bytes: int,
+    clock: Callable[[], float] = monotonic,
+) -> Generator[PreferenceStreamItem]: ...
+
+
+@overload
+def speak_stream_with_preference(
+    base_url: str,
+    text: str,
+    preference: Sequence[VoiceId],
+    *,
+    language: Language | None = None,
+    instructions: str | None = None,
+    stream_format: Literal[StreamFormat.SSE],
+    workload_token: str,
+    person_token: str,
+    deadline_seconds: float,
+    cap_bytes: int,
+    clock: Callable[[], float] = monotonic,
+) -> Generator[MarkedPreferenceStreamItem]: ...
+
+
 def speak_stream_with_preference(  # noqa: PLR0913
     base_url: str,
     text: str,
@@ -350,17 +396,19 @@ def speak_stream_with_preference(  # noqa: PLR0913
     *,
     language: Language | None = None,
     instructions: str | None = None,
+    stream_format: StreamFormat = StreamFormat.AUDIO,
     workload_token: str,
     person_token: str,
     deadline_seconds: float,
     cap_bytes: int,
     clock: Callable[[], float] = monotonic,
-) -> Generator[PreferenceStreamItem]:
+) -> Generator[MarkedPreferenceStreamItem]:
     """Speak `text` with the first voice of `preference` the service offers.
 
     `language` narrows the voices to those that speak it and is required when a
     voice of the preference speaks several; a voice that does not speak it is
     skipped. `instructions` name the tone, for a voice that takes them.
+    `stream_format` `sse` adds each sentence's `SentenceMarks` to the items.
     `deadline_seconds` bounds the whole stream, `cap_bytes` the audio. `clock`
     reads the time the deadline runs on and is a seam for tests: leave it at its
     default. See the module for the items and for what raises, which happens at
@@ -378,6 +426,7 @@ def speak_stream_with_preference(  # noqa: PLR0913
             response_format=ResponseFormat.WAV,
             deadline_seconds=deadline_seconds,
             cap_bytes=cap_bytes,
+            stream_format=stream_format,
         ),
         language=language,
         instructions=instructions,
@@ -387,6 +436,7 @@ def speak_stream_with_preference(  # noqa: PLR0913
         deadline_seconds=deadline_seconds,
         cap_bytes=cap_bytes,
         clock=clock,
+        stream_format=stream_format,
     )
 
 

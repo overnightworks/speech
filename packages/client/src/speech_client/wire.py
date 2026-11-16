@@ -9,18 +9,21 @@ The service and its callers import these types and copy none of them.
 
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import dataclass
 from enum import StrEnum
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Annotated, Final, Literal
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     StrictBool,
     StrictInt,
+    TypeAdapter,
     ValidationInfo,
     field_validator,
 )
@@ -95,7 +98,9 @@ class StreamFormat(StrEnum):
     SSE = "sse"
 
 
-_EVENT_STREAM_MEDIA_TYPE: Final = "text/event-stream"
+EVENT_STREAM_MEDIA_TYPE: Final = "text/event-stream"
+_DATA_PREFIX: Final = "data: "
+EVENT_END: Final = "\n\n"
 
 
 class AudioEventType(StrEnum):
@@ -244,7 +249,7 @@ class SpeechRequest(BaseModel):
     def media_type(self) -> str:
         """The `Content-Type` of a 200: the audio's, or the event stream's."""
         if self.stream_format is StreamFormat.SSE:
-            return _EVENT_STREAM_MEDIA_TYPE
+            return EVENT_STREAM_MEDIA_TYPE
         return self.response_format.media_type
 
 
@@ -299,7 +304,51 @@ class SentenceMarks(BaseModel):
 def audio_event(event_type: AudioEventType, **fields: object) -> bytes:
     """One server-sent event of a `sse` answer: a `data:` line, then a blank line."""
     body = json.dumps({"type": event_type.value, **fields})
-    return f"data: {body}\n\n".encode("ascii")
+    return f"{_DATA_PREFIX}{body}{EVENT_END}".encode("ascii")
+
+
+def _decoded_audio(value: object) -> object:
+    return base64.b64decode(value, validate=True) if isinstance(value, str) else value
+
+
+class _AudioDelta(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    type: Literal[AudioEventType.DELTA]
+    audio: Annotated[bytes, BeforeValidator(_decoded_audio)]
+
+
+class _AudioMarks(SentenceMarks):
+    type: Literal[AudioEventType.MARKS]
+
+
+class _AudioDone(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    type: Literal[AudioEventType.DONE]
+
+
+_AUDIO_EVENT: Final = TypeAdapter(
+    Annotated[_AudioDelta | _AudioMarks | _AudioDone, Field(discriminator="type")]
+)
+
+
+def read_audio_event(frame: bytes) -> bytes | SentenceMarks | None:
+    """The content of one event frame: audio bytes, marks, or `None` for `done`.
+
+    `frame` is the event without its blank line. A frame that is no event of
+    the wire raises `ValueError` (`pydantic.ValidationError` is one).
+    """
+    if not frame.startswith(_DATA_PREFIX.encode()):
+        message = "an event begins with `data: `"
+        raise ValueError(message)
+    match _AUDIO_EVENT.validate_json(frame.removeprefix(_DATA_PREFIX.encode())):
+        case _AudioDelta(audio=audio):
+            return audio
+        case _AudioMarks(words=words, sounds=sounds):
+            return SentenceMarks(words=words, sounds=sounds)
+        case _:
+            return None
 
 
 class GivesMarks(BaseModel):
@@ -353,23 +402,27 @@ class Health(BaseModel):
     card_memory_mb: StrictInt
 
 
-def speech_request_body(
+def speech_request_body(  # noqa: PLR0913 - one parameter for each field of the body
     text: str,
     voice: VoiceId,
     response_format: ResponseFormat,
     language: Language | None = None,
     instructions: str | None = None,
+    *,
+    stream_format: StreamFormat = StreamFormat.AUDIO,
 ) -> bytes:
     """The JSON a caller posts to speak `text` with `voice` in `response_format`.
 
     `language` is named for a voice of several languages and may be named for any.
-    `instructions` name the tone, for a voice that takes them.
+    `instructions` name the tone, for a voice that takes them. `stream_format`
+    asks for the audio itself or for the event stream.
     """
     request = SpeechRequest(
         model=VOICES[voice].model,
         input=text,
         voice=voice,
         response_format=response_format,
+        stream_format=stream_format,
         language=language,
         instructions=instructions,
     )
