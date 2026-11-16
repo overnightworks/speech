@@ -19,6 +19,7 @@ from speech_service.provider_process import (
     ProviderLaunch,
     ProviderProcess,
     ProviderProtocolError,
+    ProviderStartFailure,
     ProviderSynthesisFailedError,
     provider_entrypoint,
 )
@@ -179,6 +180,11 @@ def _ended_records(
     ]
 
 
+def _failure_text(error: BaseException) -> str:
+    """The text a stopping layer's `exc_info` renders beyond the message."""
+    return "\n".join(getattr(error, "__notes__", []))
+
+
 def _logged_everywhere(caplog: pytest.LogCaptureFixture) -> str:
     """Every message, rendered exception and extra field the records carry."""
     return "\n".join(
@@ -192,16 +198,19 @@ def test_provider_failing_to_import_logs_the_module_and_its_own_exit_status(
 ) -> None:
     engine = _provider(tmp_path, "import module_that_is_not_installed")
 
-    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError):
+    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError) as failed:
         engine.load()
     engine.close()
 
     (ended,) = _ended_records(caplog, "before_ready")
     assert ended.exit_status == 1
+    assert ended.reason == ProviderStartFailure.EXITED
     assert (
         "ModuleNotFoundError: No module named 'module_that_is_not_installed'"
-        in ended.stderr_tail
+        in _failure_text(failed.value)
     )
+    assert not hasattr(ended, "stderr_tail")
+    assert "module_that_is_not_installed" not in _logged_everywhere(caplog)
 
 
 def test_provider_failing_to_load_the_model_logs_its_cause_and_a_reaped_status(
@@ -209,12 +218,13 @@ def test_provider_failing_to_load_the_model_logs_its_cause_and_a_reaped_status(
 ) -> None:
     engine = _provider(tmp_path, _CONTRACT_BODY.format(fail_load=True))
 
-    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError):
+    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError) as failed:
         engine.load()
     engine.close()
 
     (ended,) = _ended_records(caplog, "before_ready")
-    assert "RuntimeError: model weights unreadable" in ended.stderr_tail
+    assert "RuntimeError: model weights unreadable" in _failure_text(failed.value)
+    assert "model weights unreadable" not in _logged_everywhere(caplog)
     # Whether the service's stop or the provider's own exit comes first is a
     # race; either way the reaped provider has a status.
     assert isinstance(ended.exit_status, int)
@@ -235,12 +245,11 @@ def test_a_root_cause_printed_before_a_long_traceback_reaches_the_log(
 ) -> None:
     engine = _provider(tmp_path, _failing_start_after_writing(20 * 1024))
 
-    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError):
+    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError) as failed:
         engine.load()
     engine.close()
 
-    (ended,) = _ended_records(caplog, "before_ready")
-    assert "ROOT CAUSE: engine core failed" in ended.stderr_tail
+    assert "ROOT CAUSE: engine core failed" in _failure_text(failed.value)
 
 
 def test_a_provider_writing_without_end_cannot_grow_the_log_without_limit(
@@ -249,13 +258,31 @@ def test_a_provider_writing_without_end_cannot_grow_the_log_without_limit(
     written = 1024 * 1024
     engine = _provider(tmp_path, _failing_start_after_writing(written))
 
+    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError) as failed:
+        engine.load()
+    engine.close()
+
+    (ended,) = _ended_records(caplog, "before_ready")
+    assert ended.reason == ProviderStartFailure.STDERR_OVERSIZED
+    assert len(_failure_text(failed.value)) < written // 4
+    assert "ROOT CAUSE" not in _failure_text(failed.value)
+
+
+def test_a_provider_that_breaks_the_handshake_logs_a_failed_start_reason(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    engine = _provider(
+        tmp_path,
+        "import sys, time\nsys.stdout.buffer.write(b'not a frame')\n"
+        "sys.stdout.flush()\ntime.sleep(60)",
+    )
+
     with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError):
         engine.load()
     engine.close()
 
     (ended,) = _ended_records(caplog, "before_ready")
-    assert len(ended.stderr_tail) < written // 4
-    assert "ROOT CAUSE" not in ended.stderr_tail
+    assert ended.reason == ProviderStartFailure.START_FAILED
 
 
 def test_ready_provider_logs_no_startup_record_and_its_stderr_reaches_no_log(
@@ -279,7 +306,7 @@ def _failed_synthesis_log(
     engine = _provider(tmp_path, _FAILING_BODY.format(synthesis=synthesis))
     with caplog.at_level(logging.DEBUG):
         engine.load()
-        with pytest.raises(ProviderSynthesisFailedError):
+        with pytest.raises(ProviderSynthesisFailedError) as raised:
             list(engine.pcm_chunks(_SENTENCE, "de"))
         engine.close()
     _assert_no_sentence(caplog)
@@ -287,7 +314,8 @@ def _failed_synthesis_log(
         record for record in caplog.records if record.getMessage() == "synthesis.failed"
     )
     assert record.request_id == 1
-    return str(record.cause)
+    assert not hasattr(record, "cause")
+    return _failure_text(raised.value)
 
 
 def _assert_no_sentence(caplog: pytest.LogCaptureFixture) -> None:
@@ -381,7 +409,7 @@ def test_a_failed_synthesis_escapes_control_and_non_ascii_source_characters(
     assert "# tab\\there, feed\\x0chere, \\xe9" in message
 
 
-def test_a_failure_during_a_cancel_drain_logs_its_cause(
+def test_a_failure_during_a_cancel_drain_logs_its_request(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     engine = _provider(
@@ -400,7 +428,8 @@ def test_a_failure_during_a_cancel_drain_logs_its_cause(
 
     _assert_no_sentence(caplog)
     (failed,) = (r for r in caplog.records if r.getMessage() == "synthesis.failed")
-    assert failed.cause.startswith("builtins.GeneratorExit -> builtins.OSError[EIO]\n")
+    assert failed.request_id == 1
+    assert not hasattr(failed, "cause")
     assert engine.ready is False
 
 

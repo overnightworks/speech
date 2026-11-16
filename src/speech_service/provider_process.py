@@ -60,19 +60,31 @@ class ProviderProtocolError(RuntimeError):
 
 
 class ProviderFailedError(RuntimeError):
-    """The provider failed and cannot serve requests."""
+    """The provider failed and cannot serve requests.
 
-    def __init__(self) -> None:
+    The provider's startup stderr travels as a note, which the layer that stops
+    the exception logs once through `exc_info`.
+    """
+
+    def __init__(self, startup_stderr: str = "") -> None:
         """Carry the one message every failed provider reports."""
         super().__init__("speech provider failed")
+        if startup_stderr:
+            self.add_note(startup_stderr)
 
 
 class ProviderSynthesisFailedError(RuntimeError):
-    """The provider reported that one synthesis request failed."""
+    """The provider reported that one synthesis request failed.
 
-    def __init__(self) -> None:
+    The provider's FAILED chain travels as a note, which the layer that stops
+    the exception logs once through `exc_info`.
+    """
+
+    def __init__(self, chain: str = "") -> None:
         """Carry the one message every failed synthesis reports."""
         super().__init__(SYNTHESIS_FAILED)
+        if chain:
+            self.add_note(chain)
 
 
 class ProviderCleanupFailedError(RuntimeError):
@@ -121,6 +133,17 @@ class ProviderId(StrEnum):
     QWEN = "qwen"
 
 
+class ProviderStartFailure(StrEnum):
+    """Why a provider ended before it was ready."""
+
+    EXITED = "exited"
+    """The provider ended by itself."""
+    START_FAILED = "start_failed"
+    """The service stopped the provider because its start failed."""
+    STDERR_OVERSIZED = "stderr_oversized"
+    """The provider wrote more startup stderr than the service keeps."""
+
+
 class _OwnerExit(Enum):
     ORDINARY_CLOSE = "ordinary_close"
     PROVIDER_FAILURE = "provider_failure"
@@ -161,6 +184,7 @@ class ProviderProcess:
         self._owner: threading.Thread | None = None
         self._process: subprocess.Popen[bytes] | None = None
         self._response_decoder: FrameDecoder | None = None
+        self._startup_stderr = ""
         self._failed = False
         self._closing = False
         self._cleanup_failed = False
@@ -183,7 +207,7 @@ class ProviderProcess:
         with self._state_lock:
             ready = self.ready
         if not ready:
-            raise ProviderFailedError
+            raise ProviderFailedError(self._startup_stderr)
 
     def pcm_chunks(
         self, text: str, language: str, instructions: str | None = None
@@ -207,9 +231,11 @@ class ProviderProcess:
                     yield frame.payload
                     continue
                 if frame.kind is FrameKind.FAILED:
-                    _log_synthesis_failure(request_id, frame.payload)
+                    _log_synthesis_failure(request_id)
                     self._mark_failed()
-                    raise ProviderSynthesisFailedError
+                    raise ProviderSynthesisFailedError(
+                        failure_cause(frame.payload) or ""
+                    )
                 completed = True
                 return
         finally:
@@ -271,7 +297,6 @@ class ProviderProcess:
             lifecycle_failed = True
             self._set_failed()
         finally:
-            self._ready.set()
             try:
                 self._terminate_and_reap(child)
             except Exception:
@@ -285,13 +310,16 @@ class ProviderProcess:
                     logger.exception("provider_scratch_cleanup.failed")
             if stderr is not None:
                 try:
-                    _close_stderr(child, stderr, provider_failed=provider_failed)
+                    self._startup_stderr = _close_stderr(
+                        child, stderr, provider_failed=provider_failed
+                    )
                 except Exception:
                     logger.exception("provider_stderr_cleanup.failed")
             with self._state_lock:
                 self._process = None
                 self._response_decoder = None
                 self.ready = False
+            self._ready.set()
             self._stopped.set()
             if child is not None and lifecycle_failed:
                 self._fatal_callback()
@@ -458,7 +486,7 @@ class ProviderProcess:
             if frame.kind in {FrameKind.COMPLETE, FrameKind.CANCELLED}:
                 return
             if frame.kind is FrameKind.FAILED:
-                _log_synthesis_failure(request_id, frame.payload)
+                _log_synthesis_failure(request_id)
                 raise ProviderProtocolError
 
     def _mark_failed(self) -> None:
@@ -495,11 +523,8 @@ def _signal_group(group: int, signal_number: signal.Signals) -> None:
         os.killpg(group, signal_number)
 
 
-def _log_synthesis_failure(request_id: int, payload: bytes) -> None:
-    logger.warning(
-        "synthesis.failed",
-        extra={"request_id": request_id, "cause": failure_cause(payload) or "none"},
-    )
+def _log_synthesis_failure(request_id: int) -> None:
+    logger.warning("synthesis.failed", extra={"request_id": request_id})
 
 
 def _close_stderr(
@@ -507,11 +532,13 @@ def _close_stderr(
     stderr: IO[bytes],
     *,
     provider_failed: bool,
-) -> None:
-    """Log how a provider exited, then close its startup stderr file.
+) -> str:
+    """Log how a provider exited, close its startup stderr file and return its text.
 
-    A provider that never became ready has its stderr tail logged; one that
-    was ready and then failed has only its exit status logged.
+    A provider that never became ready is logged with its exit status and a
+    closed reason, and its stderr tail is returned for the exception that
+    reaches the stopping layer; one that was ready and then failed has only its
+    exit status logged, and the text is empty.
 
     Call after the provider is reaped. The exit status is the provider's own
     when it ended by itself; a negative number is the signal that stopped it,
@@ -526,16 +553,26 @@ def _close_stderr(
                 extra={
                     "phase": "before_ready",
                     "exit_status": child.returncode,
-                    "stderr_tail": stderr.read().decode("utf-8", errors="replace"),
+                    "reason": _start_failure(child.returncode, size),
                 },
             )
-        elif provider_failed and child is not None:
+            return stderr.read().decode("utf-8", errors="replace")
+        if provider_failed and child is not None:
             logger.warning(
                 "provider.exited",
                 extra={"phase": "after_ready", "exit_status": child.returncode},
             )
+        return ""
     finally:
         stderr.close()
+
+
+def _start_failure(exit_status: int, stderr_size: int) -> ProviderStartFailure:
+    if stderr_size > _STDERR_TAIL_BYTES:
+        return ProviderStartFailure.STDERR_OVERSIZED
+    if exit_status < 0:
+        return ProviderStartFailure.START_FAILED
+    return ProviderStartFailure.EXITED
 
 
 def _require_stdout(child: subprocess.Popen[bytes]) -> IO[bytes]:
