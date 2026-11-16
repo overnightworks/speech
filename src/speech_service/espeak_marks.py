@@ -37,6 +37,8 @@ _SELF_TEST_VOICE: Final = "en"
 # next sentence starts.
 _SELF_TEST_PASSES: Final = ((1, (1, 5), 10), (10, (10,), None))
 _OUTPUTS_WITH_ALIGNMENT: Final = 2
+# A text that espeak speaks to its end in an instant, to leave nothing half-spoken.
+SETTLING_TEXT: Final = b"a"
 
 _SYNCHRONOUS_OUTPUT: Final = 1
 _CHARACTER_POSITIONS: Final = 1
@@ -211,7 +213,7 @@ class EspeakEvents:
                 from piper import espeakbridge
 
                 espeakbridge.set_voice(espeak_voice)
-                self._drain_stale_events()
+                self._settle()
                 self._library.espeak_SetSynthCallback(callback)
                 try:
                     status = self._library.espeak_Synth(
@@ -225,6 +227,7 @@ class EspeakEvents:
                         None,
                     )
                 finally:
+                    self._settle()
                     self._library.espeak_SetSynthCallback(_Callback(0))
         except Exception as error:  # noqa: BLE001 - marks are optional; the audio goes on
             log_failure(logger, "marks.pass_failed", error, level=logging.WARNING)
@@ -233,16 +236,25 @@ class EspeakEvents:
             return None
         return SentencePass(tuple(collector.events), collector.next_start)
 
-    def _drain_stale_events(self) -> None:
-        """Hand espeak's queued events to a callback that drops them.
+    def _settle(self) -> None:
+        """Speak a short text to the end into a callback that drops what it reports.
 
         espeak queues an event for each voice it sets and each text it phonemizes,
-        and only speaking empties the queue. Once enough pile up, the next pass
-        loses its first events; speaking nothing delivers them elsewhere.
+        and only speaking empties the queue; once enough pile up, the next pass
+        loses its first events. A pass that ended early, at the next sentence,
+        leaves the rest of its text half-spoken, which Piper's next phonemizing
+        would take up as the start of its own text.
         """
         self._library.espeak_SetSynthCallback(_DROP_EVENTS)
         self._library.espeak_Synth(
-            b"", 1, 0, _CHARACTER_POSITIONS, 0, _UTF8_TEXT, None, None
+            SETTLING_TEXT,
+            len(SETTLING_TEXT) + 1,
+            0,
+            _CHARACTER_POSITIONS,
+            0,
+            _UTF8_TEXT,
+            None,
+            None,
         )
 
 

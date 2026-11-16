@@ -108,7 +108,7 @@ def a_bridge(
     remaining = iter(passes)
 
     def synth(text: bytes, *_arguments: object) -> int:
-        if text:
+        if text not in {b"", espeak_marks.SETTLING_TEXT}:
             reported = next(remaining)
             native = (NativeEvent * (len(reported) + 1))()
             for slot, (kind, position, name) in zip(native, reported, strict=False):
@@ -313,6 +313,29 @@ def test_a_voice_espeak_does_not_know_gives_no_pass(
 
     assert found is None
     assert [record.getMessage() for record in caplog.records] == ["marks.pass_failed"]
+
+
+def test_phonemizing_after_a_pass_that_stopped_at_the_next_sentence_is_unchanged() -> (
+    None
+):
+    """WIRE-156: a pass is no state the next answer's phonemes can depend on."""
+    voice = a_voice("de")
+    events = loaded(voice)
+    answer = "Ja. Nein. Doch."
+    before = voice.phonemize(answer)
+
+    two_long_sentences = " ".join(
+        [
+            "Die Kamera zeigt den Vortragenden, während im Hintergrund die nächste Folie vorbereitet wird."
+        ]
+        * 2
+    )
+
+    found = events.read(two_long_sentences, "de", 1)
+
+    assert found is not None
+    assert found.next_start is not None
+    assert voice.phonemize(answer) == before
 
 
 def test_a_sentence_spoken_after_much_phonemizing_still_has_all_its_words() -> None:
