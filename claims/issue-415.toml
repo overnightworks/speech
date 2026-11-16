@@ -3,6 +3,6 @@ agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
 role = "builder"
 base = "7700b6a53ba9ad0b1869fd5eaa86df1c0db61bc7"
 branch = "claude/issue-415-player-pause-resume-stop"
-scope = ["README.md", "docs/ARCHITECTURE.md", "packages/browser", "tests/fixtures/browser", "tests/support", "tests/test_wire_route_browser_player.py"]
+scope = [".github/workflows/ci.yml", "AGENTS.md", "README.md", "docs/ARCHITECTURE.md", "packages/browser", "tests/fixtures/browser", "tests/support", "tests/test_wire_route_browser_player.py", "tests/test_wire_route_browser_player_hold.py"]
 opened_commit = "fbd2a85abbf5c1c19bbc597444a04463f3b6a163"
 whole_reason = "Pause, resume and stop are one change to the player's queue and its documented behaviour, proven by one Chromium flow."
