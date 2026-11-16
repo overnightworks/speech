@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
@@ -28,6 +29,7 @@ from tests.support.browser_support import (
     AppSide,
     chromium_page,
     stand_in_app,
+    write_marker_sound,
     write_sound,
 )
 from tests.support.fakes_support import FakeSpeaking
@@ -49,12 +51,33 @@ SOUND_SECONDS = {
     "long.wav": 4.0,
     "natural.wav": 1.2,
 }
+# The tone's amplitude (`sine_pcm`'s 16000 of 32768): a quantum of it peaks here.
+TONE_PEAK = 16_000 / 32_768
+# The ear reports the peak of each render quantum, `RENDER_QUANTUM_FRAMES` samples.
+RENDER_QUANTUM_FRAMES = 128
+# A quantum under this is silent: 26 dB below the tone, no step to or from it is heard.
+SILENT_PEAK = 0.05 * TONE_PEAK
+FULL_PEAK = 0.95 * TONE_PEAK
+# The longest an edge of the volume may take; the largest step between its quanta.
+EDGE_SECONDS = 0.2
+CLICK_STEP = TONE_PEAK / 2
+# Fewest quanta between full volume and silence that a ramp, not a cut, shows.
+EDGE_QUANTA = 2
+# Fewest quanta of a whole run that must pass the volume check for it to mean anything.
+MIN_QUANTA_CHECKED = 100
+# What a hold may take off a sound's audible length: the context renders on for
+# a moment between the end of the edge and the suspend.
+LOST_AT_EDGES_SECONDS = 0.25
+# The marker sound's tone, gap and short tone: the gap places its position.
+MARKER_SECONDS = (2.0, 1.0, 0.5)
 SILENT_RMS = 0.001
 AUDIBLE_RMS = 0.05
 # One render quantum plus the detection sample and the tone's silent first sample.
 ONSET_BOUND_FRAMES = 128 + 2
 CLOSED = "closed"
 RESUMES_REJECTED_THEN_PASSED = 2
+# The context resume that starts the first sound, and the one after a pause.
+RESUMES_FOR_START_AND_RESUME = 2
 ALL_ENDED = "s.sounds.every(sound => sound.endedValue !== null)"
 SHORT = f"{SOUNDS_PATH}/short.wav"
 OTHER = f"{SOUNDS_PATH}/other.wav"
@@ -64,6 +87,9 @@ HELD = f"{HELD_PATH}/short.wav"
 CUT = f"{CUT_PATH}/short.wav"
 STREAMED = f"{STREAMED_PATH}/long.wav"
 CUT_LATE = f"{CUT_LATE_PATH}/long.wav"
+MARKER_NAME = "marker.wav"
+MARKER = f"{SOUNDS_PATH}/{MARKER_NAME}"
+MARKER_STREAMED = f"{STREAMED_PATH}/{MARKER_NAME}"
 ABSENT = "/absent.wav"
 VOICE_BYTES = "voice"
 TAP_NAMES = re.compile(r"analys|tap|level|meter|energy", re.IGNORECASE)
@@ -177,10 +203,74 @@ def events(seen: dict[str, object]) -> list[tuple[str, int]]:
     return [(entry["event"], entry["id"]) for entry in seen["log"]]
 
 
+def quantum_seconds(seen: dict[str, object]) -> float:
+    return RENDER_QUANTUM_FRAMES / seen["sampleRate"]
+
+
+def peaks_between(seen: dict[str, object], since: float, until: float) -> list[float]:
+    """The peaks of the quanta that start in [`since`, `until`) of the context clock."""
+    return [peak for at, peak in seen["heardPeaks"] if since <= at < until]
+
+
+def audible_seconds(seen: dict[str, object], since: float, until: float) -> float:
+    """The seconds of [`since`, `until`) in which the output was not silent."""
+    audible = [peak for peak in peaks_between(seen, since, until) if peak > SILENT_PEAK]
+    return len(audible) * quantum_seconds(seen)
+
+
+def action_times(seen: dict[str, object], name: str) -> list[float]:
+    """The context times at which the app's switch `name` was thrown, in order."""
+    return [action["at"] for action in seen["actions"] if action["name"] == name]
+
+
+def edge_peaks(
+    seen: dict[str, object], name: str, until: float | None = None
+) -> list[float]:
+    """The peaks of the quanta from the first throw of switch `name` to its edge's end.
+
+    The edge ends at `until` of the context clock, or `EDGE_SECONDS` after the throw.
+    """
+    [at, *_] = action_times(seen, name)
+    return peaks_between(
+        seen,
+        at - quantum_seconds(seen),
+        at + EDGE_SECONDS if until is None else until,
+    )
+
+
+def largest_step(peaks: list[float]) -> float:
+    steps = (abs(after - before) for before, after in pairwise(peaks))
+    return max(steps, default=0)
+
+
+def tone_quanta(seen: dict[str, object], start: float) -> list[tuple[float, float]]:
+    """The (time, peak) of the quanta inside the tones of a marker sound at `start`."""
+    tone, gap, tail = MARKER_SECONDS
+    margin = 3 * quantum_seconds(seen)
+    tones = [(start, start + tone), (start + tone + gap, start + tone + gap + tail)]
+    return [
+        (at, peak)
+        for at, peak in seen["heardPeaks"]
+        if any(begin + margin <= at <= end - margin for begin, end in tones)
+    ]
+
+
+def peaks_outside_edges(seen: dict[str, object], start: float) -> list[float]:
+    """The peaks of the marker sound's quanta, leaving out each switch's edge."""
+    quantum = quantum_seconds(seen)
+    thrown = [action["at"] for action in seen["actions"]]
+    return [
+        peak
+        for at, peak in tone_quanta(seen, start)
+        if not any(when - quantum <= at < when + EDGE_SECONDS for when in thrown)
+    ]
+
+
 @asynccontextmanager
 async def unactivated(tmp_path: Path) -> AsyncIterator[Stage]:
     for name, seconds in SOUND_SECONDS.items():
         write_sound(tmp_path / name, seconds)
+    write_marker_sound(tmp_path / MARKER_NAME, *MARKER_SECONDS)
     runtime = Runtime({VoiceId.THORSTEN: FakeSpeaking()}, memory_probe=lambda: 0)
     async with serving_over_tcp(runtime) as service:
         side = AppSide.new()

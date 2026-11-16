@@ -49,6 +49,9 @@ const seen = {
   endedAtAction: null,
   peakRms: 0,
   heardOnsets: [],
+  heardPeaks: [],
+  contextAtAction: null,
+  actions: [],
 };
 const contexts = [];
 const clockReads = new Map();
@@ -84,13 +87,16 @@ function meterOf(context) {
 const earsReady = [];
 
 // The page's own ear: a worklet in the graph (`ear_processor.js`) that notes the context time of the first sample
-// of each stretch of sound that reaches the output.
+// of each stretch of sound that reaches the output and the peak of each render quantum.
 function listenTo(output) {
   const context = output.context;
   earsReady.push(
     context.audioWorklet.addModule("/ear_processor.js").then(() => {
       const ear = new AudioWorkletNode(context, "ear");
-      ear.port.onmessage = (event) => seen.heardOnsets.push(event.data);
+      ear.port.onmessage = ({ data }) => {
+        if (data.onset !== undefined) seen.heardOnsets.push(data.onset);
+        else seen.heardPeaks.push([data.quantum, data.peak]);
+      };
       Page.connect.call(output, ear);
       Page.connect.call(ear, context.destination);
     }),
@@ -235,8 +241,10 @@ function handOver(spec) {
 }
 
 // A switch of the app: it records when it happened and what had ended by the end of its own task.
-async function act(action) {
+async function act(name, action) {
   seen.lastActionAt = performance.now();
+  seen.contextAtAction = contexts[0].currentTime;
+  seen.actions.push({ name, at: seen.contextAtAction });
   action();
   await Promise.resolve();
   seen.endedAtAction = seen.sounds.map((sound) => sound.endedValue);
@@ -250,9 +258,13 @@ window.playerPage = {
     byteStore.set(key, bytes);
     seen.bytes[key] = { before: bytes.byteLength, after: null };
   },
-  stop: () => act(() => player.stop()),
-  mute: (muted) => act(() => player.setMuted(muted)),
-  close: () => act(() => player.close()),
+  stop: () => act("stop", () => player.stop()),
+  pause: () => act("pause", () => player.pause()),
+  resume: () => act("resume", () => player.resume()),
+  // The switches of one task: each runs after the one before, with no render quantum of its own between them.
+  inOneTask: (...names) => act(names.join("+"), () => names.forEach((name) => player[name]())),
+  mute: (muted) => act("mute", () => player.setMuted(muted)),
+  close: () => act("close", () => player.close()),
   listening: () => Promise.all(earsReady),
   hold: (kind) => held[kind].push(Promise.withResolvers()),
   release: () => heldNow.splice(0).forEach((gate) => gate.resolve()),

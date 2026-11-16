@@ -7,7 +7,7 @@ export type Sound = ArrayBuffer | string | URL;
 export type PlaybackEnd =
   /** `playedSeconds`: the seconds of the sound the output played, read from the player's AudioContext clock and never more than the sound's length. A "played" sound played its full length; one that never started played 0. */
   | { readonly kind: "played"; readonly playedSeconds: number }
-  | { readonly kind: "stopped"; readonly playedSeconds: number } // stop() or close()
+  | { readonly kind: "stopped"; readonly playedSeconds: number } // stop() or close(); a stop() ends the playing sound once its edge is over
   | { readonly kind: "muted"; readonly playedSeconds: number } // setMuted(true), or a sound handed over while muted
   | { readonly kind: "refused" } // no user activation, or resume() refused
   | { readonly kind: "failed" }; // the fetch, the decode or a streamed body failed
@@ -27,11 +27,24 @@ export interface Playback {
 export interface Player {
   /** Queues the sound behind every earlier one and starts fetching and decoding it at once. Never throws. */
   play(sound: Sound): Playback;
-  /** Ends the playing sound at once and every waiting one as "stopped", aborting their fetches; later sounds play. Idempotent; never throws. */
+  /**
+   * Holds the output at once and the sounds where they are: the volume ramps to 0 over a click-free edge of a few tens
+   * of milliseconds, then the context suspends. The context's clock, every scheduled sound and each start the app read
+   * stay valid, a body that arrives meanwhile queues on the frozen clock, and no waiting sound starts until `resume()`.
+   * Idempotent; ignored while muted or closed; never throws.
+   */
+  pause(): void;
+  /** Resumes the context and ramps the volume back up over the same edge: the sounds play on where they paused. Idempotent; never throws. */
+  resume(): void;
+  /**
+   * Ramps the volume to 0 over the same edge, ends the playing sound as "stopped" when it is over and every waiting
+   * one at once, aborting their fetches; later sounds play. A pause stays until `resume()`: while paused, the playing
+   * sound ends at once, because the output is held already. Idempotent; never throws.
+   */
   stop(): void;
-  /** The app's mute switch. Muting ends the playing and every waiting sound as "muted" and aborts their fetches; while muted, a sound handed over ends "muted" at once, unfetched. Idempotent; never throws. */
+  /** The app's mute switch. Muting ends the playing and every waiting sound as "muted" at once and aborts their fetches, and clears a pause; while muted, a sound handed over ends "muted" at once, unfetched. Idempotent; never throws. */
   setMuted(muted: boolean): void;
-  /** Ends every sound as "stopped" and closes the player's context; every later sound ends "stopped" at once. Idempotent; never throws. */
+  /** Ends every sound as "stopped" at once and closes the player's context; every later sound ends "stopped" at once. Idempotent; never throws. */
   close(): void;
 }
 
@@ -45,6 +58,8 @@ export function createPlayer(): Player {
   const run = new PlayerRun();
   return {
     play: (sound) => run.play(sound),
+    pause: () => run.pause(),
+    resume: () => run.resume(),
     stop: () => run.stop(),
     setMuted: (muted) => run.setMuted(muted),
     close: () => run.close(),
@@ -53,7 +68,22 @@ export function createPlayer(): Player {
 
 type Interruption = "stopped" | "muted";
 
+/** "pausing": the volume ramps to 0 and the context is not yet suspended; "paused": the context suspends or is suspended. */
+type Flow = "running" | "pausing" | "paused";
+
+/** The ramp the gain is on: where it ends up, and when on the context's clock. */
+interface Ramp {
+  readonly target: number;
+  readonly endsAt: number;
+}
+
 const NONE = -1;
+/**
+ * The edge of every volume change but mute and close: a step of the volume is a click, a linear ramp of this length is
+ * not heard as one, and it is short enough to read as "at once".
+ */
+const FADE_SECONDS = 0.03;
+const MILLISECONDS_PER_SECOND = 1000;
 /** The Web Audio render quantum; the audio graph advances in steps of this many frames. */
 const RENDER_QUANTUM_FRAMES = 128;
 
@@ -61,11 +91,13 @@ type Loaded =
   | { readonly kind: "buffer"; readonly buffer: AudioBuffer }
   | { readonly kind: "stream"; readonly stream: PcmStream };
 
-/** The sources one sound has scheduled; a whole sound has one, a streamed sound one per chunk. */
+/** The sources one sound has scheduled, each with the context time it starts at; a whole sound has one, a streamed sound one per chunk. */
 class Scheduled {
-  readonly sources = new Set<AudioBufferSourceNode>();
+  readonly sources = new Map<AudioBufferSourceNode, number>();
   readonly chunks: { readonly start: number; readonly seconds: number }[] = [];
   bodyScheduled = false;
+  /** The context time at which a `stop()` ends the sound, once it has asked for it. */
+  stoppingAt: number | undefined;
   constructor(readonly item: Queued) {}
 
   /** The seconds of the scheduled chunks the output has played by `now` of the context's clock. */
@@ -80,7 +112,7 @@ class Scheduled {
 
 /** Detaches the sources, so that their late `ended` neither reports nor pumps, and stops them at once. */
 function silence(scheduled: Scheduled): void {
-  for (const source of scheduled.sources) {
+  for (const source of scheduled.sources.keys()) {
     source.onended = null;
     source.stop();
   }
@@ -124,6 +156,10 @@ class PlayerRun {
   #pumping = NONE;
   #muted = false;
   #closed = false;
+  #flow: Flow = "running";
+  #ramp: Ramp | undefined;
+  // Every call that sets the volume bumps the fade; a wait that began in an older one is overtaken.
+  #fade = 0;
 
   constructor() {
     this.#gain.connect(this.#context.destination);
@@ -143,23 +179,105 @@ class PlayerRun {
     return item.playback;
   }
 
+  pause(): void {
+    if (this.#closed || this.#muted || this.#flow !== "running") {
+      return;
+    }
+    this.#flow = "pausing";
+    const fade = ++this.#fade;
+    void this.#suspendOnceFaded(this.#rampTo(0), fade);
+  }
+
+  resume(): void {
+    if (this.#closed || this.#flow === "running") {
+      return;
+    }
+    this.#flow = "running";
+    void this.#resumeAndFadeIn(++this.#fade);
+  }
+
   stop(): void {
-    this.#endAll("stopped");
+    this.#endAll("stopped", { instant: false });
   }
 
   setMuted(muted: boolean): void {
+    const wasMuted = this.#muted;
     this.#muted = muted;
-    this.#gain.gain.value = muted ? 0 : 1;
     if (muted) {
-      this.#endAll("muted");
+      this.#flow = "running";
+      this.#setVolume(0);
+      this.#endAll("muted", { instant: true });
+    } else if (wasMuted) {
+      this.#setVolume(1);
     }
   }
 
   close(): void {
     if (!this.#closed) {
       this.#closed = true;
-      this.#endAll("stopped");
+      this.#fade += 1;
+      this.#endAll("stopped", { instant: true });
       void this.#context.close();
+    }
+  }
+
+  /** The volume at once, for mute and for the end of a stop's edge: no ramp, and no older ramp left to override it. */
+  #setVolume(volume: number): void {
+    this.#fade += 1;
+    this.#ramp = undefined;
+    this.#gain.gain.cancelScheduledValues(this.#context.currentTime);
+    this.#gain.gain.value = volume;
+  }
+
+  /**
+   * Ramps the gain from where it is to `target` and returns the context time the ramp ends at. A ramp already on its
+   * way to `target` stays, so that a sound stopped at the end of it is cut where the volume is 0. Firefox lacks
+   * cancelAndHoldAtTime, so the ramp starts from the value the gain reads.
+   */
+  #rampTo(target: number): number {
+    const now = this.#context.currentTime;
+    if (this.#ramp?.target === target && this.#ramp.endsAt > now) {
+      return this.#ramp.endsAt;
+    }
+    const param = this.#gain.gain;
+    const from = param.value;
+    const endsAt = now + FADE_SECONDS;
+    param.cancelScheduledValues(now);
+    param.setValueAtTime(from, now);
+    param.linearRampToValueAtTime(target, endsAt);
+    this.#ramp = { target, endsAt };
+    return endsAt;
+  }
+
+  /** Waits on the context's clock, where the page's timers lag, until it passes `time`; false if a later fade overtook it. */
+  async #untilContextTime(time: number, fade: number): Promise<boolean> {
+    while (fade === this.#fade && this.#context.state === "running" && this.#context.currentTime < time) {
+      const seconds = time - this.#context.currentTime;
+      await new Promise((resolve) => setTimeout(resolve, seconds * MILLISECONDS_PER_SECOND));
+    }
+    return fade === this.#fade;
+  }
+
+  async #suspendOnceFaded(endsAt: number, fade: number): Promise<void> {
+    if (await this.#untilContextTime(endsAt, fade)) {
+      this.#flow = "paused";
+      void this.#context.suspend();
+    }
+  }
+
+  async #resumeAndFadeIn(fade: number): Promise<void> {
+    if (!(await this.#resume())) {
+      if (fade === this.#fade) {
+        this.#flow = "paused";
+      }
+      return;
+    }
+    if (fade === this.#fade) {
+      // A sound being stopped brings the volume back when it ends.
+      if (this.#playing?.stoppingAt === undefined) {
+        this.#rampTo(1);
+      }
+      void this.#pump();
     }
   }
 
@@ -195,11 +313,12 @@ class PlayerRun {
     try {
       for (let head = this.#queue[0]; head !== undefined; head = this.#queue[0]) {
         const loaded = await head.loaded;
-        if (!this.#isHead(generation, head)) {
+        if (!this.#isHead(generation, head) || this.#flow !== "running") {
           return;
         }
         const running = loaded !== undefined && (await this.#resume());
-        if (!this.#isHead(generation, head)) {
+        // A pause that came meanwhile leaves the head waiting: its resume() pumps again.
+        if (!this.#isHead(generation, head) || this.#flow !== "running") {
           return;
         }
         if (running) {
@@ -264,8 +383,8 @@ class PlayerRun {
       scheduled.sources.delete(source);
       this.#settle(scheduled);
     };
-    scheduled.sources.add(source);
     const start = Math.max(when, this.#earliestKnownStart());
+    scheduled.sources.set(source, start);
     source.start(start);
     scheduled.chunks.push({ start, seconds: buffer.duration });
     scheduled.item.begin(start, this.#context);
@@ -316,21 +435,63 @@ class PlayerRun {
     }
   }
 
-  /** Silences the playing sound first, so that its late `ended` neither reports nor pumps. */
-  #endAll(kind: Interruption): void {
+  /**
+   * Ends the waiting sounds at once. The playing sound ends at once as well when `instant`, or when no one can hear
+   * it: the output is held, or nothing of it is scheduled. Otherwise it ends where the volume ramp reaches 0.
+   */
+  #endAll(kind: Interruption, { instant }: { readonly instant: boolean }): void {
     this.#generation += 1;
     const playing = this.#playing;
     const waiting = this.#queue;
-    this.#playing = undefined;
     this.#queue = [];
     if (playing !== undefined) {
-      silence(playing);
       playing.item.abort.abort();
-      playing.item.end({ kind, playedSeconds: playing.playedBy(this.#context.currentTime) });
+      if (instant || this.#flow === "paused" || this.#context.state !== "running" || playing.sources.size === 0) {
+        this.#playing = undefined;
+        silence(playing);
+        playing.item.end({ kind, playedSeconds: playing.playedBy(this.#context.currentTime) });
+      } else if (playing.stoppingAt === undefined) {
+        this.#fadeOut(playing);
+      }
     }
     for (const item of waiting) {
       item.abort.abort();
       item.end({ kind, playedSeconds: 0 });
     }
+  }
+
+  /**
+   * The sources that play at the ramp's end stop there on the audio clock, so that the cut is silent. One that starts
+   * after it never plays, and Web Audio ends it only when its start passes, so it is dropped here.
+   */
+  #fadeOut(playing: Scheduled): void {
+    const endsAt = this.#rampTo(0);
+    playing.stoppingAt = endsAt;
+    for (const [source, start] of playing.sources) {
+      if (start < endsAt) {
+        source.onended = () => {
+          playing.sources.delete(source);
+          this.#endStopped(playing, endsAt);
+        };
+        source.stop(endsAt);
+      } else {
+        source.onended = null;
+        source.stop();
+        playing.sources.delete(source);
+      }
+    }
+    this.#endStopped(playing, endsAt);
+  }
+
+  #endStopped(playing: Scheduled, endsAt: number): void {
+    if (playing.sources.size > 0 || this.#playing !== playing) {
+      return;
+    }
+    this.#playing = undefined;
+    playing.item.end({ kind: "stopped", playedSeconds: playing.playedBy(endsAt) });
+    if (this.#flow === "running") {
+      this.#setVolume(1);
+    }
+    void this.#pump();
   }
 }
