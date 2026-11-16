@@ -260,9 +260,7 @@ def load_espeak_events(
     try:
         return _checked(voice, open_library)
     except _WordsOffError as off:
-        logger.error(  # noqa: TRY400 - a reason code names it; there is no trace to add
-            "marks.words_off", extra={"reason": off.reason.value}
-        )
+        logger.exception("marks.words_off", extra={"reason": off.reason.value})
         return None
 
 
