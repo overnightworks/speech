@@ -1,0 +1,8 @@
+claim_id = "f3e8822fc3364aa38b0e927e62f8c3d0"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "a13bcba4aac265f21f5f8fbb6db49d098d05f607"
+branch = "claude/issue-455-service-failure-codes"
+scope = ["docs/ARCHITECTURE.md", "src/speech_service/__main__.py", "src/speech_service/failures.py", "src/speech_service/voice_slot.py", "tests/test_failures.py", "tests/test_live_session_log.py", "tests/test_main.py", "tests/test_voice_slot_load.py", "tests/test_wire_route_logs.py"]
+opened_commit = "7a3202e0862eedd64c8a124d53d98786c1cdad28"
+whole_reason = "The one failure logger, its three callers' lines and the tests and architecture sentence that pin them change together."
