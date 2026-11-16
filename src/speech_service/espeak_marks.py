@@ -531,10 +531,8 @@ def _sounds_of(sentence: Sentence) -> list[_OpenSound]:
 
 
 def _extends_a_sound(token: str) -> bool:
-    return (
-        token == _TIE_BAR
-        or token in _LENGTH_MARKS
-        or all(unicodedata.category(character) == "Mn" for character in token)
+    return token in _LENGTH_MARKS or all(
+        unicodedata.category(character) == "Mn" for character in token
     )
 
 
