@@ -1,0 +1,8 @@
+claim_id = "65a13f9c69d14fbf8e5803ccd1f081aa"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "75baa0b986c6f71e2a1b7a53a96f4d7bbfb4eacf"
+branch = "claude/issue-445-player-test-tone-owner"
+scope = ["tests/support", "tests/test_wire_route_browser_player_hold.py"]
+opened_commit = "86870be50146fba8a9a05ac98fe1bb4c2ed3e143"
+whole_reason = "The tone's amplitude owner and the browser tests that read it change together."
