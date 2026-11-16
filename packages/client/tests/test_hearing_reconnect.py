@@ -420,6 +420,39 @@ def test_a_reopened_session_that_stays_silent_runs_to_the_hearing_deadline(
     assert asyncio.run(scenario()) == PastDeadline()
 
 
+def test_a_session_that_stayed_open_past_the_bound_is_followed_by_an_opening() -> None:
+    hearings: list[HearingSession] = []
+
+    async def scenario() -> HearingOutcome | None:
+        jump = jumpable_clock()
+
+        async def stays_open_then_drains(
+            connection: ServerConnection, visit: Visit
+        ) -> None:
+            await opens(connection, visit)
+            # The audio proves the client took the session.created.
+            hearings[0].send(CHUNK)
+            await takes_audio(connection, visit, 1)
+            jump(BOUND.within_seconds + 1)
+            await connection.close(DRAIN_CLOSE_CODE)
+
+        async with scripted(
+            answers_then_drains, stays_open_then_drains, ends_in_order
+        ) as (
+            port,
+            _,
+        ):
+            return (
+                await hear(
+                    port,
+                    held_limit_bytes=hearing.NEEDED_HOLD_BYTES,
+                    before=hearings.append,
+                )
+            )[1]
+
+    assert asyncio.run(scenario()) == Closed()
+
+
 def test_a_repeated_session_created_does_not_answer() -> None:
     created_again = says(CREATED_EVENT, then_close=DRAIN_CLOSE_CODE)
 

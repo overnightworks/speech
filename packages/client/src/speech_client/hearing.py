@@ -59,8 +59,9 @@ A refusal `unavailable` or `busy` (its `Retry-After` is not waited for),
 session that ended without answering each count as one failed attempt. A
 session that ended without answering does not restart the total time, which
 runs from the end of the last session that answered, or of the first session
-when none did. No timer of it runs while a session is open, so a reopened
-session that stays open, silent or not, runs to the hearing deadline. Any other
+when none did, less the time the sessions since stayed open. No timer of it runs
+while a session is open, so a reopened session that stays open, silent or not,
+runs to the hearing deadline. Any other
 refusal or `Malformed` ends the hearing with that outcome.
 
 The positions `events()` yields (`audio_start_ms`, `audio_end_ms`) lie on one
@@ -277,6 +278,7 @@ class _Wire:
     offset_ms: int
     last_turn_end_ms: int
     opened: asyncio.Event = field(default_factory=asyncio.Event)
+    opened_at: float = 0.0
     close_code: int | None = None
     failed_sent: bool = False
     stopped: dict[str, int] = field(default_factory=dict)
@@ -632,14 +634,20 @@ class HearingSession:
 
         A session that answered starts a fresh one. One that did not costs an
         attempt on top of those the reconnect it was opened by had spent, from
-        that reconnect's start, so a service that drops every session runs the
-        bound out.
+        that reconnect's start moved on by the time the session was open, so a
+        service that drops every session runs the bound out while the time a
+        session stayed open never counts against it.
         """
         if wire.answered:
             return _Interrupted(cause, wire.last_turn_end_ms, now)
-        carried = wire.carried or _Interrupted(cause, wire.last_turn_end_ms, now)
+        carried = wire.carried or _Interrupted(
+            cause, wire.last_turn_end_ms, wire.opened_at
+        )
         return _Interrupted(
-            cause, carried.unheard_start_ms, carried.at, carried.failed_attempts + 1
+            cause,
+            carried.unheard_start_ms,
+            carried.at + (now - wire.opened_at),
+            carried.failed_attempts + 1,
         )
 
     async def _paused(self, end: asyncio.Future[HearingOutcome], now: float) -> None:
@@ -764,6 +772,7 @@ class HearingSession:
                 # The first event proves the session is open, before a slow caller
                 # can hold the queue.
                 opening.reschedule(None)
+                wire.opened_at = asyncio.get_running_loop().time()
                 wire.opened.set()
                 await self._announce_reconnect(wire)
             await self._received.put(self._on_timeline(event, wire))

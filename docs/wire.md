@@ -56,8 +56,9 @@ audio or a transcript after its `session.created` (a repeated `session.created` 
 cut before `session.created`, an expired opening bound and a session that ended without
 answering each cost one attempt. A session that ended without answering does not restart
 the total time, which runs from the end of the last session that answered, or of the
-first session when none did; no timer of it runs while a session is open, so a reopened
-session that stays open, silent or not, runs to the hearing deadline. Any other refusal
+first session when none did, less the time the sessions since stayed open; no timer of
+it runs while a session is open, so a reopened session that stays open, silent or not,
+runs to the hearing deadline. Any other refusal
 or `Malformed` ends the hearing with it, and a bound that runs out ends it with
 `ReconnectFailed`. Audio is held under the caller's byte limit meanwhile
 (`NEEDED_HOLD_BYTES` covers the opening bound and a whole reconnect), a chunk leaves the
