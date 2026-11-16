@@ -79,7 +79,6 @@ from speech_client.outcomes import (
 )
 from speech_client.wire import (
     EVENT_END,
-    EVENT_STREAM_MEDIA_TYPE,
     SPEECH_PATH,
     Language,
     Refusal,
@@ -90,6 +89,7 @@ from speech_client.wire import (
     StreamFormat,
     VoiceId,
     Word,
+    answer_media_type,
     read_audio_event,
     refusal,
     speech_request_body,
@@ -274,7 +274,7 @@ def _delivered(
     stream_format: StreamFormat,
 ) -> Generator[_Content]:
     marked = stream_format is StreamFormat.SSE
-    media_type = EVENT_STREAM_MEDIA_TYPE if marked else response_format.media_type
+    media_type = answer_media_type(response_format, stream_format)
     if response.headers.get_content_type() != media_type or not response.chunked:
         yield Malformed()
         return

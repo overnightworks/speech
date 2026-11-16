@@ -98,7 +98,7 @@ class StreamFormat(StrEnum):
     SSE = "sse"
 
 
-EVENT_STREAM_MEDIA_TYPE: Final = "text/event-stream"
+_EVENT_STREAM_MEDIA_TYPE: Final = "text/event-stream"
 _DATA_PREFIX: Final = "data: "
 EVENT_END: Final = "\n\n"
 
@@ -169,6 +169,15 @@ def absent(value: object) -> bool:
 
 def _is_audio_stream(stream_format: StreamFormat) -> bool:
     return stream_format is StreamFormat.AUDIO
+
+
+def answer_media_type(
+    response_format: ResponseFormat, stream_format: StreamFormat
+) -> str:
+    """The `Content-Type` of a 200: the audio's, or the event stream's."""
+    if stream_format is StreamFormat.SSE:
+        return _EVENT_STREAM_MEDIA_TYPE
+    return response_format.media_type
 
 
 class SpeechRequest(BaseModel):
@@ -248,9 +257,7 @@ class SpeechRequest(BaseModel):
     @property
     def media_type(self) -> str:
         """The `Content-Type` of a 200: the audio's, or the event stream's."""
-        if self.stream_format is StreamFormat.SSE:
-            return EVENT_STREAM_MEDIA_TYPE
-        return self.response_format.media_type
+        return answer_media_type(self.response_format, self.stream_format)
 
 
 class TranscriptionRequest(BaseModel):
