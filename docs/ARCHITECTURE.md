@@ -319,16 +319,16 @@ the old pod stops (a rolling update that never lowers the ready count).
   any replica. Nothing a session holds outlives it, so replicas share no store
   and need no sticky routing: readiness (`/health`) alone steers new
   connections.
-- **Piper's words come from its own espeak-ng.** A request for `sse` marks the
-  words of each Piper sentence after that sentence's audio left, so the marks never delay
+- **Piper's words and sounds come from its own espeak-ng.** A request for `sse` marks the
+  words and sounds of each Piper sentence after that sentence's audio left, so the marks never delay
   the first audio. `espeak_marks.py` reads espeak-ng's word and phoneme events
   through ctypes from the `espeakbridge.so` that piper-tts links in (one pass per
   sentence, under the lock Piper phonemizes with) and maps the phonemes Piper spoke
-  onto the input; piper-tts has no API for text positions. The audio path never runs
+  onto the input, and groups the phonemes of a proven sentence into its sounds; piper-tts has no API for text positions. The audio path never runs
   it. The Piper voices load with their alignment output, which needs `onnx`
   (`piper-tts[alignment]`). The mapping rests on one build of that library: a load
-  check of its version, its lock and a known text switches words off, with one
-  error line per voice and `gives_marks.words` false, and the audio keeps playing. The check
+  check of its version, its lock and a known text switches words and sounds off, with one
+  error line per voice and `gives_marks` false, and the audio keeps playing. The check
   is also a test against the locked wheel, so a bump of piper-tts that changes the
   library fails there. When piper-tts reports text positions itself, `espeak_marks.py` goes.
 - **Piper is resident and on the CPU.** Each offered Piper voice loads at start
