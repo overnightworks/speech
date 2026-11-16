@@ -11,7 +11,12 @@ from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 from speech_client.wire import VOICES, SentenceMarks, SpeakingModel, VoiceId, Word
 from speech_service.config import Settings
 from speech_service.espeak_marks import EspeakEvent, EventKind, SentencePass
-from speech_service.speaking import PiperSpeaking, gives_marks, speaking_for_voice
+from speech_service.speaking import (
+    PiperSpeaking,
+    gives_marks,
+    load_piper_voice,
+    speaking_for_voice,
+)
 from speech_service.voices import PIPER_VOICES
 
 
@@ -35,24 +40,22 @@ def test_every_qwen_voice_constructs_the_complete_waveform_voice(
     assert engine.sample_rate == QWEN_SAMPLE_RATE
 
 
-def test_piper_load_requires_local_onnx_and_metadata(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    loaded: list[object] = []
+def test_piper_load_requires_local_onnx_and_metadata(tmp_path: Path) -> None:
+    loaded: list[Path] = []
 
     class LocalVoice:
-        config = SimpleNamespace(sample_rate=22_050)
+        config = SimpleNamespace(sample_rate=SAMPLE_RATE)
 
-    def load(path: object, *, include_alignments: bool = False) -> LocalVoice:
-        loaded.append((path, include_alignments))
+    def load_voice(onnx: Path) -> LocalVoice:
+        loaded.append(onnx)
         return LocalVoice()
 
-    monkeypatch.setitem(
-        sys.modules,
-        "piper",
-        SimpleNamespace(PiperVoice=SimpleNamespace(load=load)),
+    engine = PiperSpeaking(
+        "local-voice",
+        tmp_path,
+        load_voice=load_voice,  # type: ignore[arg-type,return-value]
+        load_events=lambda _voice: None,
     )
-    engine = PiperSpeaking("local-voice", tmp_path)
 
     with pytest.raises(FileNotFoundError):
         engine.load()
@@ -61,8 +64,27 @@ def test_piper_load_requires_local_onnx_and_metadata(
 
     engine.load()
 
-    assert loaded == [(tmp_path / "local-voice.onnx", True)]
+    assert loaded == [tmp_path / "local-voice.onnx"]
     assert engine.ready is True
+    assert engine.sample_rate == SAMPLE_RATE
+
+
+def test_the_piper_voice_is_loaded_with_the_alignment_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    loaded: list[tuple[Path, bool]] = []
+
+    def load(path: Path, *, include_alignments: bool = False) -> object:
+        loaded.append((path, include_alignments))
+        return object()
+
+    monkeypatch.setitem(
+        sys.modules, "piper", SimpleNamespace(PiperVoice=SimpleNamespace(load=load))
+    )
+
+    load_piper_voice(tmp_path / "local-voice.onnx")
+
+    assert loaded == [(tmp_path / "local-voice.onnx", True)]
 
 
 SENTENCE_SAMPLES = 400
