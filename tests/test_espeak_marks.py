@@ -137,13 +137,24 @@ def test_a_word_ends_with_its_last_sound_not_with_the_pause_or_the_terminator() 
     assert only.end == (4 * SAMPLES_PER_TOKEN) / SAMPLE_RATE
 
 
-def test_times_are_rounded_to_milliseconds() -> None:
+def test_times_are_truncated_to_milliseconds() -> None:
     marker = WordMarker("Ja.", ScriptedPasses(ja_pass(1, None)), 22_050)
 
     [only] = marker.after(JA).words or ()
 
-    assert only.start == round(SAMPLES_PER_TOKEN / 22_050, 3)
-    assert only.end == round(4 * SAMPLES_PER_TOKEN / 22_050, 3)
+    expected_start, expected_end = 0.011, 0.046  # 11.6 ms and 46.4 ms, cut off
+    assert only.start == expected_start
+    assert only.end == expected_end
+
+
+def test_an_end_is_never_rounded_up_past_the_audio() -> None:
+    """WIRE-153: 765 samples at 22050 Hz are 34.7 ms; the end is 34 ms, not 35."""
+    marker = WordMarker("Ja.", ScriptedPasses(ja_pass(1, None)), 22_050)
+    sentence = Sentence(("j", "a", "."), (SAMPLES_PER_TOKEN,) * 5, 765)
+
+    [only] = marker.after(sentence).words or ()
+
+    assert only.end <= sentence.audio_samples / 22_050
 
 
 def test_a_word_never_ends_after_the_audio_of_its_sentence() -> None:

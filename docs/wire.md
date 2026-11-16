@@ -381,7 +381,7 @@ otherwise `null` means that sentence's marks failed.
 Unicode code points of `input` as received, unnormalized, `end_char` exclusive, so `text` is
 `input[start_char:end_char]`. `start` and `end` are seconds from the answer's first sample, continued across
 sentences, whatever the format: the header of a WAV does not count, and an Opus counts decoded time after its
-pre-skip. They are rounded to milliseconds, the starts of one answer increase, and no `end` lies after the audio.
+pre-skip. They are truncated to milliseconds, the starts of one answer increase, and no `end` lies after the audio.
 They are Piper's predicted durations for the word's sounds, not a measured onset; a cut at a played position is
 accurate to one Piper phoneme.
 

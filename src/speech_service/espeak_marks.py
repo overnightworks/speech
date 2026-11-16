@@ -50,7 +50,7 @@ _STRESS_MARKS: Final = str.maketrans("", "", "\u02c8\u02cc")
 _LANGUAGE_TAG: Final = re.compile(r"\([^)]+\)")
 # Piper's tokens that are no sound: the space and the clause terminators.
 _NOT_SOUNDS: Final = frozenset(" ,.:;?!")
-_MILLISECOND_DIGITS: Final = 3
+_MILLISECONDS: Final = 1_000
 
 
 class EventKind(IntEnum):
@@ -396,9 +396,9 @@ class WordMarker:
         return tuple(words)
 
     def _seconds(self, sample: int) -> float:
-        return round(
-            (self._elapsed_samples + sample) / self._sample_rate, _MILLISECOND_DIGITS
-        )
+        # Whole milliseconds, cut off: a rounded `end` could lie after the audio.
+        milliseconds = (self._elapsed_samples + sample) * _MILLISECONDS
+        return milliseconds // self._sample_rate / _MILLISECONDS
 
 
 @dataclass(slots=True)
