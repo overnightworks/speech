@@ -278,7 +278,11 @@ def _timed_chunks(
         )
         try:
             chunks = (
-                ogg_opus_chunks(synthesis, speaking.sample_rate)
+                ogg_opus_chunks(
+                    synthesis,
+                    speaking.sample_rate,
+                    marked=request.stream_format is StreamFormat.SSE,
+                )
                 if request.response_format is ResponseFormat.OPUS
                 else _wav_chunks(synthesis, speaking.sample_rate)
             )

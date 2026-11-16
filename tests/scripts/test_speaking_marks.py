@@ -68,7 +68,7 @@ def wav_events() -> list[dict[str, object]]:
 
 def opus_events() -> list[dict[str, object]]:
     pcm = [sine_pcm(SENTENCE_SECONDS, SPEAK_SAMPLE_RATE) for _ in WORDS]
-    pages = list(ogg_opus_chunks(pcm, SPEAK_SAMPLE_RATE))
+    pages = list(ogg_opus_chunks(pcm, SPEAK_SAMPLE_RATE, marked=True))
     return [
         delta(pages[0]),
         sentence_marks(0),
