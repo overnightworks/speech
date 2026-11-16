@@ -407,6 +407,7 @@ def test_orchestrator_serves_health_from_its_loading_runtime(
                 "name": VOICES[VoiceId.THORSTEN].name,
                 "languages": [*VOICES[VoiceId.THORSTEN].languages],
                 "takes_instructions": VOICES[VoiceId.THORSTEN].takes_instructions,
+                "gives_marks": {"words": False, "sounds": False},
                 "ready": False,
                 "sample_rate": 0,
             }

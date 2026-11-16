@@ -62,6 +62,7 @@ RequestField = Literal[
     "language",
     "instructions",
     "response_format",
+    "stream_format",
     "intent",
 ]
 _INPUT_WITHOUT_CONTENT: Final = "input must hold a letter or a digit"
@@ -90,6 +91,24 @@ _MEDIA_TYPES: Final = {
     ResponseFormat.WAV: "audio/wav",
     ResponseFormat.OPUS: "audio/ogg",
 }
+
+
+class StreamFormat(StrEnum):
+    """How a speak answer is framed: the audio bytes, or server-sent events."""
+
+    AUDIO = "audio"
+    SSE = "sse"
+
+
+_EVENT_STREAM_MEDIA_TYPE: Final = "text/event-stream"
+
+
+class AudioEventType(StrEnum):
+    """The `type` of each event of a `stream_format` `sse` answer."""
+
+    DELTA = "speech.audio.delta"
+    MARKS = "speech.audio.marks"
+    DONE = "speech.audio.done"
 
 
 class Language(StrEnum):
@@ -147,6 +166,10 @@ def _absent(value: object) -> bool:
     return value is None
 
 
+def _is_audio_stream(stream_format: StreamFormat) -> bool:
+    return stream_format is StreamFormat.AUDIO
+
+
 class SpeechRequest(BaseModel):
     """The body of `POST /v1/audio/speech`: OpenAI's fields and `language`."""
 
@@ -158,6 +181,7 @@ class SpeechRequest(BaseModel):
     input: str
     voice: VoiceId
     response_format: ResponseFormat
+    stream_format: StreamFormat = Field(StreamFormat.AUDIO, exclude_if=_is_audio_stream)
     language: Language | None = Field(None, exclude_if=_absent, validate_default=True)
     instructions: str | None = Field(None, exclude_if=_absent)
 
@@ -220,6 +244,13 @@ class SpeechRequest(BaseModel):
         """The language named, else the one language of the voice."""
         return self.language or VOICES[self.voice].languages[0]
 
+    @property
+    def media_type(self) -> str:
+        """The `Content-Type` of a 200: the audio's, or the event stream's."""
+        if self.stream_format is StreamFormat.SSE:
+            return _EVENT_STREAM_MEDIA_TYPE
+        return self.response_format.media_type
+
 
 class TranscriptionRequest(BaseModel):
     """The form fields of `POST /v1/audio/transcriptions` beside its `file`."""
@@ -239,8 +270,53 @@ class Transcription(BaseModel):
     text: str
 
 
+class Word(BaseModel):
+    """A word of the input and when it is spoken.
+
+    `start_char` and `end_char` count Unicode code points of the input as received,
+    `end_char` exclusive, so `text` is `input[start_char:end_char]`. `start` and
+    `end` are seconds from the answer's first sample.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    text: str
+    start_char: StrictInt
+    end_char: StrictInt
+    start: float
+    end: float
+
+
+class SentenceMarks(BaseModel):
+    """The marks of one voice sentence; `None` where they are not proven.
+
+    A kind whose `GivesMarks` flag is false is always `None`; otherwise `None`
+    means the sentence's marks could not be proven.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    words: tuple[Word, ...] | None = None
+    sounds: None = None
+
+
+def audio_event(event_type: AudioEventType, **fields: object) -> bytes:
+    """One server-sent event of a `sse` answer: a `data:` line, then a blank line."""
+    body = json.dumps({"type": event_type.value, **fields})
+    return f"data: {body}\n\n".encode("ascii")
+
+
+class GivesMarks(BaseModel):
+    """Which marks a voice gives with a `sse` answer."""
+
+    model_config = ConfigDict(frozen=True)
+
+    words: StrictBool
+    sounds: StrictBool
+
+
 class VoiceHealth(BaseModel):
-    """One offered voice: its model, name, languages, whether it can speak, its rate."""
+    """One offered voice: its model, name, languages, marks, whether it speaks."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -248,6 +324,7 @@ class VoiceHealth(BaseModel):
     name: str
     languages: tuple[Language, ...]
     takes_instructions: StrictBool
+    gives_marks: GivesMarks
     ready: StrictBool
     sample_rate: StrictInt
 

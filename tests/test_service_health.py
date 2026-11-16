@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from speech_provider_contract import QWEN_SAMPLE_RATE
 
-from speech_client.wire import VOICES, VoiceHealth, VoiceId
+from speech_client.wire import VOICES, GivesMarks, VoiceHealth, VoiceId
 from speech_service.service import Runtime
 from speech_service.voices import PIPER_VOICES
 from tests.support.fakes_support import (
@@ -35,6 +35,7 @@ def test_health_answers_while_models_are_not_ready() -> None:
                 "name": VOICES[VoiceId.THORSTEN].name,
                 "languages": [*VOICES[VoiceId.THORSTEN].languages],
                 "takes_instructions": VOICES[VoiceId.THORSTEN].takes_instructions,
+                "gives_marks": {"words": False, "sounds": False},
                 "ready": False,
                 "sample_rate": SPEAK_SAMPLE_RATE,
             }
@@ -80,6 +81,7 @@ def test_a_voice_that_is_not_loaded_reports_its_catalogue_facts_not_ready(
         name=VOICES[voice].name,
         languages=VOICES[voice].languages,
         takes_instructions=VOICES[voice].takes_instructions,
+        gives_marks=GivesMarks(words=False, sounds=False),
         ready=False,
         sample_rate=reported.sample_rate,
     )

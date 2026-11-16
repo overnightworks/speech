@@ -58,6 +58,7 @@ def voice_health(voice: VoiceId, *, ready: bool = True) -> dict[str, object]:
         "name": catalogue.name,
         "languages": [language.value for language in catalogue.languages],
         "takes_instructions": catalogue.takes_instructions,
+        "gives_marks": {"words": False, "sounds": False},
         "ready": ready,
         "sample_rate": 24000 if catalogue.model is SpeakingModel.QWEN else 22050,
     }
