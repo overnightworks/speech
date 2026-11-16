@@ -18,8 +18,10 @@ if TYPE_CHECKING:
     from av.container import OutputContainer
 
 _OPUS_RATE: Final = 48_000
-# The muxer holds pages for about 2 s unless told otherwise.
-_PAGE_DURATION_MICROSECONDS: Final = "100000"
+# The muxer holds pages for about 2 s unless told otherwise. It writes a page only
+# once the next packet would overfill it, so up to two pages of audio are unsent;
+# at 40 ms that stays under the 100 ms a sentence's marks may lead its audio.
+_PAGE_DURATION_MICROSECONDS: Final = "40000"
 _PCM_FORMAT: Final = "s16"
 _MONO: Final = "mono"
 

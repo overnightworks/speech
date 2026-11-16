@@ -108,7 +108,7 @@ def a_bridge(
     remaining = iter(passes)
 
     def synth(text: bytes, *_arguments: object) -> int:
-        if text not in {b"", espeak_marks.SETTLING_TEXT}:
+        if text != espeak_marks.SETTLING_TEXT:
             reported = next(remaining)
             native = (NativeEvent * (len(reported) + 1))()
             for slot, (kind, position, name) in zip(native, reported, strict=False):
