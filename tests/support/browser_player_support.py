@@ -22,6 +22,7 @@ from speech_service.service import Runtime
 from tests.support.browser_support import (
     CUT_LATE_PATH,
     CUT_PATH,
+    HEADED_PATH,
     HELD_PATH,
     SOUNDS_PATH,
     STREAMED_PATH,
@@ -84,6 +85,7 @@ OTHER = f"{SOUNDS_PATH}/other.wav"
 LONG = f"{SOUNDS_PATH}/long.wav"
 NATURAL = f"{SOUNDS_PATH}/natural.wav"
 HELD = f"{HELD_PATH}/short.wav"
+HEADED = f"{HEADED_PATH}/short.wav"
 CUT = f"{CUT_PATH}/short.wav"
 STREAMED = f"{STREAMED_PATH}/long.wav"
 CUT_LATE = f"{CUT_LATE_PATH}/long.wav"

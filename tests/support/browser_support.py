@@ -61,6 +61,9 @@ SOUNDS_PATH = "/sounds"
 HELD_PATH = "/held"
 STREAMED_PATH = "/streamed"
 STREAMED_LEAD_BYTES = 16 * 1024
+HEADED_PATH = "/headed"
+# What the headed route sends before it holds the samples back: the whole WAV header.
+HEADED_LEAD_BYTES = len(wav_header(SPEAK_SAMPLE_RATE))
 CUT_PATH = "/cut"
 CUT_LATE_PATH = "/cutlate"
 CHROMIUM_FLAGS = (
@@ -210,7 +213,7 @@ async def _until_disconnect(receive: Receive) -> None:
 def _install_sounds(
     app: FastAPI, service_url: str, side: AppSide, recordings: Path
 ) -> None:
-    """The routes that answer a sound: spoken, whole, held or streamed."""
+    """The routes that answer a sound: spoken, whole, held, headed or streamed."""
 
     @app.get(VOICE_PATH)
     async def voice(request: Request) -> Response:
@@ -246,6 +249,13 @@ def _install_sounds(
         side.record_request(request.url.path)
         return HeldResponse(
             (recordings / name).read_bytes(), side, lead=STREAMED_LEAD_BYTES
+        )
+
+    @app.get(f"{HEADED_PATH}/{{name}}")
+    async def headed(name: str, request: Request) -> Response:
+        side.record_request(request.url.path)
+        return HeldResponse(
+            (recordings / name).read_bytes(), side, lead=HEADED_LEAD_BYTES
         )
 
     _install_cut_sounds(app, side, recordings)

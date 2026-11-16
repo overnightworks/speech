@@ -30,7 +30,7 @@ export interface Player {
   /**
    * Holds the output at once and the sounds where they are: the volume ramps to 0 over a click-free edge of a few tens
    * of milliseconds, then the context suspends. The context's clock, every scheduled sound and each start the app read
-   * stay valid, a body that arrives meanwhile queues on the frozen clock, and no waiting sound starts until `resume()`.
+   * stay valid, a body that arrives meanwhile queues on the frozen clock, and no waiting sound starts until `resume()`; a streamed sound's first samples that arrive meanwhile report its start at `resume()`.
    * Idempotent; ignored while muted or closed; never throws.
    */
   pause(): void;
@@ -277,6 +277,9 @@ class PlayerRun {
       if (this.#playing?.stoppingAt === undefined) {
         this.#rampTo(1);
       }
+      if (this.#playing !== undefined) {
+        this.#announceStart(this.#playing);
+      }
       void this.#pump();
     }
   }
@@ -387,8 +390,19 @@ class PlayerRun {
     scheduled.sources.set(source, start);
     source.start(start);
     scheduled.chunks.push({ start, seconds: buffer.duration });
-    scheduled.item.begin(start, this.#context);
+    this.#announceStart(scheduled);
     return start;
+  }
+
+  /**
+   * Reports the sound's start once its first sample can be heard: not while the player is paused, where a streamed
+   * body's first samples queue until `resume()` and the sound may still end before it has played.
+   */
+  #announceStart(scheduled: Scheduled): void {
+    const first = scheduled.chunks[0];
+    if (first !== undefined && this.#flow === "running" && this.#context.state === "running") {
+      scheduled.item.begin(first.start, this.#context);
+    }
   }
 
   /** Back to back on the context's clock: each chunk starts where the one before ends. */
