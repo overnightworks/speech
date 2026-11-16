@@ -56,9 +56,10 @@ it. A session answers with an event about the audio or a transcript after its
 `session.created`, `session.updated` aside. A refusal `unavailable` or `busy`
 (its `Retry-After` is not waited for), `Unreachable`, a cut before
 `session.created`, an expired opening bound and a session that ended without
-answering each count as one failed attempt, and the bound runs on from the end
-of the first session that ended unanswered; any other refusal or `Malformed`
-ends the hearing with that outcome.
+answering each count as one failed attempt. A session that ended without
+answering does not restart the total time, which runs from the end of the last
+session that answered, or of the first session when none did. Any other refusal
+or `Malformed` ends the hearing with that outcome.
 
 The positions `events()` yields (`audio_start_ms`, `audio_end_ms`) lie on one
 audio timeline across reconnects: the service's position plus the audio of every

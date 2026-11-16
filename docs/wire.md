@@ -53,8 +53,9 @@ the reopening (attempts, a pause between them, a total time), counted from the e
 the open session and reset by a session that answered, one that sent an event about the
 audio or a transcript after its `session.created` (`session.updated` does not answer); a
 refusal `unavailable` or `busy`, `Unreachable`, a cut before `session.created`, an
-expired opening bound and a session that ended without answering each cost one attempt,
-and the total time runs on from the end of the first session that ended unanswered. Any
+expired opening bound and a session that ended without answering each cost one attempt.
+A session that ended without answering does not restart the total time, which runs from
+the end of the last session that answered, or of the first session when none did. Any
 other refusal or `Malformed` ends the hearing with it, and a bound that runs out ends it
 with `ReconnectFailed`. Audio is held under the caller's byte
 limit meanwhile (`NEEDED_HOLD_BYTES` covers the opening bound and a whole reconnect),
