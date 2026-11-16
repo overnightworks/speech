@@ -51,11 +51,18 @@ and no `failed` item, is reopened at the same origin with the same
 `session.update`: `Reconnected` reports why and which stretch of audio went
 unheard, and the new session's items start afresh. Any other end, and any end
 before the first success, ends the hearing as it did. `RECONNECT_BOUND` bounds
-the reopening from the end of the open session; only a successful opening
-resets it. A refusal `unavailable` or `busy` (its `Retry-After` is not waited
-for), `Unreachable`, a cut before `session.created` and an expired opening bound
-each count as one failed attempt; any other refusal or `Malformed` ends the
-hearing with that outcome.
+the reopening from the end of the open session; a session that answered resets
+it. A session answers with an event about the audio or a transcript after its
+`session.created`; a repeated `session.created` and `session.updated` do not.
+A refusal `unavailable` or `busy` (its `Retry-After` is not waited for),
+`Unreachable`, a cut before `session.created`, an expired opening bound and a
+session that ended without answering each count as one failed attempt. A
+session that ended without answering does not restart the total time, which
+runs from the end of the last session that answered, or of the first session
+when none did, less the time the sessions since stayed open. No timer of it runs
+while a session is open, so a reopened session that stays open, silent or not,
+runs to the hearing deadline. Any other
+refusal or `Malformed` ends the hearing with that outcome.
 
 The positions `events()` yields (`audio_start_ms`, `audio_end_ms`) lie on one
 audio timeline across reconnects: the service's position plus the audio of every
@@ -91,11 +98,17 @@ from pydantic import ValidationError
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import (
     ConnectionClosed,
-    InvalidHandshake,
     InvalidMessage,
     InvalidStatus,
 )
 
+from speech_client._failures import (
+    FAILURES,
+    SourceFailedError,
+    failure_outcome,
+    left_under_cancellation,
+    settled,
+)
 from speech_client._traceparent import traceparent_headers
 from speech_client._transport import base_origin
 from speech_client.outcomes import (
@@ -117,6 +130,7 @@ from speech_client.realtime_wire import (
     SessionCreated,
     SessionInput,
     SessionUpdate,
+    SessionUpdated,
     SpeechStarted,
     SpeechStopped,
     TranscriptCompleted,
@@ -245,14 +259,6 @@ class _Connect(connect):
         return exc
 
 
-class _SourceFailedError(Exception):
-    """Carries an exception of the token source past the outcome mapping."""
-
-    def __init__(self, original: Exception) -> None:
-        super().__init__()
-        self.original = original
-
-
 @dataclass(slots=True)
 class _Interrupted:
     """The reconnect under way: why, from when, and how many attempts failed."""
@@ -270,11 +276,14 @@ class _Wire:
     offset_ms: int
     last_turn_end_ms: int
     opened: asyncio.Event = field(default_factory=asyncio.Event)
+    opened_at: float = 0.0
     close_code: int | None = None
     failed_sent: bool = False
     stopped: dict[str, int] = field(default_factory=dict)
     ended: HearingOutcome | None = None
     opening: asyncio.Timeout | None = None
+    carried: _Interrupted | None = None
+    answered: bool = False
 
 
 def realtime_url(base_url: str) -> str:
@@ -308,31 +317,18 @@ def _refusal_code(body: bytes) -> RefusalCode | None:
         return None
 
 
-# In order: a timeout is an `OSError` too. A dropped handshake is the one
-# `InvalidMessage` that is `Cut`; `_wire_session` handles it first.
-_FAILURE_OUTCOMES: tuple[tuple[type[Exception], HearingOutcome], ...] = (
-    (TimeoutError, PastDeadline()),
-    (InvalidHandshake, Malformed()),
-    (ConnectionClosed, Cut()),
-    (ServerEventError, Malformed()),
-    (OSError, Unreachable()),
-)
-_FAILURES = tuple(kind for kind, _ in _FAILURE_OUTCOMES)
-
-
-def _failure_outcome(failure: BaseException) -> HearingOutcome:
-    return next(
-        outcome for kind, outcome in _FAILURE_OUTCOMES if isinstance(failure, kind)
-    )
-
-
 def _timeout_outcome(
     timed_out: TimeoutError, ended: HearingOutcome | None, opening: asyncio.Timeout
 ) -> HearingOutcome:
     # A bound that cuts the polite close of an end keeps that end.
     if ended is not None:
         return ended
-    return Unreachable() if opening.expired() else _failure_outcome(timed_out)
+    return Unreachable() if opening.expired() else failure_outcome(timed_out)
+
+
+def _answers(event: ServerEvent) -> bool:
+    """Whether an event after `session.created` is about the audio or a transcript."""
+    return not isinstance(event, SessionCreated | SessionUpdated)
 
 
 def accept_first_event(first_event: ServerEvent, *, bound_expired: bool) -> None:
@@ -348,39 +344,11 @@ def accept_first_event(first_event: ServerEvent, *, bound_expired: bool) -> None
         raise TimeoutError
 
 
-def _left_under_cancellation(exception: BaseException | None) -> bool:
-    # A cancel the caller's own code turned into another exception still counts.
-    task = asyncio.current_task()
-    return isinstance(exception, asyncio.CancelledError) or (
-        task is not None and task.cancelling() > 0
-    )
-
-
-async def _settled(*tasks: asyncio.Task[object]) -> None:
-    """Cancel `tasks` and wait until each is done, retrieving every result.
-
-    A failure outside the outcome mapping is raised, even over a cancel that
-    landed meanwhile, as in a task group; otherwise that cancel is raised again.
-    The cancel count is left as it is, for `asyncio.timeout` and the caller.
-    """
-    for task in tasks:
-        task.cancel()
-    try:
-        await asyncio.wait(tasks)
-    except asyncio.CancelledError:
-        await _settled(*tasks)
-        raise
-    failures = [task.exception() for task in tasks if not task.cancelled()]
-    for failure in failures:
-        if failure is not None and not isinstance(failure, _FAILURES):
-            raise failure
-
-
 async def _abandoned(opening: asyncio.Task[ClientConnection | NoToken]) -> None:
     # A bound or an end that won the race beats what the token source raised.
     try:
-        with contextlib.suppress(_SourceFailedError):
-            await _settled(opening)
+        with contextlib.suppress(SourceFailedError):
+            await settled(opening)
     finally:
         if not opening.cancelled() and opening.exception() is None:
             opened = opening.result()
@@ -471,7 +439,7 @@ class HearingSession:
         """Close the connection and wait until the session is gone."""
         assert self._runner is not None  # noqa: S101 - entered
         assert self._end is not None  # noqa: S101 - entered
-        if _left_under_cancellation(exception):
+        if left_under_cancellation(exception):
             self._runner.cancel()
         elif not self._end.done():
             self._end.set_result(Closed())
@@ -513,7 +481,7 @@ class HearingSession:
         except asyncio.CancelledError:
             self.outcome = Closed()
             raise
-        except _SourceFailedError as failed:
+        except SourceFailedError as failed:
             source_failure = failed.original
         finally:
             # Wakes a caller waiting in `events()`; when an event is still queued,
@@ -597,7 +565,10 @@ class HearingSession:
             cause = self._reopening_cause(outcome, wire)
             if cause is None:
                 return outcome
-            self._interrupted = _Interrupted(cause, wire.last_turn_end_ms, now)
+            interrupted = self._interruption_by(cause, wire, now)
+            if interrupted.failed_attempts >= self._bound.attempts:
+                return ReconnectFailed()
+            self._interrupted = interrupted
             return None
         interrupted = self._interrupted
         if interrupted is None or not _is_failed_attempt(outcome):
@@ -606,6 +577,30 @@ class HearingSession:
         if interrupted.failed_attempts >= self._bound.attempts:
             return ReconnectFailed()
         return None
+
+    @staticmethod
+    def _interruption_by(
+        cause: ReconnectCause, wire: _Wire, now: float
+    ) -> _Interrupted:
+        """The reconnect a session's end starts, or the one it keeps running.
+
+        A session that answered starts a fresh one. One that did not costs an
+        attempt on top of those the reconnect it was opened by had spent, from
+        that reconnect's start moved on by the time the session was open, so a
+        service that drops every session runs the bound out while the time a
+        session stayed open never counts against it.
+        """
+        if wire.answered:
+            return _Interrupted(cause, wire.last_turn_end_ms, now)
+        carried = wire.carried or _Interrupted(
+            cause, wire.last_turn_end_ms, wire.opened_at
+        )
+        return _Interrupted(
+            cause,
+            carried.unheard_start_ms,
+            carried.at + (now - wire.opened_at),
+            carried.failed_attempts + 1,
+        )
 
     async def _paused(self, end: asyncio.Future[HearingOutcome], now: float) -> None:
         """Wait the pause after a failed attempt, or until the hearing ends."""
@@ -652,8 +647,8 @@ class HearingSession:
             return _refusal_outcome(refused)
         except InvalidMessage as unparsed:
             return Cut() if isinstance(unparsed.__cause__, EOFError) else Malformed()
-        except _FAILURES as failure:
-            return _failure_outcome(failure)
+        except FAILURES as failure:
+            return failure_outcome(failure)
 
     async def _open(
         self, end: asyncio.Future[HearingOutcome]
@@ -673,7 +668,7 @@ class HearingSession:
         try:
             tokens = await self._token_source()
         except Exception as failure:  # noqa: BLE001 - re-raised unchanged by `_run`
-            raise _SourceFailedError(failure) from None
+            raise SourceFailedError(failure) from None
         if tokens is None:
             return NoToken()
         return await _Connect(
@@ -707,12 +702,12 @@ class HearingSession:
                 if writer in done and writer.exception() is not None:
                     break
         finally:
-            await _settled(reader, writer)
+            await settled(reader, writer)
         for child in (reader, writer):
             if not child.cancelled() and (failure := child.exception()) is not None:
                 if isinstance(failure, ConnectionClosed):
                     wire.close_code = socket.close_code
-                return _failure_outcome(failure)
+                return failure_outcome(failure)
         return end.result() if reader.cancelled() else Closed()
 
     async def _read(
@@ -722,11 +717,14 @@ class HearingSession:
             if not isinstance(message, str):
                 raise ServerEventError
             event = parse_server_event(message)
-            if not wire.opened.is_set():
+            if wire.opened.is_set():
+                wire.answered = wire.answered or _answers(event)
+            else:
                 accept_first_event(event, bound_expired=opening.expired())
                 # The first event proves the session is open, before a slow caller
                 # can hold the queue.
                 opening.reschedule(None)
+                wire.opened_at = asyncio.get_running_loop().time()
                 wire.opened.set()
                 await self._announce_reconnect(wire)
             await self._received.put(self._on_timeline(event, wire))
@@ -734,6 +732,7 @@ class HearingSession:
     async def _announce_reconnect(self, wire: _Wire) -> None:
         interrupted, self._interrupted = self._interrupted, None
         if interrupted is not None:
+            wire.carried = interrupted
             await self._received.put(
                 Reconnected(
                     interrupted.cause, interrupted.unheard_start_ms, wire.offset_ms

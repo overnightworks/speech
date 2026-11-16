@@ -24,6 +24,7 @@ from packages.client.tests.support.reconnect_support import (
     outcome_of,
 )
 from packages.client.tests.support.scripted_hearing_support import (
+    answers_then_drains,
     drains,
     ends_in_order,
     scripted,
@@ -220,7 +221,7 @@ def test_a_source_that_stalls_at_the_reopening_counts_every_attempt_as_failed() 
                 await asyncio.Event().wait()
             return await fixed_tokens()
 
-        async with scripted(drains) as (port, _):
+        async with scripted(answers_then_drains) as (port, _):
             outcome = (
                 await hear(
                     port, token_source=stalls_from_the_second_call, opening_seconds=0.1
