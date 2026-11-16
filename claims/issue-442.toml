@@ -1,7 +1,0 @@
-claim_id = "031ee80d85f84d06abb08dccdde28469"
-agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
-role = "builder"
-base = "c93d1efdae7362054f3dbfde209aa6a9634bb505"
-branch = "claude/issue-442-release-host-pins-docs-tests"
-scope = ["README.md", "tests/scripts/test_check_release.py"]
-opened_commit = "2b016d687aae68d0b97bd132a00e5bbe367efac3"
