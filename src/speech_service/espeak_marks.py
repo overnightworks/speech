@@ -521,7 +521,8 @@ def _sounds_of(sentence: Sentence) -> list[_OpenSound]:
         elif current is not None and (joining or _extends_a_sound(token)):
             current.ipa += token
             current.end = end
-            stress_begin, joining = None, token == _TIE_BAR
+            stress_begin = None
+            joining = token == _TIE_BAR or (joining and _extends_a_sound(token))
         else:
             opening = begin if stress_begin is None else stress_begin
             current = _OpenSound(token, opening, end)

@@ -450,6 +450,10 @@ def heard(ipa: str, begin: float, end: float) -> Sound:
             [heard("t\u0361\u0283", 0.256, 1.024), heard("a", 1.024, 1.28)],
         ),
         (
+            ["t", TIE_BAR, "\u02d0", "\u0283"],
+            [heard("t\u0361\u02d0\u0283", 0.256, 1.28)],
+        ),
+        (
             ["a", "\u02d0", "b"],
             [heard("a\u02d0", 0.256, 0.768), heard("b", 0.768, 1.024)],
         ),
@@ -471,6 +475,7 @@ def heard(ipa: str, begin: float, end: float) -> Sound:
     ids=[
         "two bases",
         "tie bar joins the next base",
+        "tie bar joins the next base past a length mark",
         "length mark",
         "half-length mark",
         "a combining mark is composed",
