@@ -9,7 +9,6 @@ import pytest
 from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 
 from speech_client.wire import VOICES, SentenceMarks, SpeakingModel, VoiceId, Word
-from speech_service import speaking as speaking_module
 from speech_service.config import Settings
 from speech_service.espeak_marks import EspeakEvent, EventKind, SentencePass
 from speech_service.speaking import PiperSpeaking, gives_marks, speaking_for_voice
@@ -114,32 +113,27 @@ class StubEvents:
 
 
 def a_loaded_engine(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    events: StubEvents | None,
+    tmp_path: Path, events: StubEvents | None
 ) -> tuple[PiperSpeaking, StubVoice]:
     voice = StubVoice()
-    monkeypatch.setitem(
-        sys.modules,
-        "piper",
-        SimpleNamespace(PiperVoice=SimpleNamespace(load=lambda *_a, **_k: voice)),
-    )
-    monkeypatch.setattr(speaking_module, "load_espeak_events", lambda _voice: events)
     (tmp_path / "local-voice.onnx").touch()
     (tmp_path / "local-voice.onnx.json").touch()
-    engine = PiperSpeaking("local-voice", tmp_path)
+    engine = PiperSpeaking(
+        "local-voice",
+        tmp_path,
+        load_voice=lambda _onnx: voice,  # type: ignore[arg-type,return-value]
+        load_events=lambda _voice: events,  # type: ignore[arg-type,return-value]
+    )
     engine.load()
     return engine, voice
 
 
 @pytest.mark.parametrize("passes", [True, False])
 def test_a_piper_voice_gives_word_marks_exactly_when_its_load_check_passed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, passes: bool
+    tmp_path: Path, *, passes: bool
 ) -> None:
     """WIRE-122, WIRE-156: `gives_marks.words` is true only after the load check."""
-    engine, _voice = a_loaded_engine(
-        tmp_path, monkeypatch, StubEvents() if passes else None
-    )
+    engine, _voice = a_loaded_engine(tmp_path, StubEvents() if passes else None)
 
     assert gives_marks(engine).words is passes
     assert gives_marks(engine).sounds is False
@@ -152,10 +146,10 @@ def test_a_voice_that_is_not_loaded_gives_no_marks() -> None:
 
 
 def test_a_piper_sentence_is_its_audio_then_its_words_on_one_clock(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """WIRE-153: each sentence's marks follow its audio; times continue."""
-    engine, _voice = a_loaded_engine(tmp_path, monkeypatch, StubEvents())
+    engine, _voice = a_loaded_engine(tmp_path, StubEvents())
 
     items = list(engine.marked_chunks("Ja. Ja.", "de"))
 
@@ -169,10 +163,10 @@ def test_a_piper_sentence_is_its_audio_then_its_words_on_one_clock(
 
 
 def test_a_piper_voice_whose_words_are_off_still_marks_each_sentence_as_null(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """WIRE-152: one marks event per sentence; a kind not given is `null`."""
-    engine, _voice = a_loaded_engine(tmp_path, monkeypatch, None)
+    engine, _voice = a_loaded_engine(tmp_path, None)
 
     items = list(engine.marked_chunks("Ja. Ja.", "de"))
 
@@ -180,11 +174,9 @@ def test_a_piper_voice_whose_words_are_off_still_marks_each_sentence_as_null(
     assert items[1] == items[3] == SentenceMarks()
 
 
-def test_the_plain_audio_asks_piper_for_no_alignment(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_plain_audio_asks_piper_for_no_alignment(tmp_path: Path) -> None:
     """The audio path pays nothing for marks: no alignment, no espeak pass."""
-    engine, voice = a_loaded_engine(tmp_path, monkeypatch, StubEvents())
+    engine, voice = a_loaded_engine(tmp_path, StubEvents())
 
     list(engine.pcm_chunks("Ja. Ja.", "de"))
     list(engine.marked_chunks("Ja. Ja.", "de"))

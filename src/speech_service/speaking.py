@@ -34,7 +34,7 @@ from speech_service.provider_process import (
 from speech_service.voices import piper_voice_paths
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
     from pathlib import Path
 
     from piper import AudioChunk, PiperVoice
@@ -60,29 +60,43 @@ def gives_marks(speaking: object) -> GivesMarks:
     return GivesMarks(words=words, sounds=False)
 
 
+def load_piper_voice(onnx: Path) -> PiperVoice:
+    """The voice of an ONNX file, with the alignment output the word marks need."""
+    from piper import PiperVoice
+
+    return PiperVoice.load(onnx, include_alignments=True)
+
+
 class PiperSpeaking:
     """One Piper voice, loaded once and held for the process."""
 
-    def __init__(self, model_name: str, cache: Path) -> None:
-        """Remember the catalogue name and where ONNX files are kept."""
+    def __init__(
+        self,
+        model_name: str,
+        cache: Path,
+        *,
+        load_voice: Callable[[Path], PiperVoice] = load_piper_voice,
+        load_events: Callable[[PiperVoice], EspeakEvents | None] = load_espeak_events,
+    ) -> None:
+        """Remember the catalogue name, where ONNX files are kept and how to load."""
         self.model_name = model_name
         self.sample_rate = 0
         self.ready = False
         self.gives_word_marks = False
         self._cache = cache
+        self._load_voice = load_voice
+        self._load_events = load_events
         self._voice: PiperVoice | None = None
         self._events: EspeakEvents | None = None
 
     def load(self) -> None:
         """Load the exact local Piper artifacts and keep them resident."""
-        from piper import PiperVoice
-
         onnx, metadata = piper_voice_paths(self._cache, self.model_name)
         if not onnx.is_file() or not metadata.is_file():
             raise FileNotFoundError
-        voice = PiperVoice.load(onnx, include_alignments=True)
+        voice = self._load_voice(onnx)
         self._voice = voice
-        self._events = load_espeak_events(voice)
+        self._events = self._load_events(voice)
         self.gives_word_marks = self._events is not None
         self.sample_rate = voice.config.sample_rate
         self.ready = True

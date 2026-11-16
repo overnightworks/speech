@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import logging
 import subprocess
@@ -17,6 +18,8 @@ import pytest
 from speech_service import espeak_marks
 from speech_service.espeak_marks import (
     EspeakEvents,
+    EventKind,
+    NativeEvent,
     Sentence,
     WordMarker,
     WordsOffReason,
@@ -24,7 +27,7 @@ from speech_service.espeak_marks import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from piper import PiperVoice
 
@@ -41,6 +44,13 @@ before = voice.phonemize(sys.argv[2])
 loaded(voice)
 print(json.dumps([before, voice.phonemize(sys.argv[2])]))
 """
+
+# What a bridge reports per pass: (kind, 1-based position, name) of each event.
+type ScriptedEvents = Sequence[tuple[EventKind, int, bytes]]
+SELF_TEST_PASSES: list[ScriptedEvents] = [
+    [(EventKind.WORD, 1, b""), (EventKind.WORD, 5, b""), (EventKind.SENTENCE, 10, b"")],
+    [(EventKind.WORD, 10, b"")],
+]
 
 
 def a_voice(espeak_voice: str, *, outputs: int = OUTPUTS_WITH_ALIGNMENT) -> PiperVoice:
@@ -81,8 +91,42 @@ def words_of(
     return texts
 
 
-def loaded(voice: PiperVoice) -> EspeakEvents:
-    events = load_espeak_events(voice)
+def a_bridge(
+    passes: Sequence[ScriptedEvents],
+    *,
+    version: str = espeak_marks.ESPEAK_VERSION,
+    refusing: str | None = None,
+) -> Callable[[str], ctypes.CDLL]:
+    """An opener of a library whose passes report `passes`, one per `espeak_Synth`."""
+    library = MagicMock()
+    library.espeak_Info.return_value = version.encode("ascii")
+    library.espeak_ng_InitializeOutput.return_value = 0
+    library.espeak_ng_SetPhonemeEvents.return_value = 0
+    if refusing is not None:
+        getattr(library, refusing).return_value = 1
+    callbacks: list[Callable[..., int]] = []
+    remaining = iter(passes)
+
+    def synth(text: bytes, *_arguments: object) -> int:
+        if text:
+            reported = next(remaining)
+            native = (NativeEvent * (len(reported) + 1))()
+            for slot, (kind, position, name) in zip(native, reported, strict=False):
+                slot.type = kind
+                slot.text_position = position
+                slot.id.name = name
+            callbacks[-1](None, 0, native)
+        return 0
+
+    library.espeak_SetSynthCallback.side_effect = callbacks.append
+    library.espeak_Synth.side_effect = synth
+    return lambda _path: library
+
+
+def loaded(
+    voice: PiperVoice, open_library: Callable[[str], ctypes.CDLL] = ctypes.CDLL
+) -> EspeakEvents:
+    events = load_espeak_events(voice, open_library)
     assert events is not None
     return events
 
@@ -159,43 +203,52 @@ def test_the_words_of_real_sentences_are_the_spans_of_the_input(
 
 
 @pytest.mark.parametrize(
-    ("reason", "arrange"),
+    ("reason", "bridge"),
     [
-        (
-            WordsOffReason.VERSION,
-            lambda mp: mp.setattr(espeak_marks, "ESPEAK_VERSION", "0"),
-        ),
+        (WordsOffReason.VERSION, a_bridge(SELF_TEST_PASSES, version="0")),
         (
             WordsOffReason.SELF_TEST,
-            lambda mp: mp.setattr(espeak_marks, "_SELF_TEST_PASSES", (((2,), None),)),
-        ),
-        (
-            WordsOffReason.SELF_TEST,
-            lambda mp: mp.setattr(
-                espeak_marks, "_SELF_TEST_PASSES", (((1, 5), 10), ((2,), None))
+            a_bridge(
+                [
+                    [(EventKind.WORD, 2, b""), *SELF_TEST_PASSES[0][1:]],
+                    SELF_TEST_PASSES[1],
+                ]
             ),
         ),
         (
             WordsOffReason.SELF_TEST,
-            lambda mp: mp.setattr(
-                espeak_marks,
-                "_SELF_TEST_PASSES",
-                (((1, 5), 10), ((10,), None), ((10,), None)),
+            a_bridge([SELF_TEST_PASSES[0], [(EventKind.WORD, 11, b"")]]),
+        ),
+        (
+            WordsOffReason.SELF_TEST,
+            a_bridge([SELF_TEST_PASSES[0][:2], SELF_TEST_PASSES[1]]),
+        ),
+        (
+            WordsOffReason.SELF_TEST,
+            a_bridge(
+                [
+                    SELF_TEST_PASSES[0],
+                    [*SELF_TEST_PASSES[1], (EventKind.SENTENCE, 15, b"")],
+                ]
             ),
         ),
+    ],
+    ids=[
+        "version",
+        "word at another position",
+        "second sentence at another position",
+        "no second sentence announced",
+        "a sentence announced after the last",
     ],
 )
 def test_an_unexpected_bridge_switches_words_off_once_and_loudly(
     reason: WordsOffReason,
-    arrange: Callable[[pytest.MonkeyPatch], None],
-    monkeypatch: pytest.MonkeyPatch,
+    bridge: Callable[[str], ctypes.CDLL],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """WIRE-156: a failed load check is one error line; the audio plays on."""
-    arrange(monkeypatch)
-
     with caplog.at_level(logging.ERROR):
-        events = load_espeak_events(a_voice("en-us"))
+        events = load_espeak_events(a_voice("en-us"), bridge)
 
     assert events is None
     assert [record.reason for record in caplog.records] == [reason.value]  # type: ignore[attr-defined]
@@ -235,32 +288,19 @@ def test_a_lock_that_piper_does_not_have_switches_words_off(
 @pytest.mark.parametrize(
     "refusing", ["espeak_ng_InitializeOutput", "espeak_ng_SetPhonemeEvents"]
 )
-def test_a_bridge_that_refuses_its_setup_switches_words_off(
-    refusing: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    library = MagicMock()
-    library.espeak_Info.return_value = espeak_marks.ESPEAK_VERSION.encode("ascii")
-    library.espeak_ng_InitializeOutput.return_value = 0
-    library.espeak_ng_SetPhonemeEvents.return_value = 0
-    getattr(library, refusing).return_value = 1
-    monkeypatch.setattr(espeak_marks.ctypes, "CDLL", lambda _path: library)
+def test_a_bridge_that_refuses_its_setup_switches_words_off(refusing: str) -> None:
+    bridge = a_bridge(SELF_TEST_PASSES, refusing=refusing)
 
-    assert load_espeak_events(a_voice("en-us")) is None
+    assert load_espeak_events(a_voice("en-us"), bridge) is None
 
 
-def test_a_callback_that_fails_nulls_its_sentence_and_every_later_one(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_pass_whose_callback_fails_gives_no_pass() -> None:
     """WIRE-155: a failure of the callback is caught, and the audio would go on."""
     voice = a_voice("de")
-    events = loaded(voice)
+    not_utf8 = [(EventKind.WORD, 1, b""), (EventKind.PHONEME, 1, b"\xff")]
+    events = loaded(voice, a_bridge([*SELF_TEST_PASSES, not_utf8]))
 
-    def failing(*_arguments: object) -> int:
-        raise RuntimeError
-
-    monkeypatch.setattr(espeak_marks._Collector, "_collect", failing)  # noqa: SLF001
-
-    assert words_of(voice, events, "Ja. Nein.") == [None, None]
+    assert events.read("Ja.", "de", 1) is None
 
 
 def test_a_voice_espeak_does_not_know_gives_no_pass(

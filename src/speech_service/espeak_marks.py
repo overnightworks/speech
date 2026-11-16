@@ -33,8 +33,9 @@ logger = logging.getLogger(__name__)
 ESPEAK_VERSION: Final = "1.52.0.1"
 _SELF_TEST_TEXT: Final = "One two. Three."
 _SELF_TEST_VOICE: Final = "en"
-# Per self-test pass: the positions of its words, and where the next sentence starts.
-_SELF_TEST_PASSES: Final = (((1, 5), 10), ((10,), None))
+# Per self-test pass: where it starts, the positions of its words, and where the
+# next sentence starts.
+_SELF_TEST_PASSES: Final = ((1, (1, 5), 10), (10, (10,), None))
 _OUTPUTS_WITH_ALIGNMENT: Final = 2
 
 _SYNCHRONOUS_OUTPUT: Final = 1
@@ -114,7 +115,9 @@ class _EventId(ctypes.Union):
     _fields_ = (("number", ctypes.c_int), ("name", ctypes.c_char * 8))
 
 
-class _Event(ctypes.Structure):
+class NativeEvent(ctypes.Structure):
+    """One event of espeak-ng's callback, in the layout of the bridge's build."""
+
     _fields_ = (
         ("type", ctypes.c_int),
         ("unique_identifier", ctypes.c_uint),
@@ -128,7 +131,10 @@ class _Event(ctypes.Structure):
 
 
 _Callback = ctypes.CFUNCTYPE(
-    ctypes.c_int, ctypes.POINTER(ctypes.c_short), ctypes.c_int, ctypes.POINTER(_Event)
+    ctypes.c_int,
+    ctypes.POINTER(ctypes.c_short),
+    ctypes.c_int,
+    ctypes.POINTER(NativeEvent),
 )
 
 
@@ -146,7 +152,9 @@ class _Collector:
         self.failed = False
         self._saw_word = False
 
-    def __call__(self, _wave: object, _samples: int, events: Sequence[_Event]) -> int:
+    def __call__(
+        self, _wave: object, _samples: int, events: Sequence[NativeEvent]
+    ) -> int:
         # An exception cannot unwind through the C caller; the pass reads `failed`.
         try:
             return self._collect(events)
@@ -154,7 +162,7 @@ class _Collector:
             self.failed = True
             return _ABORT
 
-    def _collect(self, events: Sequence[_Event]) -> int:
+    def _collect(self, events: Sequence[NativeEvent]) -> int:
         index = 0
         while events[index].type != _LIST_TERMINATED:
             event = events[index]
@@ -238,15 +246,19 @@ class EspeakEvents:
         )
 
 
-def load_espeak_events(voice: PiperVoice) -> EspeakEvents | None:
+def load_espeak_events(
+    voice: PiperVoice, open_library: Callable[[str], ctypes.CDLL] = ctypes.CDLL
+) -> EspeakEvents | None:
     """The passes of `voice`'s espeak-ng, or `None` with an error line if words are off.
+
+    `open_library` opens the bridge's shared library from its path.
 
     Words are off when the voice gives no alignment, or the bridge is not the one
     this module was written against, or a known text does not give its known
     positions. The audio of the voice is not affected.
     """
     try:
-        return _checked(voice)
+        return _checked(voice, open_library)
     except _WordsOffError as off:
         logger.error(  # noqa: TRY400 - a reason code names it; there is no trace to add
             "marks.words_off", extra={"reason": off.reason.value}
@@ -254,7 +266,9 @@ def load_espeak_events(voice: PiperVoice) -> EspeakEvents | None:
         return None
 
 
-def _checked(voice: PiperVoice) -> EspeakEvents:
+def _checked(
+    voice: PiperVoice, open_library: Callable[[str], ctypes.CDLL]
+) -> EspeakEvents:
     try:
         if len(voice.session.get_outputs()) != _OUTPUTS_WITH_ALIGNMENT:
             raise _WordsOffError(WordsOffReason.ALIGNMENT_OUTPUT)
@@ -266,7 +280,8 @@ def _checked(voice: PiperVoice) -> EspeakEvents:
             raise _WordsOffError(WordsOffReason.LOCK)
         # Piper initializes espeak on its first phonemize; the passes need it.
         voice.phonemize(_SELF_TEST_TEXT)
-        library = _bridge_library(espeakbridge.__file__)
+        # ctypes.CDLL releases the GIL while espeak speaks: the event loop is not held.
+        library = _configured_bridge(open_library(espeakbridge.__file__))
     except (ImportError, AttributeError, OSError) as error:
         raise _WordsOffError(WordsOffReason.LIBRARY) from error
     if library.espeak_Info(None) != ESPEAK_VERSION.encode("ascii"):
@@ -277,9 +292,7 @@ def _checked(voice: PiperVoice) -> EspeakEvents:
     return events
 
 
-def _bridge_library(path: str) -> ctypes.CDLL:
-    # CDLL releases the GIL while espeak speaks, so the event loop is never held up.
-    library = ctypes.CDLL(path)
+def _configured_bridge(library: ctypes.CDLL) -> ctypes.CDLL:
     library.espeak_Info.restype = ctypes.c_char_p
     library.espeak_Info.argtypes = (ctypes.c_void_p,)
     library.espeak_ng_InitializeOutput.argtypes = (
@@ -308,10 +321,7 @@ def _bridge_library(path: str) -> ctypes.CDLL:
 
 
 def _gives_the_known_positions(events: EspeakEvents) -> bool:
-    start: int | None = 1
-    for word_positions, next_start in _SELF_TEST_PASSES:
-        if start is None:
-            return False
+    for start, word_positions, next_start in _SELF_TEST_PASSES:
         result = events.read(_SELF_TEST_TEXT, _SELF_TEST_VOICE, start)
         if result is None or result.next_start != next_start:
             return False
@@ -320,7 +330,6 @@ def _gives_the_known_positions(events: EspeakEvents) -> bool:
         )
         if positions != word_positions:
             return False
-        start = next_start
     return True
 
 
