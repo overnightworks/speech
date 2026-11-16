@@ -251,11 +251,15 @@ class PlayerRun {
 
   /** Waits on the context's clock, where the page's timers lag, until it passes `time`; false if a later fade overtook it. */
   async #untilContextTime(time: number, fade: number): Promise<boolean> {
-    while (fade === this.#fade && this.#context.state === "running" && this.#context.currentTime < time) {
-      const seconds = time - this.#context.currentTime;
-      await new Promise((resolve) => setTimeout(resolve, seconds * MILLISECONDS_PER_SECOND));
+    if (fade !== this.#fade) {
+      return false;
     }
-    return fade === this.#fade;
+    const seconds = time - this.#context.currentTime;
+    if (this.#context.state !== "running" || seconds <= 0) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, seconds * MILLISECONDS_PER_SECOND));
+    return this.#untilContextTime(time, fade);
   }
 
   async #suspendOnceFaded(endsAt: number, fade: number): Promise<void> {
