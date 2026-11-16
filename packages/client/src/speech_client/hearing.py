@@ -55,8 +55,8 @@ the reopening from the end of the open session; any other successful opening
 resets it. A refusal `unavailable` or `busy` (its `Retry-After` is not waited
 for), `Unreachable`, a cut before `session.created`, an expired opening bound
 and a session that ended with audio offered to it and no event after its
-`session.created` each count as one failed attempt; any other refusal or `Malformed` ends the
-hearing with that outcome.
+`session.created` each count as one failed attempt; any other refusal or
+`Malformed` ends the hearing with that outcome.
 
 The positions `events()` yields (`audio_start_ms`, `audio_end_ms`) lie on one
 audio timeline across reconnects: the service's position plus the audio of every
