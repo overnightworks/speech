@@ -51,10 +51,11 @@ and no `failed` item, is reopened at the same origin with the same
 `session.update`: `Reconnected` reports why and which stretch of audio went
 unheard, and the new session's items start afresh. Any other end, and any end
 before the first success, ends the hearing as it did. `RECONNECT_BOUND` bounds
-the reopening from the end of the open session; only a successful opening
+the reopening from the end of the open session; any other successful opening
 resets it. A refusal `unavailable` or `busy` (its `Retry-After` is not waited
-for), `Unreachable`, a cut before `session.created` and an expired opening bound
-each count as one failed attempt; any other refusal or `Malformed` ends the
+for), `Unreachable`, a cut before `session.created`, an expired opening bound
+and a session that ended with audio offered to it and no event after its
+`session.created` each count as one failed attempt; any other refusal or `Malformed` ends the
 hearing with that outcome.
 
 The positions `events()` yields (`audio_start_ms`, `audio_end_ms`) lie on one
@@ -275,6 +276,9 @@ class _Wire:
     stopped: dict[str, int] = field(default_factory=dict)
     ended: HearingOutcome | None = None
     opening: asyncio.Timeout | None = None
+    written_bytes_at_start: int = 0
+    carried_failures: int = 0
+    answered: bool = False
 
 
 def realtime_url(base_url: str) -> str:
@@ -570,6 +574,7 @@ class HearingSession:
             self._wire = _Wire(
                 offset_ms=_milliseconds(self._written_bytes),
                 last_turn_end_ms=_milliseconds(self._written_bytes),
+                written_bytes_at_start=self._written_bytes,
             )
             outcome = await self._wire_session(end, opening_at)
             wire, self._wire = self._wire, None
@@ -597,7 +602,14 @@ class HearingSession:
             cause = self._reopening_cause(outcome, wire)
             if cause is None:
                 return outcome
-            self._interrupted = _Interrupted(cause, wire.last_turn_end_ms, now)
+            failed_attempts = 0
+            if self._was_unanswered(wire):
+                failed_attempts = wire.carried_failures + 1
+            if failed_attempts >= self._bound.attempts:
+                return ReconnectFailed()
+            self._interrupted = _Interrupted(
+                cause, wire.last_turn_end_ms, now, failed_attempts
+            )
             return None
         interrupted = self._interrupted
         if interrupted is None or not _is_failed_attempt(outcome):
@@ -606,6 +618,15 @@ class HearingSession:
         if interrupted.failed_attempts >= self._bound.attempts:
             return ReconnectFailed()
         return None
+
+    def _was_unanswered(self, wire: _Wire) -> bool:
+        """Whether audio was offered to the session and not one event followed.
+
+        Such a session costs an attempt on top of those its opening cost, so a
+        service that drops every session runs the bound out.
+        """
+        offered = self._written_bytes > wire.written_bytes_at_start or bool(self._held)
+        return offered and not wire.answered
 
     async def _paused(self, end: asyncio.Future[HearingOutcome], now: float) -> None:
         """Wait the pause after a failed attempt, or until the hearing ends."""
@@ -722,7 +743,9 @@ class HearingSession:
             if not isinstance(message, str):
                 raise ServerEventError
             event = parse_server_event(message)
-            if not wire.opened.is_set():
+            if wire.opened.is_set():
+                wire.answered = True
+            else:
                 accept_first_event(event, bound_expired=opening.expired())
                 # The first event proves the session is open, before a slow caller
                 # can hold the queue.
@@ -734,6 +757,7 @@ class HearingSession:
     async def _announce_reconnect(self, wire: _Wire) -> None:
         interrupted, self._interrupted = self._interrupted, None
         if interrupted is not None:
+            wire.carried_failures = interrupted.failed_attempts
             await self._received.put(
                 Reconnected(
                     interrupted.cause, interrupted.unheard_start_ms, wire.offset_ms
