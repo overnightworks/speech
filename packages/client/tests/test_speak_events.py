@@ -158,7 +158,7 @@ def test_a_marks_item_carries_the_sounds_with_their_times(
 def test_a_sound_without_the_flag_is_not_estimated_and_is_written_without_it(
     scenario: Scenario, raw_listener: RawListener
 ) -> None:
-    """WIRE-153: a voice's own times carry no `estimated`; the reader defaults it."""
+    """WIRE-159: a voice's own times carry no `estimated`; the reader defaults it."""
     own_times = {"ipa": "a", "start": 0.0, "end": 0.05}
     with_sounds = audio_event(AudioEventType.MARKS, words=None, sounds=[own_times])
     answer = scenario.answer(scenario.delta(scenario.wav), with_sounds, scenario.done)

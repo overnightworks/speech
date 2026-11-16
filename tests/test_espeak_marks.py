@@ -482,7 +482,7 @@ def heard(ipa: str, begin: float, end: float) -> Sound:
 def test_a_sound_is_a_base_with_its_marks_and_a_stress_mark_opens_the_next(
     tokens: list[str], expected: list[Sound]
 ) -> None:
-    """The sentences of F5 and F13: the grouping, the NFC form and the stress rule."""
+    """WIRE-159: the grouping, the NFC form and the stress rule."""
     assert sounds_of(tokens) == tuple(expected)
 
 
@@ -508,7 +508,7 @@ def test_spaces_and_punctuation_separate_sounds_and_open_none() -> None:
 def test_stress_opens_the_sound_after_a_gap_and_precedes_the_word_it_belongs_to() -> (
     None
 ):
-    """F13 and WIRE-153: the sound starts with its stress, the word with its sound."""
+    """WIRE-159: the sound starts with its stress, the word with its sound."""
     text, sentence, passes = one_word_per_name(["a"], [STRESS, "b"])
 
     [mark] = marked(text, [sentence], passes)
