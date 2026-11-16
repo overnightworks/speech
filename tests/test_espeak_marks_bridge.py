@@ -324,12 +324,10 @@ def test_phonemizing_after_a_pass_that_stopped_at_the_next_sentence_is_unchanged
     answer = "Ja. Nein. Doch."
     before = voice.phonemize(answer)
 
-    two_long_sentences = " ".join(
-        [
-            "Die Kamera zeigt den Vortragenden, während im Hintergrund die nächste Folie vorbereitet wird."
-        ]
-        * 2
+    sentence = (
+        "Die Kamera zeigt den Vortragenden, während im Hintergrund die Folie wechselt."
     )
+    two_long_sentences = f"{sentence} {sentence}"
 
     found = events.read(two_long_sentences, "de", 1)
 
