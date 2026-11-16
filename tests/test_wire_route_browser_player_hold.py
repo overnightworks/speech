@@ -160,6 +160,7 @@ def test_a_streamed_sound_whose_first_samples_arrive_while_paused_starts_only_by
             await stage.act("pause")
             await stage.until(SUSPENDED)
             stage.side.held_release.set()
+            await stage.until(f"s.sourcesStarted > 0 && {SUSPENDED}")
             await stage.settle()
             while_paused = await stage.snapshot()
             await stage.act(then)
