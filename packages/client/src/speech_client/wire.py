@@ -318,7 +318,7 @@ class Sound(BaseModel):
     ) -> dict[str, object]:
         fields: dict[str, object] = serialize(self)
         if not self.estimated:
-            del fields["estimated"]
+            fields.pop("estimated", None)
         return fields
 
 
