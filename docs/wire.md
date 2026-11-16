@@ -396,8 +396,8 @@ every sentence after it in the answer; the sentences before it keep theirs. Inpu
 
 **WIRE-156** `gives_marks.words` is true for a Piper voice once its start load checked the means of the words
 (WIRE-122); where the check fails the voice speaks as before, its `sse` answers carry `null` words, and the
-service logs one error line. The words never delay the audio: a sentence's marks follow its audio, and the
-next sentence waits for them, not the first. An answer that the caller leaves loses the marks not yet sent.
+service logs one error line for each such voice. The words never delay the audio: a sentence's marks follow
+its audio, and the next sentence waits for them, not the first. An answer that the caller leaves loses the marks not yet sent.
 
 **WIRE-157** A marks event follows the audio of its sentence. With `opus`, up to one Ogg page of that
 sentence (at most 100 ms) may follow its marks; the times stay on the answer's own clock.

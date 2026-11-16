@@ -324,7 +324,7 @@ the old pod stops (a rolling update that never lowers the ready count).
   it. The Piper voices load with their alignment output, which needs `onnx`
   (`piper-tts[alignment]`). The mapping rests on one build of that library: a load
   check of its version, its lock and a known text switches words off, with one
-  error line and `gives_marks.words` false, and the audio keeps playing. The check
+  error line per voice and `gives_marks.words` false, and the audio keeps playing. The check
   is also a test against the locked wheel, so a bump of piper-tts that changes the
   library fails there. When piper-tts reports text positions itself, `espeak_marks.py` goes.
 - **Piper is resident and on the CPU.** Each offered Piper voice loads at start
