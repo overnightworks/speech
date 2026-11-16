@@ -1,8 +1,0 @@
-claim_id = "4d01eda12c734c93b421f6a2f9acc0e2"
-agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
-role = "builder"
-base = "ee509cf503f840d612f2f8f76f18d005000430cf"
-branch = "claude/issue-449-client-reads-sse-marks"
-scope = ["README.md", "docs/wire.md", "packages/client", "scripts/speaking_marks.py", "tests"]
-opened_commit = "73a12b4fa16974dd93f66dbcd7b935bccf01a063"
-whole_reason = "The client's speak stream, its marks types and the route-level tests that drive them against the real service change together."
