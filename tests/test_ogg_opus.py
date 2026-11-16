@@ -1,4 +1,4 @@
-"""The Ogg Opus stream of a spoken answer: how much audio follows a sentence's marks (WIRE-157)."""
+"""How much audio of a sentence follows its marks in the Ogg Opus stream (WIRE-157)."""
 
 from __future__ import annotations
 
