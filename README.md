@@ -126,6 +126,9 @@ overnightworks-speech-provider-contract @ git+https://github.com/overnightworks/
 overnightworks-speech-service @ git+https://github.com/overnightworks/speech@vX.Y.Z
 ```
 
+A host also pins each dependency a distribution declares by name only (today
+`logline` for `speech-client`), as the release notes list it.
+
 The client carries the wire's types, the bounded speaking call
 (`speech_client.speak`: `speak_stream` yields the WAV's chunks as they arrive
 and ends with `Finished`, the exact seconds of audio, or a failure, so an app

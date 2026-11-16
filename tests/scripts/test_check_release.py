@@ -191,11 +191,22 @@ LOGLINE_PIN = "overnightworks-logline @ git+https://example.test/logline@v0.4.0"
 
 
 def _declare_dependencies(
-    root: Path, directory: str, dependencies: list[str], dev: list[str]
+    root: Path,
+    directory: str,
+    dependencies: list[str],
+    dev: list[str] | list[str | dict[str, str]],
 ) -> None:
     pyproject = root / directory / "pyproject.toml"
+    entries = ", ".join(
+        json.dumps(entry)
+        if isinstance(entry, str)
+        else "{ "
+        + ", ".join(f"{key} = {json.dumps(value)}" for key, value in entry.items())
+        + " }"
+        for entry in dev
+    )
     pyproject.write_text(
-        pyproject.read_text() + f"\n[dependency-groups]\ndev = {json.dumps(dev)}\n"
+        pyproject.read_text() + f"\n[dependency-groups]\ndev = [{entries}]\n"
     )
     text = pyproject.read_text().replace(
         f'version = "{RELEASE}"\n',
@@ -222,5 +233,28 @@ def test_a_dev_requirement_no_runtime_dependency_names_is_no_host_pin(
     tree: Path,
 ) -> None:
     _declare_dependencies(tree, "libs/client", ["pydantic>=2"], [LOGLINE_PIN])
+
+    assert {row.name: row.host_pins for row in release_rows(tree)}["the-client"] == ()
+
+
+@pytest.mark.parametrize(
+    ("dependencies", "dev"),
+    [
+        pytest.param(
+            [LOGLINE_PIN],
+            [LOGLINE_PIN],
+            id="a runtime dependency that already carries a URL",
+        ),
+        pytest.param(
+            ["overnightworks-logline>=0.4,<0.5"],
+            [{"include-group": "pins"}],
+            id="an include-group entry in the dev group",
+        ),
+    ],
+)
+def test_a_dependency_with_its_own_url_or_an_include_group_is_no_host_pin(
+    tree: Path, dependencies: list[str], dev: list[str | dict[str, str]]
+) -> None:
+    _declare_dependencies(tree, "libs/client", dependencies, dev)
 
     assert {row.name: row.host_pins for row in release_rows(tree)}["the-client"] == ()
