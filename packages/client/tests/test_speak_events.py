@@ -154,20 +154,6 @@ def test_a_marks_item_carries_the_sounds_with_their_times(
     assert SentenceMarks(sounds=(sound,)) in items
 
 
-def test_a_sound_without_its_flag_breaks_the_wire(
-    scenario: Scenario, raw_listener: RawListener
-) -> None:
-    unflagged = audio_event(
-        AudioEventType.MARKS, words=None, sounds=[{"ipa": "a", "start": 0, "end": 1}]
-    )
-    answer = scenario.answer(scenario.delta(scenario.wav), unflagged, scenario.done)
-
-    with raw_listener(answer) as (base_url, _):
-        items = scenario.stream(base_url)
-
-    assert items[-1] == Malformed()
-
-
 def test_a_field_the_reader_does_not_know_is_ignored(
     scenario: Scenario, raw_listener: RawListener
 ) -> None:
@@ -281,6 +267,19 @@ def test_the_request_asks_for_sse_and_the_default_request_does_not_name_it(
             ),
             Malformed(),
             id="a-word-without-its-times",
+        ),
+        pytest.param(
+            lambda s: s.answer(
+                s.delta(s.wav),
+                audio_event(
+                    AudioEventType.MARKS,
+                    words=None,
+                    sounds=[{"ipa": "a", "start": 0, "end": 1}],
+                ),
+                s.done,
+            ),
+            Malformed(),
+            id="a-sound-without-its-flag",
         ),
         pytest.param(
             lambda s: s.answer(
