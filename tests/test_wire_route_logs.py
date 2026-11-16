@@ -223,6 +223,9 @@ def test_a_spoken_request_writes_one_speak_line_with_its_voice_and_first_audio(
     assert _SPOKEN not in f"{caplog.text} {vars(line)}"
 
 
+_HEARD_SOUNDS = ("\u0292\u0265", "\u0265\u0292")
+
+
 class _SoundMarkingSpeaking(FakeMarkingSpeaking):
     """A marking voice that also marks two sounds in each sentence."""
 
@@ -235,8 +238,8 @@ class _SoundMarkingSpeaking(FakeMarkingSpeaking):
                 yield SentenceMarks(
                     words=item.words,
                     sounds=(
-                        Sound(ipa="h", start=0.0, end=0.05),
-                        Sound(ipa="a", start=0.05, end=0.1),
+                        Sound(ipa=_HEARD_SOUNDS[0], start=0.0, end=0.05),
+                        Sound(ipa=_HEARD_SOUNDS[1], start=0.05, end=0.1),
                     ),
                 )
             else:
@@ -270,7 +273,9 @@ def test_a_speak_line_counts_the_words_and_sounds_it_marked_and_never_names_them
         marked_words,
         marked_sounds,
     )
-    assert _SPOKEN not in f"{caplog.text} {vars(line)}"
+    written = f"{caplog.text} {vars(line)}"
+    assert _SPOKEN not in written
+    assert not any(ipa in written for ipa in _HEARD_SOUNDS)
 
 
 @pytest.mark.parametrize(
