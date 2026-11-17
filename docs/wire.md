@@ -415,9 +415,9 @@ sentence (at most 100 ms) may follow its marks; the times stay on the answer's o
 **WIRE-159** A sound is `{"ipa", "start", "end"}`: one spoken sound of a sentence, in order, `ipa` in NFC without a
 stress mark. `start` and `end` are on the clock of the words (WIRE-153). A sound is a base code point with the
 combining marks and the length marks `ː` and `ˑ` after it, and the tie bar `͡` joins the next base (`t͡ʃ` is one
-sound); spaces and punctuation are the gaps between sounds. A voice's phoneme id of several code points is read
-code point by code point, so a diphthong id `aɪ` is two sounds that share the id's samples evenly. A sound lasts for
-the samples of its parts, and a stress mark's samples open the sound after it, so a sound may start before its word
+sound); spaces and punctuation are the gaps between sounds. A phoneme id the voice times as one unit is one sound
+whatever its base count, so a diphthong id `aɪ` is one sound with the id's own samples; the grouping applies within
+single-base ids. A sound lasts for the samples of its parts, and a stress mark's samples open the sound after it, so a sound may start before its word
 does. A sound ends inside the word it belongs to. A Piper sound carries no `estimated`; a voice whose times are not its own sets `estimated` to `true`, and a
 reader takes a sound without it as not estimated.
 
