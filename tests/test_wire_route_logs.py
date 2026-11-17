@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from logline.testing import configured
 from starlette.status import HTTP_200_OK
 
-from speech_client.wire import SPEECH_PATH, RefusalCode, VoiceId
+from speech_client.wire import SPEECH_PATH, RefusalCode, SentenceMarks, Sound, VoiceId
 from speech_service.config import Settings
 from speech_service.failures import SpeakingFailedError
 from tests.support.fakes_support import FakeMarkingSpeaking, FakeSpeaking
@@ -223,30 +223,59 @@ def test_a_spoken_request_writes_one_speak_line_with_its_voice_and_first_audio(
     assert _SPOKEN not in f"{caplog.text} {vars(line)}"
 
 
+_HEARD_SOUNDS = ("\u0292\u0265", "\u0265\u0292")
+
+
+class _SoundMarkingSpeaking(FakeMarkingSpeaking):
+    """A marking voice that also marks two sounds in each sentence."""
+
+    def marked_chunks(
+        self, text: str, language: str, instructions: str | None = None
+    ) -> Iterator[bytes | SentenceMarks]:
+        """Each sentence's marks gain two sounds."""
+        for item in super().marked_chunks(text, language, instructions):
+            if isinstance(item, SentenceMarks):
+                yield SentenceMarks(
+                    words=item.words,
+                    sounds=(
+                        Sound(ipa=_HEARD_SOUNDS[0], start=0.0, end=0.05),
+                        Sound(ipa=_HEARD_SOUNDS[1], start=0.05, end=0.1),
+                    ),
+                )
+            else:
+                yield item
+
+
 @pytest.mark.parametrize(
-    ("body", "stream_format", "marked_words"),
-    [(speak_body(text=_SPOKEN), "audio", 0), (sse_body(text=_SPOKEN), "sse", 2)],
+    ("body", "stream_format", "marked_words", "marked_sounds"),
+    [
+        (speak_body(text=_SPOKEN), "audio", 0, 0),
+        (sse_body(text=_SPOKEN), "sse", 2, 4),
+    ],
     ids=["audio", "sse"],
 )
-def test_a_speak_line_counts_the_words_it_marked_and_never_names_them(
+def test_a_speak_line_counts_the_words_and_sounds_it_marked_and_never_names_them(
     caplog: pytest.LogCaptureFixture,
     body: bytes,
     stream_format: str,
     marked_words: int,
+    marked_sounds: int,
 ) -> None:
     """WIRE-67: `speak.ended` carries its stream format and counts only."""
     caplog.set_level(logging.DEBUG)
 
-    response = post_speech(TestClient(speak_app(FakeMarkingSpeaking())), body)
+    response = post_speech(TestClient(speak_app(_SoundMarkingSpeaking())), body)
 
     assert response.status_code == HTTP_200_OK
     (line,) = _speak_lines(caplog)
     assert (line.stream_format, line.marks_words, line.marks_sounds) == (
         stream_format,
         marked_words,
-        0,
+        marked_sounds,
     )
-    assert _SPOKEN not in f"{caplog.text} {vars(line)}"
+    written = f"{caplog.text} {vars(line)}"
+    assert _SPOKEN not in written
+    assert not any(ipa in written for ipa in _HEARD_SOUNDS)
 
 
 @pytest.mark.parametrize(

@@ -19,6 +19,7 @@ from speech_client.wire import (
     RefusalCode,
     ResponseFormat,
     SentenceMarks,
+    Sound,
     SpeakingHealth,
     SpeakingModel,
     SpeechRequest,
@@ -444,3 +445,16 @@ def test_an_event_keeps_a_word_of_any_script_on_one_ascii_line() -> None:
     sent = json.loads(frame.removeprefix(b"data: "))
     assert sent["words"][0]["text"] == "Grüße\n😀"
     assert sent["sounds"] is None
+
+
+@pytest.mark.parametrize(
+    "exclusion",
+    [{"exclude_defaults": True}, {"exclude_unset": True}, {"exclude": {"estimated"}}],
+    ids=["defaults", "unset", "named"],
+)
+def test_a_sound_serializes_when_the_options_already_leave_the_flag_out(
+    exclusion: dict[str, object],
+) -> None:
+    sound = Sound(ipa="a", start=0.0, end=0.05)
+
+    assert "estimated" not in sound.model_dump(**exclusion)

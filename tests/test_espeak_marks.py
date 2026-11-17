@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from speech_client.wire import SentenceMarks, Word
+from speech_client.wire import SentenceMarks, Sound, Word
 from speech_service.espeak_marks import (
     EspeakEvent,
     EventKind,
@@ -88,10 +88,19 @@ def test_the_words_of_each_sentence_are_input_spans_on_one_clock_across_sentence
 
     assert marks == [
         SentenceMarks(
-            words=(Word(text="Ja", start_char=0, end_char=2, start=0.256, end=1.024),)
+            words=(Word(text="Ja", start_char=0, end_char=2, start=0.256, end=1.024),),
+            sounds=(heard("j", 0.256, 0.512), heard("a", 0.512, 1.024)),
         ),
         SentenceMarks(
-            words=(Word(text="Nein", start_char=4, end_char=8, start=1.792, end=3.072),)
+            words=(
+                Word(text="Nein", start_char=4, end_char=8, start=1.792, end=3.072),
+            ),
+            sounds=(
+                heard("n", 1.792, 2.048),
+                heard("a", 2.048, 2.56),
+                heard("i", 2.56, 2.816),
+                heard("n", 2.816, 3.072),
+            ),
         ),
     ]
 
@@ -392,3 +401,181 @@ def test_a_word_without_text_or_without_sounds_is_not_proven(
     [mark] = marked(text, [sentence], [SentencePass(events, None)])
 
     assert mark.words is None
+
+
+TIE_BAR = "\u0361"
+STRESS = "\u02c8"
+COMBINING_TILDE = "\u0303"
+
+
+def one_word_per_name(
+    *words: Sequence[str], gap: str = " "
+) -> tuple[str, Sentence, list[SentencePass]]:
+    """A text of one-letter words, the sentence Piper spoke for it and its pass.
+
+    Each word's tokens are the sounds espeak names for it (stress marks excepted);
+    `gap` is the token Piper puts between two words.
+    """
+    text = " ".join("w" * (index + 1) for index in range(len(words))) + "."
+    tokens: list[str] = []
+    events: list[EspeakEvent] = []
+    position = 1
+    for index, tokens_of_word in enumerate(words):
+        if index:
+            tokens.append(gap)
+        tokens.extend(tokens_of_word)
+        events.append(word(position))
+        events.append(sound("".join(tokens_of_word).replace(STRESS, "")))
+        position += index + 2
+    tokens.append(".")
+    return text, spoken(tokens), [SentencePass(tuple(events), None)]
+
+
+def sounds_of(*words: Sequence[str], gap: str = " ") -> tuple[Sound, ...] | None:
+    text, sentence, passes = one_word_per_name(*words, gap=gap)
+    [mark] = marked(text, [sentence], passes)
+    return mark.sounds
+
+
+def heard(ipa: str, begin: float, end: float) -> Sound:
+    return Sound(ipa=ipa, start=begin, end=end)
+
+
+@pytest.mark.parametrize(
+    ("tokens", "expected"),
+    [
+        (["a", "b"], [heard("a", 0.256, 0.512), heard("b", 0.512, 0.768)]),
+        (
+            ["t", TIE_BAR, "\u0283", "a"],
+            [heard("t\u0361\u0283", 0.256, 1.024), heard("a", 1.024, 1.28)],
+        ),
+        (
+            ["t", TIE_BAR, "\u02d0", "\u0283"],
+            [heard("t\u0361\u02d0\u0283", 0.256, 1.28)],
+        ),
+        (
+            ["a", "\u02d0", "b"],
+            [heard("a\u02d0", 0.256, 0.768), heard("b", 0.768, 1.024)],
+        ),
+        (
+            ["a", "\u02d1", "b"],
+            [heard("a\u02d1", 0.256, 0.768), heard("b", 0.768, 1.024)],
+        ),
+        (
+            ["a", COMBINING_TILDE, "b"],
+            [heard("\u00e3", 0.256, 0.768), heard("b", 0.768, 1.024)],
+        ),
+        (["b", STRESS, "a"], [heard("b", 0.256, 0.512), heard("a", 0.512, 1.024)]),
+        (
+            ["a", "\u02cc", "b", "\u02d0"],
+            [heard("a", 0.256, 0.512), heard("b\u02d0", 0.512, 1.28)],
+        ),
+        (["a", STRESS], [heard("a", 0.256, 0.512)]),
+        (
+            ["a\u026a", "s"],
+            [heard("a\u026a", 0.256, 0.512), heard("s", 0.512, 0.768)],
+        ),
+    ],
+    ids=[
+        "two bases",
+        "tie bar joins the next base",
+        "tie bar joins the next base past a length mark",
+        "length mark",
+        "half-length mark",
+        "a combining mark is composed",
+        "stress opens the following sound",
+        "secondary stress opens a sound with its length mark",
+        "stress with no sound after it is dropped",
+        "a phoneme id of two bases is one sound with its own samples",
+    ],
+)
+def test_a_sound_is_a_base_with_its_marks_and_a_stress_mark_opens_the_next(
+    tokens: list[str], expected: list[Sound]
+) -> None:
+    """WIRE-159: the grouping, the NFC form and the stress rule."""
+    assert sounds_of(tokens) == tuple(expected)
+
+
+def test_a_sound_lasts_the_sum_of_the_samples_of_its_tokens() -> None:
+    sentence = Sentence(
+        ("t", TIE_BAR, "\u0283", "."), (100, 200, 300, 400, 50, 600), 1650
+    )
+    passes = [SentencePass((word(1), sound("t\u0361\u0283")), None)]
+
+    [mark] = marked("Ja.", [sentence], passes)
+
+    assert mark.sounds == (heard("t\u0361\u0283", 0.1, 1.0),)
+
+
+def test_spaces_and_punctuation_separate_sounds_and_open_none() -> None:
+    sentence_text, sentence, passes = one_word_per_name(["a"], ["b"], gap=",")
+
+    [mark] = marked(sentence_text, [sentence], passes)
+
+    assert mark.sounds == (heard("a", 0.256, 0.512), heard("b", 0.768, 1.024))
+
+
+def test_stress_opens_the_sound_after_a_gap_and_precedes_the_word_it_belongs_to() -> (
+    None
+):
+    """WIRE-159: the sound starts with its stress, the word with its sound."""
+    text, sentence, passes = one_word_per_name(["a"], [STRESS, "b"])
+
+    [mark] = marked(text, [sentence], passes)
+
+    assert mark.sounds == (heard("a", 0.256, 0.512), heard("b", 0.768, 1.28))
+    _, second = mark.words or ()
+    assert second.start > mark.sounds[1].start  # type: ignore[index]
+
+
+def test_the_sounds_of_a_word_lie_inside_it_but_for_the_stress_before_the_first() -> (
+    None
+):
+    text, sentence, passes = one_word_per_name(["a", "b"], [STRESS, "c", "d"])
+
+    [mark] = marked(text, [sentence], passes)
+
+    first, second = mark.words or ()
+    assert [(first.start, first.end), (second.start, second.end)] == [
+        (0.256, 0.768),
+        (1.28, 1.792),
+    ]
+    assert mark.sounds == (
+        heard("a", 0.256, 0.512),
+        heard("b", 0.512, 0.768),
+        heard("c", 1.024, 1.536),
+        heard("d", 1.536, 1.792),
+    )
+
+
+def test_the_sounds_of_each_sentence_continue_the_clock_of_the_one_before() -> None:
+    marks = marked(
+        "Ja. Ja.",
+        [JA, JA],
+        [ja_pass(1, 5), ja_pass(5, None)],
+    )
+
+    assert [mark.sounds for mark in marks] == [
+        (heard("j", 0.256, 0.512), heard("a", 0.512, 1.024)),
+        (heard("j", 1.792, 2.048), heard("a", 2.048, 2.56)),
+    ]
+
+
+def test_a_sentence_that_holds_no_sound_has_an_empty_list() -> None:
+    [mark] = marked("...", [spoken(["."])], [SentencePass((), None)])
+
+    assert (mark.words, mark.sounds) == ((), ())
+
+
+def test_sounds_are_null_where_the_words_of_the_sentence_are_unproven() -> None:
+    marks = marked("Ja. Ja. Ja.", [JA, JA, JA], [ja_pass(1, 5), None])
+
+    assert [mark.sounds is not None for mark in marks] == [True, False, False]
+
+
+def test_a_sound_ends_no_later_than_the_audio() -> None:
+    sentence = Sentence(("a",), (10, 500, 0), 100)
+
+    [mark] = marked("a", [sentence], [SentencePass((word(1), sound("a")), None)])
+
+    assert mark.sounds == (heard("a", 0.01, 0.1),)

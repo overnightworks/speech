@@ -139,10 +139,11 @@ def test_a_marks_item_without_words_or_sounds_holds_none(
     assert SentenceMarks(words=None, sounds=None) in items
 
 
+@pytest.mark.parametrize("estimated", [True, False])
 def test_a_marks_item_carries_the_sounds_with_their_times(
-    scenario: Scenario, raw_listener: RawListener
+    scenario: Scenario, raw_listener: RawListener, *, estimated: bool
 ) -> None:
-    sound = Sound(ipa="a", start=0.0, end=0.05, estimated=True)
+    sound = Sound(ipa="a", start=0.0, end=0.05, estimated=estimated)
     with_sounds = audio_event(
         AudioEventType.MARKS, words=None, sounds=[sound.model_dump(mode="json")]
     )
@@ -152,6 +153,23 @@ def test_a_marks_item_carries_the_sounds_with_their_times(
         items = scenario.stream(base_url)
 
     assert SentenceMarks(sounds=(sound,)) in items
+
+
+def test_a_sound_without_the_flag_is_not_estimated_and_is_written_without_it(
+    scenario: Scenario, raw_listener: RawListener
+) -> None:
+    """WIRE-159: a voice's own times carry no `estimated`; the reader defaults it."""
+    own_times = {"ipa": "a", "start": 0.0, "end": 0.05}
+    with_sounds = audio_event(AudioEventType.MARKS, words=None, sounds=[own_times])
+    answer = scenario.answer(scenario.delta(scenario.wav), with_sounds, scenario.done)
+
+    with raw_listener(answer) as (base_url, _):
+        items = scenario.stream(base_url)
+
+    sound = Sound(ipa="a", start=0.0, end=0.05)
+    assert SentenceMarks(sounds=(sound,)) in items
+    assert sound.estimated is False
+    assert sound.model_dump(mode="json") == own_times
 
 
 def test_a_field_the_reader_does_not_know_is_ignored(
@@ -274,12 +292,12 @@ def test_the_request_asks_for_sse_and_the_default_request_does_not_name_it(
                 audio_event(
                     AudioEventType.MARKS,
                     words=None,
-                    sounds=[{"ipa": "a", "start": 0, "end": 1}],
+                    sounds=[{"ipa": "a", "start": 0, "end": 1, "estimated": "yes"}],
                 ),
                 s.done,
             ),
             Malformed(),
-            id="a-sound-without-its-flag",
+            id="a-sound-with-a-flag-that-is-no-boolean",
         ),
         pytest.param(
             lambda s: s.answer(

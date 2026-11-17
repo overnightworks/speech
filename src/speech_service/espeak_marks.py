@@ -1,11 +1,12 @@
-"""The words of a Piper sentence, read from espeak-ng's own word events.
+"""The words and sounds of a Piper sentence, read from espeak-ng's own word events.
 
 Piper phonemizes with the espeak-ng it links into `piper/espeakbridge.so`. That
 library also reports, while it speaks a text, which text position each word and each
 phoneme belongs to. After a sentence's audio, one pass over that sentence ties the
 phonemes Piper spoke to the words of the input. A sentence is mapped only when every
 check holds; the first that fails leaves that sentence and every later one without
-words, because the passes follow one another through the text.
+words, because the passes follow one another through the text. A sentence whose words
+are proven has its sounds too: they are the same phonemes, grouped by their phoneme ids.
 """
 
 from __future__ import annotations
@@ -19,11 +20,11 @@ from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from typing import TYPE_CHECKING, Final
 
-from speech_client.wire import SentenceMarks, Word
+from speech_client.wire import SentenceMarks, Sound, Word
 from speech_service.failures import log_failure
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
     from piper import PiperVoice
 
@@ -48,7 +49,11 @@ _CONTINUE: Final = 0
 _ABORT: Final = 1
 
 _RAW_PHONEMES: Final = "[["
-_STRESS_MARKS: Final = str.maketrans("", "", "\u02c8\u02cc")
+_STRESS: Final = "\u02c8\u02cc"
+_STRESS_MARKS: Final = str.maketrans("", "", _STRESS)
+_TIE_BAR: Final = "\u0361"
+# Marks that belong to the sound before them besides the combining ones.
+_LENGTH_MARKS: Final = frozenset("\u02d0\u02d1")
 # Piper's own removal of the language tags espeak puts around a foreign word.
 _LANGUAGE_TAG: Final = re.compile(r"\([^)]+\)")
 # Piper's tokens that are no sound: the space and the clause terminators.
@@ -344,7 +349,7 @@ def _gives_the_known_positions(events: EspeakEvents) -> bool:
 
 
 class WordMarker:
-    """The words of the sentences of one text, in the order Piper speaks them."""
+    """The words and sounds of the sentences of one text, in Piper's speaking order."""
 
     def __init__(
         self,
@@ -364,8 +369,20 @@ class WordMarker:
         """The marks of `sentence`, which Piper has just spoken after the earlier."""
         words = self._words(sentence) if self._proven else None
         self._proven = words is not None
+        sounds = self._sounds(sentence) if words is not None else None
         self._elapsed_samples += sentence.audio_samples
-        return SentenceMarks(words=words)
+        return SentenceMarks(words=words, sounds=sounds)
+
+    def _sounds(self, sentence: Sentence) -> tuple[Sound, ...]:
+        """The sounds of a sentence whose words are proven, so its samples are whole."""
+        return tuple(
+            Sound(
+                ipa=unicodedata.normalize("NFC", sound.ipa),
+                start=self._seconds(min(sound.begin, sentence.audio_samples)),
+                end=self._seconds(min(sound.end, sentence.audio_samples)),
+            )
+            for sound in _sounds_of(sentence)
+        )
 
     def _words(self, sentence: Sentence) -> tuple[Word, ...] | None:
         pieces = _pieces(sentence)
@@ -440,8 +457,32 @@ class _Piece:
     end: int
 
 
+@dataclass(slots=True)
+class _OpenSound:
+    ipa: str
+    begin: int
+    end: int
+
+
 def _normalized(sounds: str) -> str:
     return unicodedata.normalize("NFD", sounds.translate(_STRESS_MARKS))
+
+
+def _tokens(sentence: Sentence) -> Iterator[tuple[str, int, int]] | None:
+    """Piper's tokens with their samples, or `None` where the samples are not whole."""
+    samples = sentence.token_samples
+    if samples is None or len(samples) != len(sentence.phonemes) + 2:
+        return None
+    return _spans_of_tokens(sentence.phonemes, samples)
+
+
+def _spans_of_tokens(
+    phonemes: Sequence[str], samples: Sequence[int]
+) -> Iterator[tuple[str, int, int]]:
+    cursor = samples[0]
+    for token, count in zip(phonemes, samples[1:-1], strict=True):
+        yield token, cursor, cursor + count
+        cursor += count
 
 
 def _pieces(sentence: Sentence) -> list[_Piece] | None:
@@ -449,17 +490,76 @@ def _pieces(sentence: Sentence) -> list[_Piece] | None:
 
     A stress mark's samples lie between two sounds, so they open no word.
     """
-    samples = sentence.token_samples
-    if samples is None or len(samples) != len(sentence.phonemes) + 2:
+    tokens = _tokens(sentence)
+    if tokens is None:
         return None
     pieces: list[_Piece] = []
-    cursor = samples[0]
-    for token, count in zip(sentence.phonemes, samples[1:-1], strict=True):
+    for token, begin, end in tokens:
         sounds = "" if token in _NOT_SOUNDS else _normalized(token)
         if sounds:
-            pieces.append(_Piece(sounds, cursor, cursor + count))
-        cursor += count
+            pieces.append(_Piece(sounds, begin, end))
     return pieces
+
+
+def _sounds_of(sentence: Sentence) -> list[_OpenSound]:
+    """The sounds of a sentence whose tokens are whole.
+
+    A sound is a phoneme id with the combining marks and length marks after it; the
+    tie bar joins the next base. An id that holds several bases is one sound with the
+    id's own samples. Gaps end a sound. A stress mark's samples open the sound after
+    it, so the mouth is ready before the vowel is heard.
+    """
+    sounds = _SoundsInProgress()
+    for token, begin, end in _tokens(sentence) or ():
+        if token in _NOT_SOUNDS:
+            sounds.gap()
+        elif token in _STRESS:
+            sounds.stress(begin)
+        elif not sounds.extended_by(token, end):
+            sounds.open(token, begin, end)
+    return sounds.opened
+
+
+class _SoundsInProgress:
+    """The sounds opened so far and the one the next token may still extend."""
+
+    def __init__(self) -> None:
+        self.opened: list[_OpenSound] = []
+        self._current: _OpenSound | None = None
+        self._stress_begin: int | None = None
+        self._joining = False
+
+    def gap(self) -> None:
+        self._current, self._stress_begin, self._joining = None, None, False
+
+    def stress(self, begin: int) -> None:
+        if self._stress_begin is None:
+            self._stress_begin = begin
+        if not self._joining:
+            self._current = None
+
+    def extended_by(self, token: str, end: int) -> bool:
+        """Join `token` to the current sound if it continues it."""
+        current = self._current
+        if current is None or not (self._joining or _extends_a_sound(token)):
+            return False
+        current.ipa += token
+        current.end = end
+        self._stress_begin = None
+        self._joining = token == _TIE_BAR or (self._joining and _extends_a_sound(token))
+        return True
+
+    def open(self, token: str, begin: int, end: int) -> None:
+        opening = begin if self._stress_begin is None else self._stress_begin
+        self._current = _OpenSound(token, opening, end)
+        self.opened.append(self._current)
+        self._stress_begin, self._joining = None, False
+
+
+def _extends_a_sound(token: str) -> bool:
+    return token in _LENGTH_MARKS or all(
+        unicodedata.category(character) == "Mn" for character in token
+    )
 
 
 def _units(

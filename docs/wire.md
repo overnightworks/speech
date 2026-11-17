@@ -384,9 +384,9 @@ as for the audio, so a failure aborts the connection and no `done` follows.
 **WIRE-152** A voice sentence is a sentence its voice speaks as one piece of audio. A Piper voice sends one marks event for each of its
 sentences; a voice that marks nothing sends one after all its audio, with both kinds `null`. `words` is a list of the words of
 the sentence, `[]` where it holds none, or `null` where they could not be proven; the audio is sent anyway.
-A word missing from the list is unproven, which is not the same as silent. `sounds` is `null` for every
-voice: `gives_marks.sounds` (WIRE-122) is false. A kind whose `gives_marks` flag is false is always `null`;
-otherwise `null` means that sentence's marks failed.
+A word missing from the list is unproven, which is not the same as silent. `sounds` is the same for the
+sounds of the sentence (WIRE-159): `[]` where it holds none. A kind whose `gives_marks` flag
+(WIRE-122) is false is always `null`; otherwise `null` means that sentence's marks failed.
 
 **WIRE-153** A word is `{"text", "start_char", "end_char", "start", "end"}`. `start_char` and `end_char` count
 Unicode code points of `input` as received, unnormalized, `end_char` exclusive, so `text` is
@@ -400,17 +400,26 @@ accurate to one Piper phoneme.
 span, without the whitespace and punctuation after it. A symbol spoken as several names (an emoji) is one entry.
 
 **WIRE-155** The words of a sentence are given only when the service proved them: they follow what the voice
-spoke, in order, and no word is another's text. A sentence that fails a check has `words` `null`, and so has
+spoke, in order, and no word is another's text. A sentence that fails a check has `words` and `sounds` `null`, and so has
 every sentence after it in the answer; the sentences before it keep theirs. Input with a raw phoneme block
 (`[[ ... ]]`) has no words in any sentence.
 
-**WIRE-156** `gives_marks.words` is true for a Piper voice once its start load checked the means of the words
-(WIRE-122); where the check fails the voice speaks as before, its `sse` answers carry `null` words, and the
+**WIRE-156** `gives_marks.words` and `gives_marks.sounds` are true for a Piper voice once its start load checked
+the means of the words (WIRE-122); where the check fails the voice speaks as before, its `sse` answers carry `null` words and sounds, and the
 service logs one error line for each such voice. The words never delay the audio: a sentence's marks follow
 its audio, and the next sentence waits for them, not the first. An answer that the caller leaves loses the marks not yet sent.
 
 **WIRE-157** A marks event follows the audio of its sentence. With `opus`, up to one Ogg page of that
 sentence (at most 100 ms) may follow its marks; the times stay on the answer's own clock.
+
+**WIRE-159** A sound is `{"ipa", "start", "end"}`: one spoken sound of a sentence, in order, `ipa` in NFC without a
+stress mark. `start` and `end` are on the clock of the words (WIRE-153). A sound is a base code point with the
+combining marks and the length marks `ː` and `ˑ` after it, and the tie bar `͡` joins the next base (`t͡ʃ` is one
+sound); spaces and punctuation are the gaps between sounds. A phoneme id the voice times as one unit is one sound
+whatever its base count, so a diphthong id `aɪ` is one sound with the id's own samples; the grouping applies within
+single-base ids. A sound lasts for the samples of its parts, and a stress mark's samples open the sound after it, so a sound may start before its word
+does. A sound ends inside the word it belongs to. A Piper sound carries no `estimated`; a voice whose times are not its own sets `estimated` to `true`, and a
+reader takes a sound without it as not estimated.
 
 ## Refusals
 

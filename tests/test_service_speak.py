@@ -8,7 +8,14 @@ import numpy as np
 import pytest
 from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 
-from speech_client.wire import VOICES, SentenceMarks, SpeakingModel, VoiceId, Word
+from speech_client.wire import (
+    VOICES,
+    SentenceMarks,
+    Sound,
+    SpeakingModel,
+    VoiceId,
+    Word,
+)
 from speech_service.config import Settings
 from speech_service.espeak_marks import EspeakEvent, EventKind, SentencePass
 from speech_service.speaking import (
@@ -151,14 +158,14 @@ def a_loaded_engine(
 
 
 @pytest.mark.parametrize("passes", [True, False])
-def test_a_piper_voice_gives_word_marks_exactly_when_its_load_check_passed(
+def test_a_piper_voice_gives_marks_exactly_when_its_load_check_passed(
     tmp_path: Path, *, passes: bool
 ) -> None:
-    """WIRE-122, WIRE-156: `gives_marks.words` is true only after the load check."""
+    """WIRE-122, WIRE-156: `gives_marks` is true only after the load check."""
     engine, _voice = a_loaded_engine(tmp_path, StubEvents() if passes else None)
 
     assert gives_marks(engine).words is passes
-    assert gives_marks(engine).sounds is False
+    assert gives_marks(engine).sounds is passes
 
 
 def test_a_voice_that_is_not_loaded_gives_no_marks() -> None:
@@ -167,7 +174,7 @@ def test_a_voice_that_is_not_loaded_gives_no_marks() -> None:
     assert gives_marks(engine).words is False
 
 
-def test_a_piper_sentence_is_its_audio_then_its_words_on_one_clock(
+def test_a_piper_sentence_is_its_audio_then_its_marks_on_one_clock(
     tmp_path: Path,
 ) -> None:
     """WIRE-153: each sentence's marks follow its audio; times continue."""
@@ -181,6 +188,10 @@ def test_a_piper_sentence_is_its_audio_then_its_words_on_one_clock(
     assert [mark.words for mark in (marks_first, marks_second)] == [
         (Word(text="Ja", start_char=0, end_char=2, start=0.1, end=0.3),),
         (Word(text="Ja", start_char=4, end_char=6, start=0.5, end=0.7),),
+    ]
+    assert [mark.sounds for mark in (marks_first, marks_second)] == [
+        (Sound(ipa="j", start=0.1, end=0.2), Sound(ipa="a", start=0.2, end=0.3)),
+        (Sound(ipa="j", start=0.5, end=0.6), Sound(ipa="a", start=0.6, end=0.7)),
     ]
 
 
