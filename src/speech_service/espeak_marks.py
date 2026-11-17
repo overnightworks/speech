@@ -6,7 +6,7 @@ phoneme belongs to. After a sentence's audio, one pass over that sentence ties t
 phonemes Piper spoke to the words of the input. A sentence is mapped only when every
 check holds; the first that fails leaves that sentence and every later one without
 words, because the passes follow one another through the text. A sentence whose words
-are proven has its sounds too: they are the same phonemes, grouped by their code points.
+are proven has its sounds too: they are the same phonemes, grouped by their phoneme ids.
 """
 
 from __future__ import annotations
@@ -504,60 +504,32 @@ def _pieces(sentence: Sentence) -> list[_Piece] | None:
 def _sounds_of(sentence: Sentence) -> list[_OpenSound]:
     """The sounds of a sentence whose tokens are whole.
 
-    A sound is a base code point with the combining marks and length marks after it;
-    the tie bar joins the next base. Gaps end a sound. A stress mark's samples open
-    the sound after it, so the mouth is ready before the vowel is heard.
+    A sound is a phoneme id with the combining marks and length marks after it; the
+    tie bar joins the next base. An id that holds several bases is one sound with the
+    id's own samples. Gaps end a sound. A stress mark's samples open the sound after
+    it, so the mouth is ready before the vowel is heard.
     """
-    reading = _SoundReading()
+    sounds: list[_OpenSound] = []
+    current: _OpenSound | None = None
+    stress_begin: int | None = None
+    joining = False
     for token, begin, end in _tokens(sentence) or ():
-        for part, part_begin, part_end in _code_points(token, begin, end):
-            reading.take(part, part_begin, part_end)
-    return reading.sounds
-
-
-def _code_points(token: str, begin: int, end: int) -> Iterator[tuple[str, int, int]]:
-    """The code points of a token, each with an even share of its samples.
-
-    A voice's phoneme id may hold several code points (a diphthong).
-    """
-    total = end - begin
-    for index, character in enumerate(token):
-        yield (
-            character,
-            begin + total * index // len(token),
-            begin + total * (index + 1) // len(token),
-        )
-
-
-class _SoundReading:
-    """The sounds read from the code points of a sentence so far."""
-
-    def __init__(self) -> None:
-        self.sounds: list[_OpenSound] = []
-        self._current: _OpenSound | None = None
-        self._stress_begin: int | None = None
-        self._joining = False
-
-    def take(self, token: str, begin: int, end: int) -> None:
         if token in _NOT_SOUNDS:
-            self._current, self._stress_begin, self._joining = None, None, False
+            current, stress_begin, joining = None, None, False
         elif token in _STRESS:
-            self._stress_begin = (
-                begin if self._stress_begin is None else self._stress_begin
-            )
-            self._current = self._current if self._joining else None
-        elif self._current is not None and (self._joining or _extends_a_sound(token)):
-            self._current.ipa += token
-            self._current.end = end
-            self._stress_begin = None
-            self._joining = token == _TIE_BAR or (
-                self._joining and _extends_a_sound(token)
-            )
+            stress_begin = begin if stress_begin is None else stress_begin
+            current = current if joining else None
+        elif current is not None and (joining or _extends_a_sound(token)):
+            current.ipa += token
+            current.end = end
+            stress_begin = None
+            joining = token == _TIE_BAR or (joining and _extends_a_sound(token))
         else:
-            opening = begin if self._stress_begin is None else self._stress_begin
-            self._current = _OpenSound(token, opening, end)
-            self.sounds.append(self._current)
-            self._stress_begin, self._joining = None, False
+            opening = begin if stress_begin is None else stress_begin
+            current = _OpenSound(token, opening, end)
+            sounds.append(current)
+            stress_begin, joining = None, False
+    return sounds
 
 
 def _extends_a_sound(token: str) -> bool:
