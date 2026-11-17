@@ -8,7 +8,7 @@ version = "0.22.0"
 description = "The wire between an app and the speech service: the request, the refusals, the bounded speaking call, the bounded health fetch, the live hearing session and the relay of a browser's live audio to it."
 requires-python = ">=3.14"
 dependencies = [
-    "overnightworks-logline>=0.5,<0.8",
+    "overnightworks-logline>=0.5,<0.9",
     "pydantic>=2.13,<3",
     "websockets>=17.4,<18",
 ]
