@@ -509,27 +509,51 @@ def _sounds_of(sentence: Sentence) -> list[_OpenSound]:
     id's own samples. Gaps end a sound. A stress mark's samples open the sound after
     it, so the mouth is ready before the vowel is heard.
     """
-    sounds: list[_OpenSound] = []
-    current: _OpenSound | None = None
-    stress_begin: int | None = None
-    joining = False
+    sounds = _SoundsInProgress()
     for token, begin, end in _tokens(sentence) or ():
         if token in _NOT_SOUNDS:
-            current, stress_begin, joining = None, None, False
+            sounds.gap()
         elif token in _STRESS:
-            stress_begin = begin if stress_begin is None else stress_begin
-            current = current if joining else None
-        elif current is not None and (joining or _extends_a_sound(token)):
-            current.ipa += token
-            current.end = end
-            stress_begin = None
-            joining = token == _TIE_BAR or (joining and _extends_a_sound(token))
-        else:
-            opening = begin if stress_begin is None else stress_begin
-            current = _OpenSound(token, opening, end)
-            sounds.append(current)
-            stress_begin, joining = None, False
-    return sounds
+            sounds.stress(begin)
+        elif not sounds.extended_by(token, end):
+            sounds.open(token, begin, end)
+    return sounds.opened
+
+
+class _SoundsInProgress:
+    """The sounds opened so far and the one the next token may still extend."""
+
+    def __init__(self) -> None:
+        self.opened: list[_OpenSound] = []
+        self._current: _OpenSound | None = None
+        self._stress_begin: int | None = None
+        self._joining = False
+
+    def gap(self) -> None:
+        self._current, self._stress_begin, self._joining = None, None, False
+
+    def stress(self, begin: int) -> None:
+        if self._stress_begin is None:
+            self._stress_begin = begin
+        if not self._joining:
+            self._current = None
+
+    def extended_by(self, token: str, end: int) -> bool:
+        """Join `token` to the current sound if it continues it."""
+        current = self._current
+        if current is None or not (self._joining or _extends_a_sound(token)):
+            return False
+        current.ipa += token
+        current.end = end
+        self._stress_begin = None
+        self._joining = token == _TIE_BAR or (self._joining and _extends_a_sound(token))
+        return True
+
+    def open(self, token: str, begin: int, end: int) -> None:
+        opening = begin if self._stress_begin is None else self._stress_begin
+        self._current = _OpenSound(token, opening, end)
+        self.opened.append(self._current)
+        self._stress_begin, self._joining = None, False
 
 
 def _extends_a_sound(token: str) -> bool:
