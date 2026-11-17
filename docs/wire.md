@@ -50,14 +50,21 @@ nothing more opened. Once one opening has succeeded, a session that closes with 
 `error` and no failed item, is reopened at the same origin with the same
 `session.update`; any other end ends the hearing as before. `RECONNECT_BOUND` bounds
 the reopening (attempts, a pause between them, a total time), counted from the end of
-the open session and reset by a successful opening; a refusal `unavailable` or `busy`,
-`Unreachable`, a cut before `session.created` and an expired opening bound each cost
-one attempt, any other refusal or `Malformed` ends the hearing with it, and a bound
-that runs out ends it with `ReconnectFailed`. Audio is held under the caller's byte
-limit meanwhile (`NEEDED_HOLD_BYTES` covers the opening bound and a whole reconnect),
-a chunk leaves the held audio when its write begins and is never written again, and
-audio is written only after a session's `session.created`. The positions of
-`speech_started` and `speech_stopped` lie on one audio timeline across sessions: the
+the open session and reset by a session that answered, one that sent an event about the
+audio or a transcript after its `session.created` (a repeated `session.created` and
+`session.updated` do not answer); a refusal `unavailable` or `busy`, `Unreachable`, a
+cut before `session.created`, an expired opening bound and a session that ended without
+answering each cost one attempt. A session that ended without answering does not restart
+the total time, which runs from the end of the last session that answered, or of the
+first session when none did, less the time the sessions since stayed open; no timer of
+it runs while a session is open, so a reopened session that stays open, silent or not,
+runs to the hearing deadline. Any other refusal
+or `Malformed` ends the hearing with it, and a bound that runs out ends it with
+`ReconnectFailed`. Audio is held under the caller's byte limit meanwhile
+(`NEEDED_HOLD_BYTES` covers the opening bound and a whole reconnect), a chunk leaves the
+held audio when its write begins and is never written again, and audio is written only
+after a session's `session.created`. The positions of `speech_started` and
+`speech_stopped` lie on one audio timeline across sessions: the
 service's position plus the audio of every chunk whose write began on an earlier
 session, in whole milliseconds, rounded down, lost audio included. Before the new
 session's events `events()` yields `Reconnected` (a client-side record, no wire event):

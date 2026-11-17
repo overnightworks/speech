@@ -15,10 +15,12 @@ from websockets.frames import CloseCode
 from packages.client.tests.support.hearing_support import CREATED_EVENT, LOOPBACK
 from speech_client.realtime_wire import (
     DurationUsage,
+    SessionUpdated,
     SpeechStarted,
     SpeechStopped,
     TranscriptCompleted,
     TranscriptFailed,
+    TranscriptionSession,
     TranscriptLanguage,
     error_event,
     item_failure,
@@ -152,10 +154,19 @@ async def drains_before_opening(connection: ServerConnection, visit: Visit) -> N
     await connection.close(DRAIN_CLOSE_CODE)
 
 
+def updated() -> str:
+    return SessionUpdated(
+        session=TranscriptionSession(type="transcription")
+    ).model_dump_json()
+
+
 def speech_started(item_id: str, audio_start_ms: int) -> str:
     return SpeechStarted(
         item_id=item_id, audio_start_ms=audio_start_ms
     ).model_dump_json()
+
+
+answers_then_drains = says(speech_started("i", 0), then_close=DRAIN_CLOSE_CODE)
 
 
 def speech_stopped(item_id: str, audio_end_ms: int) -> str:
