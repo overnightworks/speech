@@ -60,7 +60,7 @@ reason = "setuptools 80.10.2: vllm 0.32.0 requires setuptools<81.0.0 and the fix
 [[advisories.allow]]
 id = "GHSA-fc5q-39xc-vjpf"
 lock = "packages/browser/pnpm-lock.yaml"
-until = 2027-02-17
+until = 2027-01-31
 date = 2026-11-17
-item = "overnightworks/speech#466"
+item = "overnightworks/quality#879"
 reason = "picomatch 4.0.7 has no fixed release and reaches the lock only through vitest/vite (tinyglobby, fdir), build and test tools that match the repository's own globs; the published package has no runtime dependencies"
