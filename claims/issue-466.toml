@@ -1,7 +1,0 @@
-claim_id = "b9a99d00e91a4b0f8634c90e4ffac134"
-agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
-role = "builder"
-base = "1679a18dee1fa43c6a1107020e0d7cf1f19db336"
-branch = "claude/issue-466-picomatch-advisory-allowed"
-scope = ["quality/config.toml"]
-opened_commit = "8c06471160fc3ac4c44f634831ffb1c34d8278e4"
