@@ -3,6 +3,6 @@ agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
 role = "builder"
 base = "75baa0b986c6f71e2a1b7a53a96f4d7bbfb4eacf"
 branch = "claude/issue-459-piper-sounds"
-scope = ["docs/wire.md", "packages/client", "scripts/speaking_marks.py", "src/speech_service/espeak_marks.py", "src/speech_service/speaking.py", "src/speech_service/voice_slot.py", "tests"]
+scope = ["docs/ARCHITECTURE.md", "docs/wire.md", "packages/client/src", "packages/client/tests", "scripts/prove_speech.py", "scripts/speaking_marks.py", "src/speech_service/espeak_marks.py", "src/speech_service/service.py", "src/speech_service/speaking.py", "src/speech_service/voice_slot.py", "tests"]
 opened_commit = "259757e274547322b8aa2797838187fbd95407e4"
 whole_reason = "A sound runs from the espeak pass through the marks event, health and the client's reader to wire.md; splitting it leaves a surface without a filler."
