@@ -1,0 +1,1 @@
+{"speaking":{"ready":true,"voices":{"de_DE-thorsten-medium":{"model":"piper","name":"Thorsten","languages":["de"],"takes_instructions":false,"ready":true,"sample_rate":22050},"ryan":{"model":"qwen3-tts-1.7b","name":"Ryan","languages":["de","en"],"takes_instructions":true,"ready":true,"sample_rate":22050}}},"hearing":{"model":"unavailable","ready":false},"card_memory_mb":4096}

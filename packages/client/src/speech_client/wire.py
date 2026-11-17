@@ -395,7 +395,10 @@ class GivesMarks(BaseModel):
 
 
 class VoiceHealth(BaseModel):
-    """One offered voice: its model, name, languages, marks, whether it speaks."""
+    """One offered voice: its model, name, languages, marks, whether it speaks.
+
+    A service from before `gives_marks` sends none: it reads as no marks.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -403,7 +406,7 @@ class VoiceHealth(BaseModel):
     name: str
     languages: tuple[Language, ...]
     takes_instructions: StrictBool
-    gives_marks: GivesMarks
+    gives_marks: GivesMarks = GivesMarks(words=False, sounds=False)
     ready: StrictBool
     sample_rate: StrictInt
 

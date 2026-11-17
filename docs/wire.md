@@ -503,7 +503,7 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
 ended, the drain has not begun (WIRE-144), and every offered Piper voice (with WIRE-143, every offered voice)
 can speak. With no such voice offered, it is true once the start load ends. **WIRE-125** `speaking.voices` lists
 the offered voices by id. Each reports, loaded or not, its `model` (the request's
-`model`), its `name`, its `languages` (the codes it speaks), whether it `takes_instructions` (WIRE-142), what it `gives_marks` as `{"words", "sounds"}` (WIRE-156; none until it is loaded) and its WAV `sample_rate` (a
+`model`), its `name`, its `languages` (the codes it speaks), whether it `takes_instructions` (WIRE-142), what it `gives_marks` as `{"words", "sounds"}` (WIRE-156; none until it is loaded; a client reads it as optional: a service from before the field sends none, read as words and sounds false) and its WAV `sample_rate` (a
 Piper voice's is 0 until it is loaded). A client reads each id as a string, so a voice id it
 does not know, under a model and in languages it knows, does not break its reading of
 health. **WIRE-126** A voice's `ready` is true exactly when a request for it
