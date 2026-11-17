@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 import av
 import httpx2
 import pytest
+from logline.testing import configured
 from starlette.status import (
     HTTP_200_OK,
     HTTP_400_BAD_REQUEST,
@@ -536,3 +537,26 @@ def test_tcp_denies_a_realtime_upgrade_without_tokens_in_the_error_form() -> Non
     assert_refusal_body(
         status, body, HTTP_401_UNAUTHORIZED, RefusalCode.UNAUTHORIZED, None
     )
+
+
+def test_tcp_logs_a_denied_realtime_upgrade_as_one_refusal_and_no_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A realtime upgrade without tokens is one refusal at info and no error."""
+
+    async def scenario() -> None:
+        async with serving_over_tcp(
+            _gated_runtime(FakeSpeaking()), production_logging=True
+        ) as server:
+            host, port = _address(server)
+            url = f"ws://{host}:{port}{REALTIME_PATH}?intent=transcription"
+            with pytest.raises(InvalidStatus):
+                await connect(url)
+
+    with configured("speech"):
+        asyncio.run(scenario())
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    refused = [line for line in lines if line["event"] == "websocket_upgrade.refused"]
+    assert [line["level"] for line in refused] == ["info"]
+    assert not [line for line in lines if line["level"] in {"error", "critical"}]
