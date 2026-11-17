@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -37,6 +38,14 @@ DEADLINE_SECONDS = 0.5
 MARGIN_SECONDS = 3.0
 GENEROUS_DEADLINE_SECONDS = 30.0
 CAP_BYTES = 64 * 1024
+# `GET /health` of image v2026.11.14.6 over fake engines, for one Piper voice.
+RELEASED_HEALTH = (
+    Path(__file__).parent
+    / "fixtures"
+    / "released_answers"
+    / "v2026.11.14.6"
+    / "health.json"
+)
 
 _HEALTH = {
     "speaking": {
@@ -192,3 +201,19 @@ def test_the_request_is_a_get_without_a_token_and_logs_nothing(
     sent = {line.partition(":")[0].lower() for line in lines[1:]}
     assert not {WORKLOAD_TOKEN_HEADER.lower(), AUTHORIZATION_HEADER.lower()} & sent
     assert caplog.records == []
+
+
+def test_the_health_of_the_last_released_image_gives_no_marks(
+    raw_listener: RawListener,
+) -> None:
+    with raw_listener(_response("200 OK", RELEASED_HEALTH.read_bytes())) as (
+        base_url,
+        _,
+    ):
+        outcome = _fetch(base_url)
+
+    assert isinstance(outcome, Health)
+    assert {
+        voice.gives_marks.words or voice.gives_marks.sounds
+        for voice in outcome.speaking.voices.values()
+    } == {False}

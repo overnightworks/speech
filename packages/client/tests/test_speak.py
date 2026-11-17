@@ -5,6 +5,7 @@ from __future__ import annotations
 import socket
 import struct
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -55,6 +56,14 @@ MARGIN_SECONDS = 3.0
 GENEROUS_DEADLINE_SECONDS = 30.0
 CAP_BYTES = 1024 * 1024
 DRIP_SECONDS = 0.02
+# A wav `POST /v1/audio/speech` of image v2026.11.14.6 over fake engines, one voice.
+RELEASED_SPEAK_WAV = (
+    Path(__file__).parent
+    / "fixtures"
+    / "released_answers"
+    / "v2026.11.14.6"
+    / "speak.wav"
+)
 
 
 def _speak(  # noqa: PLR0913 - one keyword per call-site option
@@ -327,6 +336,16 @@ def test_a_chunked_wav_with_a_trailer_is_spoken(raw_listener: RawListener) -> No
         outcome = _speak(base_url)
 
     assert outcome == Spoken(_WAV_BODY)
+
+
+def test_the_speak_answer_of_the_last_released_image_is_spoken(
+    raw_listener: RawListener,
+) -> None:
+    audio = RELEASED_SPEAK_WAV.read_bytes()
+    with raw_listener(_WAV_HEAD + _chunk(audio) + _chunk(b"")) as (base_url, _):
+        outcome = _speak(base_url)
+
+    assert outcome == Spoken(audio)
 
 
 @pytest.mark.parametrize(
