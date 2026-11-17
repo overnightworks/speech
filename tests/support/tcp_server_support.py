@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import uvicorn
 from websockets.exceptions import ConnectionClosed
 
+from speech_service.__main__ import build_server
 from speech_service.config import Settings
 from speech_service.control import create_control_app
 from tests.support.fakes_support import GATE_TIMEOUT_SECONDS
@@ -76,9 +77,19 @@ class TcpServer:
 
 
 @asynccontextmanager
-async def serving_asgi(app: ASGIApp) -> AsyncIterator[str]:
-    """Serve any ASGI app on a free loopback port; yield its base URL."""
-    server = uvicorn.Server(uvicorn.Config(app, log_level="warning"))
+async def serving_asgi(
+    app: ASGIApp, *, production_logging: bool = False
+) -> AsyncIterator[str]:
+    """Serve any ASGI app on a free loopback port; yield its base URL.
+
+    `production_logging` serves it as the process does, with logline's records
+    unfiltered by uvicorn's own configuration.
+    """
+    server = (
+        build_server(app)
+        if production_logging
+        else uvicorn.Server(uvicorn.Config(app, log_level="warning"))
+    )
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind((_LOOPBACK, 0))
         listener.listen()
@@ -105,7 +116,10 @@ async def close_code(browser: ClientConnection) -> int:
 
 @asynccontextmanager
 async def serving_over_tcp(
-    runtime: Runtime, callers: SpeechCallers | None = None
+    runtime: Runtime,
+    callers: SpeechCallers | None = None,
+    *,
+    production_logging: bool = False,
 ) -> AsyncIterator[TcpServer]:
     """Serve the app on a free loopback port and stop it on exit.
 
@@ -123,5 +137,7 @@ async def serving_over_tcp(
 
         await app(scope, watched_receive, send)
 
-    async with serving_asgi(observed) as base_url:
+    async with serving_asgi(
+        observed, production_logging=production_logging
+    ) as base_url:
         yield TcpServer(base_url, speak_disconnect_received)
