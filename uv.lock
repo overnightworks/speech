@@ -714,8 +714,8 @@ wheels = [
 
 [[package]]
 name = "overnightworks-logline"
-version = "0.4.0"
-source = { git = "https://github.com/overnightworks/logline?rev=v0.4.0#24a7a6077f3bd0c382fde62e149946c70a9ced31" }
+version = "0.5.0"
+source = { git = "https://github.com/overnightworks/logline?rev=v0.5.0#8c96e5890458b42f9ddb97dc26ce4a6880011db4" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "structlog" },
@@ -738,13 +738,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "overnightworks-logline", specifier = ">=0.4,<0.5" },
+    { name = "overnightworks-logline", specifier = ">=0.5,<0.6" },
     { name = "pydantic", specifier = ">=2.13,<3" },
     { name = "websockets", specifier = ">=17.4,<18" },
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "overnightworks-logline", git = "https://github.com/overnightworks/logline?rev=v0.4.0" }]
+dev = [{ name = "overnightworks-logline", git = "https://github.com/overnightworks/logline?rev=v0.5.0" }]
 
 [[package]]
 name = "overnightworks-speech-provider-contract"
@@ -799,7 +799,7 @@ requires-dist = [
     { name = "numpy", specifier = "==2.5.4" },
     { name = "nvidia-cublas-cu12", marker = "extra == 'gpu'", specifier = "==12.9.3.13" },
     { name = "nvidia-cudnn-cu12", marker = "extra == 'gpu'", specifier = "==9.27.0.42" },
-    { name = "overnightworks-logline", git = "https://github.com/overnightworks/logline?rev=v0.4.0" },
+    { name = "overnightworks-logline", git = "https://github.com/overnightworks/logline?rev=v0.5.0" },
     { name = "overnightworks-speech-client", editable = "packages/client" },
     { name = "overnightworks-speech-provider-contract", editable = "providers/provider-contract" },
     { name = "overnightworks-webauth", git = "https://github.com/overnightworks/webauth?rev=v0.36.0" },
