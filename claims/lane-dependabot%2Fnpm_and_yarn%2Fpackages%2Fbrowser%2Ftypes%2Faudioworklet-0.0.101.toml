@@ -1,0 +1,7 @@
+claim_id = "3a90d44aa4ef43b99ad8dc37e5a341f3"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "d5fbb1cf893bb96962c35f03316a83ea7a3bf633"
+branch = "dependabot/npm_and_yarn/packages/browser/types/audioworklet-0.0.101"
+scope = ["packages/browser/package.json", "packages/browser/pnpm-lock.yaml"]
+opened_commit = "b5e6e86e56d6bec39271d21f2400be533ed35a4c"
