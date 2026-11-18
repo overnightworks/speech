@@ -140,7 +140,7 @@ def load_catalogue(path: Path) -> Catalogue:
         message = f"{path} cannot be read as a catalogue: {error}"
         raise CatalogueError(message) from None
     try:
-        file = _CatalogueFile.model_validate(_with_ids(raw))
+        file = _CatalogueFile.model_validate(_with_ids(path, raw))
     except ValidationError as error:
         problems = "; ".join(_describe(problem) for problem in error.errors())
         message = f"{path} is not a valid catalogue: {problems}"
@@ -167,10 +167,17 @@ def offered_voices(
     return tuple(voice for voice in catalogue if voice in requested)
 
 
-def _with_ids(raw: Mapping[str, object]) -> Mapping[str, object]:
+def _with_ids(path: Path, raw: Mapping[str, object]) -> Mapping[str, object]:
     voices = raw.get("voices")
     if not isinstance(voices, dict):
         return raw
+    for key, entry in voices.items():
+        if isinstance(entry, dict) and "id" in entry:
+            message = (
+                f"{path} is not a valid catalogue: voices.{key}.id: "
+                "the id is the table key and is not a field"
+            )
+            raise CatalogueError(message)
     return {
         **raw,
         "voices": {

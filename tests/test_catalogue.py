@@ -85,6 +85,10 @@ def test_an_offered_voice_the_catalogue_lacks_stops_the_start(tmp_path: Path) ->
         (piper_table(languages='["fr"]'), "languages"),
         (piper_table(name=""), "name"),
         (piper_table(voice="not-a-voice"), "voices.not-a-voice.*id"),
+        (
+            piper_table().replace('engine = "piper"\n', 'engine = "piper"\nid = "x"\n'),
+            "voices.de_DE-thorsten-medium.id",
+        ),
         (qwen_table().replace('"Ryan"', '"Nobody"', 1), "pin.speaker"),
         (piper_table() + piper_table(), "de_DE-thorsten-medium"),
         ("", "voices"),
