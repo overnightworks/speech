@@ -1,8 +1,0 @@
-claim_id = "c2401812bc344598914166ea6d639879"
-agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
-role = "builder"
-base = "7c7241c6e431520ce8bff5108960eeb420d0ca70"
-branch = "claude/issue-489-release-0-22-1"
-scope = ["packages/browser/package.json", "packages/client/pyproject.toml", "providers/provider-contract/pyproject.toml", "providers/qwen/uv.lock", "pyproject.toml", "uv.lock"]
-opened_commit = "db2d9208f8e5d884ab0897015170d98284109b4e"
-whole_reason = "One version bump spans the four manifests and both locks, which move together."
