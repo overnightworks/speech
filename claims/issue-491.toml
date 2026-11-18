@@ -1,0 +1,7 @@
+claim_id = "91476097e7444d93af78ee33af504102"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "55e307829662051024279363927e11fb038e9f3b"
+branch = "claude/issue-491-session-end-hang"
+scope = ["packages/client/src/speech_client/_failures.py", "packages/client/src/speech_client/hearing.py", "packages/client/tests/test_hearing.py"]
+opened_commit = "dd101fbd466fcbb78979248e07928d6a27b62c9b"
