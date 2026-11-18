@@ -25,6 +25,13 @@ export interface Playback {
 }
 
 export interface Player {
+  /**
+   * The player's one GainNode, the only input of the output and alive from `createPlayer()` to `close()`. An app reads
+   * a sentence's energy by connecting an analyser of this node's own context to it. Mute silences it. While paused or
+   * after close the context stops, so an analyser holds its last reading: key on the player's state there, not on the
+   * reading. Calling `disconnect()` on it without arguments cuts the player's output.
+   */
+  readonly tap: AudioNode;
   /** Queues the sound behind every earlier one and starts fetching and decoding it at once. Never throws. */
   play(sound: Sound): Playback;
   /**
@@ -52,11 +59,13 @@ export interface Player {
  * Creates the player: its context and its one GainNode, the only input of the output.
  *
  * Every sound plays through that node, in the order of the `play()` calls. The player holds no token, sends no
- * header, stores nothing and builds no tap. It throws only if the browser cannot create an AudioContext.
+ * header, stores nothing and builds no node for a reader: `tap` is the one GainNode. It throws only if the browser
+ * cannot create an AudioContext.
  */
 export function createPlayer(): Player {
   const run = new PlayerRun();
   return {
+    tap: run.tap,
     play: (sound) => run.play(sound),
     pause: () => run.pause(),
     resume: () => run.resume(),
@@ -163,6 +172,10 @@ class PlayerRun {
 
   constructor() {
     this.#gain.connect(this.#context.destination);
+  }
+
+  get tap(): AudioNode {
+    return this.#gain;
   }
 
   play(sound: Sound): Playback {

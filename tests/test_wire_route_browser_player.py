@@ -25,6 +25,7 @@ from tests.support.browser_player_support import (
     OTHER,
     RESUMES_REJECTED_THEN_PASSED,
     SHORT,
+    SILENT_RMS,
     SOUND_SECONDS,
     STOP_BOUND_MS,
     STREAMED,
@@ -400,7 +401,25 @@ def test_every_source_connects_only_to_the_one_gain_that_is_the_outputs_only_inp
     assert {edge["to"] for edge in from_sources} == {into_output["from"]}
 
 
-def test_the_package_builds_no_tap_and_exports_none(tmp_path: Path) -> None:
+def test_an_analyser_on_the_tap_reads_energy_while_a_sentence_plays_and_none_after(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> tuple[dict[str, object], dict[str, object]]:
+        async with activated(tmp_path) as stage:
+            await stage.act("readTap")
+            await stage.hand_over(url(SHORT))
+            seen = await stage.finish()
+            await stage.settle()
+            return seen, await stage.snapshot()
+
+    while_playing, after = asyncio.run(scenario())
+
+    assert while_playing["tapIsOutputGain"]
+    assert while_playing["sounds"][0]["peakTapRms"] > AUDIBLE_RMS
+    assert after["tapRms"] < SILENT_RMS
+
+
+def test_the_package_builds_no_reader_and_exports_none(tmp_path: Path) -> None:
     async def scenario() -> dict[str, object]:
         async with activated(tmp_path) as stage:
             await stage.hand_over(url(SHORT))
