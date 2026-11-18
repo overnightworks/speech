@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import importlib.resources
 import io
 import json
 import subprocess
@@ -15,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from speech_provider_contract import QWEN_ARTIFACTS
 
-from speech_qwen.server import Server, fresh_socket_path, start_server
+from speech_qwen.server import Server, start_server
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -34,7 +33,6 @@ REFERENCE_SENTENCES = {
     ),
 }
 """The fixed sentence every candidate of a language speaks, so candidates compare."""
-_LANGUAGE_NAMES = {"de": "German", "en": "English"}
 _RESPONSE_SECONDS = 600.0
 _STOP_GRACE_SECONDS = 30.0
 
@@ -48,6 +46,18 @@ def _start_until_stopped(command: Sequence[str], socket_path: Path) -> Server:
     return start_server(command, socket_path, when_server_ends=lambda: None)
 
 
+def _download_checkpoint(repo_id: str, revision: str, cache: Path) -> str:
+    from huggingface_hub import snapshot_download
+
+    return snapshot_download(
+        repo_id=repo_id,
+        repo_type="model",
+        revision=revision,
+        allow_patterns=QWEN_ARTIFACTS,
+        cache_dir=cache,
+    )
+
+
 def design_voices(  # noqa: PLR0913 - one value per input of the script
     description: str,
     language: str,
@@ -56,6 +66,7 @@ def design_voices(  # noqa: PLR0913 - one value per input of the script
     cache: Path,
     *,
     start: Callable[[Sequence[str], Path], Server] = _start_until_stopped,
+    download: Callable[[str, str, Path], str] = _download_checkpoint,
 ) -> list[Path]:
     """Write `count` candidate WAVs of `description` and their transcripts.
 
@@ -77,25 +88,13 @@ def design_voices(  # noqa: PLR0913 - one value per input of the script
         if path.exists() or path.with_suffix(".txt").exists():
             raise FileExistsError(path)
 
-    from huggingface_hub import snapshot_download
+    from speech_qwen.model import LANGUAGE_NAMES, start_on_checkpoint
 
-    checkpoint = snapshot_download(
-        repo_id=DESIGN_MODEL_ID,
-        repo_type="model",
-        revision=DESIGN_REVISION,
-        allow_patterns=QWEN_ARTIFACTS,
-        cache_dir=cache,
-    )
-    from speech_qwen.model import _deploy_config, _server_command
-
-    socket_path = fresh_socket_path()
-    with importlib.resources.as_file(_deploy_config()) as deploy_config:
-        server = start(
-            _server_command(Path(checkpoint), deploy_config, socket_path), socket_path
-        )
+    checkpoint = download(DESIGN_MODEL_ID, DESIGN_REVISION, cache)
+    server = start_on_checkpoint(Path(checkpoint), start)
     with _stopped(server):
         audio_bodies = [
-            _render(server, description, _LANGUAGE_NAMES[language], sentence)
+            _render(server, description, LANGUAGE_NAMES[language], sentence)
             for _ in audio_paths
         ]
     for path, body in zip(audio_paths, audio_bodies, strict=True):
