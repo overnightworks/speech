@@ -87,6 +87,9 @@ def test_an_offered_voice_the_catalogue_lacks_stops_the_start(tmp_path: Path) ->
         (piper_table(voice="not-a-voice"), "voices.not-a-voice.*id"),
         (qwen_table().replace('"Ryan"', '"Nobody"', 1), "pin.speaker"),
         (piper_table() + piper_table(), "de_DE-thorsten-medium"),
+        ("", "voices"),
+        ("voices = 3\n", "voices"),
+        ("[voices]\nryan = 3\n", "voices.ryan"),
     ],
 )
 def test_a_malformed_entry_fails_loud_naming_the_field(
