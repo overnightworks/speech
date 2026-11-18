@@ -92,7 +92,7 @@ A speak request names a `model`, the engine, and a `voice` of it, and a `languag
 | `en_GB-cori-medium` | `piper` | Cori | English |
 | `ryan` | `qwen3-tts-1.7b` | Ryan | German and English, named by the request's `language` |
 
-`speech-qwen-design-voice` (installed with `providers/qwen`, on a GPU host) renders candidate voices from a description: it downloads the pinned VoiceDesign checkpoint into the Hub cache, starts a vLLM-Omni server on it and writes `--count` files `candidate-NN.wav`, each with its exact spoken sentence in `candidate-NN.txt`, to the `--destination` you name. It needs `--description`, `--language` (`de` or `en`), `--destination` and `--cache`, and never overwrites an existing candidate.
+`speech-qwen-design-voice` (installed with `providers/qwen`, on a GPU host) renders candidate voices from a description: it downloads the pinned VoiceDesign checkpoint into the Hub cache, starts a vLLM-Omni server on it and writes `--count` files `candidate-NN.wav`, each with its exact spoken sentence in `candidate-NN.txt`, to the `--destination` you name, which must lie under the directory you run it from (run it from the directory that is to hold the candidates, or from its parent). It needs `--description`, `--language` (`de` or `en`), `--destination` and `--cache`, and never overwrites an existing candidate.
 
 Each model is pinned to a revision. `small` fits a CPU and the image, but can
 mishear a question, so `large-v3` is the model to use where the meaning counts.
