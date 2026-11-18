@@ -57,8 +57,8 @@ async def _wait_until_done(*tasks: asyncio.Task[object]) -> None:
 
 
 def _raise_unexpected_failure(tasks: tuple[asyncio.Task[object], ...]) -> None:
-    for task in tasks:
-        failure = None if task.cancelled() else task.exception()
+    failures = [task.exception() for task in tasks if not task.cancelled()]
+    for failure in failures:
         if failure is not None and not isinstance(failure, FAILURES):
             raise failure
 
