@@ -3,6 +3,6 @@ agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
 role = "builder"
 base = "4c2a65f2ad31adf3f361308fee28ec6df994b112"
 branch = "claude/issue-493-design-voice"
-scope = ["README.md", "providers/qwen/pyproject.toml", "providers/qwen/src/speech_qwen/design_voice.py", "providers/qwen/tests/test_design_voice.py"]
+scope = ["README.md", "providers/qwen/pyproject.toml", "providers/qwen/src/speech_qwen/design_voice.py", "providers/qwen/src/speech_qwen/model.py", "providers/qwen/tests/test_design_voice.py"]
 opened_commit = "ba961a92ac748857d910b25e20068bdc20b80aa4"
 whole_reason = "One new offline script: its module, its entry point, its test and its README line."
