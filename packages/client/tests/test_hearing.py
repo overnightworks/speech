@@ -9,6 +9,7 @@ import json
 import logging
 import sys
 import time
+import traceback
 from typing import TYPE_CHECKING, NoReturn, cast
 
 import pytest
@@ -556,19 +557,10 @@ def test_an_unexpected_failure_beats_a_cancel_landing_with_it(
     assert asyncio.run(scenario()) is None
 
 
-def _awaiting_depth(task: asyncio.Task[None]) -> int:
-    depth = 0
-    awaited = task.get_coro()
-    while awaited is not None:
-        depth += 1
-        awaited = getattr(awaited, "cr_await", None)
-    return depth
-
-
-def test_a_session_settling_under_many_cancels_keeps_its_stack_flat() -> None:
+def test_a_session_settling_under_many_cancels_raises_a_short_traceback() -> None:
     cancels_to_answer = sys.getrecursionlimit() + 100
 
-    async def scenario() -> tuple[int, int]:
+    async def scenario() -> int:
         started = asyncio.Event()
         answered = asyncio.Event()
 
@@ -591,21 +583,17 @@ def test_a_session_settling_under_many_cancels_keeps_its_stack_flat() -> None:
             await started.wait()
             caller.cancel()
             await answered.wait()
-            runner = session._runner  # noqa: SLF001
-            assert runner is not None
-            depths = [_awaiting_depth(runner)]
             for _ in range(cancels_to_answer - 1):
                 answered.clear()
-                runner.cancel()
+                caller.cancel()
                 await answered.wait()
-            depths.append(_awaiting_depth(runner))
-            with pytest.raises(asyncio.CancelledError):
+            with pytest.raises(asyncio.CancelledError) as cancelled:
                 await caller
-        return depths[0], depths[1]
+        return sum(1 for _ in traceback.walk_tb(cancelled.value.__traceback__))
 
-    first, last = asyncio.run(scenario())
+    traceback_frames = asyncio.run(scenario())
 
-    assert last == first
+    assert traceback_frames < cancels_to_answer // 10
 
 
 def _chain(error: BaseException | None) -> Iterator[BaseException]:

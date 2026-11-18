@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from websockets.exceptions import ConnectionClosed, InvalidHandshake
 
@@ -46,6 +47,22 @@ def left_under_cancellation(exception: BaseException | None) -> bool:
     )
 
 
+async def _wait_until_done(*tasks: asyncio.Task[object]) -> None:
+    # A loop, not a recursion: each further cancel would otherwise deepen the stack.
+    while not all(task.done() for task in tasks):
+        for task in tasks:
+            task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait(tasks)
+
+
+def _raise_unexpected_failure(tasks: tuple[asyncio.Task[object], ...]) -> None:
+    for task in tasks:
+        failure = None if task.cancelled() else task.exception()
+        if failure is not None and not isinstance(failure, FAILURES):
+            raise failure
+
+
 async def settled(*tasks: asyncio.Task[object]) -> None:
     """Cancel `tasks` and wait until each is done, retrieving every result.
 
@@ -53,19 +70,12 @@ async def settled(*tasks: asyncio.Task[object]) -> None:
     landed meanwhile, as in a task group; otherwise that cancel is raised again.
     The cancel count is left as it is, for `asyncio.timeout` and the caller.
     """
-    cancel: asyncio.CancelledError | None = None
-    while True:
-        for task in tasks:
-            task.cancel()
-        try:
-            await asyncio.wait(tasks)
-        except asyncio.CancelledError as landed:
-            cancel = landed
-        else:
-            break
-    failures = [task.exception() for task in tasks if not task.cancelled()]
-    for failure in failures:
-        if failure is not None and not isinstance(failure, FAILURES):
-            raise failure
-    if cancel is not None:
-        raise cancel
+    for task in tasks:
+        task.cancel()
+    try:
+        await asyncio.wait(tasks)
+    except asyncio.CancelledError:
+        await _wait_until_done(*tasks)
+        _raise_unexpected_failure(tasks)
+        raise
+    _raise_unexpected_failure(tasks)
