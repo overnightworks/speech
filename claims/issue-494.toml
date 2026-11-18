@@ -3,6 +3,6 @@ agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
 role = "builder"
 base = "4c2a65f2ad31adf3f361308fee28ec6df994b112"
 branch = "claude/issue-494-catalogue-file"
-scope = ["Dockerfile", "README.md", "deploy/catalogue.toml", "docs/ARCHITECTURE.md", "docs/wire.md", "src/speech_service", "tests"]
+scope = [".dockerignore", "Dockerfile", "README.md", "deploy/catalogue.toml", "docs/ARCHITECTURE.md", "docs/wire.md", "scripts/image_gpu_voice.py", "scripts/image_judgement.py", "scripts/prove_hearing.py", "scripts/prove_image.py", "scripts/prove_speech.py", "scripts/shipped_catalogue.py", "scripts/sound_contention.py", "src/speech_service", "tests"]
 opened_commit = "e03ce189aa13e4fe837b0190f1d8c7516f3eb17c"
 whole_reason = "The catalogue's owner moves from five service modules to one loaded file at once; the loader replaces every reader in the same change."
