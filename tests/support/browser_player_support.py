@@ -17,8 +17,9 @@ from itertools import pairwise
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
+from shipped_catalogue import CATALOGUE
 from speech_client.wire import VoiceId
-from speech_service.service import Runtime
+from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.browser_support import (
     CUT_LATE_PATH,
     CUT_PATH,
@@ -296,7 +297,11 @@ async def unactivated(tmp_path: Path) -> AsyncIterator[Stage]:
     for name, seconds in SOUND_SECONDS.items():
         write_sound(tmp_path / name, seconds)
     write_marker_sound(tmp_path / MARKER_NAME, *MARKER_SECONDS)
-    runtime = Runtime({VoiceId.THORSTEN: FakeSpeaking()}, memory_probe=lambda: 0)
+    runtime = Runtime(
+        {VoiceId.THORSTEN: FakeSpeaking()},
+        memory_probe=lambda: 0,
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+    )
     async with serving_over_tcp(runtime) as service:
         side = AppSide.new()
         app = stand_in_app(service.base_url, side, tmp_path)

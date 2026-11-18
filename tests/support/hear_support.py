@@ -6,6 +6,7 @@ import asyncio
 import threading
 from typing import TYPE_CHECKING
 
+from shipped_catalogue import CATALOGUE
 from speech_client.wire import (
     MODEL,
     TRANSCRIPTIONS_PATH,
@@ -17,7 +18,7 @@ from speech_service.config import Settings
 from speech_service.control import create_control_app
 from speech_service.hearing import DRAIN_TURN_SECONDS, Heard, Hearing
 from speech_service.pcm import wav_header
-from speech_service.service import Runtime
+from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.detector_support import LevelDetector
 from tests.support.fakes_support import FakeSpeaking, sine_pcm
 from tests.support.identity_support import valid_callers, valid_headers
@@ -143,6 +144,7 @@ def hear_runtime(engine: FakeHearing | None) -> Runtime:
         {VoiceId.THORSTEN: FakeSpeaking()},
         memory_probe=lambda: 0,
         hearing=loaded(engine),
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
     )
 
 

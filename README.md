@@ -22,12 +22,14 @@ From the repository root, with [uv](https://docs.astral.sh/uv/):
 
 ```sh
 uv sync --locked
+export SPEECH_CATALOGUE_FILE=$PWD/deploy/catalogue.toml
 uv run speech-fetch-voice
 SPEECH_CONFIG_FILE=/absolute/path/to/speech.toml uv run speech-service
 ```
 
-The first command installs the CPU path (Piper). The second fetches the voices
-`SPEECH_VOICES` offers (the five Piper voices by default) at their pinned revisions; the service never downloads. The third starts the
+The first command installs the CPU path (Piper). `SPEECH_CATALOGUE_FILE` names the
+voice catalogue, which holds each voice and its pin. The second fetches the voices
+`SPEECH_VOICES` offers (the five Piper voices by default) at their pins; the service never downloads. The third starts the
 service on `127.0.0.1:8080`; it refuses to start without the caller file.
 [`deploy/speech.toml`](deploy/speech.toml) is the file the container image
 carries and shows its keys. `uv run speech-service --help` prints usage.
@@ -110,6 +112,7 @@ The process's own:
 | `SPEECH_HOST` | `127.0.0.1` | Address the listener binds; a container sets `0.0.0.0` |
 | `SPEECH_PORT` | `8080` | TCP port, 1 to 65535 |
 | `SPEECH_DEVICE` | `cuda` | Hearing's device, `cuda` or `cpu`; Piper stays on the CPU and Qwen always uses `cuda` |
+| `SPEECH_CATALOGUE_FILE` | none | Absolute path of the voice catalogue, [`deploy/catalogue.toml`](deploy/catalogue.toml) in a checkout and set by the images; the service and `speech-fetch-voice` do not start without it |
 | `SPEECH_VOICE_CACHE` | `~/.cache/piper` | Where Piper's files are kept and fetched to |
 | `SPEECH_HUGGINGFACE_CACHE` | the Hugging Face Hub cache | Where hearing's and Qwen's files are kept and fetched to |
 | `SPEECH_PROVIDER_ROOT` | none | Directory of the provider environments, `providers` in a checkout; a GPU voice needs it |

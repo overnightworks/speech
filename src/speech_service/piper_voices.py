@@ -1,116 +1,22 @@
-"""The Piper voices the repository knows: where they live and which bytes are meant."""
+"""Fetching a Piper voice at its pin, and checking the bytes meant."""
 
 from __future__ import annotations
 
 import hashlib
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from huggingface_hub import hf_hub_download
 
-from speech_client.wire import VoiceId
 from speech_service.voices import piper_voice_paths
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from speech_service.catalogue import PinnedFile, PiperEntry
+
 _CHUNK_BYTES = 1 << 20
-_REPOSITORY = "rhasspy/piper-voices"
-_REVISION = "b4e358ffcb232591bf73a540e70f7de528e4174a"
-
-
-@dataclass(frozen=True, slots=True)
-class PinnedFile:
-    """A file of a voice: its path in the repository and its SHA-256."""
-
-    path: str
-    sha256: str
-
-
-@dataclass(frozen=True, slots=True)
-class VoicePin:
-    """The repository and revision a voice is fetched at, and its two files."""
-
-    repository: str
-    revision: str
-    model: PinnedFile
-    metadata: PinnedFile
-
-
-PINS: dict[VoiceId, VoicePin] = {
-    VoiceId.THORSTEN: VoicePin(
-        _REPOSITORY,
-        _REVISION,
-        PinnedFile(
-            "de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx",
-            "7e64762d8e5118bb578f2eea6207e1a35a8e0c30595010b666f983fc87bb7819",
-        ),
-        PinnedFile(
-            "de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json",
-            "974adee790533adb273a1ac88f49027d2a1b8f0f2cf4905954a4791e79264e85",
-        ),
-    ),
-    # Licence: "CC0" on the model card at the pinned revision
-    # (de/de_DE/kerstin/medium/MODEL_CARD); dataset OHF-Voice voice-datasets. Its
-    # base model, Hi-Fi TTS, is CC BY 4.0. Not _REVISION: the voice's files exist
-    # from this revision on.
-    VoiceId.KERSTIN: VoicePin(
-        _REPOSITORY,
-        "cf910fb59f1d79ab3b625a63993a108751c6c25d",
-        PinnedFile(
-            "de/de_DE/kerstin/medium/de_DE-kerstin-medium.onnx",
-            "c56d70475fb99248a20e60dafbcd107475e60d7e01deec18ba65201d288d015d",
-        ),
-        PinnedFile(
-            "de/de_DE/kerstin/medium/de_DE-kerstin-medium.onnx.json",
-            "8e86846ab0c5c5403c25125e3a505841eec4a52eed7d2babf904990883f7e83d",
-        ),
-    ),
-    # Licence: "public domain" on the model card at the pinned revision
-    # (en/en_US/norman/medium/MODEL_CARD); dataset LibriVox.
-    VoiceId.NORMAN: VoicePin(
-        _REPOSITORY,
-        _REVISION,
-        PinnedFile(
-            "en/en_US/norman/medium/en_US-norman-medium.onnx",
-            "b9739443232a80a59c7d18810dd856899bf16a7964725f5ab81ea49b1351cb71",
-        ),
-        PinnedFile(
-            "en/en_US/norman/medium/en_US-norman-medium.onnx.json",
-            "6c2db7f558a4a8deb9fe822583c1c5105f6c4e834dd0f9de8ad17a888ee9fe1d",
-        ),
-    ),
-    # Licence: "public domain" on the model card at the pinned revision
-    # (en/en_US/ljspeech/medium/MODEL_CARD); dataset LJ Speech.
-    VoiceId.LJSPEECH: VoicePin(
-        _REPOSITORY,
-        _REVISION,
-        PinnedFile(
-            "en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx",
-            "6f52a751e2349abe7a76735eb09dc1875298c77ea2342ffd2fef79ff81b87f22",
-        ),
-        PinnedFile(
-            "en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx.json",
-            "141d612cc0a95ed7efc1ca936b845c2364967f2e9217c5dbfcf69fc4d6c65860",
-        ),
-    ),
-    # Licence: "public domain" on the model card at the pinned revision
-    # (en/en_GB/cori/medium/MODEL_CARD); dataset LibriVox.
-    VoiceId.CORI: VoicePin(
-        _REPOSITORY,
-        _REVISION,
-        PinnedFile(
-            "en/en_GB/cori/medium/en_GB-cori-medium.onnx",
-            "1899f98e5fb8310154f3c2973f4b8a929ba7245e722b3d3a85680b833d95f10d",
-        ),
-        PinnedFile(
-            "en/en_GB/cori/medium/en_GB-cori-medium.onnx.json",
-            "e262c16d7f192f69d4edd6b4ef8a5915379e67495fcc402f1ab15eeb33da3d36",
-        ),
-    ),
-}
 
 
 class VoiceHashMismatchError(RuntimeError):
@@ -131,7 +37,7 @@ def _is_present(path: Path, pinned: PinnedFile) -> bool:
 
 
 def fetch_voice_files(
-    voice: VoiceId,
+    voice: PiperEntry,
     directory: Path,
     download: Callable[..., str] = hf_hub_download,
 ) -> Path:
@@ -145,10 +51,10 @@ def fetch_voice_files(
 
     Raises `VoiceHashMismatchError` naming the first file whose hash differs.
     """
-    pin = PINS[voice]
+    pin = voice.pin
     targets = list(
         zip(
-            piper_voice_paths(directory, voice.value),
+            piper_voice_paths(directory, voice.id.value),
             (pin.model, pin.metadata),
             strict=True,
         )

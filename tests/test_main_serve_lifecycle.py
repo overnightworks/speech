@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from shipped_catalogue import CATALOGUE
 from speech_client.wire import VoiceId
 from speech_service import __main__
 from speech_service.config import Settings
@@ -36,6 +37,9 @@ if TYPE_CHECKING:
     import uvicorn
 
 _LOADABLE_RUNTIME = """
+import os
+from pathlib import Path
+from speech_service.catalogue import load_catalogue
 from speech_service.service import Runtime, RuntimeDependencies
 from speech_client.wire import VoiceId
 from tests.support.fakes_support import FakeSpeaking
@@ -43,6 +47,7 @@ from tests.support.fakes_support import FakeSpeaking
 Runtime.from_settings = lambda _settings: Runtime(
     {VoiceId.THORSTEN: None},
     dependencies=RuntimeDependencies(
+        catalogue=load_catalogue(Path(os.environ["SPEECH_CATALOGUE_FILE"])),
         engine_factory=lambda _voice: FakeSpeaking(),
         missing_artifacts=lambda _voice: (),
     ),
@@ -237,6 +242,7 @@ def _loadable_runtime() -> Runtime:
     return Runtime(
         {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: FakeSpeaking(),
             missing_artifacts=lambda _voice: (),
         ),

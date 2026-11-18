@@ -3,22 +3,16 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import TYPE_CHECKING, Final, Protocol, assert_never, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, assert_never, runtime_checkable
 
 from speech_provider_contract import (
     QWEN_DEVICE,
     QWEN_MODEL_ID,
     QWEN_SAMPLE_RATE,
-    QwenSpeaker,
 )
 
-from speech_client.wire import (
-    VOICES,
-    GivesMarks,
-    SentenceMarks,
-    SpeakingModel,
-    VoiceId,
-)
+from speech_client.wire import GivesMarks, SentenceMarks
+from speech_service.catalogue import PiperEntry, QwenEntry
 from speech_service.espeak_marks import (
     EspeakEvents,
     Sentence,
@@ -39,6 +33,7 @@ if TYPE_CHECKING:
 
     from piper import AudioChunk, PiperVoice
 
+    from speech_service.catalogue import CatalogueEntry
     from speech_service.config import Settings
 
 
@@ -158,15 +153,12 @@ def _spoken(chunk: AudioChunk) -> Sentence:
 LocalSpeaking = PiperSpeaking | ProviderProcess
 
 
-_QWEN_SPEAKERS: Final = {VoiceId.RYAN: QwenSpeaker.RYAN}
-
-
-def speaking_for_voice(settings: Settings, voice: VoiceId) -> LocalSpeaking:
-    """Construct one supported local engine from the closed catalogue id."""
-    match VOICES[voice].model:
-        case SpeakingModel.PIPER:
-            return PiperSpeaking(voice.value, settings.voice_cache)
-        case SpeakingModel.QWEN:
+def speaking_for_voice(settings: Settings, voice: CatalogueEntry) -> LocalSpeaking:
+    """Construct the local engine of one catalogue voice."""
+    match voice:
+        case PiperEntry():
+            return PiperSpeaking(voice.id.value, settings.voice_cache)
+        case QwenEntry():
             return ProviderProcess(
                 ProviderLaunch(
                     model_name=QWEN_MODEL_ID,
@@ -180,7 +172,7 @@ def speaking_for_voice(settings: Settings, voice: VoiceId) -> LocalSpeaking:
                         "--cache",
                         str(settings.huggingface_cache),
                         "--speaker",
-                        _QWEN_SPEAKERS[voice].value,
+                        voice.pin.speaker.value,
                     ),
                 ),
             )

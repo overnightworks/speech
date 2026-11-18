@@ -31,8 +31,8 @@ from image_stack import (
     start_with,
 )
 from prove_speech import SENTENCE
+from shipped_catalogue import PIPER_VOICES
 from speech_client.wire import Health, RefusalCode, RequestField
-from speech_service.voices import PIPER_VOICES
 
 if TYPE_CHECKING:
     from image_stack import Compose, Session

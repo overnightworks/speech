@@ -40,6 +40,7 @@ from proof_identity import (
     mint_pair,
     proof_identity,
 )
+from shipped_catalogue import CATALOGUE, CATALOGUE_FILE, PIPER_VOICES
 from speech_client.health import fetch_health
 from speech_client.wire import (
     SPEECH_PATH,
@@ -53,7 +54,6 @@ from speech_client.wire import (
 )
 from speech_service.config import load_settings
 from speech_service.pcm import pcm_from_wav
-from speech_service.voices import PIPER_VOICES, loads_at_start
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
@@ -257,7 +257,7 @@ def speak_measured(
 def proof_voice(offered: frozenset[VoiceId]) -> VoiceId:
     """The voice a proof speaks: the GPU voice the offer names, else a Piper voice."""
     return min(
-        (voice for voice in offered if not loads_at_start(voice)),
+        (voice for voice in offered if not CATALOGUE[voice].engine.loads_at_start),
         default=PIPER_PROOF_VOICE,
     )
 
@@ -636,6 +636,7 @@ def speech_environment(
     """
     env = os.environ.copy()
     env["SPEECH_CONFIG_FILE"] = str(identity.configuration_path)
+    env["SPEECH_CATALOGUE_FILE"] = str(CATALOGUE_FILE)
     env["SSL_CERT_FILE"] = str(identity.ca_path)
     env["SPEECH_HOST"] = LOOPBACK_HOST
     env["SPEECH_PORT"] = str(port)
@@ -669,7 +670,7 @@ def _prove() -> None:
     port = free_local_port()
     base_url = f"http://{LOOPBACK_HOST}:{port}"
     settings = load_settings()
-    voice = proof_voice(settings.voices)
+    voice = proof_voice(settings.voices or frozenset())
     try:
         with proof_identity(work_directory) as identity:
             minting = load_minting(identity.minting_path)

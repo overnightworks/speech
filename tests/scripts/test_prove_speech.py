@@ -14,10 +14,10 @@ from unittest.mock import Mock
 
 import pytest
 
+from shipped_catalogue import PIPER_VOICES
 from speech_client.outcomes import Unreachable
 from speech_client.wire import VOICES, Health, VoiceId
 from speech_service.config import Settings
-from speech_service.voices import PIPER_VOICES
 from tests.support.clock_support import FakeClock
 from tests.support.script_support import script_module
 

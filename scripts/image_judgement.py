@@ -14,6 +14,7 @@ from packaging.markers import Marker
 
 from hearing_figures import voiced_seconds, words
 from prove_speech import spoken_in_log
+from shipped_catalogue import CATALOGUE, PIPER_VOICES
 from speech_client.outcomes import RetryAfterError, busy_wait
 from speech_client.wire import (
     REFUSAL_STATUS,
@@ -28,7 +29,6 @@ from speech_client.wire import (
 )
 from speech_service.hearing_models import HearingModel, voiced_floor
 from speech_service.pcm import AI_MARK, pcm_from_wav
-from speech_service.voices import PIPER_VOICES, loads_at_start
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -101,7 +101,9 @@ def baked_caller(config: CallerConfig, app: str) -> BakedCaller:
 
 def first_gpu_voice() -> VoiceId:
     """The first voice of the catalogue that does not load at start."""
-    return next(voice for voice in VoiceId if not loads_at_start(voice))
+    return next(
+        voice for voice in VoiceId if not CATALOGUE[voice].engine.loads_at_start
+    )
 
 
 def first_english_voice() -> VoiceId:

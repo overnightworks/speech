@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from shipped_catalogue import CATALOGUE
 from speech_client.wire import Language, VoiceId
 from speech_service import __main__
 from speech_service.clock import LoopClock
@@ -91,6 +92,7 @@ def _runtime() -> Runtime:
     return Runtime(
         {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: HeldSpeaking(release_file),
             missing_artifacts=lambda _voice: (),
         ),

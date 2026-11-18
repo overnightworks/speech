@@ -34,6 +34,7 @@ from speech_provider_contract import (
     write_frame,
 )
 
+from shipped_catalogue import CATALOGUE
 from speech_client.wire import VoiceId
 from speech_service.provider_process import (
     SYNTHESIS_FAILED,
@@ -481,6 +482,7 @@ def test_qwen_cancel_beyond_drain_reaps_then_runtime_loads_a_fresh_worker(
     runtime = Runtime(
         {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=factory,
             missing_artifacts=lambda _voice: (),
         ),
@@ -573,6 +575,7 @@ def test_shutdown_during_handshake_closes_pending_without_publication(
     runtime = Runtime(
         {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: _provider_process(root, cache),
             missing_artifacts=lambda _voice: (),
         ),
@@ -602,6 +605,7 @@ def test_missing_entrypoint_failed_exec_leaves_no_retained_engine(
     runtime = Runtime(
         {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: ProviderProcess(
                 ProviderLaunch(
                     model_name=QWEN_MODEL_ID,

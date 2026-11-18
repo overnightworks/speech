@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from shipped_catalogue import CATALOGUE
 from speech_client.speak import (
     Finished,
     SentenceMarks,
@@ -15,7 +16,7 @@ from speech_client.voice_preference import (
     speak_stream_with_preference,
 )
 from speech_client.wire import Language, StreamFormat, VoiceId
-from speech_service.service import Runtime
+from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import (
     GATE_TIMEOUT_SECONDS,
     MARKED_SENTENCES,
@@ -38,7 +39,11 @@ CAP_BYTES = 1024 * 1024
 
 
 def _served[Result](voice: FakeSpeaking, consume: Callable[[str], Result]) -> Result:
-    runtime = Runtime({VoiceId.THORSTEN: voice}, memory_probe=lambda: 0)
+    runtime = Runtime(
+        {VoiceId.THORSTEN: voice},
+        memory_probe=lambda: 0,
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+    )
 
     async def scenario() -> Result:
         async with serving_over_tcp(runtime) as server:

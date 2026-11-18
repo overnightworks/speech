@@ -8,11 +8,11 @@ from speech_provider_contract import QWEN_SAMPLE_RATE
 from starlette.status import HTTP_200_OK, HTTP_404_NOT_FOUND
 from starlette.websockets import WebSocketDisconnect
 
+from shipped_catalogue import PIPER_VOICES
 from speech_client.wire import VOICES, Health, Language, VoiceId
 from speech_service.config import Settings
 from speech_service.control import create_control_app
 from speech_service.pcm import pcm_from_wav
-from speech_service.voices import PIPER_VOICES
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.gpu_voice_support import (
     PIPER_PCM,

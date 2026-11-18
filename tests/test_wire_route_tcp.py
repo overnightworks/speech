@@ -23,6 +23,7 @@ from starlette.status import (
 from websockets.asyncio.client import connect
 from websockets.exceptions import InvalidStatus
 
+from shipped_catalogue import CATALOGUE
 from speech_client.wire import (
     AUTHORIZATION_HEADER,
     REALTIME_PATH,
@@ -37,7 +38,7 @@ from speech_service.pcm import (
     WAV_HEADER_BYTES,
     pcm_from_wav,
 )
-from speech_service.service import Runtime
+from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import (
     GATE_TIMEOUT_SECONDS,
     SPEAK_SAMPLE_RATE,
@@ -163,7 +164,11 @@ def _address(server: TcpServer) -> tuple[str, int]:
 
 
 def _gated_runtime(voice: FakeSpeaking | GatedSpeaking) -> Runtime:
-    return Runtime({VoiceId.THORSTEN: voice}, memory_probe=lambda: 0)
+    return Runtime(
+        {VoiceId.THORSTEN: voice},
+        memory_probe=lambda: 0,
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+    )
 
 
 async def _first_chunk(chunks: AsyncIterator[bytes]) -> bytes:

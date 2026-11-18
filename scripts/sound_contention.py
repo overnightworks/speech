@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Final
 
 from huggingface_hub import constants
 
+from shipped_catalogue import CATALOGUE
 from sound_taggers import (
     HOP_SECONDS,
     SAMPLE_RATE,
@@ -131,7 +132,7 @@ def measure_contention(
     stop, speakers = threading.Event(), []
     spoken = corpus.sentences[: 2 * SPOKEN_SENTENCES]
     for voice_id, language in PIPER_VOICES:
-        fetch_voice_files(voice_id, cache / "voices")
+        fetch_voice_files(CATALOGUE[voice_id], cache / "voices")
         voice = PiperSpeaking(voice_id.value, cache / "voices")
         voice.load()
         texts = [s.transcript for s in spoken if s.language is language]

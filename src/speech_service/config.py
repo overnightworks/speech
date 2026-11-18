@@ -16,8 +16,8 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from webauth.https_client import is_https_url
 
 from speech_client.wire import VoiceId
+from speech_service.catalogue import Catalogue, CatalogueError, load_catalogue
 from speech_service.hearing_models import HearingModel
-from speech_service.voices import PIPER_VOICES
 
 DEFAULT_LIVE_SILENCE_SECONDS: Final = 0.5
 _PROVIDER_ROOT_ERROR = "provider root must be absolute"
@@ -25,6 +25,8 @@ _VOICES_ERROR = (
     "SPEECH_VOICES must list catalogue voice ids separated by commas, each at most once"
 )
 _CONFIG_FILE_ERROR = "config file must be absolute"
+_CATALOGUE_FILE_ERROR = "catalogue file must be absolute"
+_CATALOGUE_FILE_UNSET_ERROR = "SPEECH_CATALOGUE_FILE must name the voice catalogue"
 _KEY_SET_URL_ERROR = "jwks_url must be an https URL"
 _SERVICE_GROUP_ERROR = "service_group must be a group path such as /services/name"
 _APP_NAME_ERROR = "an app name must be one group path segment"
@@ -38,7 +40,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SPEECH_", hide_input_in_errors=True)
 
     device: str = "cuda"
-    voices: Annotated[frozenset[VoiceId], NoDecode] = frozenset(PIPER_VOICES)
+    catalogue_file: Path | None = None
+    voices: Annotated[frozenset[VoiceId] | None, NoDecode] = None
     voice_cache: Path = Field(default_factory=lambda: Path.home() / ".cache" / "piper")
     huggingface_cache: Path = Field(
         default_factory=lambda: Path(huggingface_hub_constants.HF_HUB_CACHE)
@@ -63,6 +66,13 @@ class Settings(BaseSettings):
     max_recording_seconds: float = Field(default=300.0, gt=0, allow_inf_nan=False)
     config_file: Path | None = None
 
+    @field_validator("catalogue_file")
+    @classmethod
+    def _catalogue_file_is_absolute(cls, path: Path | None) -> Path | None:
+        if path is not None and not path.is_absolute():
+            raise ValueError(_CATALOGUE_FILE_ERROR)
+        return path
+
     @field_validator("config_file")
     @classmethod
     def _config_file_is_absolute(cls, path: Path | None) -> Path | None:
@@ -80,8 +90,10 @@ class Settings(BaseSettings):
     @field_validator("voices", mode="before")
     @classmethod
     def _voices_are_distinct_catalogue_ids(
-        cls, names: str | frozenset[VoiceId]
-    ) -> frozenset[VoiceId]:
+        cls, names: str | frozenset[VoiceId] | None
+    ) -> frozenset[VoiceId] | None:
+        if names is None:
+            return None
         if not isinstance(names, str):
             return frozenset(names)
         listed = (
@@ -103,6 +115,13 @@ def _voice(name: str) -> VoiceId:
 def load_settings() -> Settings:
     """Read `SPEECH_*` from the environment."""
     return Settings()
+
+
+def catalogue_of(settings: Settings) -> Catalogue:
+    """The catalogue `SPEECH_CATALOGUE_FILE` names; fails loud when unset or wrong."""
+    if settings.catalogue_file is None:
+        raise CatalogueError(_CATALOGUE_FILE_UNSET_ERROR)
+    return load_catalogue(settings.catalogue_file)
 
 
 class _FileModel(BaseModel):

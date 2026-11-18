@@ -19,11 +19,12 @@ from starlette.status import (
     HTTP_503_SERVICE_UNAVAILABLE,
 )
 
+from shipped_catalogue import CATALOGUE
 from speech_client.wire import RETRY_AFTER_HEADER, RefusalCode, VoiceId
 from speech_service.admission_gate import AdmissionGate, Lease
 from speech_service.clock import LoopClock
 from speech_service.pcm import pcm_from_wav
-from speech_service.service import Runtime
+from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.clock_support import FakeClock
 from tests.support.fakes_support import (
     SPEAK_SAMPLE_RATE,
@@ -490,6 +491,7 @@ def test_a_held_voice_leaves_another_voice_spoken_and_not_busy() -> None:
     runtime = Runtime(
         {VoiceId.THORSTEN: FakeSpeaking(), VoiceId.NORMAN: FakeSpeaking()},
         memory_probe=lambda: 0,
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
     )
     held = synthesis_gate(runtime, VoiceId.THORSTEN).try_acquire()
     assert held is not None
