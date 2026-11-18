@@ -78,6 +78,7 @@ networks and the read-only root); what differs when you run it:
 | Speaking, Piper, German | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices), `de_DE-kerstin-medium` | CC0 for the dataset (OHF-Voice voice-datasets) per the model card; fine-tuned from the Hi-Fi TTS base model, CC BY 4.0 (NVIDIA), which needs credit |
 | Speaking, Piper, English | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices), `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` | Public domain per each voice's model card (LibriVox for norman and cori, LJ Speech for ljspeech) |
 | Speaking, optional | [`Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice), German and English, the built-in speaker `ryan` | Apache-2.0 |
+| Voice design, offline | [`Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign), German and English; not part of the service | Apache-2.0 |
 | Hearing, optional | [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3) (recommended) and [`Systran/faster-whisper-small`](https://huggingface.co/Systran/faster-whisper-small), German and English | MIT |
 
 A speak request names a `model`, the engine, and a `voice` of it, and a `language` where the voice speaks several (`ryan`: `de` or `en`):
@@ -90,6 +91,8 @@ A speak request names a `model`, the engine, and a `voice` of it, and a `languag
 | `en_US-ljspeech-medium` | `piper` | LJ Speech | English |
 | `en_GB-cori-medium` | `piper` | Cori | English |
 | `ryan` | `qwen3-tts-1.7b` | Ryan | German and English, named by the request's `language` |
+
+`speech-qwen-design-voice` (installed with `providers/qwen`, on a GPU host) renders candidate voices from a description: it downloads the pinned VoiceDesign checkpoint into the Hub cache, starts a vLLM-Omni server on it and writes `--count` files `candidate-NN.wav`, each with its exact spoken sentence in `candidate-NN.txt`, to the `--destination` you name. It needs `--description`, `--language` (`de` or `en`), `--destination` and `--cache`, and never overwrites an existing candidate.
 
 Each model is pinned to a revision. `small` fits a CPU and the image, but can
 mishear a question, so `large-v3` is the model to use where the meaning counts.
