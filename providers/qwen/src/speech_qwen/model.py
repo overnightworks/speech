@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from http.client import HTTPResponse
     from importlib.resources.abc import Traversable
 
-_LANGUAGE_NAMES = {"de": "German", "en": "English"}
+LANGUAGE_NAMES = {"de": "German", "en": "English"}
 _RESPONSE_SECONDS = 120.0
 """How long the server may stay silent in the middle of a response."""
 _SAMPLE_BYTES = 2
@@ -61,10 +61,17 @@ def load_model(
         local_files_only=True,
         cache_dir=cache,
     )
+    return start_on_checkpoint(Path(checkpoint), start)
+
+
+def start_on_checkpoint(
+    checkpoint: Path, start: Callable[[Sequence[str], Path], Server]
+) -> Server:
+    """Start the vLLM-Omni server with `start` on the local `checkpoint`."""
     socket_path = fresh_socket_path()
     with importlib.resources.as_file(_deploy_config()) as deploy_config:
         return start(
-            _server_command(Path(checkpoint), deploy_config, socket_path), socket_path
+            _server_command(checkpoint, deploy_config, socket_path), socket_path
         )
 
 
@@ -108,7 +115,7 @@ def pcm_chunks(
     speaker: QwenSpeaker | str,
 ) -> Iterator[bytes]:
     """Yield signed PCM frames as the server streams them, none past `MAX_PCM_BYTES`."""
-    language_name = _LANGUAGE_NAMES.get(language)
+    language_name = LANGUAGE_NAMES.get(language)
     if language_name is None:
         message = "unsupported Qwen language"
         raise ValueError(message)
