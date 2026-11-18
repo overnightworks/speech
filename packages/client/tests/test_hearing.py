@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import gc
 import json
 import logging
+import sys
 import time
-from typing import TYPE_CHECKING, cast
+import traceback
+from typing import TYPE_CHECKING, NoReturn, cast
 
 import pytest
 from websockets.asyncio.client import connect
@@ -31,6 +34,7 @@ from packages.client.tests.support.hearing_support import (
     stalled_service,
     takes_every_event,
 )
+from speech_client._failures import settled
 from speech_client.hearing import OPENING_SECONDS, Closed, HearingSession, Refused
 from speech_client.outcomes import (
     Busy,
@@ -553,6 +557,73 @@ def test_an_unexpected_failure_beats_a_cancel_landing_with_it(
         return session.outcome
 
     assert asyncio.run(scenario()) is None
+
+
+def test_a_session_settling_under_many_cancels_raises_a_short_traceback() -> None:
+    cancels_to_answer = sys.getrecursionlimit() + 100
+
+    async def scenario() -> int:
+        started = asyncio.Event()
+        answered = asyncio.Event()
+
+        async def token_source_slow_to_cancel() -> NoReturn:
+            started.set()
+            for _ in range(cancels_to_answer):
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    answered.set()
+            raise asyncio.CancelledError
+
+        async def hearing(session: HearingSession) -> None:
+            async with session:
+                await asyncio.Event().wait()
+
+        async with stalled_service() as (port, _):
+            session = session_to(port, token_source=token_source_slow_to_cancel)
+            caller = asyncio.create_task(hearing(session))
+            await started.wait()
+            caller.cancel()
+            await answered.wait()
+            for _ in range(cancels_to_answer - 1):
+                answered.clear()
+                caller.cancel()
+                await answered.wait()
+            with pytest.raises(asyncio.CancelledError) as cancelled:
+                await caller
+        return sum(1 for _ in traceback.walk_tb(cancelled.value.__traceback__))
+
+    traceback_frames = asyncio.run(scenario())
+
+    assert traceback_frames < cancels_to_answer // 10
+
+
+def test_settling_retrieves_every_tasks_failure_though_it_raises_the_first() -> None:
+    async def scenario() -> tuple[str, list[str]]:
+        unretrieved: list[str] = []
+        asyncio.get_running_loop().set_exception_handler(
+            lambda _loop, context: unretrieved.append(context["message"]),
+        )
+
+        async def fails_on_cancel(error: Exception) -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                raise error from None
+
+        first = asyncio.create_task(fails_on_cancel(ValueError("first")))
+        second = asyncio.create_task(fails_on_cancel(KeyError("second")))
+        await asyncio.sleep(0)
+        with pytest.raises(ValueError, match="first") as raised:
+            await settled(first, second)
+        message = str(raised.value)
+        del first, second, raised
+        gc.collect()
+        return message, unretrieved
+
+    message, unretrieved = asyncio.run(scenario())
+
+    assert (message, unretrieved) == ("first", [])
 
 
 def _chain(error: BaseException | None) -> Iterator[BaseException]:
