@@ -598,6 +598,26 @@ def test_a_session_settling_under_many_cancels_raises_a_short_traceback() -> Non
     assert traceback_frames < cancels_to_answer // 10
 
 
+def test_a_session_left_under_a_cancel_landing_on_every_turn_ends_at_once() -> None:
+    # A cancel scope of a framework cancels its task again on every loop turn.
+    async def scenario() -> asyncio.Task[None]:
+        async def hearing(session: HearingSession) -> None:
+            async with session:
+                await asyncio.Event().wait()
+
+        async with stalled_service() as (port, opened):
+            session = session_to(port)
+            caller = asyncio.create_task(hearing(session))
+            await opened.wait()
+            async with asyncio.timeout(AT_ONCE_SECONDS):
+                while not caller.done():
+                    caller.cancel()
+                    await asyncio.sleep(0)
+        return caller
+
+    assert asyncio.run(scenario()).cancelled()
+
+
 def test_settling_retrieves_every_tasks_failure_though_it_raises_the_first() -> None:
     async def scenario() -> tuple[str, list[str]]:
         unretrieved: list[str] = []
