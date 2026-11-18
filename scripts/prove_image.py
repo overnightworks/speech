@@ -96,6 +96,7 @@ from prove_speech import (
     enter_proof,
     run_under_probe_run,
 )
+from shipped_catalogue import CATALOGUE
 from speech_client.hearing import Refused
 from speech_client.wire import (
     Language,
@@ -103,9 +104,9 @@ from speech_client.wire import (
     refusal,
     speech_request_headers,
 )
+from speech_service.catalogue import PiperEntry
 from speech_service.config import Settings, load_caller_config
 from speech_service.hearing_models import HearingModel
-from speech_service.piper_voices import PINS
 
 THIS_SCRIPT: Final = Path(__file__).resolve()
 COMPOSE_FILE: Final = REPOSITORY / "compose.yaml"
@@ -172,8 +173,9 @@ def cell_contents(plain: Compose) -> None:
     environment = service_config(plain)["environment"]
     voice_hashes = {
         Path(file.path).name: file.sha256
-        for pin in PINS.values()
-        for file in (pin.model, pin.metadata)
+        for voice in CATALOGUE.values()
+        if isinstance(voice, PiperEntry)
+        for file in (voice.pin.model, voice.pin.metadata)
     }
     script = (FIXTURES / "inspect_image.py").read_text()
     output = docker(

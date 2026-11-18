@@ -15,6 +15,7 @@ import pytest
 from logline import current_traceparent, unit_trace
 from logline.testing import configured
 
+from shipped_catalogue import CATALOGUE
 from speech_client.speak import (
     Busy,
     Cut,
@@ -46,7 +47,7 @@ from speech_client.wire import (
 )
 from speech_service.config import Settings
 from speech_service.pcm import WAV_HEADER_BYTES
-from speech_service.service import Runtime
+from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import (
     GATE_TIMEOUT_SECONDS,
     SPEAK_SAMPLE_RATE,
@@ -120,7 +121,11 @@ def _speak_stream(  # noqa: PLR0913 - one keyword per call-site option
 
 
 def _runtime(voice: FakeSpeaking | GatedSpeaking) -> Runtime:
-    return Runtime({VoiceId.THORSTEN: voice}, memory_probe=lambda: 0)
+    return Runtime(
+        {VoiceId.THORSTEN: voice},
+        memory_probe=lambda: 0,
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+    )
 
 
 @asynccontextmanager
@@ -335,7 +340,9 @@ def test_a_preference_speaks_with_the_first_voice_the_service_offers(
 ) -> None:
     """WIRE-125, WIRE-142: the service offers fewer voices; the tone is not refused."""
     runtime = Runtime(
-        {voice: FakeSpeaking() for voice in offered}, memory_probe=lambda: 0
+        {voice: FakeSpeaking() for voice in offered},
+        memory_probe=lambda: 0,
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
     )
 
     async def scenario() -> PreferenceOutcome:
@@ -358,7 +365,11 @@ def test_a_streamed_preference_names_the_voice_before_the_audio_and_ends_finishe
     None
 ):
     """WIRE-125, WIRE-142: the stream chooses as the blocking call does."""
-    runtime = Runtime({VoiceId.THORSTEN: FakeSpeaking()}, memory_probe=lambda: 0)
+    runtime = Runtime(
+        {VoiceId.THORSTEN: FakeSpeaking()},
+        memory_probe=lambda: 0,
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+    )
     pair = valid_pair()
 
     def stream(base_url: str) -> list[PreferenceStreamItem]:

@@ -7,11 +7,12 @@ import struct
 import threading
 from typing import TYPE_CHECKING
 
+from shipped_catalogue import CATALOGUE
 from speech_client.wire import SentenceMarks, VoiceId, Word
 from speech_service.config import Settings
 from speech_service.control import create_control_app
 from speech_service.pcm import BYTES_PER_SAMPLE
-from speech_service.service import Runtime
+from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.identity_support import valid_callers
 
 if TYPE_CHECKING:
@@ -175,5 +176,6 @@ def an_app(
     runtime = Runtime(
         {VoiceId.THORSTEN: speaking or FakeSpeaking()},
         memory_probe=memory_probe if memory_probe is not None else (lambda: 0),
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
     )
     return create_control_app(Settings(), runtime, valid_callers())

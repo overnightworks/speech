@@ -10,8 +10,8 @@ import pytest
 
 import hearing_figures
 import speaking_figures as figures
+from shipped_catalogue import PIPER_VOICES
 from speech_client.wire import VOICES, Language, VoiceId
-from speech_service.voices import PIPER_VOICES
 
 if TYPE_CHECKING:
     from collections.abc import Callable

@@ -4,9 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 from speech_provider_contract import QWEN_SAMPLE_RATE
 
+from shipped_catalogue import CATALOGUE, PIPER_VOICES
 from speech_client.wire import VOICES, GivesMarks, VoiceHealth, VoiceId
-from speech_service.service import Runtime
-from speech_service.voices import PIPER_VOICES
+from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import (
     SPEAK_SAMPLE_RATE,
     FakeMarkingSpeaking,
@@ -73,7 +73,9 @@ def test_a_voice_that_is_not_loaded_reports_its_catalogue_facts_not_ready(
     voice: VoiceId,
 ) -> None:
     """WIRE-125, WIRE-126: a voice that is not loaded reports its catalogue facts."""
-    runtime = Runtime({voice: None})
+    runtime = Runtime(
+        {voice: None}, dependencies=RuntimeDependencies(catalogue=CATALOGUE)
+    )
 
     reported = runtime.health().speaking.voices[voice.value]
 
@@ -93,7 +95,11 @@ def test_health_lists_exactly_the_offered_voices() -> None:
     """WIRE-125: health lists exactly the offered voices."""
     offered = {VoiceId.NORMAN: FakeSpeaking(), VoiceId.CORI: FakeSpeaking()}
 
-    health = Runtime(offered, memory_probe=lambda: 0).health()
+    health = Runtime(
+        offered,
+        memory_probe=lambda: 0,
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+    ).health()
 
     assert set(health.speaking.voices) == {voice.value for voice in offered}
 

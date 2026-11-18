@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.status import HTTP_200_OK, HTTP_503_SERVICE_UNAVAILABLE
 
+from shipped_catalogue import CATALOGUE
 from speech_client.wire import HearingHealth, RefusalCode, VoiceId
 from speech_service import hearing_models
 from speech_service.clock import LoopClock
@@ -36,6 +37,7 @@ def _starting(hearing: FakeHearing | None) -> Runtime:
         {VoiceId.THORSTEN: None},
         memory_probe=lambda: 0,
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: FakeSpeaking(),
             missing_artifacts=lambda _voice: (),
         ),

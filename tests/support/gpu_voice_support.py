@@ -19,6 +19,7 @@ from speech_provider_contract import (
     QWEN_REVISION,
 )
 
+from shipped_catalogue import PIPER_VOICES
 from speech_client.wire import HEALTH_PATH, Health, VoiceId
 from speech_service import __main__
 from speech_service.__main__ import StopPolicy
@@ -26,7 +27,7 @@ from speech_service.config import Settings
 from speech_service.control import create_control_app
 from speech_service.hearing import DRAIN_TURN_SECONDS, Hearing
 from speech_service.service import Runtime
-from speech_service.voices import PIPER_VOICES, piper_voice_paths
+from speech_service.voices import piper_voice_paths
 from tests.support.hear_support import FakeHearing
 from tests.support.identity_support import valid_callers, valid_headers
 from tests.support.speak_support import ASGI_TIMEOUT_SECONDS, wav_body

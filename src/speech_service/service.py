@@ -21,14 +21,16 @@ from speech_client.wire import (
     audio_event,
 )
 from speech_service.card import card_memory_mb
+from speech_service.catalogue import offered_voices
 from speech_service.clock import LoopClock
+from speech_service.config import catalogue_of
 from speech_service.failures import PayloadFreeFailure, SpeakingFailedError
 from speech_service.hearing import Hearing, hearing_from_settings
 from speech_service.ogg_opus import ogg_opus_chunks
 from speech_service.pcm import wav_header
 from speech_service.speaking import MarkingEngine, speaking_for_voice
 from speech_service.voice_slot import VoiceSlot
-from speech_service.voices import loads_at_start, missing_artifacts
+from speech_service.voices import missing_artifacts
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Iterator, Mapping
@@ -38,6 +40,7 @@ if TYPE_CHECKING:
     from logline import StepTimer
 
     from speech_client.wire import SpeechRequest
+    from speech_service.catalogue import Catalogue
     from speech_service.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -66,8 +69,9 @@ class SpeakingEngine(Protocol):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RuntimeDependencies:
-    """The seams that check and build the voices to load."""
+    """The catalogue the voices come from, and the seams that check and build them."""
 
+    catalogue: Catalogue
     engine_factory: Callable[[VoiceId], SpeakingEngine] | None = None
     missing_artifacts: Callable[[VoiceId], tuple[str, ...]] | None = None
 
@@ -79,7 +83,7 @@ class Runtime:
         self,
         voices: Mapping[VoiceId, SpeakingEngine | None],
         *,
-        dependencies: RuntimeDependencies | None = None,
+        dependencies: RuntimeDependencies,
         hearing: Hearing | None = None,
         memory_probe: Callable[[], int] | None = None,
         load_gpu_voices_at_start: bool = False,
@@ -91,18 +95,18 @@ class Runtime:
         first request. Every Piper voice is a start voice, and a GPU voice is one
         when `load_gpu_voices_at_start`.
         """
-        dependencies = dependencies or RuntimeDependencies()
+        catalogue = dependencies.catalogue
         self.hearing = hearing or Hearing(None, _CLOCK)
         self.clock = _CLOCK
         self.slots: dict[VoiceId, VoiceSlot] = {
-            voice: VoiceSlot(voice, dependencies, _CLOCK, voices[voice])
+            voice: VoiceSlot(catalogue[voice], dependencies, _CLOCK, voices[voice])
             for voice in VoiceId
             if voice in voices
         }
         self._start_voices = tuple(
             voice
-            for voice in self.slots
-            if loads_at_start(voice, gpu_voices=load_gpu_voices_at_start)
+            for voice, slot in self.slots.items()
+            if slot.catalogued.engine.loads_at_start or load_gpu_voices_at_start
         )
         self._memory_probe = memory_probe or card_memory_mb
         self._phase_lock = threading.Lock()
@@ -111,14 +115,24 @@ class Runtime:
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Runtime:
-        """Compose the offer `SPEECH_VOICES` names."""
+        """Compose the offer `SPEECH_VOICES` names from the catalogue.
+
+        Raises `CatalogueError` when the catalogue is unset, wrong, or lacks an
+        offered voice.
+        """
+        catalogue = catalogue_of(settings)
         return cls(
-            dict.fromkeys(settings.voices),
+            dict.fromkeys(offered_voices(catalogue, settings.voices)),
             hearing=hearing_from_settings(settings, _CLOCK),
             load_gpu_voices_at_start=settings.load_gpu_voices_at_start,
             dependencies=RuntimeDependencies(
-                engine_factory=lambda voice: speaking_for_voice(settings, voice),
-                missing_artifacts=lambda voice: missing_artifacts(settings, voice),
+                catalogue=catalogue,
+                engine_factory=lambda voice: speaking_for_voice(
+                    settings, catalogue[voice]
+                ),
+                missing_artifacts=lambda voice: missing_artifacts(
+                    settings, catalogue[voice]
+                ),
             ),
         )
 
@@ -165,7 +179,7 @@ class Runtime:
         A Piper voice never loads on demand, and no voice does during the start.
         A GPU voice the start loaded reloads here once its worker died.
         """
-        if loads_at_start(voice) or self.loading:
+        if self.slots[voice].catalogued.engine.loads_at_start or self.loading:
             return None
         return self.slots[voice].shared_load()
 
