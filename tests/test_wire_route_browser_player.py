@@ -419,7 +419,7 @@ def test_an_analyser_on_the_tap_reads_energy_while_a_sentence_plays_and_none_aft
     assert after["tapRms"] < SILENT_RMS
 
 
-def test_the_package_builds_no_tap_and_exports_none(tmp_path: Path) -> None:
+def test_the_package_builds_no_reader_and_exports_none(tmp_path: Path) -> None:
     async def scenario() -> dict[str, object]:
         async with activated(tmp_path) as stage:
             await stage.hand_over(url(SHORT))

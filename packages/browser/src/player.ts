@@ -27,8 +27,9 @@ export interface Playback {
 export interface Player {
   /**
    * The player's one GainNode, the only input of the output and alive from `createPlayer()` to `close()`. An app reads
-   * a sentence's energy by connecting an analyser of this node's own context to it. Mute silences it; a closed context
-   * leaves it dead. Calling `disconnect()` on it without arguments cuts the player's output.
+   * a sentence's energy by connecting an analyser of this node's own context to it. Mute silences it. While paused or
+   * after close the context stops, so an analyser holds its last reading: key on the player's state there, not on the
+   * reading. Calling `disconnect()` on it without arguments cuts the player's output.
    */
   readonly tap: AudioNode;
   /** Queues the sound behind every earlier one and starts fetching and decoding it at once. Never throws. */
