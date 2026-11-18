@@ -81,6 +81,9 @@ def design_voices(  # noqa: PLR0913 - one value per input of the script
     if sentence is None:
         message = "unsupported design language"
         raise ValueError(message)
+    if count < 1:
+        message = "the count of candidates must be at least 1"
+        raise ValueError(message)
     audio_paths = [
         destination / f"candidate-{number:02d}.wav" for number in range(1, count + 1)
     ]

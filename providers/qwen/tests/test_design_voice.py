@@ -185,6 +185,16 @@ def test_an_unsupported_language_fails_before_any_download(
     assert started.download.calls == []
 
 
+@pytest.mark.parametrize("count", [0, -1])
+def test_a_count_below_one_fails_before_any_download(
+    started: _Started, tmp_path: Path, count: int
+) -> None:
+    with pytest.raises(ValueError, match="count"):
+        _design(started, tmp_path / "out", count=count)
+
+    assert started.download.calls == []
+
+
 def test_a_candidate_already_in_the_destination_is_never_overwritten(
     speech_server: ScriptedSpeechServer, started: _Started, tmp_path: Path
 ) -> None:
