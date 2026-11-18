@@ -7,6 +7,7 @@ import subprocess
 import sys
 import wave
 from http import HTTPStatus
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -16,7 +17,6 @@ from speech_qwen.server import Server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
     from support.scripted_server import ScriptedSpeechServer
 
@@ -194,3 +194,19 @@ def test_a_candidate_already_in_the_destination_is_never_overwritten(
 
     with pytest.raises(FileExistsError):
         _design(started, destination, count=1)
+
+
+@pytest.mark.parametrize("requested", ["../escape", "/etc/elsewhere", "a/../../b"])
+def test_a_destination_outside_the_working_directory_is_refused(
+    tmp_path: Path, requested: str
+) -> None:
+    with pytest.raises(ValueError, match="outside the working directory"):
+        design_voice.confined_destination(Path(requested), tmp_path)
+
+
+def test_a_destination_inside_the_working_directory_resolves_under_it(
+    tmp_path: Path,
+) -> None:
+    assert design_voice.confined_destination(Path("out/sub"), tmp_path) == (
+        tmp_path.resolve() / "out" / "sub"
+    )

@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import io
 import json
+import os
 import subprocess
 import wave
 from http import HTTPStatus
@@ -159,6 +160,16 @@ def _stopped(server: Server) -> Iterator[None]:
             server.process.wait()
 
 
+def confined_destination(requested: Path, base: Path) -> Path:
+    """Resolve `requested`, refusing a place outside `base`."""
+    resolved = os.path.realpath(base / requested)
+    root = os.path.realpath(base)
+    if os.path.commonpath([root, resolved]) != root:
+        message = "the destination lies outside the working directory"
+        raise ValueError(message)
+    return Path(resolved)
+
+
 def main() -> int:
     """Download the checkpoint, render the candidates and print their paths."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -174,7 +185,7 @@ def main() -> int:
         arguments.description,
         arguments.language,
         arguments.count,
-        arguments.destination,
+        confined_destination(arguments.destination, Path.cwd()),
         arguments.cache,
     ):
         print(path)  # noqa: T201 - the script's output is the written paths
