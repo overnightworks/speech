@@ -1,0 +1,7 @@
+claim_id = "e7f09de34a3e46679229961db65cc11a"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "8a98b35bf1d8680aa6419ebe48e0ca16b50d2431"
+branch = "claude/issue-486-settled-loop"
+scope = ["packages/client/src/speech_client/_failures.py", "packages/client/tests/test_hearing.py"]
+opened_commit = "c61c9c17d5c7edda2c176cd6b4c2b990bdd565aa"
