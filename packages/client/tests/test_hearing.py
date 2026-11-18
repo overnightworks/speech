@@ -7,8 +7,9 @@ import base64
 import contextlib
 import json
 import logging
+import sys
 import time
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NoReturn, cast
 
 import pytest
 from websockets.asyncio.client import connect
@@ -553,6 +554,60 @@ def test_an_unexpected_failure_beats_a_cancel_landing_with_it(
         return session.outcome
 
     assert asyncio.run(scenario()) is None
+
+
+def _awaiting_depth(task: asyncio.Task[None]) -> int:
+    depth = 0
+    awaited = task.get_coro()
+    while awaited is not None:
+        depth += 1
+        awaited = getattr(awaited, "cr_await", None)
+    return depth
+
+
+def test_a_session_settling_under_many_cancels_keeps_its_stack_flat() -> (
+    None
+):
+    cancels_to_answer = sys.getrecursionlimit() + 100
+
+    async def scenario() -> tuple[int, int]:
+        started = asyncio.Event()
+        answered = asyncio.Event()
+
+        async def token_source_slow_to_cancel() -> NoReturn:
+            started.set()
+            for _ in range(cancels_to_answer):
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    answered.set()
+            raise asyncio.CancelledError
+
+        async def hearing(session: HearingSession) -> None:
+            async with session:
+                await asyncio.Event().wait()
+
+        async with stalled_service() as (port, _):
+            session = session_to(port, token_source=token_source_slow_to_cancel)
+            caller = asyncio.create_task(hearing(session))
+            await started.wait()
+            caller.cancel()
+            await answered.wait()
+            runner = session._runner  # noqa: SLF001
+            assert runner is not None
+            depths = [_awaiting_depth(runner)]
+            for _ in range(cancels_to_answer - 1):
+                answered.clear()
+                runner.cancel()
+                await answered.wait()
+            depths.append(_awaiting_depth(runner))
+            with pytest.raises(asyncio.CancelledError):
+                await caller
+        return depths[0], depths[1]
+
+    first, last = asyncio.run(scenario())
+
+    assert last == first
 
 
 def _chain(error: BaseException | None) -> Iterator[BaseException]:

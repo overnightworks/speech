@@ -53,14 +53,19 @@ async def settled(*tasks: asyncio.Task[object]) -> None:
     landed meanwhile, as in a task group; otherwise that cancel is raised again.
     The cancel count is left as it is, for `asyncio.timeout` and the caller.
     """
-    for task in tasks:
-        task.cancel()
-    try:
-        await asyncio.wait(tasks)
-    except asyncio.CancelledError:
-        await settled(*tasks)
-        raise
+    cancel: asyncio.CancelledError | None = None
+    while True:
+        for task in tasks:
+            task.cancel()
+        try:
+            await asyncio.wait(tasks)
+        except asyncio.CancelledError as landed:
+            cancel = landed
+        else:
+            break
     failures = [task.exception() for task in tasks if not task.cancelled()]
     for failure in failures:
         if failure is not None and not isinstance(failure, FAILURES):
             raise failure
+    if cancel is not None:
+        raise cancel
