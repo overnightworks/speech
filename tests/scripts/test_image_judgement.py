@@ -12,6 +12,7 @@ import image_judgement as judged
 from hearing_figures import to_wire_rate
 from image_stack import REPOSITORY, LiveOutcome, Reply
 from proof_identity import mint_pair
+from shipped_catalogue import PIPER_VOICES
 from speech_client.wire import (
     VOICES,
     Health,
@@ -24,7 +25,6 @@ from speech_client.wire import (
 from speech_service.config import CallerConfig, load_caller_config
 from speech_service.hearing_models import HearingModel
 from speech_service.pcm import pcm_from_wav, wav_header
-from speech_service.voices import PIPER_VOICES
 
 if TYPE_CHECKING:
     from proof_identity import Minting

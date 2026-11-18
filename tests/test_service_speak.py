@@ -8,14 +8,14 @@ import numpy as np
 import pytest
 from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 
+from shipped_catalogue import CATALOGUE, PIPER_VOICES
 from speech_client.wire import (
-    VOICES,
     SentenceMarks,
     Sound,
-    SpeakingModel,
     VoiceId,
     Word,
 )
+from speech_service.catalogue import Engine
 from speech_service.config import Settings
 from speech_service.espeak_marks import EspeakEvent, EventKind, SentencePass
 from speech_service.speaking import (
@@ -24,24 +24,28 @@ from speech_service.speaking import (
     load_piper_voice,
     speaking_for_voice,
 )
-from speech_service.voices import PIPER_VOICES
 
 
 @pytest.mark.parametrize("voice", PIPER_VOICES)
 def test_every_piper_voice_constructs_its_own_local_engine(voice: VoiceId) -> None:
-    engine = speaking_for_voice(Settings(), voice)
+    engine = speaking_for_voice(Settings(), CATALOGUE[voice])
 
     assert isinstance(engine, PiperSpeaking)
     assert engine.model_name == voice.value
 
 
 @pytest.mark.parametrize(
-    "voice", [v for v in VoiceId if VOICES[v].model is SpeakingModel.QWEN]
+    "voice",
+    [
+        v
+        for v, entry in CATALOGUE.items()
+        if entry.engine is Engine.QWEN3_TTS_CUSTOMVOICE
+    ],
 )
 def test_every_qwen_voice_constructs_the_complete_waveform_voice(
     voice: VoiceId,
 ) -> None:
-    engine = speaking_for_voice(Settings(device="cuda"), voice)
+    engine = speaking_for_voice(Settings(device="cuda"), CATALOGUE[voice])
 
     assert engine.model_name == QWEN_MODEL_ID
     assert engine.sample_rate == QWEN_SAMPLE_RATE

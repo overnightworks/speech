@@ -25,7 +25,8 @@ flowchart LR
 ## Building blocks
 
 - `src/speech_service`: the one process, its TCP listener and the
-  routes. `voice_slot.py` holds one voice's engine lifecycle and its admission
+  routes. `catalogue.py` loads the voice catalogue file and holds each engine's
+  facts; `voice_slot.py` holds one voice's engine lifecycle and its admission
   gate; `callers.py` decides who may call; `wire_route.py`
   serves the wire; `hearing.py` holds the hearing engine behind a port, the
   language identifier behind its own port, the engine's gate and its one
@@ -36,7 +37,7 @@ flowchart LR
   and each one's voiced floor; `recording.py` the incremental decode of an
   uploaded recording; `clock.py` the monotonic clock every gate deadline is read
   and waited on.
-- `Dockerfile`, `compose.yaml`, `deploy/speech.toml`: the containers the dated
+- `Dockerfile`, `compose.yaml`, `deploy/speech.toml`, `deploy/catalogue.toml`: the containers the dated
   tag brings: the small image with the Piper voices, the `small` hearing model and the
   caller table baked in, and the `gpu` target, which adds Qwen, its server environment
   and large-v3; the release builds, attests and pushes both to GHCR, see
@@ -47,11 +48,19 @@ flowchart LR
 
 ### Speaking
 
-- **The offer.** `speech_client.wire` owns the closed catalogue: each voice's
-  model, name and languages. `voices.py` owns what the service adds: every
-  Piper voice loads at start, every other voice is a GPU voice. `Runtime.from_settings`
-  composes the offer, one slot per voice `SPEECH_VOICES` names, in catalogue
-  order. The offer decides which voice may take the card.
+- **The offer.** The service owns its voice catalogue in one baked file,
+  `deploy/catalogue.toml`, which `SPEECH_CATALOGUE_FILE` names: each voice's
+  engine, name, languages and pin (a Piper voice's repository, revision and two
+  files with their SHA-256; a Qwen voice's speaker). `catalogue.py` loads it into
+  typed records, fails loud naming the field of a wrong entry, and holds each
+  engine's facts: whether a voice takes instructions, the sample rate it reports
+  before it loads and whether the start loads it (every Piper voice does, every
+  other voice is a GPU voice). `speech-fetch-voice` reads the same file.
+  `speech_client.wire` still closes the set of ids a request may name, and the
+  engine's mapping to the wire's `model` is transitional; a test holds the two
+  catalogues in agreement. `Runtime.from_settings` composes the offer, one slot
+  per voice `SPEECH_VOICES` names, in catalogue order. The offer decides which
+  voice may take the card.
 - **Piper at start, a GPU voice on its first request.** The start loads each
   offered Piper voice in order, then hearing; a failed Piper load ends the
   process. With `SPEECH_LOAD_GPU_VOICES_AT_START` each GPU voice loads at start too,
@@ -170,9 +179,10 @@ flowchart LR
 The release builds, attests and pushes two images to GHCR, the gpu one at the dated
 tag with `-gpu` first, then the small one at the dated tag. hal builds its own small
 image from the dated tag, so the tag fixes the code, locked dependencies, voices,
-hearing model and caller table. Nothing is fetched at start or restart: the
-voices and the hearing model are in the image, each fetched by a shipped
-command at its pinned revision, and the service has no route to a registry or a
+hearing model, voice catalogue and caller table. Nothing is fetched at start or
+restart: the voices and the hearing model are in the image, each fetched by a
+shipped command at its pinned revision (the voices at the pins of the baked
+catalogue), and the service has no route to a registry or a
 hub. The small image carries no GPU voice and hears with `small` on the CPU. The
 healthcheck requires Piper and hearing
 to be ready, so a deployment that cannot hear is not recorded. Qwen is offered

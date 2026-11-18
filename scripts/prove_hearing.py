@@ -68,6 +68,7 @@ from prove_speech import (
     speech_environment,
     speech_server,
 )
+from shipped_catalogue import CATALOGUE
 from speech_client.hearing import Refused
 from speech_client.wire import (
     SPEECH_PATH,
@@ -87,7 +88,6 @@ from speech_service.hearing_models import (
 )
 from speech_service.pcm import pcm_from_wav
 from speech_service.piper_voices import fetch_voice_files
-from speech_service.voices import loads_at_start
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -125,7 +125,9 @@ ENGLISH_LONG_TURN = (
     "Finally we decide who greets the guests at the entrance and who shows "
     "them the way to the rooms."
 )
-ON_DEMAND_VOICES = tuple(voice for voice in VoiceId if not loads_at_start(voice))
+ON_DEMAND_VOICES = tuple(
+    voice for voice in VoiceId if not CATALOGUE[voice].engine.loads_at_start
+)
 CARD_STAGES = ("gpu_memory", "taken_card")
 PROBE_TEXT = "Bereit."
 SPEAK_WAIT_SECONDS = 30.0
@@ -308,7 +310,7 @@ def german_clip(service: Service, text: str) -> bytes:
 
 def english_voice_path(directory: Path) -> Path:
     """The English Piper voice in `directory`, fetched there once if absent."""
-    return fetch_voice_files(VoiceId.LJSPEECH, directory)
+    return fetch_voice_files(CATALOGUE[VoiceId.LJSPEECH], directory)
 
 
 def english_clip(voice: PiperVoice, text: str) -> bytes:
@@ -709,7 +711,7 @@ def prove(arguments: argparse.Namespace) -> None:
                 arguments.hearing_models,
                 clips,
                 stage,
-                load_settings().voices,
+                load_settings().voices or frozenset(),
             ),
             save,
         )

@@ -39,11 +39,13 @@ COPY providers/provider-contract/src providers/provider-contract/src
 COPY src src
 RUN uv sync --locked --no-dev --no-editable
 
-# The voices and the hearing model are fetched here, each at its pinned
-# revision (Piper's voices also checked against their hashes). The Hub's own cache
-# and logs stay in this stage.
+# The catalogue's voices and the hearing model are fetched here, each at its
+# pinned revision (Piper's voices also checked against their hashes). The Hub's
+# own cache and logs stay in this stage.
 FROM dependencies AS weights
+COPY deploy/catalogue.toml /app/deploy/catalogue.toml
 ENV HF_HOME=/tmp/huggingface \
+    SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml \
     SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing
 RUN speech-fetch-voice && speech-fetch-hearing-model small
@@ -58,7 +60,9 @@ RUN uv sync --locked --no-dev --no-editable --extra gpu
 # the hearing model share the Hub cache.
 FROM dependencies AS gpu-weights
 ARG GPU_VOICES
+COPY deploy/catalogue.toml /app/deploy/catalogue.toml
 ENV HF_HOME=/tmp/huggingface \
+    SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml \
     SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing \
     SPEECH_VOICES=$GPU_VOICES
@@ -105,7 +109,9 @@ COPY --from=qwen-environment /opt/python /opt/python
 COPY --from=qwen-environment /opt/qwen-nvidia /opt/providers/qwen/.venv/lib/python3.12/site-packages/nvidia
 COPY --from=qwen-environment /opt/providers/qwen/.venv /opt/providers/qwen/.venv
 COPY deploy/speech.toml deploy/speech.toml
+COPY deploy/catalogue.toml /app/deploy/catalogue.toml
 ENV SPEECH_VOICES=$GPU_VOICES \
+    SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml \
     SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing \
     SPEECH_PROVIDER_ROOT=/opt/providers \
@@ -122,6 +128,8 @@ COPY --from=dependencies /opt/venv /opt/venv
 COPY --from=weights /opt/voices /opt/voices
 COPY --from=weights /opt/hearing /opt/hearing
 COPY deploy/speech.toml deploy/speech.toml
+COPY deploy/catalogue.toml /app/deploy/catalogue.toml
+ENV SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml
 RUN useradd --no-create-home --uid 1001 speech
 USER 1001
 

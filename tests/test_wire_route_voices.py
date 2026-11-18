@@ -13,6 +13,7 @@ from starlette.status import (
     HTTP_422_UNPROCESSABLE_CONTENT,
 )
 
+from shipped_catalogue import CATALOGUE, PIPER_VOICES
 from speech_client.wire import (
     MAX_INSTRUCTIONS_CHARACTERS,
     VOICES,
@@ -21,8 +22,7 @@ from speech_client.wire import (
     SpeakingModel,
     VoiceId,
 )
-from speech_service.service import Runtime
-from speech_service.voices import PIPER_VOICES
+from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.identity_support import valid_callers
 from tests.support.speak_support import (
@@ -77,7 +77,13 @@ def test_each_voice_is_spoken_by_its_own_engine_in_the_language_asked_for(
 ) -> None:
     """WIRE-07, WIRE-11, WIRE-138: each voice is spoken in the named language."""
     engines = {offered: FakeSpeaking() for offered in VoiceId}
-    app = app_over(Runtime(dict(engines), memory_probe=lambda: 0))
+    app = app_over(
+        Runtime(
+            dict(engines),
+            memory_probe=lambda: 0,
+            dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+        )
+    )
 
     response = post_speech(
         TestClient(app), speak_body(voice, "Guten Morgen", language=language)
@@ -185,6 +191,7 @@ def _offering_every_voice(voice: VoiceId, engine: FakeSpeaking) -> Runtime:
             for offered in VoiceId
         },
         memory_probe=lambda: 0,
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
     )
 
 

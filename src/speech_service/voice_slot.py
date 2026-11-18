@@ -8,16 +8,16 @@ from concurrent.futures import Future
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from speech_client.wire import VOICES, VoiceHealth
+from speech_client.wire import VoiceHealth
 from speech_service.admission_gate import AdmissionGate
 from speech_service.failures import log_failure
 from speech_service.speaking import gives_marks
-from speech_service.voices import sample_rate_before_load
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from speech_client.wire import VoiceId
+    from speech_service.catalogue import CatalogueEntry
     from speech_service.clock import LoopClock
     from speech_service.service import RuntimeDependencies, SpeakingEngine
 
@@ -41,13 +41,14 @@ class VoiceSlot:
 
     def __init__(
         self,
-        voice: VoiceId,
+        catalogued: CatalogueEntry,
         dependencies: RuntimeDependencies,
         clock: LoopClock,
         speaking: SpeakingEngine | None = None,
     ) -> None:
         """Hold `speaking` if it is ready; otherwise nothing runs until a load."""
-        self.voice = voice
+        self.catalogued = catalogued
+        self.voice = catalogued.id
         self.speaking = speaking
         self.gate = AdmissionGate(clock)
         self.loading = False
@@ -182,19 +183,19 @@ class VoiceSlot:
         """The voice's part of GET /health: its catalogue facts, and `ready`."""
         with self._state_lock:
             speaking = self.speaking
-        catalogued = VOICES[self.voice]
+        engine = self.catalogued.engine
         loaded = speaking is not None
         return VoiceHealth(
-            model=catalogued.model,
-            name=catalogued.name,
-            languages=catalogued.languages,
-            takes_instructions=catalogued.takes_instructions,
+            model=engine.wire_model,
+            name=self.catalogued.name,
+            languages=self.catalogued.languages,
+            takes_instructions=engine.takes_instructions,
             gives_marks=gives_marks(speaking),
             ready=loaded and ready,
             sample_rate=(
                 speaking.sample_rate
                 if speaking is not None
-                else sample_rate_before_load(self.voice)
+                else engine.sample_rate_before_load
             ),
         )
 

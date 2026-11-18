@@ -8,11 +8,12 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
+from shipped_catalogue import PIPER_VOICES
 from speech_client.wire import VoiceId
 from speech_service.config import Settings
 from speech_service.hearing_models import HearingModel
 from speech_service.pcm import wav_header
-from speech_service.voices import PIPER_VOICES
+from speech_service.service import Runtime
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE
 
 if TYPE_CHECKING:
@@ -183,7 +184,9 @@ def test_settings_refuse_a_port_that_is_not_a_tcp_port(
 
 def test_every_piper_voice_is_offered_by_default() -> None:
     """WIRE-107: every piper voice is offered by default."""
-    assert Settings().voices == set(PIPER_VOICES)
+    offered = Runtime.from_settings(Settings()).health().speaking.voices
+
+    assert list(offered) == [voice.value for voice in PIPER_VOICES]
 
 
 @pytest.mark.parametrize("value", ["", " "])

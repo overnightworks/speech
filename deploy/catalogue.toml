@@ -1,0 +1,111 @@
+# The voices the service offers: one table per voice id. The image bakes this
+# file and `SPEECH_CATALOGUE_FILE` names it; `speech-fetch-voice` fetches the
+# voices it holds at these pins. It holds no secret.
+
+# Piper voices: the repository and revision their two files are fetched at, and
+# the SHA-256 each file must have. Licences are those on the voice's model card
+# at its pinned revision.
+[voices.de_DE-thorsten-medium]
+engine = "piper"
+name = "Thorsten"
+languages = ["de"]
+
+[voices.de_DE-thorsten-medium.pin]
+repository = "rhasspy/piper-voices"
+revision = "b4e358ffcb232591bf73a540e70f7de528e4174a"
+
+[voices.de_DE-thorsten-medium.pin.model]
+path = "de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx"
+sha256 = "7e64762d8e5118bb578f2eea6207e1a35a8e0c30595010b666f983fc87bb7819"
+
+[voices.de_DE-thorsten-medium.pin.metadata]
+path = "de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json"
+sha256 = "974adee790533adb273a1ac88f49027d2a1b8f0f2cf4905954a4791e79264e85"
+
+# Licence: "CC0" on the model card at the pinned revision
+# (de/de_DE/kerstin/medium/MODEL_CARD); dataset OHF-Voice voice-datasets. Its
+# base model, Hi-Fi TTS, is CC BY 4.0. Its revision differs from the others':
+# the voice's files exist from this revision on.
+[voices.de_DE-kerstin-medium]
+engine = "piper"
+name = "Kerstin"
+languages = ["de"]
+
+[voices.de_DE-kerstin-medium.pin]
+repository = "rhasspy/piper-voices"
+revision = "cf910fb59f1d79ab3b625a63993a108751c6c25d"
+
+[voices.de_DE-kerstin-medium.pin.model]
+path = "de/de_DE/kerstin/medium/de_DE-kerstin-medium.onnx"
+sha256 = "c56d70475fb99248a20e60dafbcd107475e60d7e01deec18ba65201d288d015d"
+
+[voices.de_DE-kerstin-medium.pin.metadata]
+path = "de/de_DE/kerstin/medium/de_DE-kerstin-medium.onnx.json"
+sha256 = "8e86846ab0c5c5403c25125e3a505841eec4a52eed7d2babf904990883f7e83d"
+
+# Licence: "public domain" on the model card at the pinned revision
+# (en/en_US/norman/medium/MODEL_CARD); dataset LibriVox.
+[voices.en_US-norman-medium]
+engine = "piper"
+name = "Norman"
+languages = ["en"]
+
+[voices.en_US-norman-medium.pin]
+repository = "rhasspy/piper-voices"
+revision = "b4e358ffcb232591bf73a540e70f7de528e4174a"
+
+[voices.en_US-norman-medium.pin.model]
+path = "en/en_US/norman/medium/en_US-norman-medium.onnx"
+sha256 = "b9739443232a80a59c7d18810dd856899bf16a7964725f5ab81ea49b1351cb71"
+
+[voices.en_US-norman-medium.pin.metadata]
+path = "en/en_US/norman/medium/en_US-norman-medium.onnx.json"
+sha256 = "6c2db7f558a4a8deb9fe822583c1c5105f6c4e834dd0f9de8ad17a888ee9fe1d"
+
+# Licence: "public domain" on the model card at the pinned revision
+# (en/en_US/ljspeech/medium/MODEL_CARD); dataset LJ Speech.
+[voices.en_US-ljspeech-medium]
+engine = "piper"
+name = "LJ Speech"
+languages = ["en"]
+
+[voices.en_US-ljspeech-medium.pin]
+repository = "rhasspy/piper-voices"
+revision = "b4e358ffcb232591bf73a540e70f7de528e4174a"
+
+[voices.en_US-ljspeech-medium.pin.model]
+path = "en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx"
+sha256 = "6f52a751e2349abe7a76735eb09dc1875298c77ea2342ffd2fef79ff81b87f22"
+
+[voices.en_US-ljspeech-medium.pin.metadata]
+path = "en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx.json"
+sha256 = "141d612cc0a95ed7efc1ca936b845c2364967f2e9217c5dbfcf69fc4d6c65860"
+
+# Licence: "public domain" on the model card at the pinned revision
+# (en/en_GB/cori/medium/MODEL_CARD); dataset LibriVox.
+[voices.en_GB-cori-medium]
+engine = "piper"
+name = "Cori"
+languages = ["en"]
+
+[voices.en_GB-cori-medium.pin]
+repository = "rhasspy/piper-voices"
+revision = "b4e358ffcb232591bf73a540e70f7de528e4174a"
+
+[voices.en_GB-cori-medium.pin.model]
+path = "en/en_GB/cori/medium/en_GB-cori-medium.onnx"
+sha256 = "1899f98e5fb8310154f3c2973f4b8a929ba7245e722b3d3a85680b833d95f10d"
+
+[voices.en_GB-cori-medium.pin.metadata]
+path = "en/en_GB/cori/medium/en_GB-cori-medium.onnx.json"
+sha256 = "e262c16d7f192f69d4edd6b4ef8a5915379e67495fcc402f1ab15eeb33da3d36"
+
+# A voice of Qwen's custom-voice model: the speaker the provider speaks with. The
+# model's own pin is the provider contract's.
+[voices.ryan]
+engine = "qwen3-tts-customvoice"
+name = "Ryan"
+languages = ["de", "en"]
+
+[voices.ryan.pin]
+speaker = "Ryan"

@@ -1,4 +1,4 @@
-"""Fetch the voices `SPEECH_VOICES` offers, each at its pin."""
+"""Fetch the voices `SPEECH_VOICES` offers from the catalogue, each at its pin."""
 
 # ruff: noqa: T201 - this command prints where each voice went
 
@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, assert_never
 
 from huggingface_hub import hf_hub_download, snapshot_download
 
-from speech_client.wire import VOICES, SpeakingModel, VoiceId
-from speech_service.config import load_settings
+from speech_service.catalogue import PiperEntry, QwenEntry, offered_voices
+from speech_service.config import catalogue_of, load_settings
 from speech_service.piper_voices import fetch_voice_files
 from speech_service.voices import fetch_qwen
 
@@ -36,11 +36,13 @@ def main(
     )
     parser.parse_args(argv)
     settings = load_settings()
-    for voice in (voice for voice in VoiceId if voice in settings.voices):
-        match VOICES[voice].model:
-            case SpeakingModel.PIPER:
+    catalogue = catalogue_of(settings)
+    for voice_id in offered_voices(catalogue, settings.voices):
+        voice = catalogue[voice_id]
+        match voice:
+            case PiperEntry():
                 print(fetch_voice_files(voice, settings.voice_cache, download))
-            case SpeakingModel.QWEN:
+            case QwenEntry():
                 print(fetch_qwen(settings.huggingface_cache, download_snapshot))
             case unreachable:
                 assert_never(unreachable)

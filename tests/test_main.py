@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
 
+from shipped_catalogue import CATALOGUE
 from speech_client.wire import VOICES, Language, VoiceId
 from speech_service import __main__
 from speech_service.__main__ import StopPolicy
@@ -153,6 +154,7 @@ def test_the_process_writes_its_ready_and_stop_lines(
     runtime = Runtime(
         {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: FakeSpeaking(),
             missing_artifacts=lambda _voice: (),
         ),
@@ -183,6 +185,7 @@ def test_failed_loader_stops_the_server_and_closes_the_listener(
     runtime = Runtime(
         {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: FakeSpeaking(fail=True),
             missing_artifacts=lambda _voice: (),
         ),
@@ -280,6 +283,7 @@ def test_shutdown_closes_a_pending_real_adapter_before_awaiting_its_load(
     runtime = Runtime(
         {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: engine,
             missing_artifacts=lambda _voice: (),
         ),
@@ -332,6 +336,7 @@ def test_owned_speaking_failure_stops_the_server_and_returns_failure(
     runtime = Runtime(
         {VoiceId.THORSTEN: speaking},
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: speaking,
             missing_artifacts=lambda _voice: (),
         ),
@@ -382,6 +387,7 @@ def test_orchestrator_serves_health_from_its_loading_runtime(
         {VoiceId.THORSTEN: None},
         memory_probe=lambda: card_memory_mb,
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: _BlockedSpeaking(started, release),
             missing_artifacts=lambda _voice: (),
         ),
@@ -447,7 +453,10 @@ def test_signal_handler_stops_the_async_orchestrator(
 def test_signal_exit_is_zero_and_closes_the_listener(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    runtime = Runtime({VoiceId.THORSTEN: FakeSpeaking()})
+    runtime = Runtime(
+        {VoiceId.THORSTEN: FakeSpeaking()},
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+    )
 
     class Server:
         def __init__(self) -> None:
@@ -495,6 +504,7 @@ def _signalled_stop(
     runtime = Runtime(
         {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: FakeSpeaking(),
             missing_artifacts=lambda _voice: (),
         ),
@@ -567,7 +577,10 @@ def test_a_hearing_load_that_will_not_end_ends_the_process_through_the_abort_wit
 def test_server_ending_on_its_own_returns_failure_and_closes_the_listener(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    runtime = Runtime({VoiceId.THORSTEN: FakeSpeaking()})
+    runtime = Runtime(
+        {VoiceId.THORSTEN: FakeSpeaking()},
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+    )
 
     class Server:
         should_exit = False

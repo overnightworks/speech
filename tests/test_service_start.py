@@ -7,11 +7,11 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.status import HTTP_503_SERVICE_UNAVAILABLE
 
+from shipped_catalogue import CATALOGUE, PIPER_VOICES
 from speech_client.wire import VoiceId
 from speech_service.clock import LoopClock
 from speech_service.hearing import Hearing
 from speech_service.service import Runtime, RuntimeDependencies, SpeakingEngine
-from speech_service.voices import PIPER_VOICES
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.hear_support import FakeHearing
 from tests.support.speak_support import app_over, post_speech, speak_body
@@ -35,6 +35,7 @@ def _loading(engine: SpeakingEngine) -> Runtime:
     return Runtime(
         {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: engine,
             missing_artifacts=lambda _voice: (),
         ),
@@ -53,6 +54,7 @@ def test_a_voice_whose_artifacts_are_missing_stops_the_start_before_building_it(
     runtime = Runtime(
         {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=build,
             missing_artifacts=lambda _voice: ("voice.onnx",),
         ),
@@ -67,7 +69,9 @@ def test_a_voice_whose_artifacts_are_missing_stops_the_start_before_building_it(
 
 
 def test_a_runtime_without_an_engine_factory_refuses_to_start() -> None:
-    runtime = Runtime({VoiceId.THORSTEN: None})
+    runtime = Runtime(
+        {VoiceId.THORSTEN: None}, dependencies=RuntimeDependencies(catalogue=CATALOGUE)
+    )
 
     with pytest.raises(RuntimeError, match="no engine factory"):
         runtime.load()
@@ -132,7 +136,9 @@ def test_shutdown_winning_before_pending_registration_never_loads_or_publishes()
     runtime = Runtime(
         {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
-            engine_factory=build, missing_artifacts=lambda _voice: ()
+            catalogue=CATALOGUE,
+            engine_factory=build,
+            missing_artifacts=lambda _voice: (),
         ),
     )
     starting = threading.Thread(target=runtime.load)
@@ -244,7 +250,9 @@ def _offering(
         load_gpu_voices_at_start=load_gpu_voices_at_start,
         memory_probe=lambda: 0,
         dependencies=RuntimeDependencies(
-            engine_factory=build, missing_artifacts=lambda _voice: ()
+            catalogue=CATALOGUE,
+            engine_factory=build,
+            missing_artifacts=lambda _voice: (),
         ),
         hearing=Hearing(_RecordedHearing(events), LoopClock()),
     )
@@ -303,6 +311,7 @@ def test_a_gpu_voice_loaded_at_start_is_not_ready_until_its_load_ends() -> None:
         memory_probe=lambda: 0,
         load_gpu_voices_at_start=True,
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: SlowSpeaking(ready=False),
             missing_artifacts=lambda _voice: (),
         ),
@@ -399,6 +408,7 @@ def test_a_runtime_without_a_start_voice_is_ready_once_started_until_shutdown() 
         {VoiceId.RYAN: None},
         memory_probe=lambda: 0,
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: FakeSpeaking(),
             missing_artifacts=lambda _voice: (),
         ),
@@ -424,6 +434,7 @@ def test_close_closes_hearing_after_the_slots_even_when_a_slot_fails_to_close() 
         },
         memory_probe=lambda: 0,
         hearing=Hearing(_RecordedHearing(events), LoopClock()),
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
     )
 
     with pytest.raises(RuntimeError, match="cleanup failed"):

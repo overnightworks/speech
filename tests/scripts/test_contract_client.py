@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import jwt
 import pytest
 
+from shipped_catalogue import CATALOGUE, PIPER_VOICES
 from speech_client.wire import (
     AUTHORIZATION_HEADER,
     CONTENT_TYPE_HEADER,
@@ -23,8 +24,7 @@ from speech_client.wire import (
 )
 from speech_service.config import Settings
 from speech_service.pcm import pcm_from_wav, wav_header
-from speech_service.service import Runtime
-from speech_service.voices import PIPER_VOICES
+from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE, FakeSpeaking
 from tests.support.identity_support import callers_trusting
 from tests.support.script_support import script_module
@@ -57,7 +57,11 @@ def test_both_proof_scripts_reach_a_running_speech_over_tcp(
     minting: Minting, identity: ProofIdentity
 ) -> None:
     async def scenario() -> tuple[object, bytes, bytes]:
-        runtime = Runtime({VoiceId.THORSTEN: FakeSpeaking()}, memory_probe=lambda: 0)
+        runtime = Runtime(
+            {VoiceId.THORSTEN: FakeSpeaking()},
+            memory_probe=lambda: 0,
+            dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+        )
         callers = callers_trusting(identity.configuration_path, minting)
         async with serving_over_tcp(runtime, callers) as server:
             return (
@@ -182,7 +186,11 @@ def test_a_proof_client_rejects_a_body_the_service_aborted(
 ) -> None:
     async def scenario() -> None:
         voice = FailingSpeaking(chunks_before_failing=chunks_before_failing)
-        runtime = Runtime({VoiceId.THORSTEN: voice}, memory_probe=lambda: 0)
+        runtime = Runtime(
+            {VoiceId.THORSTEN: voice},
+            memory_probe=lambda: 0,
+            dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+        )
         async with serving_over_tcp(runtime) as server:
             with pytest.raises(SystemExit):
                 await asyncio.to_thread(

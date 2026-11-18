@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from starlette.requests import Request
 
+from shipped_catalogue import CATALOGUE
 from speech_client.wire import (
     SPEECH_PATH,
     VOICES,
@@ -23,7 +24,6 @@ from speech_client.wire import (
 from speech_service.config import Settings
 from speech_service.control import create_control_app
 from speech_service.service import Runtime, RuntimeDependencies
-from speech_service.voices import loads_at_start
 from tests.support.fakes_support import FakeSpeaking, sine_pcm
 from tests.support.identity_support import valid_callers, valid_headers
 
@@ -69,7 +69,9 @@ def speak_app(
 ) -> FastAPI:
     """The private app over a fake runtime; its callers accept `valid_headers()`."""
     runtime = Runtime(
-        {VoiceId.THORSTEN: speaking or FakeSpeaking()}, memory_probe=lambda: 0
+        {VoiceId.THORSTEN: speaking or FakeSpeaking()},
+        memory_probe=lambda: 0,
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
     )
     return create_control_app(
         settings or Settings(), runtime, callers or valid_callers()
@@ -289,12 +291,17 @@ def fake_runtime(
     it on its first request, beside a fake start voice.
     """
     engine = speaking or FakeSpeaking()
-    if loads_at_start(voice):
-        return Runtime({voice: engine}, memory_probe=lambda: 0)
+    if CATALOGUE[voice].engine.loads_at_start:
+        return Runtime(
+            {voice: engine},
+            memory_probe=lambda: 0,
+            dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+        )
     return Runtime(
         {VoiceId.THORSTEN: FakeSpeaking(), voice: None},
         memory_probe=lambda: 0,
         dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
             engine_factory=lambda _voice: engine,
             missing_artifacts=lambda _voice: (),
         ),
