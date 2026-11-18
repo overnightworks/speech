@@ -565,9 +565,7 @@ def _awaiting_depth(task: asyncio.Task[None]) -> int:
     return depth
 
 
-def test_a_session_settling_under_many_cancels_keeps_its_stack_flat() -> (
-    None
-):
+def test_a_session_settling_under_many_cancels_keeps_its_stack_flat() -> None:
     cancels_to_answer = sys.getrecursionlimit() + 100
 
     async def scenario() -> tuple[int, int]:
