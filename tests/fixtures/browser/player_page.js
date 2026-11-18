@@ -68,6 +68,7 @@ let nextNodeId = 0;
 let stopOnSourceEnd = false;
 let rejectNextResume = false;
 let outputGain = null;
+let tapMeter = null;
 let player = null;
 
 addEventListener("error", (event) => seen.errors.push(String(event.message)));
@@ -206,11 +207,22 @@ function rms() {
   return Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
 }
 
+function tapRms() {
+  if (tapMeter === null) return null;
+  const samples = new Float32Array(tapMeter.fftSize);
+  tapMeter.getFloatTimeDomainData(samples);
+  return Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
+}
+
 setInterval(() => {
   const level = rms();
+  const tapLevel = tapRms();
   seen.peakRms = Math.max(seen.peakRms, level);
   for (const sound of seen.sounds) {
-    if (sound.startedValue === "playing" && sound.endedValue === null) sound.peakRms = Math.max(sound.peakRms, level);
+    if (sound.startedValue === "playing" && sound.endedValue === null) {
+      sound.peakRms = Math.max(sound.peakRms, level);
+      if (tapLevel !== null) sound.peakTapRms = Math.max(sound.peakTapRms, tapLevel);
+    }
   }
 }, SAMPLE_MS);
 
@@ -250,7 +262,7 @@ function argumentOf(spec) {
 }
 
 function handOver(spec) {
-  const sound = { id: seen.sounds.length, startedValue: null, startedCount: 0, endedValue: null, endedCount: 0, endedAt: null, peakRms: 0, playedSeconds: null, start: null, contextAtEnd: null };
+  const sound = { id: seen.sounds.length, startedValue: null, startedCount: 0, endedValue: null, endedCount: 0, endedAt: null, peakRms: 0, peakTapRms: 0, playedSeconds: null, start: null, contextAtEnd: null };
   seen.sounds.push(sound);
   const playback = player.play(argumentOf(spec));
   playback.started.then((value) => {
@@ -326,6 +338,11 @@ window.playerPage = {
   mute: (muted) => act("mute", () => player.setMuted(muted)),
   close: () => act("close", () => player.close()),
   listening: () => Promise.all(earsReady),
+  // The app's reader: one analyser of the player's context, connected to `player.tap` from the outside.
+  readTap: () => {
+    tapMeter = new Page.AnalyserNode(player.tap.context);
+    player.tap.connect(tapMeter);
+  },
   hold: (kind) => held[kind].push(Promise.withResolvers()),
   release: () => heldNow.splice(0).forEach((gate) => gate.resolve()),
   rejectNextResume: () => (rejectNextResume = true),
@@ -336,6 +353,8 @@ window.playerPage = {
     sampleRate: contexts[0].sampleRate,
     clockStep: Math.max(128 / contexts[0].sampleRate, contexts[0].baseLatency),
     gainValue: outputGain?.gain.value ?? null,
+    tapRms: tapRms(),
+    tapIsOutputGain: player.tap === outputGain,
     hasBeenActive: navigator.userActivation.hasBeenActive,
   }),
   async silentAfterAction(threshold) {
