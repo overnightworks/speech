@@ -1,0 +1,7 @@
+claim_id = "31240a4ef4df4e619d1c84f8132d23b5"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "2455e6cad896529525da79de1466161fc2e40c75"
+branch = "fix/drop-picomatch-allowance"
+scope = ["quality/config.toml"]
+opened_commit = "fe848f68a5cae1f0a13bcf41dac8cc2d5d33c047"
