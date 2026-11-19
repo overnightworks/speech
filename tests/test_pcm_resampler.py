@@ -1,13 +1,12 @@
 """The 24 kHz to 16 kHz resampler keeps its state across frame boundaries."""
 
-import io
 import itertools
 import math
 import struct
-import wave
 
 import pytest
 
+from hearing_figures import wav_of
 from speech_service.pcm import Resampler
 from speech_service.recording import decode_recording
 from tests.support.fakes_support import sine_pcm
@@ -79,17 +78,6 @@ FILTER_DELAY_SAMPLES = 32
 NO_LIMIT_SECONDS = 60.0
 
 
-def _as_recording(pcm: bytes) -> bytes:
-    """`pcm` at the live input rate as a WAV file."""
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as wav:
-        wav.setnchannels(1)
-        wav.setsampwidth(2)
-        wav.setframerate(INPUT_RATE)
-        wav.writeframes(pcm)
-    return buffer.getvalue()
-
-
 def _live(pcm: bytes) -> bytes:
     resampler = Resampler()
     out = b""
@@ -113,7 +101,7 @@ def test_a_tone_above_the_output_band_is_no_louder_than_in_a_recording(
 ) -> None:
     tone = sine_pcm(1.0, INPUT_RATE, freq=freq)
 
-    recorded = decode_recording(_as_recording(tone), NO_LIMIT_SECONDS)
+    recorded = decode_recording(wav_of(tone), NO_LIMIT_SECONDS)
 
     assert _level(_live(tone)) <= _level(recorded) + 1
 
