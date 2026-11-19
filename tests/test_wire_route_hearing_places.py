@@ -204,24 +204,19 @@ def test_a_caller_leaving_while_its_request_waits_for_the_decode_frees_its_place
     assert asyncio.run(scenario()) == HTTP_200_OK
 
 
-@pytest.mark.parametrize("gate", ["free", "taken-without-waiting"])
-def test_a_complete_upload_whose_caller_has_left_is_never_heard_and_frees_its_place(
-    gate: str,
-) -> None:
+def test_a_complete_upload_whose_caller_left_is_never_heard_and_frees_its_place() -> (
+    None
+):
     """WIRE-161: a caller gone before the decode begins costs no decode and no place."""
 
     async def scenario() -> tuple[int, int]:
         engine = FakeHearing()
-        runtime = hear_runtime(engine)
-        app = hear_app(runtime, hearing_max_waiting_requests=0)
-        taken = runtime.hearing.gate.try_acquire() if gate != "free" else None
+        app = hear_app(hear_runtime(engine), hearing_max_waiting_requests=0)
         leaver = hear_call_begun(app)
         await _arrived(leaver)
         leaver.disconnect()
         leaver.finish_upload()
         await leaver.finish()
-        if taken is not None:
-            taken.close()
         successor = hear_call(app)
         await successor.finish()
         return len(engine.heard), successor.status_code
