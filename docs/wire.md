@@ -284,7 +284,7 @@ utterance's audio and voiced milliseconds, no-speech probability and average log
 on a `hearing.measured` line, never its text. Each turn also writes `turn_end_wait.ended`
 (the wait that ended it) and `hearing.ended` (from its end to the transcript, with the
 `audio_end_ms` it ended at and the `silence_ms` that ended it), and each speak request writes
-exactly one `speak.ended` (with its `outcome`, which is `cancelled` when the client's leave or a shutdown ends the request at any point, and with `voice`, `first_output_ms`, `stream_format` and the counts `marks_words` and `marks_sounds` of what it marked, never a word; each of these fields is present when known, so a request that ends before its body is read has no `voice`). `first_output_ms` is when the service rendered the first audio, not when the client read it. All lines are in the shape of logline.
+exactly one `speak.ended` (with its `outcome`, which is `cancelled` when the client's leave or a shutdown ends the request at any point, and with `voice`, `first_output_ms`, `stream_format` and the counts `marks_words` and `marks_sounds` of what it marked, never a word; each of these fields is present when known, so a request that ends before its body is read has no `voice`). `first_output_ms` counts from the request's arrival to when the service rendered the first audio, not to when the client read it. All lines are in the shape of logline.
 
 **Server events**, in the order one turn produces them:
 
