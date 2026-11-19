@@ -1,0 +1,7 @@
+claim_id = "c7f756ed38474f4d9b9a679e2dc8eb86"
+agent = "Claude 1c28c70f-b9e3-4666-80ff-8274d2dcf8fd"
+role = "builder"
+base = "2095ffaffcd380f56be856bf485c84956b8dfb7a"
+branch = "claude/issue-522-coverage-harness-detached-target"
+scope = ["tests/support/page_coverage_support.py"]
+opened_commit = "34f4c6b34512e3c572f1781669745e4229fec62b"
