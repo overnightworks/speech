@@ -122,8 +122,10 @@ revisions, and the service has no route to a registry or hub.
   parent-death signal. The launcher clears wake directories a killed server left
   in `/dev/shm`, never following a link.
 - The browser hop of the client's relay belongs to the app. The browser package
-  holds no token, interprets no message and opens no device; its frames are
-  untrusted and bounded.
+  holds no token, interprets no message and opens no device (the app grants the
+  microphone in its `Permissions-Policy`); its frames are untrusted and bounded.
+  The app serves the capture worklet and hands the player its URL, same-origin;
+  webauth's `script-src 'self'` and `connect-src 'self'` admit both.
 
 ### Logging
 
@@ -183,8 +185,7 @@ launcher; the image's speaking and hearing on the card by a GPU run.
   weights and card proof; reopens when the operator names one.
 - **Piper `thorsten-high`:** first audio over the one-second target; reopens if
   the target moves.
-- **Arbitrating the card in the service:** the operator turns a voice off in the
-  setting; reopens with a second card or a platform-level reservation.
+- **Arbitrating the card:** reopens with a second card or platform reservation.
 
 ## Risks and Technical Debt
 
