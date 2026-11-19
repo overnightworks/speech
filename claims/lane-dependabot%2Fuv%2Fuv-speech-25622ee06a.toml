@@ -1,8 +1,0 @@
-claim_id = "22a5b8e10bac46d6b14af585f5e8abfe"
-agent = "Claude 1c28c70f-b9e3-4666-80ff-8274d2dcf8fd"
-role = "builder"
-base = "907f3abdc71f9706218e45dbfb0d1d50e532b1c0"
-branch = "dependabot/uv/uv-speech-25622ee06a"
-scope = ["packages/client/tests/support/utterances_support.py", "pyproject.toml", "src/speech_service/__main__.py", "uv.lock"]
-opened_commit = "4c6008e44202fc135f3a780d2a10e99820e837f4"
-whole_reason = "One dependency group bump with the three lint directives the bumped ruff makes unused."
