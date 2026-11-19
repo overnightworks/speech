@@ -234,12 +234,23 @@ class PlayerRun {
     }
   }
 
-  /** The volume at once, for mute and for the end of a stop's edge: no ramp, and no older ramp left to override it. */
+  /** The volume at once, for mute: no ramp, and no older ramp left to override it. */
   #setVolume(volume: number): void {
     this.#fade += 1;
     this.#ramp = undefined;
     this.#gain.gain.cancelScheduledValues(this.#context.currentTime);
     this.#gain.gain.value = volume;
+  }
+
+  /**
+   * The volume back to 1 from `time` on, the end of a stop's edge. The stopped source's `ended` can reach the page
+   * while the render thread is still on the quantum that holds the source's last samples; a volume set at once would
+   * apply to them as a click, one set on the timeline at the ramp's end leaves them under the ramp.
+   */
+  #restoreVolumeAt(time: number): void {
+    this.#fade += 1;
+    this.#ramp = undefined;
+    this.#gain.gain.setValueAtTime(1, time);
   }
 
   /**
@@ -529,7 +540,7 @@ class PlayerRun {
     this.#playing = undefined;
     playing.item.end({ kind: "stopped", playedSeconds: playing.playedBy(endsAt) });
     if (this.#flow === "running") {
-      this.#setVolume(1);
+      this.#restoreVolumeAt(endsAt);
     }
     void this.#pump();
   }
