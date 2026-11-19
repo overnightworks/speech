@@ -513,7 +513,7 @@ def test_a_failing_writer_ends_the_session_at_once_and_is_raised_from_leaving(
                 await opened.wait()
                 _fails_the_writer(session)
                 # The session ends while the caller has taken no event yet.
-                await asyncio.wait({session._runner})  # type: ignore[arg-type]  # noqa: SLF001
+                await asyncio.wait({session._runner})  # type: ignore[arg-type]  # noqa: SLF001 - the runner is the task under test
                 async with asyncio.timeout(AT_ONCE_SECONDS):
                     await takes_every_event(session)
                 events_ran_out = True

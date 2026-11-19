@@ -158,7 +158,7 @@ class Yamnet:
 
     def check(self) -> Check:
         """The ONNX scores against the TFLite scores of the same windows."""
-        from ai_edge_litert.interpreter import Interpreter  # noqa: PLC0415
+        from ai_edge_litert.interpreter import Interpreter  # noqa: PLC0415 - the TFLite runtime loads only for this check
 
         repository, revision = self._reference
         name = "lite-model_yamnet_tflite_1.tflite"
@@ -322,8 +322,8 @@ class FrameMn:
     def _model(self):  # noqa: ANN202 - torch stays lazy
         """The repository's model with its checkpoint, mel front end included."""
         sys.path.insert(0, str(self._source))
-        import models.prediction_wrapper as wrapper  # noqa: PLC0415
-        from models.frame_mn.Frame_MN_wrapper import FrameMNWrapper  # noqa: PLC0415
+        import models.prediction_wrapper as wrapper  # noqa: PLC0415 - the source path is added just above
+        from models.frame_mn.Frame_MN_wrapper import FrameMNWrapper  # noqa: PLC0415 - the source path is added just above
 
         # The repository reads its checkpoint folder from a module constant, and
         # prints its network and its checkpoint where it builds them.
@@ -341,7 +341,7 @@ class FrameMn:
         model = self._model()
 
         class Whole(torch.nn.Module):
-            def forward(self, window):  # noqa: ANN001, ANN202
+            def forward(self, window):  # noqa: ANN001, ANN202 - torch stays lazy
                 return torch.sigmoid(model(model.mel_forward(window))[0])
 
         # The export prints its progress; the report owns standard output.
@@ -366,7 +366,7 @@ class FrameMn:
 
     def check(self) -> Check:
         """The ONNX scores against the PyTorch model's on the same windows."""
-        import torch  # noqa: PLC0415
+        import torch  # noqa: PLC0415 - torch stays lazy
 
         model = self._model()
         worst = 0.0
