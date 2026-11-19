@@ -1,6 +1,7 @@
 """POST /v1/audio/transcriptions: the places that keep recordings in memory."""
 
 import asyncio
+import logging
 import time
 from typing import TYPE_CHECKING
 
@@ -339,3 +340,20 @@ def test_an_upload_within_its_wait_on_an_idle_service_is_heard() -> None:
         return upload
 
     assert asyncio.run(scenario()).status_code == HTTP_200_OK
+
+
+def test_a_caller_leaving_mid_upload_causes_no_error_line_and_frees_its_place(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def scenario() -> int:
+        app = hear_app(hear_runtime(FakeHearing()), hearing_max_waiting_requests=0)
+        leaver = hear_call_begun(app)
+        await _arrived(leaver)
+        leaver.disconnect()
+        await asyncio.wait_for(leaver.task, timeout=WAIT_SECONDS)
+        successor = hear_call(app)
+        await successor.finish()
+        return successor.status_code
+
+    assert asyncio.run(scenario()) == HTTP_200_OK
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
