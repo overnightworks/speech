@@ -13,11 +13,10 @@ flowchart LR
     service --> whisper[faster-whisper, optional]
 ```
 
-One process offers `GET /health`, the speak route, a route that hears a
-recording and a live hearing WebSocket over HTTP on a TCP address. Piper voices
-are resident; a GPU voice loads on its first request, or at start with
-`SPEECH_LOAD_GPU_VOICES_AT_START`; hearing is on when `SPEECH_HEARING_MODEL`
-names a model. Only `/health` needs no token. The service stores nothing.
+One process offers `GET /health`, the speak route, a recording route and a live
+hearing WebSocket on a TCP address. Piper voices are resident; a GPU voice loads
+on its first request, or at start with `SPEECH_LOAD_GPU_VOICES_AT_START`; hearing
+is on when `SPEECH_HEARING_MODEL` names a model. Only `/health` needs no token.
 
 ## Quick start
 
@@ -30,39 +29,33 @@ uv run speech-fetch-voice
 SPEECH_CONFIG_FILE=/absolute/path/to/speech.toml uv run speech-service
 ```
 
-The catalogue file lists every voice with its pin. `speech-fetch-voice` fetches
-the offered voices at their pins (`SPEECH_VOICES` narrows them); the service
-itself never downloads. The service listens on `127.0.0.1:8080` and refuses to
-start without the caller file; [`deploy/speech.toml`](deploy/speech.toml) shows
-its keys. `uv run speech-service --help` prints usage.
+`speech-fetch-voice` fetches the offered voices at their pins in the catalogue
+(`SPEECH_VOICES` narrows them); the service itself never downloads. It listens on
+`127.0.0.1:8080` and refuses to start without the caller file;
+[`deploy/speech.toml`](deploy/speech.toml) shows its keys.
 
 - **Hearing.** `uv run speech-fetch-hearing-model large-v3`, then
-  `SPEECH_HEARING_MODEL=large-v3`. On a GPU also `uv sync --locked --extra gpu`.
-  `small` fits a CPU but can mishear a question; use `large-v3` where the
-  meaning counts.
-- **A GPU voice.** Set `SPEECH_PROVIDER_ROOT=providers`, run
-  `uv sync --locked` inside `providers/qwen`, and fetch again. Qwen always runs
-  on `cuda` and reserves 0.45 of the card.
+  `SPEECH_HEARING_MODEL=large-v3` (on a GPU also `uv sync --locked --extra gpu`).
+  `small` fits a CPU but can mishear; use `large-v3` where meaning counts.
+- **A GPU voice.** Set `SPEECH_PROVIDER_ROOT=providers`, run `uv sync --locked`
+  in `providers/qwen`, fetch again. Qwen runs on `cuda`, reserving 0.45 of it.
 - **A container.** `Dockerfile` and `compose.yaml` run the small image: CPU,
   the Piper voices and `small`, all baked in at build.
 
 ## The GPU image
 
 Every release publishes `ghcr.io/overnightworks/speech:<version>` (small) and
-`:<version>-gpu` (`docker build --target gpu .`), which bakes every catalogue
-voice and large-v3, loads Qwen and large-v3 at start and hears on `cuda`. It is
-configured like the small image; what differs:
+`:<version>-gpu`, which bakes every catalogue voice and large-v3 and loads Qwen
+and large-v3 at start. It is configured like the small image; what differs:
 
-- **One GPU**, not shared by assumption. With large-v3 beside Qwen the card
-  held 13.2 GB on an RTX 3090; the service and Qwen server peaked at 12.7 GB of
-  host memory.
+- **One GPU**, not shared by assumption: beside Qwen, large-v3 held a 13.2 GB
+  card on an RTX 3090; the service and Qwen server peaked at 12.7 GB of host RAM.
 - **`/dev/shm`** above Docker's 64 MB default (`--shm-size` or `--ipc=host`):
   the server's stages pass data through it. **`/tmp`** writable for its compile
   caches.
 - **Startup probe.** `/health` answers while models load, with `ready` false.
-  Qwen took about 5 minutes and large-v3 under 10 seconds; probe until
-  `speaking.ready` and `hearing.ready` are true and allow 10 minutes, the
-  server's 600 seconds, after which the process ends.
+  Probe until `speaking.ready` and `hearing.ready` are true; allow 10 minutes,
+  the server's 600 seconds, after which the process ends.
 
 ## Models
 
@@ -72,19 +65,16 @@ configured like the small image; what differs:
 | Piper, German | `de_DE-kerstin-medium` | Dataset CC0; fine-tuned from Hi-Fi TTS, CC BY 4.0 (NVIDIA), which needs credit |
 | Piper, English | `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` | Public domain per each model card |
 | Speaking, optional | [`Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice), speaker `ryan`, German and English | Apache-2.0 |
-| Voice design, offline | [`Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign); not part of the service | Apache-2.0 |
 | Hearing, optional | [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3), [`-small`](https://huggingface.co/Systran/faster-whisper-small) | MIT |
 
-Each model is pinned to a revision. `speech-qwen-design-voice` (installed with
-`providers/qwen`, GPU host) renders candidate voices from a description; see
-`--help` for its arguments.
+Each model is pinned to a revision. `speech-qwen-design-voice` (in
+`providers/qwen`, GPU host) renders candidate voices offline from a description;
+the VoiceDesign model is not part of the service. See `--help`.
 
 ## Settings
 
-Every setting is read from `SPEECH_*` in the environment. The wire's settings
-(offered voices, waits and limits, hearing model, live silence, caller file) are
-in [`docs/wire.md`](docs/wire.md#settings-that-shape-the-wire). The process's
-own:
+Every setting is read from `SPEECH_*`. The wire's settings are in
+[`docs/wire.md`](docs/wire.md#settings-that-shape-the-wire); the process's own:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -116,13 +106,9 @@ release notes list it. The service pin installs the CPU path; GPU hearing needs
 `https://github.com/overnightworks/speech/releases/download/vX.Y.Z/overnightworks-speech-browser-X.Y.Z.tgz`;
 the release notes give the `sha512-` integrity for the lockfile.
 
-The client (`packages/client`) carries the wire's types and the calls an app
-makes: speaking, with or without a voice preference, the health fetch, the live
-hearing session, the relay of a browser's audio to it and the finished
-utterances. The browser package (`packages/browser`) captures an app's own
-microphone stream and plays sounds on its page. The app keeps the routes and the
-tokens; none reaches the browser. Each module documents its calls.
-`scripts/check_release.py` holds all four at one version.
+`packages/client` and `packages/browser` each document their calls. The app keeps
+the routes and the tokens; none reaches the browser. `scripts/check_release.py`
+holds all four at one version.
 
 ## Release
 
@@ -135,9 +121,9 @@ gh workflow run release-distributions.yml -f version=X.Y.Z
 ```
 
 `release.yml` builds, attests and pushes the gpu image, then the small one, and
-sets the dated tag `vYYYY.MM.DD.N`. `release-distributions.yml` releases the
-three distributions and the browser package at one `X.Y.Z`. Both run quality's
-release gate, described in
+sets the tag `vYYYY.MM.DD.N`; `release-distributions.yml` releases the three
+distributions and the browser package at `X.Y.Z`. Both run quality's release
+gate, described in
 [quality's `docs/release.md`](https://github.com/overnightworks/quality/blob/2d2b68bf3916b34f6f2c72a540c1e3d8a947b750/docs/release.md).
 
 If the small image fails after the gpu image was pushed, re-run the failed jobs
