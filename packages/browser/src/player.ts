@@ -167,6 +167,8 @@ class PlayerRun {
   #closed = false;
   #flow: Flow = "running";
   #ramp: Ramp | undefined;
+  // The context time the volume is back to 1 from: no sound starts under the stop's ramp before it.
+  #restoredAt = 0;
   // Every call that sets the volume bumps the fade; a wait that began in an older one is overtaken.
   #fade = 0;
 
@@ -250,6 +252,7 @@ class PlayerRun {
   #restoreVolumeAt(time: number): void {
     this.#fade += 1;
     this.#ramp = undefined;
+    this.#restoredAt = time;
     this.#gain.gain.setValueAtTime(1, time);
   }
 
@@ -414,7 +417,7 @@ class PlayerRun {
       scheduled.sources.delete(source);
       this.#settle(scheduled);
     };
-    const start = Math.max(when, this.#earliestKnownStart());
+    const start = Math.max(when, this.#earliestKnownStart(), this.#restoredAt);
     scheduled.sources.set(source, start);
     source.start(start);
     scheduled.chunks.push({ start, seconds: buffer.duration });

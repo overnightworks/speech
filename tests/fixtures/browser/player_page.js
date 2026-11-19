@@ -115,9 +115,11 @@ function trackSource(source) {
   source.addEventListener("ended", () => {
     seen.sourcesEnded += 1;
     if (stopOnSourceEnd) {
+      const next = stopOnSourceEnd;
       stopOnSourceEnd = false;
       seen.instrumentStops += 1;
       player.stop();
+      if (next !== true) handOver(next);
     }
   });
   return source;
@@ -350,7 +352,7 @@ window.playerPage = {
   hold: (kind) => held[kind].push(Promise.withResolvers()),
   release: () => heldNow.splice(0).forEach((gate) => gate.resolve()),
   rejectNextResume: () => (rejectNextResume = true),
-  stopOnNextSourceEnd: () => (stopOnSourceEnd = true),
+  stopOnNextSourceEnd: (next) => (stopOnSourceEnd = next ?? true),
   snapshot: () => ({
     ...seen,
     contextStates: contexts.map((context) => context.state),

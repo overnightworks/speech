@@ -276,6 +276,24 @@ def test_stop_ramps_down_without_a_click_then_ends_and_the_next_sound_is_at_full
     assert min(heard) >= FULL_PEAK
 
 
+def test_a_sound_handed_over_as_the_stopped_one_ends_early_waits_for_the_ramp_and_is_at_full_volume(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.act("stopOnNextSourceEnd", url(SHORT))
+            await stage.hand_over(url(SHORT))
+            return await stage.finish()
+
+    seen = asyncio.run(scenario())
+
+    assert seen["instrumentStops"] == 1
+    assert ends(seen) == ["stopped", "played"]
+    heard = peaks_inside(seen, 1, SOUND_SECONDS["short.wav"])
+    assert heard
+    assert min(heard) >= FULL_PEAK
+
+
 def test_stop_while_paused_ends_every_sound_at_once_and_a_later_one_waits_for_resume(
     tmp_path: Path,
 ) -> None:
