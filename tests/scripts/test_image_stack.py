@@ -123,6 +123,7 @@ def test_the_session_speaks_each_voice_in_a_language_the_service_accepts(
 
 
 def test_the_kills_for_memory_are_read_from_a_cgroups_events() -> None:
-    events = "low 0\nhigh 0\nmax 9\noom 3\noom_kill 2\noom_group_kill 0\n"
+    kills = 2
+    events = f"low 0\nmax 9\noom 3\noom_kill {kills}\noom_group_kill 0\n"
 
-    assert image_stack.oom_kills(events) == 2
+    assert image_stack.oom_kills(events) == kills
