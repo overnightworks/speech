@@ -270,20 +270,18 @@ def test_an_upload_ending_after_its_wait_is_busy_though_its_timer_has_not_run() 
     assert not engine.heard
 
 
-def test_a_whole_body_is_busy_when_the_wait_is_zero() -> None:
-    """WIRE-162: with no wait, no upload is still arriving in time."""
+def test_a_whole_body_is_heard_on_an_idle_service_when_the_wait_is_zero() -> None:
+    """WIRE-118: with no wait, an idle decode is still taken, as for speaking."""
 
-    async def scenario() -> tuple[SpeakCall, FakeHearing]:
-        engine = FakeHearing()
-        app = hear_app(hear_runtime(engine, FakeClock()), hearing_busy_wait_seconds=0)
+    async def scenario() -> SpeakCall:
+        app = hear_app(
+            hear_runtime(FakeHearing(), FakeClock()), hearing_busy_wait_seconds=0
+        )
         upload = hear_call(app)
         await upload.finish()
-        return upload, engine
+        return upload
 
-    upload, engine = asyncio.run(scenario())
-
-    assert_call_refusal(upload, HTTP_429_TOO_MANY_REQUESTS, RefusalCode.BUSY, None)
-    assert not engine.heard
+    assert asyncio.run(scenario()).status_code == HTTP_200_OK
 
 
 def test_an_upload_within_its_wait_on_an_idle_service_is_heard() -> None:

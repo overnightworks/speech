@@ -203,9 +203,12 @@ async def _read_recording(
     is never read. A body without a place at its arrival, or whose place the
     deadline took back, or that ends at or after the deadline, is read on without
     being kept and ends `NO_PLACE`. The
-    place is closed unless it is handed on in the `_Kept`.
+    place is closed unless it is handed on in the `_Kept`. A `deadline` already
+    reached at the start has no upload to cut off, so the clock is not compared
+    with it.
     """
     upload = _Upload(place)
+    arrival = clock.now()
     expiry = asyncio.create_task(clock.sleep_until(deadline))
 
     def take_back(done: asyncio.Task[None]) -> None:
@@ -224,7 +227,7 @@ async def _read_recording(
         raise
     finally:
         expiry.cancel()
-    if deadline <= clock.now():
+    if arrival < deadline <= clock.now():
         upload.drop()
     return upload.kept()
 
