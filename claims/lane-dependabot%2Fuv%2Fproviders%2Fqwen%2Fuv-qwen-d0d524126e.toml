@@ -1,7 +1,0 @@
-claim_id = "e32276cdffdc4aaaa97de8680a1b3773"
-agent = "Claude 1c28c70f-b9e3-4666-80ff-8274d2dcf8fd"
-role = "builder"
-base = "9800510565a52060d4e2341f847bb9c66ccc4eef"
-branch = "dependabot/uv/providers/qwen/uv-qwen-d0d524126e"
-scope = ["providers/qwen/pyproject.toml", "providers/qwen/uv.lock"]
-opened_commit = "7d2e0f92cfa24f66e5ed1721a5045e27bf285c92"
