@@ -26,8 +26,8 @@ flowchart TB
     subgraph process[speech_service process]
         wire_route --> callers & hearing & live_session & recording & service
         service --> voice_slot & hearing & speaking
-        voice_slot --> catalogue & piper[Piper engine] & speaking
-        speaking --> provider_process
+        voice_slot --> catalogue & speaking
+        speaking --> piper[Piper engine] & provider_process
         live_session & recording --> hearing --> voice_activity
     end
     provider_process -->|Unix socket| qwen["providers/qwen: vLLM-Omni server"]
