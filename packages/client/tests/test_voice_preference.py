@@ -47,7 +47,7 @@ PAST = DEADLINE_SECONDS + 1
 UNAVAILABLE = refusal(RefusalCode.UNAVAILABLE, "voice")
 
 
-def _speak(  # noqa: PLR0913 - the arguments a test varies, all keyword-only after the first two
+def _speak(  # noqa: PLR0913 - the arguments a test varies and all keyword-only after the first two
     base_url: str,
     preference: Sequence[VoiceId],
     *,

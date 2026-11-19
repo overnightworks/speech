@@ -165,7 +165,7 @@ class _Collector:
         # An exception cannot unwind through the C caller; the pass reads `failed`.
         try:
             return self._collect(events)
-        except Exception:  # noqa: BLE001 - the failure is kept in `failed`, not raised through C
+        except Exception:  # noqa: BLE001 - the failure is kept in `failed` and never raised through C
             self.failed = True
             return _ABORT
 
