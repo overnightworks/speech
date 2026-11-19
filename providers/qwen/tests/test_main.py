@@ -6,6 +6,8 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING
 
+import pytest
+
 from speech_qwen import __main__ as launcher
 from support.process_state import has_ended
 
@@ -58,15 +60,16 @@ def test_a_launcher_whose_service_is_already_gone_ends_without_starting_a_server
     def gone(_pid: int) -> None:
         raise RuntimeError
 
-    exit_code = launcher.main(
-        _arguments(tmp_path, parent=1),
-        tie_to_parent=gone,
-        remove_leftovers=lambda: started.append("clean"),
-        server_command=lambda *_: started.append("command") or [],
-        execute=lambda *_: started.append("exec"),
-    )
+    with pytest.raises(SystemExit) as ended:
+        launcher.main(
+            _arguments(tmp_path, parent=1),
+            tie_to_parent=gone,
+            remove_leftovers=lambda: started.append("clean"),
+            server_command=lambda *_: started.append("command") or [],
+            execute=lambda *_: started.append("exec"),
+        )
 
-    assert exit_code == 1
+    assert ended.value.code == 1
     assert started == []
 
 

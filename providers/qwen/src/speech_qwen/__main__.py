@@ -16,7 +16,7 @@ def main(
     remove_leftovers: Callable[[], None] = remove_leftover_shared_memory,
     server_command: Callable[[Path, Path], list[str]] | None = None,
     execute: Callable[[str, list[str]], object] = os.execv,
-) -> int:
+) -> None:
     """Tie this process to the service, then replace it with the server.
 
     The parent-death signal survives the exec, so the server dies with the
@@ -28,14 +28,13 @@ def main(
     try:
         tie_to_parent(arguments.expected_parent_pid)
     except RuntimeError:
-        return 1
+        raise SystemExit(1) from None
     remove_leftovers()
     if server_command is None:
         from speech_qwen.model import pinned_server_command as server_command
 
     command = server_command(arguments.cache, arguments.socket)
     execute(command[0], command)
-    return 1
 
 
 def _arguments(argv: Sequence[str] | None) -> argparse.Namespace:
@@ -47,4 +46,4 @@ def _arguments(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
