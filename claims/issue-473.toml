@@ -3,6 +3,6 @@ agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
 role = "builder"
 base = "7094360a3def012620fb3263c1f38330a433016c"
 branch = "claude/issue-473-dead-code-sweep"
-scope = ["docs/wire.md", "packages/client/src/speech_client/wire.py", "packages/client/tests", "scripts", "scripts/measure_turn_end.py", "scripts/turn_end_figures.py", "src", "src/speech_service/pcm.py", "tests", "tests/scripts/test_turn_end_figures.py"]
+scope = ["docs/wire.md", "packages/client/src/speech_client/_transport.py", "packages/client/src/speech_client/speak.py", "packages/client/src/speech_client/voice_preference.py", "packages/client/src/speech_client/wire.py", "packages/client/tests", "scripts", "scripts/measure_turn_end.py", "scripts/turn_end_figures.py", "src", "src/speech_service/pcm.py", "tests", "tests/scripts/test_turn_end_figures.py"]
 opened_commit = "a4f04c361102279960f5d22af11bce368bd23323"
 whole_reason = "One sweep of dead code and bare markers the review listed; each piece is a line or a file, and splitting gives nine trivial landings."
