@@ -263,7 +263,7 @@ def test_an_offered_gpu_voice_is_fetched_once_into_the_configured_hub_cache(
     ] == [(QWEN_MODEL_ID, QWEN_REVISION, False)]
 
 
-def test_the_command_with_a_provider_root_and_no_voice_setting_fetches_every_catalogue_voice(
+def test_the_command_with_a_provider_root_fetches_every_catalogue_voice(
     scenario: Scenario,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
