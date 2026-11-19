@@ -1,0 +1,7 @@
+claim_id = "1e170e539a8d43cabad5c44870814461"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "18e0d07473b2bd50d56f3f36ae89fb0129680e0e"
+branch = "claude/issue-475-docs-budgets"
+scope = ["README.md", "docs/ARCHITECTURE.md"]
+opened_commit = "faf7bcfe31de050a4c2ed4a3696cb27e7df23695"
