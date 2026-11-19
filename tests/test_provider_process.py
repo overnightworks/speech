@@ -379,17 +379,22 @@ def test_a_real_child_is_reaped_when_the_owner_fails_after_the_spawn(
     real_popen = subprocess.Popen
     started: list[int] = []
 
-    def recording_popen(*arguments: object, **keywords: object) -> subprocess.Popen:
+    class WithoutStderr:
+        stderr = None
+
+        def __init__(self, child: subprocess.Popen[bytes]) -> None:
+            self._child = child
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._child, name)
+
+    def recording_popen(*arguments: object, **keywords: object) -> WithoutStderr:
         child = real_popen(*arguments, **keywords)
         started.append(child.pid)
-        return child
-
-    def broken(_child: object) -> None:
-        raise RuntimeError
+        return WithoutStderr(child)
 
     monkeypatch.setattr(f"{_OWNER}.TERMINATE_GRACE_SECONDS", 0.05)
     monkeypatch.setattr(f"{_OWNER}.subprocess.Popen", recording_popen)
-    monkeypatch.setattr(f"{_OWNER}._require_stderr", broken)
     with pytest.raises(RuntimeError, match="speech provider failed"):
         server.load()
     assert fatal.wait(timeout=5)
