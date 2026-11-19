@@ -197,7 +197,7 @@ def _first_offered(
     )
 
 
-def _checked_speakers(  # noqa: PLR0913
+def _checked_speakers(  # noqa: PLR0913 - each wire option is its own argument
     base_url: str,
     text: str,
     preference: Sequence[VoiceId],
@@ -251,7 +251,7 @@ class _Speaking:
         yield from self.chunks
 
 
-def _choose(  # noqa: PLR0913
+def _choose(  # noqa: PLR0913 - each wire option is its own argument
     base_url: str,
     text: str,
     speakers: Sequence[VoiceId],
@@ -311,7 +311,7 @@ def _choose(  # noqa: PLR0913
         remaining = remaining[remaining.index(voice) + 1 :]
 
 
-def _stream(  # noqa: PLR0913
+def _stream(  # noqa: PLR0913 - each wire option is its own argument
     base_url: str,
     text: str,
     speakers: Sequence[VoiceId],
@@ -389,7 +389,7 @@ def speak_stream_with_preference(
 ) -> Generator[MarkedPreferenceStreamItem]: ...
 
 
-def speak_stream_with_preference(  # noqa: PLR0913
+def speak_stream_with_preference(  # noqa: PLR0913 - each wire option is its own argument
     base_url: str,
     text: str,
     preference: Sequence[VoiceId],
@@ -441,7 +441,7 @@ def speak_stream_with_preference(  # noqa: PLR0913
 
 
 # Every input comes from the call site; only `language` and `instructions` default.
-def speak_with_preference(  # noqa: PLR0913
+def speak_with_preference(  # noqa: PLR0913 - each wire option is its own argument
     base_url: str,
     text: str,
     preference: Sequence[VoiceId],

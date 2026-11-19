@@ -16,7 +16,6 @@ PCM_FORMAT: Final = 1
 WAV_HEADER_BYTES: Final = 44
 # Streaming WAV: the length is not known when the first byte leaves.
 STREAMING_DATA_SIZE: Final = 0xFFFFFFFF
-SILENCE_RMS: Final = 0.015
 _INT16_SCALE: Final = 32768.0
 # The IPTC term id for synthetic audio; never fetched (AI Act Art. 50(2)).
 AI_MARK: Final = (
@@ -100,11 +99,6 @@ def rms(pcm: bytes) -> float:
     if not samples.size:
         return 0.0
     return math.sqrt(float(np.mean(samples**2)))
-
-
-def is_silence(pcm: bytes, threshold: float = SILENCE_RMS) -> bool:
-    """True when the PCM is quieter than the threshold."""
-    return rms(pcm) < threshold
 
 
 LIVE_INPUT_RATE: Final = 24_000

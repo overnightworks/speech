@@ -55,6 +55,12 @@ async def takes_every_event(session: HearingSession) -> None:
         pass
 
 
+async def held_open(session: HearingSession) -> None:
+    """Hold `session` open until the task is cancelled."""
+    async with session:
+        await asyncio.Event().wait()
+
+
 def session_to(  # noqa: PLR0913 - one keyword per thing a scenario varies
     port: int,
     deadline_seconds: float = 5,

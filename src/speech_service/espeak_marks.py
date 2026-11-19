@@ -165,7 +165,7 @@ class _Collector:
         # An exception cannot unwind through the C caller; the pass reads `failed`.
         try:
             return self._collect(events)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - the failure is kept in `failed` and never raised through C
             self.failed = True
             return _ABORT
 
@@ -290,7 +290,7 @@ def _checked(
         from piper import espeakbridge
         from piper import voice as piper_voice
 
-        lock = piper_voice._ESPEAK_PHONEMIZER_LOCK  # noqa: SLF001
+        lock = piper_voice._ESPEAK_PHONEMIZER_LOCK  # noqa: SLF001 - piper offers no public handle on its lock
         if not isinstance(lock, type(threading.Lock())):
             raise _WordsOffError(WordsOffReason.LOCK)
         # Piper initializes espeak on its first phonemize; the passes need it.

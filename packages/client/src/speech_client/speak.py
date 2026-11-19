@@ -365,7 +365,7 @@ class _WavLength:
         return self._pcm_bytes // _BYTES_PER_SAMPLE / self._sample_rate
 
 
-def _chunks(  # noqa: PLR0913
+def _chunks(  # noqa: PLR0913 - each wire option is its own argument
     base_url: str,
     text: str,
     voice: VoiceId,
@@ -462,7 +462,7 @@ def speak_stream(
 ) -> Generator[MarkedStreamItem]: ...
 
 
-def speak_stream(  # noqa: PLR0913
+def speak_stream(  # noqa: PLR0913 - each wire option is its own argument
     base_url: str,
     text: str,
     voice: VoiceId,
@@ -504,7 +504,7 @@ def speak_stream(  # noqa: PLR0913
 
 
 # Every input comes from the call site; only `language` and `instructions` default.
-def speak(  # noqa: PLR0913
+def speak(  # noqa: PLR0913 - each wire option is its own argument
     base_url: str,
     text: str,
     voice: VoiceId,

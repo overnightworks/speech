@@ -33,10 +33,6 @@ from pydantic import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    # `as` re-exports the names `__getattr__` serves, for typed consumers.
-    from speech_client.outcomes import BusyWait as BusyWait  # noqa: PLC0414
-    from speech_client.outcomes import RetryAfterError as RetryAfterError  # noqa: PLC0414
-    from speech_client.outcomes import busy_wait as busy_wait  # noqa: PLC0414
 
 SPEECH_PATH: Final = "/v1/audio/speech"
 TRANSCRIPTIONS_PATH: Final = "/v1/audio/transcriptions"
@@ -557,12 +553,3 @@ def refusal(code: RefusalCode, param: RequestField | None = None) -> Refusal:
             message=_REFUSAL_MESSAGE[code], type=kind, param=param, code=code
         )
     )
-
-
-def __getattr__(name: str) -> object:
-    """Serve the busy wait from `speech_client.outcomes`, which imports this module."""
-    if name not in {"BusyWait", "RetryAfterError", "busy_wait"}:
-        raise AttributeError(name)
-    from speech_client import outcomes  # noqa: PLC0415 - outcomes imports this module
-
-    return getattr(outcomes, name)

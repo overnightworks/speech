@@ -130,7 +130,7 @@ class _StrictResponse(HTTPResponse):
                 raise LineTooLong(message)
             if not line:
                 # The argument is the bytes read, not a message.
-                raise IncompleteRead(b"")  # noqa: EM101
+                raise IncompleteRead(b"")  # noqa: EM101 - the argument is bytes and no message
             if line in {b"\r\n", b"\n"}:
                 return
 
@@ -141,7 +141,7 @@ def body_pieces(response: HTTPResponse) -> Iterator[bytes]:
         yield piece
     if response.length:
         # The argument is the bytes read, not a message.
-        raise IncompleteRead(b"", response.length)  # noqa: EM101
+        raise IncompleteRead(b"", response.length)  # noqa: EM101 - the argument is bytes and no message
 
 
 def read_within(response: HTTPResponse, limit: int) -> bytes | None:
