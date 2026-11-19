@@ -1,0 +1,8 @@
+claim_id = "a8a5212b42ed4e49949130d6e86e043c"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "5d76a0e0124393f87a66c537b64b5619af0aae66"
+branch = "claude/issue-472-recording-places"
+scope = ["docs/ARCHITECTURE.md", "docs/wire.md", "scripts/image_judgement.py", "scripts/image_stack.py", "scripts/prove_image.py", "src/speech_service/hearing.py", "src/speech_service/wire_route.py", "tests"]
+opened_commit = "9e796f7b7b46eead2723f95a653527afebc5008b"
+whole_reason = "One bound on recordings in flight: its owner, the route that reads, the image proof that drives the burst and the two documents that state it."
