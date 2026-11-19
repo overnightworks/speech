@@ -21,9 +21,9 @@ from urllib.parse import urlsplit
 from pydantic import ValidationError
 
 from proof_identity import mint_pair
+from shipped_catalogue import CATALOGUE, first_language
 from speech_client.wire import (
     SPEECH_PATH,
-    VOICES,
     AudioEventType,
     Health,
     ResponseFormat,
@@ -81,11 +81,11 @@ def speak_sse(
     """
     pair = mint_pair(minting)
     request = SpeechRequest(
-        model=VOICES[voice].model,
+        model=CATALOGUE[voice].engine.wire_model,
         input=text,
         voice=voice,
         response_format=response_format,
-        language=VOICES[voice].languages[0],
+        language=first_language(voice),
         stream_format=StreamFormat.SSE,
     )
     address = urlsplit(base_url)
@@ -269,7 +269,7 @@ def prove_marks(
     """Speak each voice's text in each format as `sse` and judge every answer."""
     record: dict[str, dict[str, float]] = {}
     for voice in voices:
-        text = texts[VOICES[voice].languages[0]]
+        text = texts[first_language(voice)]
         for response_format in ResponseFormat:
             figures = judge_sse_answer(
                 speak(text, voice, response_format),
@@ -277,7 +277,7 @@ def prove_marks(
                 response_format,
                 sentences=sentences,
             )
-            label = f"speak_sse_{voice.value}_{response_format.value}"
+            label = f"speak_sse_{voice}_{response_format.value}"
             print(
                 label,
                 f"deltas={figures.deltas}",
@@ -297,9 +297,9 @@ def prove_marks(
 def require_gives_marks(health: Health, voices: Iterable[VoiceId]) -> None:
     """Every voice in `voices` reports words and sounds as given."""
     for voice in voices:
-        gives = health.speaking.voices[voice.value].gives_marks
+        gives = health.speaking.voices[voice].gives_marks
         if not (gives.words and gives.sounds):
-            message = f"health gives_marks of {voice.value} is {gives!r}"
+            message = f"health gives_marks of {voice} is {gives!r}"
             raise SystemExit(message)
 
 

@@ -10,11 +10,13 @@ import pytest
 
 import hearing_figures
 import speaking_figures as figures
-from shipped_catalogue import PIPER_VOICES
-from speech_client.wire import VOICES, Language, VoiceId
+from shipped_catalogue import PIPER_VOICES, first_language
+from speech_client.wire import Language
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from speech_client.wire import VoiceId
 
 RATE = 24000
 LOUD = 8000
@@ -72,9 +74,7 @@ def test_each_voice_speaks_the_sentence_of_its_language() -> None:
     )
 
     assert set(medians) == set(PIPER_VOICES)
-    assert spoken == {
-        voice: SENTENCES[VOICES[voice].languages[0]] for voice in PIPER_VOICES
-    }
+    assert spoken == {voice: SENTENCES[first_language(voice)] for voice in PIPER_VOICES}
 
 
 @pytest.mark.parametrize(

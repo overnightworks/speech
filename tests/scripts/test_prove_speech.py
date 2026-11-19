@@ -14,9 +14,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from shipped_catalogue import PIPER_VOICES
+from shipped_catalogue import ON_DEMAND_VOICES, PIPER_VOICES, first_language
 from speech_client.outcomes import Unreachable
-from speech_client.wire import VOICES, Health, VoiceId
+from speech_client.wire import Health
 from speech_service.config import Settings
 from tests.support.clock_support import FakeClock
 from tests.support.script_support import script_module
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from speech_client.health import HealthOutcome
+    from speech_client.wire import VoiceId
 
 PROVE = script_module("prove_speech")
 PIPE_BYTES = 65536
@@ -362,18 +363,16 @@ def test_a_child_whose_parent_is_not_its_starter_never_runs(
 
 
 def test_every_piper_voice_has_a_proof_sentence_in_its_language() -> None:
-    assert all(VOICES[voice].languages[0] in PROVE.SENTENCES for voice in PIPER_VOICES)
+    assert all(first_language(voice) in PROVE.SENTENCES for voice in PIPER_VOICES)
 
 
 def test_every_piper_voice_has_a_marks_text_in_its_language() -> None:
-    assert all(
-        VOICES[voice].languages[0] in PROVE.MARKED_TEXTS for voice in PIPER_VOICES
-    )
+    assert all(first_language(voice) in PROVE.MARKED_TEXTS for voice in PIPER_VOICES)
 
 
 @pytest.mark.parametrize(
     "offered",
-    [{*PIPER_VOICES}, {*PIPER_VOICES, VoiceId.RYAN}, {VoiceId.RYAN}],
+    [{*PIPER_VOICES}, {*PIPER_VOICES, ON_DEMAND_VOICES[0]}, {ON_DEMAND_VOICES[0]}],
     ids=["the Piper voices", "with the GPU voice", "the GPU voice alone"],
 )
 def test_the_offer_the_proof_sets_is_the_offer_the_service_reads(

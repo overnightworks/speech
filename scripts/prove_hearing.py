@@ -31,7 +31,7 @@ import wave
 from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import httpx2
 
@@ -68,11 +68,10 @@ from prove_speech import (
     speech_environment,
     speech_server,
 )
-from shipped_catalogue import CATALOGUE
+from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, first_language
 from speech_client.hearing import Refused
 from speech_client.wire import (
     SPEECH_PATH,
-    VOICES,
     Health,
     Language,
     ResponseFormat,
@@ -125,9 +124,7 @@ ENGLISH_LONG_TURN = (
     "Finally we decide who greets the guests at the entrance and who shows "
     "them the way to the rooms."
 )
-ON_DEMAND_VOICES = tuple(
-    voice for voice in VoiceId if not CATALOGUE[voice].engine.loads_at_start
-)
+ENGLISH_VOICE: Final = "en_US-ljspeech-medium"
 CARD_STAGES = ("gpu_memory", "taken_card")
 PROBE_TEXT = "Bereit."
 SPEAK_WAIT_SECONDS = 30.0
@@ -183,7 +180,7 @@ def _speaks(base_url: str, minting: Minting, voice: VoiceId) -> bool:
             response = client.post(
                 SPEECH_PATH,
                 content=speech_request_body(
-                    PROBE_TEXT, voice, ResponseFormat.WAV, VOICES[voice].languages[0]
+                    PROBE_TEXT, voice, ResponseFormat.WAV, first_language(voice)
                 ),
                 headers=speech_request_headers(
                     workload_token=pair.workload, person_token=pair.person
@@ -310,7 +307,7 @@ def german_clip(service: Service, text: str) -> bytes:
 
 def english_voice_path(directory: Path) -> Path:
     """The English Piper voice in `directory`, fetched there once if absent."""
-    return fetch_voice_files(CATALOGUE[VoiceId.LJSPEECH], directory)
+    return fetch_voice_files(CATALOGUE[ENGLISH_VOICE], directory)
 
 
 def english_clip(voice: PiperVoice, text: str) -> bytes:
@@ -498,7 +495,7 @@ def measure_memory(
     measured = [voice for voice in ON_DEMAND_VOICES if voice in offered]
     warm_clip = clips[Language.DE].long_turn
     memory["voices_not_offered"] = [
-        voice.value for voice in ON_DEMAND_VOICES if voice not in offered
+        voice for voice in ON_DEMAND_VOICES if voice not in offered
     ]
     models: dict[str, object] = {}
     memory["models"] = models
@@ -511,7 +508,7 @@ def measure_memory(
         with_voice: dict[str, object] = {}
         peaks["with_voice"] = with_voice
         for voice in measured:
-            with_voice[voice.value] = measure_peak(device, model, voice, warm_clip)
+            with_voice[voice] = measure_peak(device, model, voice, warm_clip)
 
 
 def prove_taken_card(
@@ -694,7 +691,7 @@ def prove(arguments: argparse.Namespace) -> None:
         "runs": arguments.runs,
         "clips": (
             "synthetic: German from the service's speak route, English from the"
-            f" Piper voice {VoiceId.LJSPEECH.value}"
+            f" Piper voice {ENGLISH_VOICE}"
         ),
         "gpu_before": card_line(arguments.device),
         "models": models,

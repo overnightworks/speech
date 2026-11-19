@@ -12,9 +12,8 @@ import image_judgement as judged
 from hearing_figures import to_wire_rate
 from image_stack import REPOSITORY, LiveOutcome, Reply
 from proof_identity import mint_pair
-from shipped_catalogue import PIPER_VOICES
+from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, PIPER_VOICES
 from speech_client.wire import (
-    VOICES,
     Health,
     Language,
     RefusalCode,
@@ -57,7 +56,7 @@ def test_the_english_voice_of_the_offer_is_a_piper_voice_that_speaks_english() -
     voice = judged.first_english_voice()
 
     assert voice in PIPER_VOICES
-    assert Language.EN in VOICES[voice].languages
+    assert Language.EN in CATALOGUE[voice].languages
 
 
 def test_tokens_minted_for_the_baked_caller_carry_its_identity(
@@ -301,12 +300,14 @@ def health_of(*, speaking: bool, hearing: bool, voices: dict[VoiceId, bool]) -> 
             "speaking": {
                 "ready": speaking,
                 "voices": {
-                    voice.value: {
-                        "model": VOICES[voice].model,
-                        "name": VOICES[voice].name,
-                        "languages": VOICES[voice].languages,
+                    voice: {
+                        "model": CATALOGUE[voice].engine.wire_model,
+                        "name": CATALOGUE[voice].name,
+                        "languages": CATALOGUE[voice].languages,
                         "ready": ready,
-                        "takes_instructions": VOICES[voice].takes_instructions,
+                        "takes_instructions": CATALOGUE[
+                            voice
+                        ].engine.takes_instructions,
                         "gives_marks": {"words": False, "sounds": False},
                         "sample_rate": 1,
                     }
@@ -324,7 +325,7 @@ def test_an_offer_passes_only_as_exactly_the_voices_health_lists() -> None:
 
     judged.require_offer(health, [PIPER_VOICES[0]])
     with pytest.raises(SystemExit, match="offers"):
-        judged.require_offer(health, [PIPER_VOICES[0], VoiceId.RYAN])
+        judged.require_offer(health, [PIPER_VOICES[0], ON_DEMAND_VOICES[0]])
 
 
 @pytest.mark.parametrize(
@@ -335,16 +336,16 @@ def test_an_offer_passes_only_as_exactly_the_voices_health_lists() -> None:
 def test_a_gpu_voice_down_needs_it_not_ready_beside_ready_speaking_and_hearing(
     *, speaking: bool, hearing: bool, gpu_voice_ready: bool
 ) -> None:
-    voices = {PIPER_VOICES[0]: True, VoiceId.RYAN: gpu_voice_ready}
+    voices = {PIPER_VOICES[0]: True, ON_DEMAND_VOICES[0]: gpu_voice_ready}
     down = health_of(
-        speaking=True, hearing=True, voices={**voices, VoiceId.RYAN: False}
+        speaking=True, hearing=True, voices={**voices, ON_DEMAND_VOICES[0]: False}
     )
 
-    judged.require_gpu_voice_down(down, VoiceId.RYAN)
+    judged.require_gpu_voice_down(down, ON_DEMAND_VOICES[0])
     health = health_of(speaking=speaking, hearing=hearing, voices=voices)
 
     with pytest.raises(SystemExit, match="down beside a ready service"):
-        judged.require_gpu_voice_down(health, VoiceId.RYAN)
+        judged.require_gpu_voice_down(health, ON_DEMAND_VOICES[0])
 
 
 def test_only_the_external_networks_of_a_rendered_compose_file_are_named() -> None:

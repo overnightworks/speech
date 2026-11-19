@@ -24,12 +24,12 @@ from image_judgement import (
 )
 from proof_identity import TokenPair, mint_pair
 from prove_speech import SENTENCES
+from shipped_catalogue import first_language
 from speech_client.wire import (
     CONTENT_TYPE_HEADER,
     MODEL,
     SPEECH_PATH,
     TRANSCRIPTIONS_PATH,
-    VOICES,
     Language,
     ResponseFormat,
     TranscriptionRequest,
@@ -267,7 +267,7 @@ class Session:
 
     def speak(self, headers: Mapping[str, str], voice: VoiceId) -> Reply:
         """Post the proof sentence of the voice's language from the caller container."""
-        language = VOICES[voice].languages[0]
+        language = first_language(voice)
         return send(
             self.compose,
             self.caller,

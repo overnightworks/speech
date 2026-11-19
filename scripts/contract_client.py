@@ -18,7 +18,7 @@ from pathlib import Path
 from proof_identity import Minting, load_minting, mint_pair
 from speech_client import speak as speaking_call
 from speech_client.health import fetch_health
-from speech_client.wire import VOICES, Health, ResponseFormat, VoiceId
+from speech_client.wire import Health, Language, ResponseFormat
 
 SENTENCE = (
     "Die Kamera zeigt den Vortragenden, während im Hintergrund "
@@ -55,8 +55,10 @@ def _pcm_from_wav(data: bytes) -> tuple[int, bytes]:
     raise SystemExit(message)
 
 
-def speak(base_url: str, text: str, voice: VoiceId, minting: Minting) -> bytes:
-    """POST text to the speech service in the first language of `voice`.
+def speak(
+    base_url: str, text: str, voice: str, language: Language, minting: Minting
+) -> bytes:
+    """POST text to the speech service with `voice` in `language`.
 
     Return the whole WAV bytes.
 
@@ -68,7 +70,7 @@ def speak(base_url: str, text: str, voice: VoiceId, minting: Minting) -> bytes:
         base_url,
         text,
         voice,
-        language=VOICES[voice].languages[0],
+        language=language,
         response_format=ResponseFormat.WAV,
         workload_token=pair.workload,
         person_token=pair.person,
@@ -90,7 +92,7 @@ def _rms(pcm: bytes) -> float:
     return (total / len(samples)) ** 0.5 / 32768.0
 
 
-def _run(base_url: str, voice: VoiceId, minting: Minting) -> None:
+def _run(base_url: str, voice: str, minting: Minting) -> None:
     health = fetch_health(
         base_url,
         deadline_seconds=HEALTH_DEADLINE_SECONDS,
@@ -104,7 +106,8 @@ def _run(base_url: str, voice: VoiceId, minting: Minting) -> None:
         message = "the speaking model is not ready"
         raise SystemExit(message)
 
-    wav = speak(base_url, SENTENCE, voice, minting)
+    language = health.speaking.voices[voice].languages[0]
+    wav = speak(base_url, SENTENCE, voice, language, minting)
     rate, pcm = _pcm_from_wav(wav)
     print(
         "contract_speak",
@@ -120,7 +123,7 @@ def parse_arguments(arguments: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.add_argument("--minting-file", type=Path, required=True)
     parser.add_argument("base_url")
-    parser.add_argument("voice", type=VoiceId)
+    parser.add_argument("voice")
     return parser.parse_args(arguments)
 
 
