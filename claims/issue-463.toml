@@ -1,0 +1,7 @@
+claim_id = "2ab9a24d929542fa92f2bd763eee9165"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "989e5343ed9b6cd5426a64cda6a7bb4a6afc1eb9"
+branch = "claude/issue-463-player-ramp-flake"
+scope = ["tests/fixtures/browser/player_page.js", "tests/test_wire_route_browser_player_hold.py"]
+opened_commit = "c9f965f884147cb6183e158a75ab87c5d2ee0786"
