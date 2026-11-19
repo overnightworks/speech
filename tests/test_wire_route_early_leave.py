@@ -23,6 +23,7 @@ from speech_service.control import create_control_app
 from speech_service.live_session import LiveSession
 from tests.support.hear_support import FakeHearing, hear_runtime
 from tests.support.identity_support import valid_callers, valid_headers, valid_pair
+from tests.support.speak_support import speak_app, speak_scope
 from tests.support.tcp_server_support import serving_asgi
 
 if TYPE_CHECKING:
@@ -196,3 +197,27 @@ def test_a_session_start_failure_with_the_client_still_there_is_logged(
     assert [type(record.exc_info[1]) for record in crashes if record.exc_info] == [
         _StartError
     ]
+
+
+def test_a_client_that_leaves_before_its_body_is_read_ends_the_speak_line_quietly(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    async def leave_at_once() -> dict[str, object]:
+        return {"type": "http.disconnect"}
+
+    async def send(_message: dict[str, object]) -> None:
+        return None
+
+    async def scenario() -> list[logging.LogRecord]:
+        app = speak_app()
+        with _failures_logged() as failures:
+            await app(speak_scope(), leave_at_once, send)
+        return failures.records
+
+    failures = asyncio.run(scenario())
+    lines = [r for r in caplog.records if r.getMessage() == "speak.ended"]
+
+    assert [record.getMessage() for record in failures] == []
+    assert [line.outcome for line in lines] == ["cancelled"]
