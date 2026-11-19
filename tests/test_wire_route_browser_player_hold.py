@@ -194,11 +194,12 @@ def test_a_streamed_sound_first_heard_in_the_pause_ramp_reports_its_start_and_pl
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
         async with activated(tmp_path) as stage:
-            await stage.prepare_bytes("short", SHORT)
-            await stage.hand_over(fed("short"))
+            # The sound outlasts the context's run on to the suspend.
+            await stage.prepare_bytes("long", LONG)
+            await stage.hand_over(fed("long"))
             await stage.settle()
             await stage.act("freezeClock")
-            await stage.act("feedWhile", "short", "pause")
+            await stage.act("feedWhile", "long", "pause")
             await stage.until("s.sounds[0].startedValue !== null")
             await stage.act("thawClock")
             await stage.until(SUSPENDED)
@@ -270,6 +271,24 @@ def test_stop_ramps_down_without_a_click_then_ends_and_the_next_sound_is_at_full
     assert seen["sounds"][0]["endedAt"] - seen["lastActionAt"] < STOP_BOUND_MS
     assert largest_step(edge) < CLICK_STEP
     assert edge[-1] < SILENT_PEAK
+    heard = peaks_inside(seen, 1, SOUND_SECONDS["short.wav"])
+    assert heard
+    assert min(heard) >= FULL_PEAK
+
+
+def test_a_sound_handed_over_as_the_stopped_one_ends_early_starts_at_full_volume(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.act("stopOnNextSourceEnd", url(SHORT))
+            await stage.hand_over(url(SHORT))
+            return await stage.finish()
+
+    seen = asyncio.run(scenario())
+
+    assert seen["instrumentStops"] == 1
+    assert ends(seen) == ["stopped", "played"]
     heard = peaks_inside(seen, 1, SOUND_SECONDS["short.wav"])
     assert heard
     assert min(heard) >= FULL_PEAK

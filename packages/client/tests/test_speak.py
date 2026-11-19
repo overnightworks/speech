@@ -12,6 +12,7 @@ import pytest
 from logline import current_traceparent, unit_trace
 from pydantic import ValidationError
 
+from packages.client.tests.support.http_support import chunk, head
 from packages.client.tests.support.scripted_service_support import SAMPLE_RATE, wav_of
 from speech_client import speak as speak_module
 from speech_client._transport import base_origin, body_pieces, exchange_stream
@@ -124,16 +125,8 @@ def test_a_base_url_that_is_not_plain_http_without_a_path_raises(
 # What the raw listener answers.
 
 
-def _chunk(data: bytes) -> bytes:
-    return b"%x\r\n%b\r\n" % (len(data), data)
-
-
-def _head(status: str, *headers: str) -> bytes:
-    return "\r\n".join([f"HTTP/1.1 {status}", *headers, "", ""]).encode()
-
-
-_WAV_HEAD = _head("200 OK", "Content-Type: audio/wav", "Transfer-Encoding: chunked")
-_OGG_HEAD = _head("200 OK", "Content-Type: audio/ogg", "Transfer-Encoding: chunked")
+_WAV_HEAD = head("200 OK", "Content-Type: audio/wav", "Transfer-Encoding: chunked")
+_OGG_HEAD = head("200 OK", "Content-Type: audio/ogg", "Transfer-Encoding: chunked")
 _WAV_BODY = wav_of(b"\x01\x00" * 4)
 _OGG_BODY = b"OggS\0\0\0\0"
 
@@ -142,7 +135,7 @@ def _refusal_response(
     status: str, code: RefusalCode, *headers: str, padding: int = 0
 ) -> bytes:
     body = refusal(code).model_dump_json().encode() + b" " * padding
-    return _head(status, f"Content-Length: {len(body)}", *headers) + body
+    return head(status, f"Content-Length: {len(body)}", *headers) + body
 
 
 def _sends_then_drips(raw: bytes, drip: bytes) -> Answer:
@@ -218,17 +211,17 @@ def test_a_deadline_that_has_passed_before_the_connect_is_past_the_deadline(
     [
         pytest.param(_resets, id="reset-before-the-status-line"),
         pytest.param(_closes, id="close-before-the-status-line"),
-        pytest.param(_WAV_HEAD + _chunk(_WAV_BODY), id="close-without-the-end"),
+        pytest.param(_WAV_HEAD + chunk(_WAV_BODY), id="close-without-the-end"),
         pytest.param(
-            _WAV_HEAD + _chunk(_WAV_BODY) + b"0",
+            _WAV_HEAD + chunk(_WAV_BODY) + b"0",
             id="close-inside-the-last-chunk-line",
         ),
         pytest.param(
-            _WAV_HEAD + _chunk(_WAV_BODY) + b"0\r\n",
+            _WAV_HEAD + chunk(_WAV_BODY) + b"0\r\n",
             id="close-before-the-final-blank-line",
         ),
         pytest.param(
-            _head("422 Unprocessable Entity", "Content-Length: 500") + b"{",
+            head("422 Unprocessable Entity", "Content-Length: 500") + b"{",
             id="refusal-shorter-than-its-length",
         ),
     ],
@@ -262,23 +255,22 @@ _BUSY_WITHOUT_WAIT = _refusal_response("429 Too Many Requests", RefusalCode.BUSY
         pytest.param(b"not http at all\r\n\r\n", id="bad-status-line"),
         pytest.param(b"HTTP/1.1 200 " + b"a" * 70_000 + b"\r\n", id="line-too-long"),
         pytest.param(
-            _head("200 OK", *("X-Header: 1",) * 101), id="more-than-100-headers"
+            head("200 OK", *("X-Header: 1",) * 101), id="more-than-100-headers"
         ),
         pytest.param(
-            _head(
+            head(
                 "200 OK", "Content-Type: application/json", "Transfer-Encoding: chunked"
             )
-            + _chunk(b"{}")
-            + _chunk(b""),
+            + chunk(b"{}")
+            + chunk(b""),
             id="200-that-is-not-audio-wav",
         ),
         pytest.param(
-            _head("200 OK", "Content-Type: audio/wav", "Content-Length: 4") + b"RIFF",
+            head("200 OK", "Content-Type: audio/wav", "Content-Length: 4") + b"RIFF",
             id="200-that-is-not-chunked",
         ),
         pytest.param(
-            _head("422 Unprocessable Entity", "Content-Length: 15")
-            + b'{"detail":"no"}',
+            head("422 Unprocessable Entity", "Content-Length: 15") + b'{"detail":"no"}',
             id="refusal-outside-the-error-form",
         ),
         pytest.param(
@@ -286,7 +278,7 @@ _BUSY_WITHOUT_WAIT = _refusal_response("429 Too Many Requests", RefusalCode.BUSY
             id="refusal-whose-code-has-another-status",
         ),
         pytest.param(
-            _head("422 Unprocessable Entity", f"Content-Length: {len(_ECHOED)}")
+            head("422 Unprocessable Entity", f"Content-Length: {len(_ECHOED)}")
             + _ECHOED,
             id="refusal-with-a-message-that-is-not-the-canonical-one",
         ),
@@ -311,7 +303,7 @@ _BUSY_WITHOUT_WAIT = _refusal_response("429 Too Many Requests", RefusalCode.BUSY
         ),
         pytest.param(
             _WAV_HEAD
-            + _chunk(_WAV_BODY)
+            + chunk(_WAV_BODY)
             + b"0\r\n"
             + b"X-Trailer: "
             + b"a" * 70_000
@@ -331,7 +323,7 @@ def test_an_answer_that_breaks_the_wire_is_malformed(
 
 
 def test_a_chunked_wav_with_a_trailer_is_spoken(raw_listener: RawListener) -> None:
-    raw = _WAV_HEAD + _chunk(_WAV_BODY) + b"0\r\nX-Trailer: 1\r\n\r\n"
+    raw = _WAV_HEAD + chunk(_WAV_BODY) + b"0\r\nX-Trailer: 1\r\n\r\n"
     with raw_listener(raw) as (base_url, _):
         outcome = _speak(base_url)
 
@@ -342,7 +334,7 @@ def test_the_speak_answer_of_the_last_released_image_is_spoken(
     raw_listener: RawListener,
 ) -> None:
     audio = RELEASED_SPEAK_WAV.read_bytes()
-    with raw_listener(_WAV_HEAD + _chunk(audio) + _chunk(b"")) as (base_url, _):
+    with raw_listener(_WAV_HEAD + chunk(audio) + chunk(b"")) as (base_url, _):
         outcome = _speak(base_url)
 
     assert outcome == Spoken(audio)
@@ -353,32 +345,32 @@ def test_the_speak_answer_of_the_last_released_image_is_spoken(
     [
         pytest.param(
             ResponseFormat.OPUS,
-            _WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b""),
+            _WAV_HEAD + chunk(_WAV_BODY) + chunk(b""),
             id="wav-media-type-for-an-opus-order",
         ),
         pytest.param(
             ResponseFormat.WAV,
-            _OGG_HEAD + _chunk(_OGG_BODY) + _chunk(b""),
+            _OGG_HEAD + chunk(_OGG_BODY) + chunk(b""),
             id="ogg-media-type-for-a-wav-order",
         ),
         pytest.param(
             ResponseFormat.WAV,
-            _WAV_HEAD + _chunk(b"not audio at all") + _chunk(b""),
+            _WAV_HEAD + chunk(b"not audio at all") + chunk(b""),
             id="wav-media-type-over-a-body-of-text",
         ),
         pytest.param(
             ResponseFormat.WAV,
-            _WAV_HEAD + _chunk(b"RIFF\0\0\0\0AVI ") + _chunk(b""),
+            _WAV_HEAD + chunk(b"RIFF\0\0\0\0AVI ") + chunk(b""),
             id="riff-that-is-not-wave",
         ),
         pytest.param(
             ResponseFormat.OPUS,
-            _OGG_HEAD + _chunk(_WAV_BODY) + _chunk(b""),
+            _OGG_HEAD + chunk(_WAV_BODY) + chunk(b""),
             id="ogg-media-type-over-a-wav-body",
         ),
         pytest.param(
             ResponseFormat.OPUS,
-            _OGG_HEAD + _chunk(b""),
+            _OGG_HEAD + chunk(b""),
             id="ogg-media-type-over-an-empty-body",
         ),
     ],
@@ -397,7 +389,7 @@ def test_a_chunked_ogg_with_the_ogg_signature_is_spoken_when_opus_is_ordered(
     raw_listener: RawListener,
 ) -> None:
     """WIRE-133: an audio/ogg body that begins with OggS is the answer."""
-    with raw_listener(_OGG_HEAD + _chunk(_OGG_BODY) + _chunk(b"")) as (
+    with raw_listener(_OGG_HEAD + chunk(_OGG_BODY) + chunk(b"")) as (
         base_url,
         _,
     ):
@@ -410,7 +402,7 @@ def test_a_chunked_ogg_with_the_ogg_signature_is_spoken_when_opus_is_ordered(
 def test_the_request_orders_the_format_it_was_given(
     ordered: ResponseFormat, raw_listener: RawListener
 ) -> None:
-    with raw_listener(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b"")) as (
+    with raw_listener(_WAV_HEAD + chunk(_WAV_BODY) + chunk(b"")) as (
         base_url,
         requests,
     ):
@@ -430,7 +422,7 @@ _VOICES_OF_SEVERAL_LANGUAGES = [v for v in VoiceId if len(VOICES[v].languages) >
 def test_the_request_names_the_language_it_was_given(
     voice: VoiceId, language: Language, raw_listener: RawListener
 ) -> None:
-    with raw_listener(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b"")) as (
+    with raw_listener(_WAV_HEAD + chunk(_WAV_BODY) + chunk(b"")) as (
         base_url,
         requests,
     ):
@@ -447,7 +439,7 @@ def test_the_request_names_the_instructions_it_was_given(
 ) -> None:
     voice = next(v for v in VoiceId if VOICES[v].takes_instructions)
     language = VOICES[voice].languages[0]
-    with raw_listener(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b"")) as (
+    with raw_listener(_WAV_HEAD + chunk(_WAV_BODY) + chunk(b"")) as (
         base_url,
         requests,
     ):
@@ -464,7 +456,7 @@ def test_a_voice_of_several_languages_without_a_language_fails_before_the_networ
     voice: VoiceId, raw_listener: RawListener
 ) -> None:
     with (
-        raw_listener(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b"")) as (
+        raw_listener(_WAV_HEAD + chunk(_WAV_BODY) + chunk(b"")) as (
             base_url,
             requests,
         ),
@@ -477,7 +469,7 @@ def test_a_voice_of_several_languages_without_a_language_fails_before_the_networ
 
 
 def test_the_request_is_the_wires_body_and_headers(raw_listener: RawListener) -> None:
-    with raw_listener(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b"")) as (
+    with raw_listener(_WAV_HEAD + chunk(_WAV_BODY) + chunk(b"")) as (
         base_url,
         requests,
     ):
@@ -531,7 +523,7 @@ def test_a_speaking_call_sends_the_callers_traceparent_over_the_ambient_one_or_n
     The caller's is given inside a running trace, which it must win over.
     """
     given = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-    with raw_listener(_WAV_HEAD + _chunk(_WAV_BODY) + _chunk(b"")) as (
+    with raw_listener(_WAV_HEAD + chunk(_WAV_BODY) + chunk(b"")) as (
         base_url,
         requests,
     ):
@@ -583,10 +575,10 @@ def test_the_stream_ends_with_the_exact_seconds_whatever_the_chunking(
     pcm = b"\x01\x00" * 4410
     wav = wav_of(pcm)
     chunks = b"".join(
-        _chunk(wav[at : at + piece_bytes]) for at in range(0, len(wav), piece_bytes)
+        chunk(wav[at : at + piece_bytes]) for at in range(0, len(wav), piece_bytes)
     )
 
-    *pieces, end = _streamed(_WAV_HEAD + chunks + _chunk(b""), raw_listener)
+    *pieces, end = _streamed(_WAV_HEAD + chunks + chunk(b""), raw_listener)
 
     assert b"".join(pieces) == wav
     assert end == Finished(len(pcm) // 2 / SAMPLE_RATE)
@@ -596,7 +588,7 @@ def test_a_wav_without_audio_data_is_malformed_in_the_stream_and_the_blocking_ca
     raw_listener: RawListener,
 ) -> None:
     """Both calls take the same terminal check: the blocking one is the stream's end."""
-    raw = _WAV_HEAD + _chunk(wav_of(b"", with_data=False)) + _chunk(b"")
+    raw = _WAV_HEAD + chunk(wav_of(b"", with_data=False)) + chunk(b"")
 
     streamed = _streamed(raw, raw_listener)
     with raw_listener(raw) as (base_url, _):
@@ -611,7 +603,7 @@ def test_a_body_that_is_no_wav_container_leaves_no_audio_before_it_is_malformed(
     body: bytes, raw_listener: RawListener
 ) -> None:
     """The signature is judged on the first bytes, before any audio leaves."""
-    raw = _WAV_HEAD + _chunk(body) + _chunk(b"")
+    raw = _WAV_HEAD + chunk(body) + chunk(b"")
 
     assert _streamed(raw, raw_listener) == [Malformed()]
 
@@ -622,7 +614,7 @@ def test_a_deadline_that_passes_while_the_stream_is_held_ends_it_past_the_deadli
     """The rest is buffered and needs no socket read, yet the stream does not finish."""
     now = 0.0
     wav = wav_of(b"\x01\x00" * 100)
-    raw = _WAV_HEAD + _chunk(wav) + _chunk(b"\x01\x00" * 100) + _chunk(b"")
+    raw = _WAV_HEAD + chunk(wav) + chunk(b"\x01\x00" * 100) + chunk(b"")
 
     def pieces(connection: HTTPConnection) -> Iterator[bytes]:
         connection.request("POST", SPEECH_PATH)
@@ -649,6 +641,6 @@ def test_a_stream_cut_off_after_audio_ends_cut_not_finished(
     """WIRE-90: the chunks that came stay, and the end is the failure."""
     wav = wav_of(b"\x01\x00" * 100)
 
-    items = _streamed(_WAV_HEAD + _chunk(wav), raw_listener)
+    items = _streamed(_WAV_HEAD + chunk(wav), raw_listener)
 
     assert items == [wav, Cut()]

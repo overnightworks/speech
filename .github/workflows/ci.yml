@@ -389,7 +389,7 @@ jobs:
       - browser-unit
       - browser-flow
     if: always()
-    uses: overnightworks/quality/.github/workflows/gate.yml@eb140c397e83b8ec4e9ee849453d14efeef4e787 # v0.14.0
+    uses: overnightworks/quality/.github/workflows/gate.yml@4fe26b24d60e131396278382692757d9056596ab # v0.19.0
     with:
       coverage-artifact: coverage
     permissions:

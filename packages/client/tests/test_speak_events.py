@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from packages.client.tests.support.http_support import chunk, head
 from packages.client.tests.support.scripted_service_support import SAMPLE_RATE, wav_of
 from speech_client import speak as speak_module
 from speech_client.speak import (
@@ -28,10 +29,6 @@ if TYPE_CHECKING:
 
     from speech_client.speak import MarkedStreamItem
     from support.listener_support import RawListener
-
-
-def _chunk(data: bytes) -> bytes:
-    return b"%x\r\n%b\r\n" % (len(data), data)
 
 
 @dataclass(frozen=True)
@@ -64,11 +61,10 @@ class Scenario:
         ended: bool = True,
     ) -> bytes:
         """A chunked 200 whose chunks are `events`."""
-        head = (
-            f"HTTP/1.1 200 OK\r\nContent-Type: {media_type}\r\n"
-            "Transfer-Encoding: chunked\r\n\r\n"
-        ).encode()
-        return head + b"".join(map(_chunk, events)) + (b"0\r\n\r\n" if ended else b"")
+        opening = head(
+            "200 OK", f"Content-Type: {media_type}", "Transfer-Encoding: chunked"
+        )
+        return opening + b"".join(map(chunk, events)) + (b"0\r\n\r\n" if ended else b"")
 
     def delta(self, audio: bytes) -> bytes:
         """An audio event of `audio`."""

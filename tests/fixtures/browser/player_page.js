@@ -115,9 +115,11 @@ function trackSource(source) {
   source.addEventListener("ended", () => {
     seen.sourcesEnded += 1;
     if (stopOnSourceEnd) {
+      const next = stopOnSourceEnd;
       stopOnSourceEnd = false;
       seen.instrumentStops += 1;
       player.stop();
+      if (next !== true) handOver(next);
     }
   });
   return source;
@@ -284,12 +286,16 @@ function handOver(spec) {
   return sound.id;
 }
 
-// A switch of the app: it records when it happened and what had ended by the end of its own task.
+// A switch of the app: it records when it happened and what had ended by the end of its own task. The held clock read
+// is dropped first and the switch's time is the read the player made: a read from before, held across a slow page,
+// would start the player's volume ramp in the past, and the ear would hear a ramp shorter than the player's edge.
 async function act(name, action) {
   seen.lastActionAt = performance.now();
-  seen.contextAtAction = contexts[0].currentTime;
-  seen.actions.push({ name, at: seen.contextAtAction, gain: outputGain?.gain.value ?? null });
+  const gain = outputGain?.gain.value ?? null;
+  clockReads.delete(contexts[0]);
   action();
+  seen.contextAtAction = contexts[0].currentTime;
+  seen.actions.push({ name, at: seen.contextAtAction, gain });
   await Promise.resolve();
   seen.endedAtAction = seen.sounds.map((sound) => sound.endedValue);
 }
@@ -346,7 +352,7 @@ window.playerPage = {
   hold: (kind) => held[kind].push(Promise.withResolvers()),
   release: () => heldNow.splice(0).forEach((gate) => gate.resolve()),
   rejectNextResume: () => (rejectNextResume = true),
-  stopOnNextSourceEnd: () => (stopOnSourceEnd = true),
+  stopOnNextSourceEnd: (next) => (stopOnSourceEnd = next ?? true),
   snapshot: () => ({
     ...seen,
     contextStates: contexts.map((context) => context.state),

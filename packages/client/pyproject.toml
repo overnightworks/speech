@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "overnightworks-speech-client"
-version = "0.22.2"
+version = "0.22.3"
 description = "The wire between an app and the speech service: the request, the refusals, the bounded speaking call, the bounded health fetch, the live hearing session and the relay of a browser's live audio to it."
 requires-python = ">=3.14"
 dependencies = [
@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["overnightworks-logline @ git+https://github.com/overnightworks/logline@v0.6.0"]
+dev = ["overnightworks-logline @ git+https://github.com/overnightworks/logline@v1.4.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/speech_client"]

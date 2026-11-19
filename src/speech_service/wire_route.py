@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from dataclasses import dataclass
+from enum import Enum, auto
 from typing import TYPE_CHECKING, Final
 
 from logline import StepTimer, set_route, unit_trace
@@ -35,6 +37,7 @@ from speech_client.wire import (
     VoiceId,
     refusal,
 )
+from speech_service.admission_gate import Lease
 from speech_service.audio_response import ClosingAudioResponse
 from speech_service.failures import log_failure
 from speech_service.live_session import LiveSession, poll_forever
@@ -54,8 +57,8 @@ if TYPE_CHECKING:
     from starlette.types import Message, Receive, Scope, Send
     from starlette.websockets import WebSocket
 
-    from speech_service.admission_gate import Lease
     from speech_service.callers import SpeechCallers
+    from speech_service.clock import Clock
     from speech_service.config import Settings
     from speech_service.hearing import HearingEngine
     from speech_service.service import Runtime, SpeakingEngine
@@ -143,6 +146,90 @@ async def _read_within(request: Request, limit: int) -> bytes | None:
         if len(body) > limit:
             return None
     return bytes(body)
+
+
+class _Unkept(Enum):
+    """Why a recording's body was read without being kept."""
+
+    TOO_LARGE = auto()
+    NO_PLACE = auto()
+
+
+@dataclass(frozen=True, slots=True)
+class _Kept:
+    """A recording's whole body and the place that keeps it."""
+
+    body: bytes
+    place: Lease
+
+
+class _Upload:
+    """A body being read: its bytes are counted always, kept only with a place."""
+
+    def __init__(self, place: Lease | None) -> None:
+        self._place = place
+        self._kept = bytearray()
+        self.size = 0
+
+    def add(self, chunk: bytes) -> None:
+        self.size += len(chunk)
+        if self._place is not None:
+            self._kept += chunk
+
+    def drop(self) -> None:
+        """Give the place back, if one is held, and forget the kept bytes."""
+        if self._place is not None:
+            self._place.close()
+            self._place = None
+        self._kept = bytearray()
+
+    def kept(self) -> _Kept | _Unkept:
+        """The body with its place, which the caller now owns, if the place is held."""
+        place = self._place
+        if place is None:
+            return _Unkept.NO_PLACE
+        self._place = None
+        body = bytes(self._kept)
+        self._kept = bytearray()
+        return _Kept(body, place)
+
+
+async def _read_recording(
+    request: Request, limit: int, place: Lease | None, clock: Clock, deadline: float
+) -> _Kept | _Unkept:
+    """The body of a recording, kept only while it holds `place` before `deadline`.
+
+    Every byte is counted: a body over `limit` bytes is `TOO_LARGE` and the rest
+    is never read. A body without a place at its arrival, or whose place the
+    deadline took back, or that ends at or after the deadline, is read on without
+    being kept and ends `NO_PLACE`. With a deadline already reached at the start,
+    only a body whose read never waits is kept: the clock is not compared with the
+    deadline after the read. The place is closed unless it is handed on in the
+    `_Kept`.
+    """
+    upload = _Upload(place)
+    arrival = clock.now()
+    expiry = asyncio.create_task(clock.sleep_until(deadline))
+
+    def take_back(done: asyncio.Task[None]) -> None:
+        if not done.cancelled():
+            upload.drop()
+
+    expiry.add_done_callback(take_back)
+    try:
+        async for chunk in request.stream():
+            upload.add(chunk)
+            if upload.size > limit:
+                upload.drop()
+                return _Unkept.TOO_LARGE
+    except BaseException:
+        upload.drop()
+        raise
+    finally:
+        expiry.cancel()
+    if arrival < deadline <= clock.now():
+        upload.drop()
+    return upload.kept()
 
 
 class _SpeechRoute:
@@ -262,6 +349,26 @@ def _replayed(request: Request, body: bytes) -> Request:
     return Request(request.scope, receive)
 
 
+async def _until_caller_leaves(request: Request) -> None:
+    """Return when the server reports the caller gone; the body is already read."""
+    message = await request.receive()
+    while message["type"] != "http.disconnect":
+        message = await request.receive()
+
+
+def _give_up(acquiring: asyncio.Future[Lease | None]) -> None:
+    """Cancel a wait for the gate; a lease it won meanwhile is closed, never kept."""
+
+    def close_lease(done: asyncio.Future[Lease | None]) -> None:
+        if not done.cancelled():
+            lease = done.result()
+            if lease is not None:
+                lease.close()
+
+    acquiring.add_done_callback(close_lease)
+    acquiring.cancel()
+
+
 def _heard(
     recording: bytes, language: Language, max_seconds: float
 ) -> Callable[[HearingEngine], str]:
@@ -272,6 +379,16 @@ def _heard(
         return engine.transcribe(pcm, (language,)).text
 
     return job
+
+
+def _freeing(lease: Lease, place: Lease) -> Lease:
+    """A lease whose close frees `place` and then `lease`."""
+
+    def release() -> None:
+        place.close()
+        lease.close()
+
+    return Lease(release)
 
 
 class _TranscriptionRoute:
@@ -293,23 +410,72 @@ class _TranscriptionRoute:
         refused = await self._hearing_refusal(request)
         if refused is not None:
             return refused
-        deadline = (
-            self._runtime.hearing.gate.clock.now()
-            + self._settings.hearing_busy_wait_seconds
+        hearing = self._runtime.hearing
+        deadline = hearing.gate.clock.now() + self._settings.hearing_busy_wait_seconds
+        waiting = self._settings.hearing_max_waiting_requests
+        read = await _read_recording(
+            request,
+            self._settings.max_recording_bytes,
+            hearing.keep_recording(1 + waiting),
+            hearing.gate.clock,
+            deadline,
         )
-        raw = await _read_within(request, self._settings.max_recording_bytes)
-        if raw is None:
+        if read is _Unkept.TOO_LARGE:
             return _refused(RefusalCode.TOO_LARGE)
-        lease = await self._runtime.hearing.gate.acquire(
-            deadline, self._settings.hearing_max_waiting_requests
-        )
+        if isinstance(read, _Unkept):
+            return self._busy()
+        lease = await self._admitted(request, read.place, deadline)
         if lease is None:
             return self._busy()
-        parsed = await self._parsed_within(lease, _replayed(request, raw))
+        parsed = await self._parsed_within(lease, _replayed(request, read.body))
         if isinstance(parsed, JSONResponse):
             return parsed
         recording, fields = parsed
         return await self._answer(lease, recording, fields.language)
+
+    async def _admitted(
+        self, request: Request, place: Lease, deadline: float
+    ) -> Lease | None:
+        """The decode's lease, whose close frees `place` too; `None` frees it now."""
+        try:
+            lease = await self._leased_unless_left(request, deadline)
+        except BaseException:
+            place.close()
+            raise
+        if lease is None:
+            place.close()
+            return None
+        return _freeing(lease, place)
+
+    async def _leased_unless_left(
+        self, request: Request, deadline: float
+    ) -> Lease | None:
+        """The decode's lease; `None` if none comes by `deadline` or the caller leaves.
+
+        The server never cancels a handler whose caller has gone: its disconnect
+        is the next thing the request receives once its body is read.
+        """
+        acquiring = asyncio.ensure_future(
+            self._runtime.hearing.gate.acquire(
+                deadline, self._settings.hearing_max_waiting_requests
+            )
+        )
+        leaving = asyncio.ensure_future(_until_caller_leaves(request))
+        try:
+            await asyncio.wait(
+                {acquiring, leaving}, return_when=asyncio.FIRST_COMPLETED
+            )
+            left = leaving.done()
+        except BaseException:
+            _give_up(acquiring)
+            raise
+        finally:
+            leaving.cancel()
+        if left:
+            _give_up(acquiring)
+            await asyncio.wait({acquiring})
+            return None
+        return acquiring.result()
 
     async def _hearing_refusal(self, request: Request) -> JSONResponse | None:
         admitted = await self._callers.admit(request.headers)

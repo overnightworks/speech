@@ -138,12 +138,12 @@ def loaded(
     return hearing
 
 
-def hear_runtime(engine: FakeHearing | None) -> Runtime:
-    """A runtime whose voice speaks and whose hearing is `engine`, loaded."""
+def hear_runtime(engine: FakeHearing | None, clock: Clock | None = None) -> Runtime:
+    """A runtime whose voice speaks and whose hearing is `engine`, loaded on `clock`."""
     return Runtime(
         {VoiceId.THORSTEN: FakeSpeaking()},
         memory_probe=lambda: 0,
-        hearing=loaded(engine),
+        hearing=loaded(engine, clock),
         dependencies=RuntimeDependencies(catalogue=CATALOGUE),
     )
 
@@ -202,6 +202,14 @@ def hear_call(app: FastAPI, body: bytes | None = None) -> SpeakCall:
     """Start a transcription request now; `body` defaults to a valid recording."""
     scope = speak_scope(path=TRANSCRIPTIONS_PATH, content_type=MULTIPART)
     return SpeakCall(app, body or multipart_body(file=recording()), scope)
+
+
+def hear_call_begun(app: FastAPI) -> SpeakCall:
+    """Start a transcription request whose body is half sent, until `finish_upload`."""
+    body = multipart_body(file=recording())
+    half = len(body) // 2
+    scope = speak_scope(path=TRANSCRIPTIONS_PATH, content_type=MULTIPART)
+    return SpeakCall(app, body[:half], scope, held_back=body[half:])
 
 
 def hearing_gate_is_free(runtime: Runtime) -> bool:

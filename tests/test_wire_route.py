@@ -24,7 +24,7 @@ from speech_client.wire import (
 )
 from speech_service.config import Settings
 from speech_service.failures import SpeakingFailedError
-from speech_service.pcm import AI_MARK, is_silence, pcm_from_wav
+from speech_service.pcm import AI_MARK, pcm_from_wav, rms
 from tests.support.fakes_support import (
     SPEAK_SAMPLE_RATE,
     FakeSpeaking,
@@ -86,7 +86,7 @@ def test_the_wire_streams_wav_that_plays_as_tone_and_speaks_german() -> None:
     assert response.headers["content-type"] == "audio/wav"
     rate, pcm = pcm_from_wav(response.content)
     assert rate == SPEAK_SAMPLE_RATE
-    assert not is_silence(pcm)
+    assert rms(pcm) > 0
     assert speaking.heard_text == "Guten Morgen"
     assert speaking.heard_language == "de"
 
@@ -416,7 +416,7 @@ def test_speak_streams_a_full_response_through_the_raw_asgi_boundary() -> None:
     rate, pcm = pcm_from_wav(wav_body(messages))
     assert rate == SPEAK_SAMPLE_RATE
     assert len(pcm) > 0
-    assert not is_silence(pcm)
+    assert rms(pcm) > 0
 
 
 def test_speak_disconnect_between_chunks_frees_the_voice_for_the_next_request() -> None:

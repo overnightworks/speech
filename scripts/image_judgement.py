@@ -82,6 +82,14 @@ class TmpUsage:
     size_bytes: int
 
 
+@dataclass(frozen=True)
+class MemoryCounts:
+    """How often the service container restarted, and its cgroup killed for memory."""
+
+    restarts: int
+    oom_kills: int
+
+
 def baked_caller(config: CallerConfig, app: str) -> BakedCaller:
     """`app`, the voice the proof speaks and the key set's address.
 
@@ -382,6 +390,17 @@ def require_tmp_clean(before: TmpUsage, after: TmpUsage, recording_bytes: int) -
         faults.append("a recording's spool is left in /tmp")
     if faults:
         raise SystemExit("; ".join(faults))
+
+
+def require_no_oom(before: MemoryCounts, after: MemoryCounts) -> None:
+    """Fail if the container restarted or its cgroup killed a process for memory."""
+    if after != before:
+        message = (
+            "the memory cap killed the service: restarts"
+            f" {before.restarts}->{after.restarts}, oom_kill"
+            f" {before.oom_kills}->{after.oom_kills}"
+        )
+        raise SystemExit(message)
 
 
 def live_texts(outcome: LiveOutcome) -> list[str]:

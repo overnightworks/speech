@@ -28,6 +28,7 @@ from packages.client.tests.support.hearing_support import (
     PERSON_TOKEN,
     WORKLOAD_TOKEN,
     fixed_tokens,
+    held_open,
     outcome_at,
     session_to,
     silent_peer,
@@ -513,7 +514,7 @@ def test_a_failing_writer_ends_the_session_at_once_and_is_raised_from_leaving(
                 await opened.wait()
                 _fails_the_writer(session)
                 # The session ends while the caller has taken no event yet.
-                await asyncio.wait({session._runner})  # type: ignore[arg-type]  # noqa: SLF001
+                await asyncio.wait({session._runner})  # type: ignore[arg-type]  # noqa: SLF001 - the runner is the task under test
                 async with asyncio.timeout(AT_ONCE_SECONDS):
                     await takes_every_event(session)
                 events_ran_out = True
@@ -575,13 +576,9 @@ def test_a_session_settling_under_many_cancels_raises_a_short_traceback() -> Non
                     answered.set()
             raise asyncio.CancelledError
 
-        async def hearing(session: HearingSession) -> None:
-            async with session:
-                await asyncio.Event().wait()
-
         async with stalled_service() as (port, _):
             session = session_to(port, token_source=token_source_slow_to_cancel)
-            caller = asyncio.create_task(hearing(session))
+            caller = asyncio.create_task(held_open(session))
             await started.wait()
             caller.cancel()
             await answered.wait()
@@ -601,13 +598,9 @@ def test_a_session_settling_under_many_cancels_raises_a_short_traceback() -> Non
 def test_a_session_left_under_a_cancel_landing_on_every_turn_ends_at_once() -> None:
     # A cancel scope of a framework cancels its task again on every loop turn.
     async def scenario() -> asyncio.Task[None]:
-        async def hearing(session: HearingSession) -> None:
-            async with session:
-                await asyncio.Event().wait()
-
         async with stalled_service() as (port, opened):
             session = session_to(port)
-            caller = asyncio.create_task(hearing(session))
+            caller = asyncio.create_task(held_open(session))
             await opened.wait()
             async with asyncio.timeout(AT_ONCE_SECONDS):
                 while not caller.done():

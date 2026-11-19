@@ -490,6 +490,22 @@ def test_a_tmp_that_cannot_hold_a_recording_or_keeps_one_fails_the_proof(
         judged.require_tmp_clean(before, after, 10)
 
 
+@pytest.mark.parametrize(
+    "after",
+    [judged.MemoryCounts(1, 0), judged.MemoryCounts(0, 2)],
+    ids=["restarted", "killed"],
+)
+def test_a_service_that_restarted_or_was_killed_for_memory_fails_the_proof(
+    after: judged.MemoryCounts,
+) -> None:
+    with pytest.raises(SystemExit, match="memory cap killed"):
+        judged.require_no_oom(judged.MemoryCounts(0, 0), after)
+
+
+def test_a_service_that_was_not_killed_for_memory_passes() -> None:
+    judged.require_no_oom(judged.MemoryCounts(1, 3), judged.MemoryCounts(1, 3))
+
+
 def test_a_tmp_back_at_its_start_passes() -> None:
     judged.require_tmp_clean(judged.TmpUsage(4096, 10), judged.TmpUsage(4096, 10), 10)
 

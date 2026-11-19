@@ -562,6 +562,10 @@ def test_tcp_logs_a_denied_realtime_upgrade_as_one_refusal_and_no_error(
         asyncio.run(scenario())
 
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    refused = [line for line in lines if line["event"] == "websocket_upgrade.refused"]
+    refused = [
+        line
+        for line in lines
+        if line["event"] == "websocket.ended" and line["outcome"] == "refused"
+    ]
     assert [line["level"] for line in refused] == ["info"]
     assert not [line for line in lines if line["level"] in {"error", "critical"}]
