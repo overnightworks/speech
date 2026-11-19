@@ -120,3 +120,9 @@ def test_the_session_speaks_each_voice_in_a_language_the_service_accepts(
     spoken = SpeechRequest.model_validate_json(base64.b64decode(specification["body"]))
     assert spoken.spoken_language == first_language(voice)
     assert spoken.input == SENTENCES[spoken.spoken_language]
+
+
+def test_the_kills_for_memory_are_read_from_a_cgroups_events() -> None:
+    events = "low 0\nhigh 0\nmax 9\noom 3\noom_kill 2\noom_group_kill 0\n"
+
+    assert image_stack.oom_kills(events) == 2

@@ -52,6 +52,7 @@ from image_judgement import (
     require_limit_answer,
     require_log_clean,
     require_marked_wav,
+    require_no_oom,
     require_ready_within,
     require_refusal,
     require_tmp_clean,
@@ -66,6 +67,7 @@ from image_stack import (
     REPOSITORY,
     SERVICE,
     STOP_TIMEOUT_SECONDS,
+    UNCAPPED_MIB,
     Compose,
     LiveOutcome,
     Reply,
@@ -131,8 +133,11 @@ HEARING_MODEL_SETTING: Final = (
     Settings.model_config["env_prefix"] + "hearing_model"
 ).upper()
 # Recordings at the byte limit sent at once: one decodes, the waiting places fill,
-# and the rest are told busy; more would only lengthen CI.
-BURST_SIZE: Final = 5
+# and the rest are told busy. Without the kept-recording places the burst would
+# hold BURST_SIZE recordings, twice the cap's room; with them the service holds a
+# few, a fraction of it.
+BURST_SIZE: Final = 32
+MEMORY_ROOM_IN_RECORDINGS: Final = 16
 ANSWER_WAIT_SECONDS: Final = 60
 
 
@@ -450,14 +455,21 @@ def cell_recording_limit(session: Session, wav: bytes) -> None:
     require_limit_answer(at_limit)
     over = session.post_recording(headers, form_of_size(limit + 1, HEARING_LANGUAGE))
     require_refusal(over, RefusalCode.TOO_LARGE)
+    settled = session.memory_current_mib()
+    session.cap_memory(settled + MEMORY_ROOM_IN_RECORDINGS * (limit // 2**20))
+    counts = session.memory_counts()
     leave_together = threading.Barrier(BURST_SIZE)
 
     def post_when_all_are_ready(_: int) -> Reply:
         leave_together.wait()
         return session.post_recording(headers, at_limit_form)
 
-    with ThreadPoolExecutor(BURST_SIZE) as pool:
-        burst = list(pool.map(post_when_all_are_ready, range(BURST_SIZE)))
+    try:
+        with ThreadPoolExecutor(BURST_SIZE) as pool:
+            burst = list(pool.map(post_when_all_are_ready, range(BURST_SIZE)))
+    finally:
+        require_no_oom(counts, session.memory_counts())
+    session.cap_memory(UNCAPPED_MIB)
     for reply in burst:
         require_limit_answer(reply, busy_allowed=True)
     after = session.tmp_usage()
@@ -468,7 +480,9 @@ def cell_recording_limit(session: Session, wav: bytes) -> None:
     answers = dict(sorted(Counter(reply.status for reply in burst).items()))
     print(
         f"cell 18: held; at the limit answered {at_limit.status}, one byte over"
-        f" {over.status}, a burst of {BURST_SIZE} answered {answers},"
+        f" {over.status}, a burst of {BURST_SIZE} under a cap of"
+        f" {MEMORY_ROOM_IN_RECORDINGS} recordings above {settled}MiB answered"
+        f" {answers}, no memory kill,"
         f" tmp_used {before.used_bytes}B before and {after.used_bytes}B after"
         f" of {after.size_bytes // 2**20}MiB, the next recording heard"
     )
