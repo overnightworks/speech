@@ -115,14 +115,16 @@ class Runtime:
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Runtime:
-        """Compose the offer `SPEECH_VOICES` names from the catalogue.
+        """Compose the offer from the catalogue.
 
         Raises `CatalogueError` when the catalogue is unset, wrong, or lacks an
         offered voice.
         """
         catalogue = catalogue_of(settings)
         return cls(
-            dict.fromkeys(offered_voices(catalogue, settings.voices)),
+            dict.fromkeys(
+                offered_voices(catalogue, settings.voices, settings.carried_engines)
+            ),
             hearing=hearing_from_settings(settings, _CLOCK),
             load_gpu_voices_at_start=settings.load_gpu_voices_at_start,
             dependencies=RuntimeDependencies(

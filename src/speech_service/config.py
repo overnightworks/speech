@@ -16,7 +16,7 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from webauth.https_client import is_https_url
 
 from speech_client.wire import VoiceId
-from speech_service.catalogue import Catalogue, CatalogueError, load_catalogue
+from speech_service.catalogue import Catalogue, CatalogueError, Engine, load_catalogue
 from speech_service.hearing_models import HearingModel
 
 DEFAULT_LIVE_SILENCE_SECONDS: Final = 0.5
@@ -65,6 +65,13 @@ class Settings(BaseSettings):
     max_recording_bytes: int = Field(default=25 * 1024 * 1024, ge=1)
     max_recording_seconds: float = Field(default=300.0, gt=0, allow_inf_nan=False)
     config_file: Path | None = None
+
+    @property
+    def carried_engines(self) -> frozenset[Engine]:
+        """The engines installed: Piper always, Qwen with a provider root."""
+        if self.provider_root is None:
+            return frozenset({Engine.PIPER})
+        return frozenset(Engine)
 
     @field_validator("catalogue_file")
     @classmethod

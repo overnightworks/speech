@@ -453,8 +453,9 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
 
 ## Settings that shape the wire
 
-- **WIRE-107** `SPEECH_VOICES` (catalogue voice ids separated by commas; every Piper voice
-  when absent, none when set empty): the voices offered. A Piper voice loads at start, a
+- **WIRE-107** `SPEECH_VOICES` (catalogue voice ids separated by commas; when absent, every
+  catalogue voice of an engine the installation carries, which is Piper always and Qwen
+  with `SPEECH_PROVIDER_ROOT` set; none when set empty): the voices offered. A Piper voice loads at start, a
   GPU voice on its first request (WIRE-09), or at start with WIRE-143. An unknown or
   repeated id, or a named Piper voice whose files are missing or fail to load, ends the
   start.

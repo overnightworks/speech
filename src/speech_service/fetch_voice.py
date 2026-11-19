@@ -1,4 +1,4 @@
-"""Fetch the voices `SPEECH_VOICES` offers from the catalogue, each at its pin."""
+"""Fetch the voices the service offers from the catalogue, each at its pin."""
 
 # ruff: noqa: T201 - this command prints where each voice went
 
@@ -31,13 +31,15 @@ def main(
     parser = argparse.ArgumentParser(
         prog="speech-fetch-voice",
         allow_abbrev=False,
-        description="Fetch the voices SPEECH_VOICES offers at their pinned "
+        description="Fetch the voices the service offers at their pinned "
         "revisions so the service can load them from local files.",
     )
     parser.parse_args(argv)
     settings = load_settings()
     catalogue = catalogue_of(settings)
-    for voice_id in offered_voices(catalogue, settings.voices):
+    for voice_id in offered_voices(
+        catalogue, settings.voices, settings.carried_engines
+    ):
         voice = catalogue[voice_id]
         match voice:
             case PiperEntry():

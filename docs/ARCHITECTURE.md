@@ -59,7 +59,9 @@ flowchart LR
   `speech_client.wire` still closes the set of ids a request may name, and the
   engine's mapping to the wire's `model` is transitional; a test holds the two
   catalogues in agreement. `Runtime.from_settings` composes the offer, one slot
-  per voice `SPEECH_VOICES` names, in catalogue order. The offer decides which
+  per voice `SPEECH_VOICES` names, in catalogue order; without it, per catalogue
+  voice of an engine the installation carries (Piper always, Qwen with
+  `SPEECH_PROVIDER_ROOT`). `speech-fetch-voice` fetches the same offer. The offer decides which
   voice may take the card.
 - **Piper at start, a GPU voice on its first request.** The start loads each
   offered Piper voice in order, then hearing; a failed Piper load ends the
@@ -192,7 +194,9 @@ small image, which lacks its environment and weights, it is not installed: its
 requests are refused `unavailable`, `/health` reports it not ready, and the
 Piper voices and hearing keep serving.
 
-The gpu image is the same service with the six voices, Qwen's pinned weights,
+The gpu image is the same service with every catalogue voice (it sets the provider
+root and no voice list, so the offer follows the catalogue, and its weights stage
+fetches that offer), Qwen's pinned weights,
 large-v3 and the Qwen provider's own environment: uv-managed CPython 3.12, which
 vLLM-Omni caps below the service's 3.14, pinned through the uv image's digest,
 beside the service's CUDA 12 libraries for CTranslate2, and a C compiler with
@@ -317,7 +321,7 @@ the old pod stops (a rolling update that never lowers the ready count).
 ## Constraints and reasons
 
 - **The operator owns the card.** The service knows nothing of another GPU user
-  and arbitrates nothing. `SPEECH_VOICES` is his switch, the Piper voices alone by
+  and arbitrates nothing. `SPEECH_VOICES` is his switch, the voices of the installed engines by
   default, and a loaded GPU voice keeps the card until the process ends; the
   platform decides which workload runs on it.
 - **The service never downloads.** Shipped commands fetch voices and hearing

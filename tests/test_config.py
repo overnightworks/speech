@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from shipped_catalogue import PIPER_VOICES
+from shipped_catalogue import CATALOGUE, PIPER_VOICES
 from speech_client.wire import VoiceId
 from speech_service.config import Settings
 from speech_service.hearing_models import HearingModel
@@ -187,6 +187,17 @@ def test_every_piper_voice_is_offered_by_default() -> None:
     offered = Runtime.from_settings(Settings()).health().speaking.voices
 
     assert list(offered) == [voice.value for voice in PIPER_VOICES]
+
+
+def test_every_catalogue_voice_is_offered_by_default_with_a_provider_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """WIRE-107: every catalogue voice is offered by default with a provider root."""
+    monkeypatch.setenv("SPEECH_PROVIDER_ROOT", str(tmp_path))
+
+    offered = Runtime.from_settings(Settings()).health().speaking.voices
+
+    assert list(offered) == [voice.value for voice in CATALOGUE]
 
 
 @pytest.mark.parametrize("value", ["", " "])
