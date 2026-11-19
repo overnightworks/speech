@@ -120,6 +120,8 @@ class Resampler:
 
     def feed(self, pcm: bytes) -> bytes:
         """The output samples that the input so far fully determines."""
+        if not pcm:
+            return b""
         samples = np.frombuffer(pcm, dtype="<i2").reshape(1, -1)
         frame = av.AudioFrame.from_ndarray(samples, format="s16", layout="mono")
         frame.sample_rate = LIVE_INPUT_RATE

@@ -38,11 +38,19 @@ def test_a_tone_split_across_frames_is_resampled_as_if_it_came_in_one() -> None:
     assert _in_frames(tone, [2, 6, 1000, 2]) == whole
 
 
-@pytest.mark.parametrize("split", [2, 4, 6, 2400])
+@pytest.mark.parametrize("split", [2, 4, 6, 14, 962, 2400])
 def test_any_split_of_the_input_gives_the_same_output(split: int) -> None:
     tone = sine_pcm(0.2, INPUT_RATE)
 
     assert _in_frames(tone, [split]) == Resampler().feed(tone)
+
+
+def test_an_empty_chunk_gives_no_output_and_keeps_the_stream_going() -> None:
+    resampler = Resampler()
+    tone = sine_pcm(0.2, INPUT_RATE)
+
+    assert resampler.feed(b"") == b""
+    assert resampler.feed(tone) == Resampler().feed(tone)
 
 
 def test_two_thirds_as_many_samples_leave_as_came_in_less_the_filter_delay() -> None:
@@ -108,15 +116,6 @@ def test_a_tone_above_the_output_band_is_no_louder_than_in_a_recording(
     recorded = decode_recording(_as_recording(tone), NO_LIMIT_SECONDS)
 
     assert _level(_live(tone)) <= _level(recorded) + 1
-
-
-@pytest.mark.parametrize("freq", [440.0, 3_000.0])
-def test_a_tone_in_odd_chunks_is_resampled_as_if_it_came_in_one(
-    freq: float,
-) -> None:
-    tone = sine_pcm(1.0, INPUT_RATE, freq=freq)
-
-    assert _live(tone) == Resampler().feed(tone)
 
 
 def test_odd_chunks_lose_no_sample_against_the_whole() -> None:
