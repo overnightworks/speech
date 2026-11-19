@@ -67,7 +67,7 @@ class PageCoverage:
 
     async def take_worklets(self) -> None:
         """Write the coverage of every worklet still running."""
-        for target in self._worklets:
+        for target in list(self._worklets):
             taken = await self._to_target(target, "Profiler.takePreciseCoverage")
             if taken is not None:
                 self._write(taken["result"])
