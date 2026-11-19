@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
 import subprocess
@@ -283,5 +284,7 @@ def test_a_bad_app_table_stops_the_start(tmp_path: Path, apps: str, named: str) 
     )
 
     assert finished.returncode != 0
-    assert f"apps.quiz.{named}" in finished.stderr
-    assert "alloy" not in finished.stderr
+    crash = json.loads(finished.stdout.splitlines()[-1])
+    assert crash["event"] == "process.crashed"
+    assert f"apps.quiz.{named}" in crash["exception"]
+    assert "alloy" not in finished.stdout + finished.stderr
