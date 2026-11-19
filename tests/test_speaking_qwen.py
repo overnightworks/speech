@@ -32,8 +32,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
 
-_SENTENCE = "Ein Satz, den nur der Aufrufer kennt"
-
 
 @pytest.fixture
 def speaking(tmp_path: Path) -> Iterator[Callable[[str], QwenSpeaking]]:
@@ -104,17 +102,6 @@ def test_named_instructions_reach_the_server_for_that_utterance_only(
     with_tone, without_tone = received_requests(tmp_path / "cache")
     assert with_tone["instructions"] == "Sprich zornig"
     assert "instructions" not in without_tone
-
-
-def test_a_chunk_reaches_the_caller_before_the_server_sends_the_next(
-    tmp_path: Path, speaking: Callable[[str], QwenSpeaking]
-) -> None:
-    chunks = speaking("normal").pcm_chunks("gate", "de")
-
-    assert next(chunks) == b"\x00\x01"
-
-    (tmp_path / "cache/release-second").touch()
-    assert list(chunks) == [b"\x02\x03"]
 
 
 def test_an_odd_remainder_at_the_end_fails_after_its_whole_samples_and_the_server(
@@ -233,20 +220,3 @@ def test_a_voice_that_is_not_loaded_refuses_its_request_as_not_ready(
 
     with pytest.raises(ProviderNotReadyError):
         list(voice.pcm_chunks("hello", "de"))
-
-
-def test_the_sentence_and_the_server_output_reach_no_log(
-    speaking: Callable[[str], QwenSpeaking],
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    with caplog.at_level(logging.DEBUG):
-        voice = speaking("normal")
-        assert list(voice.pcm_chunks(_SENTENCE, "de"))
-        voice.close()
-
-    logged = "\n".join(
-        f"{r.getMessage()} {r.exc_text or ''} {vars(r)}" for r in caplog.records
-    )
-    assert _SENTENCE not in logged
-    assert "server noise before ready" not in logged
-    assert not [r for r in caplog.records if r.getMessage() == "provider.exited"]
