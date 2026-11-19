@@ -234,7 +234,7 @@ async def hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
     *,
     partials: bool = True,
     languages: tuple[Language, ...] = (Language.DE,),
-    bounds: Bounds = Bounds(),  # noqa: B008 - immutable
+    bounds: Bounds = Bounds(),
     token_source: TokenSource = fixed_tokens,
     traceparent: str | None = None,
 ) -> UtteranceOutcome:

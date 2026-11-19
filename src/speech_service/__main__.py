@@ -83,7 +83,7 @@ def bind_listener(settings: Settings) -> socket.socket:
     return listener
 
 
-async def serve(settings: Settings, stop: StopPolicy = StopPolicy()) -> int:  # noqa: B008 - a frozen value
+async def serve(settings: Settings, stop: StopPolicy = StopPolicy()) -> int:
     """Run the server until a signal or fatal lifecycle outcome."""
     callers = SpeechCallers.from_config(
         load_caller_config(_require_config_file(settings)),
@@ -104,7 +104,7 @@ async def _serve_on(
     settings: Settings,
     callers: SpeechCallers,
     listener: socket.socket,
-    stop: StopPolicy = StopPolicy(),  # noqa: B008 - a frozen value
+    stop: StopPolicy = StopPolicy(),
 ) -> int:
     loop = asyncio.get_running_loop()
     fatal = asyncio.Event()
