@@ -1,0 +1,8 @@
+claim_id = "4af9eb2ea85843bda9dd19f2de8ec0c7"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "787a9a7c2e5bb4c45f3fe990810835295bd06221"
+branch = "claude/issue-497-capture-context-stopped"
+scope = ["README.md", "packages/browser/src/capture.ts", "tests/fixtures/browser/capture_page.js", "tests/test_wire_route_browser_capture.py"]
+opened_commit = "9700a4c17bbfc42cf5fae4091db0d4433d6e2994"
+whole_reason = "One capture end: the capture, its browser test and page fixture, and the README line that names the end."
