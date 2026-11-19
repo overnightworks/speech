@@ -72,6 +72,7 @@ TURN_EXTRA_SECONDS = PRE_ROLL_SECONDS + DEFAULT_LIVE_SILENCE_SECONDS
 TURN_TOLERANCE_SECONDS = 0.15
 FRAMES_BEFORE_STOP = 3
 STOP_BOUND_MS = 1000
+SETTLE_MS = 500
 CLOSED = 3
 # The page passes `onMessage`, and the app's route writes messages of its own.
 MESSAGING = {"hop": MESSAGING_HOP_PATH, "messages": "1"}
@@ -313,6 +314,29 @@ def test_the_tracks_ended_event_stops_capture_after_the_last_partial_frame(
     assert [len(frame) for frame in frames] == seen["sentBytes"]
     assert len(frames) > seen["sentBeforeEnd"]
     assert 0 < len(frames[-1]) <= HOP_FRAME_BYTES
+
+
+@pytest.mark.parametrize("how", ["suspend", "close"])
+def test_a_context_that_stops_running_after_it_streamed_ends_the_capture_once(
+    tmp_path: Path, how: str
+) -> None:
+    async def scenario() -> tuple[dict[str, object], list[bytes | str]]:
+        async with _stage(tmp_path) as stage:
+            await stage.switch_on_until_streaming(source="tone")
+            await stage.page.evaluate(f"window.stopContext({how!r})")
+            await stage.until("seen.ended !== null")
+            frames_at_end = len(stage.side.frames)
+            await stage.page.wait_for_timeout(SETTLE_MS)
+            assert len(stage.side.frames) == frames_at_end
+            return await stage.seen(), stage.side.frames
+
+    seen, _ = asyncio.run(scenario())
+
+    assert seen["ended"] == {"kind": "local", "failure": "context-stopped"}
+    assert seen["endedCount"] == 1
+    assert seen["errors"] == []
+    assert set(seen["socketStatesAtEnd"]) <= {CLOSED}
+    assert set(seen["contextStatesAtEnd"]) <= {"closed"}
 
 
 def test_the_worklet_loads_from_its_file_under_webauths_policy(tmp_path: Path) -> None:
