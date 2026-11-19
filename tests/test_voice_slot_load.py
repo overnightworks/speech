@@ -15,7 +15,6 @@ import pytest
 from fastapi.testclient import TestClient
 from speech_provider_contract import (
     QWEN_ARTIFACTS,
-    QWEN_DEVICE,
     QWEN_SAMPLE_RATE,
 )
 
@@ -36,6 +35,17 @@ from tests.support.hear_support import (
     recording,
 )
 from tests.support.identity_support import valid_headers
+from tests.support.launcher_support import (
+    SERVER_WAIT_SECONDS,
+    LoadOutcome,
+    assert_reaped,
+    hold_exits,
+    is_running,
+    release_exit,
+    release_load,
+    wait_for_held_exit,
+    wait_for_starts,
+)
 from tests.support.live_support import COMPLETED, append, audio, commit, update
 from tests.support.speak_support import (
     SpeakCall,
@@ -46,18 +56,6 @@ from tests.support.speak_support import (
     gate_is_free,
     post_speech,
     speak_body,
-)
-from tests.support.worker_support import (
-    WORKER_WAIT_SECONDS,
-    LoadOutcome,
-    assert_reaped,
-    hold_exits,
-    is_running,
-    observed,
-    release_exit,
-    release_load,
-    wait_for_held_exit,
-    wait_for_starts,
 )
 
 if TYPE_CHECKING:
@@ -106,7 +104,7 @@ def _speak_in_background(
     pool: ThreadPoolExecutor, stage: GpuVoiceStage, voice: VoiceId = VoiceId.RYAN
 ) -> Callable[[], ClientResponse]:
     pending = pool.submit(post_speech, TestClient(stage.app()), speak_body(voice))
-    return lambda: pending.result(timeout=WORKER_WAIT_SECONDS)
+    return lambda: pending.result(timeout=SERVER_WAIT_SECONDS)
 
 
 def test_an_offered_voice_loads_on_its_first_request_and_then_reports_ready(
@@ -146,22 +144,10 @@ def test_the_start_setting_loads_a_gpu_voice_without_a_request_and_ready_waits_f
         (pid,) = wait_for_starts(stage.cache, 1)
         while_loading = _health(client).speaking.ready
         release_load(stage.cache, pid, LoadOutcome.READY)
-        starting.join(timeout=WORKER_WAIT_SECONDS)
+        starting.join(timeout=SERVER_WAIT_SECONDS)
         loaded = _health(client).speaking.ready
 
     assert (while_loading, loaded) == (False, True)
-
-
-def test_a_gpu_voice_launches_on_its_providers_device_whatever_hearing_runs_on(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    with gpu_voice_stage(tmp_path, monkeypatch, _SERVING) as stage:
-        spoken = post_speech(TestClient(stage.app()), speak_body(VoiceId.RYAN))
-        launched = observed(stage.cache)[3]
-
-    _assert_spoken_at(spoken, QWEN_SAMPLE_RATE)
-    assert stage.settings.device != QWEN_DEVICE
-    assert launched["device"] == QWEN_DEVICE
 
 
 def test_requests_during_one_load_share_it_and_are_served_one_after_another(
@@ -264,10 +250,8 @@ def test_piper_hearing_and_health_answer_while_a_gpu_voice_loads(
 @pytest.mark.parametrize(
     ("behavior", "outcome", "waiters"),
     [
-        ("held-ready", LoadOutcome.FAILED, 2),
         ("held-ready", LoadOutcome.EXIT, 2),
         ("startup-exit", None, 1),
-        ("startup-failed", None, 1),
     ],
 )
 def test_a_failed_load_refuses_every_waiter_and_leaves_piper_and_hearing(
@@ -303,7 +287,7 @@ def test_a_failed_load_refuses_every_waiter_and_leaves_piper_and_hearing(
     assert_reaped(pid)
 
 
-def test_the_request_after_a_failed_load_starts_a_new_worker_once_the_first_is_reaped(
+def test_the_request_after_a_failed_load_starts_a_new_server_once_the_first_is_reaped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with (
@@ -312,7 +296,7 @@ def test_the_request_after_a_failed_load_starts_a_new_worker_once_the_first_is_r
     ):
         refused = _speak_in_background(pool, stage)
         (first,) = wait_for_starts(stage.cache, 1)
-        release_load(stage.cache, first, LoadOutcome.FAILED)
+        release_load(stage.cache, first, LoadOutcome.EXIT)
         assert_unavailable(refused())
         spoken = _speak_in_background(pool, stage)
         _, second = wait_for_starts(stage.cache, 2)
@@ -335,12 +319,12 @@ def test_a_waiter_of_a_failed_load_is_refused_though_a_retry_loaded_before_it_re
         # The loop stays blocked until the retry has loaded, so the waiter of the
         # failed load resumes only once a ready engine replaced it.
         failed_load = stage.runtime.load_on_demand(VoiceId.RYAN)
-        release_load(stage.cache, first, LoadOutcome.FAILED)
-        failed_load.result(timeout=WORKER_WAIT_SECONDS)
+        release_load(stage.cache, first, LoadOutcome.EXIT)
+        failed_load.result(timeout=SERVER_WAIT_SECONDS)
         retry = stage.runtime.load_on_demand(VoiceId.RYAN)
         _, second = wait_for_starts(stage.cache, 2)
         release_load(stage.cache, second, LoadOutcome.READY)
-        retry.result(timeout=WORKER_WAIT_SECONDS)
+        retry.result(timeout=SERVER_WAIT_SECONDS)
         await call.finish()
         return call
 
@@ -357,7 +341,9 @@ def test_a_request_during_a_failed_loads_cleanup_shares_its_refusal_and_starts_n
 ) -> None:
     """WIRE-103, WIRE-126: a request during a failed load's cleanup is refused."""
     with (
-        gpu_voice_stage(tmp_path, monkeypatch) as stage,
+        gpu_voice_stage(
+            tmp_path, monkeypatch, StageSetup(health_deadline_seconds=1.0)
+        ) as stage,
         ThreadPoolExecutor() as pool,
     ):
         hold_exits(stage.cache)
@@ -385,14 +371,14 @@ def test_a_request_during_a_failed_loads_cleanup_shares_its_refusal_and_starts_n
 
 @pytest.mark.parametrize("loaded_at_start", [False, True])
 @pytest.mark.parametrize("death", ["killed while idle", "failed synthesis"])
-def test_a_worker_that_dies_after_it_was_ready_turns_its_voice_unready_and_reloads(
+def test_a_server_that_dies_after_it_was_ready_turns_its_voice_unready_and_reloads(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     death: str,
     *,
     loaded_at_start: bool,
 ) -> None:
-    """WIRE-103, WIRE-126, WIRE-143: a worker that dies turns its voice unready."""
+    """WIRE-103, WIRE-126, WIRE-143: a server that dies turns its voice unready."""
     fatal = threading.Event()
     with gpu_voice_stage(
         tmp_path, monkeypatch, _SERVING, load_gpu_voices_at_start=loaded_at_start
@@ -406,8 +392,8 @@ def test_a_worker_that_dies_after_it_was_ready_turns_its_voice_unready_and_reloa
         if death == "killed while idle":
             os.kill(first, signal.SIGKILL)
         else:
-            post_speech(client, speak_body(VoiceId.RYAN, "failed"))
-        deadline = time.monotonic() + WORKER_WAIT_SECONDS
+            post_speech(client, speak_body(VoiceId.RYAN, "refused"))
+        deadline = time.monotonic() + SERVER_WAIT_SECONDS
         while _health(client).speaking.voices[VoiceId.RYAN].ready:
             assert time.monotonic() < deadline
             time.sleep(0.01)
@@ -433,7 +419,7 @@ def test_a_crash_mid_synthesis_refuses_the_waiter_after_its_lease_and_the_next_r
         warm = SpeakCall(app, speak_body(VoiceId.RYAN))
         await warm.finish()
         (pid,) = stage.starts()
-        streaming = SpeakCall(app, speak_body(VoiceId.RYAN, "wait-cancel"))
+        streaming = SpeakCall(app, speak_body(VoiceId.RYAN, "wait-disconnect"))
         assert await streaming.status() == HTTPStatus.OK
         queued = gate_acquisition_began(stage.runtime, VoiceId.RYAN)
         waiting = SpeakCall(app, speak_body(VoiceId.RYAN))
@@ -510,7 +496,7 @@ def test_while_the_start_load_runs_no_voice_is_ready_and_every_voice_is_refused(
         loader = threading.Thread(target=stage.runtime.load)
         loader.start()
         try:
-            assert ear.loading.wait(WORKER_WAIT_SECONDS)
+            assert ear.loading.wait(SERVER_WAIT_SECONDS)
             client = TestClient(stage.app())
             health = _health(client)
             refused = [
@@ -519,7 +505,7 @@ def test_while_the_start_load_runs_no_voice_is_ready_and_every_voice_is_refused(
             ]
         finally:
             ear.release_load.set()
-            loader.join(WORKER_WAIT_SECONDS)
+            loader.join(SERVER_WAIT_SECONDS)
 
     assert health.speaking.ready is False
     assert not any(voice.ready for voice in health.speaking.voices.values())
@@ -538,7 +524,7 @@ class _HeldEar(FakeHearing):
 
     def load(self) -> None:
         self.loading.set()
-        assert self.release_load.wait(WORKER_WAIT_SECONDS)
+        assert self.release_load.wait(SERVER_WAIT_SECONDS)
 
 
 def test_once_shutdown_begins_health_and_the_refusal_agree_that_no_voice_is_ready(

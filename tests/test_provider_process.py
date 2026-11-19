@@ -1,76 +1,77 @@
-"""The parent keeps provider protocol failures private and terminal."""
+"""The service owns Qwen's server process from its start to its stop."""
 
 from __future__ import annotations
 
 import contextlib
-import io
-import logging
 import os
+import signal
 import stat
-import struct
 import subprocess
 import sys
-import tempfile
 import threading
 import time
-from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from anyio import run, run_process
-from speech_provider_contract import (
-    QWEN_MODEL_ID,
-    QWEN_SAMPLE_RATE,
-    Frame,
-    FrameDecoder,
-    FrameKind,
-    ProtocolError,
-    Synthesis,
-    decode_synthesis,
-    encode_synthesis,
-    read_frame,
-    ready_payload,
-    write_frame,
-)
+from speech_provider_contract import QwenSpeaker
 
 from shipped_catalogue import CATALOGUE
 from speech_client.wire import VoiceId
 from speech_service.provider_process import (
-    SYNTHESIS_FAILED,
     ProviderCleanupFailedError,
     ProviderFailedError,
     ProviderLaunch,
     ProviderNotReadyError,
     ProviderProcess,
-    ProviderProtocolError,
-    UnsupportedLanguageError,
 )
 from speech_service.service import Runtime, RuntimeDependencies
-from tests.support.worker_support import (
+from speech_service.speaking import QwenSpeaking
+from tests.support.launcher_support import (
+    LoadOutcome,
     assert_reaped,
     closed_provider,
     debug_log,
     fail_every_reap,
     numba_cache,
     observed,
-    provider_worker,
+    provider_launcher,
+    release_load,
     wait_for_starts,
 )
+from tests.support.process_state import has_ended
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 _SCRATCH_VARIABLES = ("NUMBA_CACHE_DIR", "TMPDIR", "HOME")
+_OWNER = "speech_service.provider_process"
+_CLOSE_BUDGET_SECONDS = 2
 
 
-def _engine(tmp_path: Path, behavior: str = "normal") -> ProviderProcess:
+def _process(root: Path, cache: Path) -> ProviderProcess:
+    return ProviderProcess(
+        ProviderLaunch(
+            executable=provider_launcher(root),
+            arguments=("--cache", str(cache)),
+        )
+    )
+
+
+def _server(tmp_path: Path, behavior: str = "normal") -> ProviderProcess:
     root, cache = closed_provider(tmp_path, behavior)
-    return _provider_process(root, cache)
+    return _process(root, cache)
 
 
-def _qwen_arguments(cache: Path) -> tuple[str, ...]:
-    return ("--device", "cpu", "--cache", str(cache), "--speaker", "Ryan")
+def _runtime(factory: Callable[[VoiceId], QwenSpeaking]) -> Runtime:
+    return Runtime(
+        {VoiceId.THORSTEN: None},
+        dependencies=RuntimeDependencies(
+            catalogue=CATALOGUE,
+            engine_factory=factory,
+            missing_artifacts=lambda _voice: (),
+        ),
+    )
 
 
 def _finishes_within_timeout(target: Callable[[], object]) -> bool:
@@ -80,208 +81,21 @@ def _finishes_within_timeout(target: Callable[[], object]) -> bool:
     return not thread.is_alive()
 
 
-def _provider_process(root: Path, cache: Path) -> ProviderProcess:
-    return ProviderProcess(
-        ProviderLaunch(
-            model_name=QWEN_MODEL_ID,
-            sample_rate=QWEN_SAMPLE_RATE,
-            executable=provider_worker(root),
-            arguments=_qwen_arguments(cache),
-        )
-    )
-
-
-def test_protocol_round_trips_partial_reads_and_consecutive_frames() -> None:
-    encoded = BytesIO()
-    write_frame(encoded, Frame(FrameKind.PCM, 1, b"\x00\x01"))
-    write_frame(encoded, Frame(FrameKind.COMPLETE, 1, b""))
-    decoder = FrameDecoder()
-    frames = []
-    for byte in encoded.getvalue():
-        decoder.feed(bytes([byte]))
-        frame = decoder.next_frame()
-        if frame is not None:
-            frames.append(frame)
-    decoder.finish()
-    assert frames == [
-        Frame(FrameKind.PCM, 1, b"\x00\x01"),
-        Frame(FrameKind.COMPLETE, 1, b""),
-    ]
-
-
-@pytest.mark.parametrize("sample_rate", [24_000, 48_000])
-def test_version_one_ready_encodes_the_declared_native_rate(sample_rate: int) -> None:
-    frame = Frame(FrameKind.READY, 0, ready_payload(sample_rate))
-
-    encoded = BytesIO()
-    write_frame(encoded, frame)
-
-    assert read_frame(BytesIO(encoded.getvalue())) == frame
-    assert ready_payload(24_000) == b"\x00\x01\x00\x00]\xc0"
-
-
-def test_parent_rejects_a_worker_that_advertises_another_rate(tmp_path: Path) -> None:
-    root, cache = closed_provider(tmp_path, "other-rate")
-    engine = _provider_process(root, cache)
-
-    with pytest.raises(RuntimeError, match="speech provider failed"):
-        engine.load()
-
-    engine.close()
-
-
-@pytest.mark.parametrize(
-    "encoded",
-    [
-        struct.pack("!IBQ", 9, 255, 1),
-        struct.pack("!IBQ", 9, FrameKind.PCM, 1),
-        struct.pack("!IBQ", 10, FrameKind.FAILED, 1) + b"\x02",
-        struct.pack("!IBQ", 26, FrameKind.FAILED, 0) + b"\x01builtins.OSError",
-        struct.pack("!IBQ", 4107, FrameKind.FAILED, 1) + b"\x01" + b"a" * 4097,
-        *(
-            struct.pack("!IBQ", 11, FrameKind.FAILED, 1) + b"\x01" + byte
-            for byte in (b"\x00", b"\t", b"\r", b"\x7f", b"\x80")
-        ),
-        struct.pack("!IBQ", 15, FrameKind.READY, 0) + b"\x00\x02\x00\x00]\xc0",
-        struct.pack("!IBQ", 10, FrameKind.SYNTHESIZE, 1) + b"\x03",
-        struct.pack("!IBQ", 12, FrameKind.PCM, 1) + b"\x00\x01\x02",
-    ],
-)
-def test_protocol_rejects_illegal_lengths_kinds_and_payloads(encoded: bytes) -> None:
-    stream = BytesIO(encoded)
-    with pytest.raises(ProtocolError):
-        read_frame(stream)
-
-
-def test_protocol_reports_a_payload_cut_short_after_its_header() -> None:
-    stream = BytesIO(struct.pack("!IBQ", 12, FrameKind.PCM, 1) + b"\x00")
-    with pytest.raises(EOFError):
-        read_frame(stream)
-
-
-@pytest.mark.parametrize(
-    "payload", [b"\x01", b"\x01builtins.OSError", b"\x01" + b"a\n" * 2048]
-)
-def test_protocol_accepts_a_request_failure_with_or_without_its_cause(
-    payload: bytes,
-) -> None:
-    frame = Frame(FrameKind.FAILED, 1, payload)
-
-    encoded = BytesIO()
-    write_frame(encoded, frame)
-
-    assert read_frame(BytesIO(encoded.getvalue())) == frame
-
-
-@pytest.mark.parametrize(
-    "synthesis",
-    [
-        Synthesis("de", "Hallo"),
-        Synthesis("en", "Hello", "Speak angrily"),
-        Synthesis("de", "Lass mich ausreden", "Zornig und laut, ärgerlich \U0001f620"),
-    ],
-    ids=["no-instructions", "instructions", "multibyte-instructions"],
-)
-def test_synthesis_crosses_the_protocol_with_its_instructions(
-    synthesis: Synthesis,
-) -> None:
-    stream = BytesIO()
-    write_frame(stream, Frame(FrameKind.SYNTHESIZE, 1, encode_synthesis(synthesis)))
-
-    frame = read_frame(BytesIO(stream.getvalue()))
-
-    assert decode_synthesis(frame.payload) == synthesis
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        b"",
-        b"\x01",
-        b"\x01\x00\x00",
-        b"\x03\x00\x00text",
-        b"\x01\x00\x00\xff",
-        b"\x01\x00\x05abc",
-        b"\x01\x00\x03abc",
-        b"\x01\x00\x02\xff\xfftext",
-        b"\x01\x07\xd1" + b"a" * 2001 + b"text",
-    ],
-    ids=[
-        "empty",
-        "language-only",
-        "no-text",
-        "unknown-language",
-        "text-not-utf8",
-        "instructions-longer-than-the-payload",
-        "instructions-without-text",
-        "instructions-not-utf8",
-        "instructions-over-the-bound",
-    ],
-)
-def test_protocol_refuses_invalid_synthesis_payloads(payload: bytes) -> None:
-    stream = BytesIO()
-    frame = Frame(FrameKind.SYNTHESIZE, 1, payload)
-    with pytest.raises(ProtocolError):
-        write_frame(stream, frame)
+def _load_quietly(server: ProviderProcess) -> None:
+    with contextlib.suppress(ProviderFailedError):
+        server.load()
 
 
 @pytest.fixture(params=["python3.12", "python3.14"])
-def python_dir(request: pytest.FixtureRequest) -> str:
+def python_directory(request: pytest.FixtureRequest) -> str:
     return str(request.param)
 
 
-@pytest.mark.parametrize("behavior", ["normal", "startup-exit"])
-def test_each_worker_keeps_its_temporary_state_in_a_private_directory_gone_once_reaped(
-    tmp_path: Path, behavior: str
-) -> None:
-    caches = []
-    engines = []
-    for worker in ("first", "second"):
-        root, cache = closed_provider(tmp_path / worker, behavior)
-        engines.append(_provider_process(root, cache))
-        caches.append(cache)
-        with contextlib.suppress(ProviderFailedError):
-            engines[-1].load()
-    for engine in engines:
-        engine.close()
-
-    (first, first_mode), (second, second_mode) = map(numba_cache, caches)
-    assert first != second
-    assert first_mode == second_mode == stat.S_IRWXU
-    assert not first.exists()
-    assert not second.exists()
-    assert not any(debug_log(cache).exists() for cache in caches)
-
-
-def test_a_worker_without_a_private_directory_is_refused_and_closes_cleanly(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    fatal = threading.Event()
-    engine = _engine(tmp_path)
-    engine.set_fatal_callback(fatal.set)
-    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "no-temporary-root"))
-    refused: list[ProviderFailedError] = []
-
-    def load() -> None:
-        try:
-            engine.load()
-        except ProviderFailedError as error:
-            refused.append(error)
-
-    loader = threading.Thread(target=load, daemon=True)
-    loader.start()
-    loader.join(timeout=5)
-
-    assert refused
-    engine.close()
-    assert fatal.is_set() is False
-
-
-def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, python_dir: str
+def test_the_server_starts_from_a_load_thread_that_ends_and_keeps_serving(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, python_directory: str
 ) -> None:
     root, cache = closed_provider(tmp_path)
-    cublas = root / f"qwen/.venv/lib/{python_dir}/site-packages/nvidia/cublas/lib"
+    cublas = root / f"qwen/.venv/lib/{python_directory}/site-packages/nvidia/cublas/lib"
     cublas.mkdir(parents=True)
     monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
     monkeypatch.setenv("PATH", "parent-executable-search-path")
@@ -294,291 +108,228 @@ def test_direct_closed_entrypoint_streams_after_transient_loader_exits(
         launches.append((arguments, keywords))
         return real_popen(arguments, **keywords)
 
-    monkeypatch.setattr(
-        "speech_service.provider_process.subprocess.Popen", recording_popen
-    )
-    engine = _provider_process(root, cache)
-    assert _finishes_within_timeout(engine.load)
-    response: list[bytes] = []
-    assert _finishes_within_timeout(
-        lambda: response.extend(engine.pcm_chunks("Hallo", "de-DE"))
-    )
-    assert response == [b"\x00\x01"]
+    monkeypatch.setattr(f"{_OWNER}.subprocess.Popen", recording_popen)
+    server = _process(root, cache)
+
+    assert _finishes_within_timeout(server.load)
+
+    assert server.ready is True
     assert "speech-provider-owner" in {thread.name for thread in threading.enumerate()}
     cwd, environment, pid, arguments = observed(cache)
-    assert list(engine.pcm_chunks("later", "en")) == [b"\x00\x01"]
-    engine.close()
+    server.close()
     assert cwd == str(root / "qwen")
-    assert arguments == {
-        "expected_parent_pid": str(os.getpid()),
-        "device": "cpu",
-        "cache": str(cache),
-        "speaker": "Ryan",
-    }
-    expected_environment = {
-        "HF_HUB_OFFLINE": "1",
-        "TRANSFORMERS_OFFLINE": "1",
-        "TOKENIZERS_PARALLELISM": "false",
-        "PYTHONUNBUFFERED": "1",
-        "PATH": os.defpath,
-        "LD_LIBRARY_PATH": str(cublas),
-        "TORCH_DISABLE_NATIVE_JIT": "1",
-        "VLLM_USE_FLASHINFER_SAMPLER": "0",
-        "VLLM_NO_USAGE_STATS": "1",
-        "DO_NOT_TRACK": "1",
-        **dict.fromkeys(_SCRATCH_VARIABLES, environment["TMPDIR"]),
-    }
-    assert set(environment) <= {*expected_environment, "LC_CTYPE"}
-    assert all(environment[key] == value for key, value in expected_environment.items())
+    assert arguments["expected_parent_pid"] == os.getpid()
+    assert arguments["cache"] == str(cache)
+    assert Path(arguments["socket"]).name == "server.sock"
+    assert environment["LD_LIBRARY_PATH"] == str(cublas)
+    assert environment["PATH"] == os.defpath
+    assert {environment[name] for name in _SCRATCH_VARIABLES} == {environment["TMPDIR"]}
     [(launch_arguments, launch)] = launches
-    assert launch_arguments == [
-        str(provider_worker(root)),
-        "--expected-parent-pid",
-        str(os.getpid()),
-        *_qwen_arguments(cache),
-    ]
-    assert isinstance(launch.pop("stderr"), io.IOBase)
-    assert launch == {
-        "shell": False,
-        "stdin": subprocess.PIPE,
-        "stdout": subprocess.PIPE,
-        "cwd": root / "qwen",
-        "env": expected_environment,
-        "bufsize": 0,
-        "close_fds": True,
-        "start_new_session": True,
-    }
+    assert launch_arguments[0] == str(provider_launcher(root))
+    assert launch["stdin"] == subprocess.DEVNULL
+    assert launch["stdout"] == subprocess.DEVNULL
+    assert launch["stderr"] == subprocess.PIPE
+    assert launch["start_new_session"] is True
     assert_reaped(pid)
 
 
-@pytest.mark.parametrize("first", ["wait-cancel", "normal"])
-def test_cancel_drain_keeps_the_worker_reusable_and_late_cancel_isolated(
-    tmp_path: Path, first: str
-) -> None:
-    engine = _engine(tmp_path)
-    engine.load()
-    chunks = engine.pcm_chunks(first, "de")
-    assert next(chunks) == b"\x00\x01"
-    chunks.close()
-
-    assert list(engine.pcm_chunks("later", "en")) == [b"\x00\x01"]
-    assert (tmp_path / "cache/request-ids").read_text(encoding="utf-8").split() == [
-        "1",
-        "2",
-    ]
-    engine.close()
-
-
-@pytest.mark.parametrize(
-    "text",
-    ["stale", "wrong-direction", "unexpected-cancelled", "midstream-exit"],
-)
-def test_stale_wrong_direction_out_of_order_and_midstream_exit_fail_closed(
-    tmp_path: Path, text: str
-) -> None:
-    engine = _engine(tmp_path)
-    engine.load()
-    with pytest.raises(ProviderProtocolError):
-        list(engine.pcm_chunks(text, "de"))
-    engine.close()
-
-
-def test_request_failure_is_sanitized_and_marks_the_adapter_unready(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    engine = _engine(tmp_path)
-    engine.load()
-    with (
-        caplog.at_level(logging.WARNING),
-        pytest.raises(RuntimeError, match=SYNTHESIS_FAILED),
-    ):
-        list(engine.pcm_chunks("failed", "de"))
-    assert engine.ready is False
-    engine.close()
-
-    (failed,) = (r for r in caplog.records if r.getMessage() == "synthesis.failed")
-    assert failed.request_id == 1
-    assert not hasattr(failed, "cause")
-
-
-@pytest.mark.parametrize(
-    "behavior", ["startup-exit", "startup-oversized", "startup-failed"]
-)
-def test_early_exit_and_oversized_handshake_fail_without_an_owned_process(
+@pytest.mark.parametrize("behavior", ["normal", "startup-exit"])
+def test_each_server_keeps_its_state_in_a_private_directory_gone_once_reaped(
     tmp_path: Path, behavior: str
 ) -> None:
-    engine = _engine(tmp_path, behavior)
-    with pytest.raises(RuntimeError, match="speech provider failed"):
-        engine.load()
+    caches = []
+    servers = []
+    for name in ("first", "second"):
+        root, cache = closed_provider(tmp_path / name, behavior)
+        servers.append(_process(root, cache))
+        caches.append(cache)
+        _load_quietly(servers[-1])
+    for server in servers:
+        server.close()
+
+    (first, first_mode), (second, second_mode) = map(numba_cache, caches)
+    assert first != second
+    assert first_mode == second_mode == stat.S_IRWXU
+    assert not first.exists()
+    assert not second.exists()
+    assert not any(debug_log(cache).exists() for cache in caches)
+
+
+def test_each_start_listens_on_a_fresh_socket_in_a_directory_only_its_user_enters(
+    tmp_path: Path,
+) -> None:
+    root, cache = closed_provider(tmp_path)
+    sockets = []
+    for _ in range(2):
+        server = _process(root, cache)
+        server.load()
+        sockets.append(Path(observed(cache)[3]["socket"]))
+        assert (cache / "socket-directory-mode").read_text(encoding="utf-8") == str(
+            stat.S_IRWXU
+        )
+        server.close()
+
+    first, second = sockets
+    assert first.parent != second.parent
+    assert not first.parent.exists()
+
+
+def test_a_socket_nothing_listens_on_never_counts_as_ready(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(f"{_OWNER}.HEALTH_DEADLINE_SECONDS", 0.5)
+    server = _server(tmp_path, "stale-socket")
+
+    with pytest.raises(ProviderFailedError):
+        server.load()
+
+    assert server.ready is False
     _, _, pid, _ = observed(tmp_path / "cache")
-    engine.close()
+    server.close()
+    assert_reaped(pid)
+
+
+def test_the_health_deadline_fails_the_load_and_reaps_a_term_resistant_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(f"{_OWNER}.HEALTH_DEADLINE_SECONDS", 0.3)
+    monkeypatch.setattr(f"{_OWNER}.TERMINATE_GRACE_SECONDS", 0.05)
+    server = _server(tmp_path, "stale-socket term-resistant")
+
+    with pytest.raises(ProviderFailedError):
+        server.load()
+
+    _, _, pid, _ = observed(tmp_path / "cache")
+    assert_reaped(pid)
+    server.close()
+
+
+def test_a_stop_during_the_health_wait_ends_within_the_close_budget(
+    tmp_path: Path,
+) -> None:
+    root, cache = closed_provider(tmp_path, "held-ready")
+    server = _process(root, cache)
+    refused: list[ProviderFailedError] = []
+
+    def load() -> None:
+        try:
+            server.load()
+        except ProviderFailedError as error:
+            refused.append(error)
+
+    loading = threading.Thread(target=load)
+    loading.start()
+    (pid,) = wait_for_starts(cache, 1)
+
+    started = time.monotonic()
+    server.close()
+    loading.join(timeout=5)
+
+    assert time.monotonic() - started < _CLOSE_BUDGET_SECONDS
+    assert not loading.is_alive()
+    assert refused
+    assert_reaped(pid)
+
+
+def test_an_exit_after_ready_ends_readiness_at_once(tmp_path: Path) -> None:
+    server = _server(tmp_path, "idle-exit")
+    server.load()
+    (tmp_path / "cache/exit-now").touch()
+
+    deadline = time.monotonic() + 5
+    while server.ready and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert server.ready is False
+    with pytest.raises(ProviderNotReadyError):
+        server.connect(1)
+    server.close()
+
+
+def test_a_marked_failure_stops_the_server_and_refuses_a_new_load(
+    tmp_path: Path,
+) -> None:
+    server = _server(tmp_path)
+    server.load()
+    _, _, pid, _ = observed(tmp_path / "cache")
+
+    server.mark_failed()
+
+    assert server.ready is False
+    with pytest.raises(ProviderFailedError):
+        server.load()
+    server.close()
+    assert_reaped(pid)
+
+
+@pytest.mark.parametrize("behavior", ["startup-exit", "startup-oversized"])
+def test_a_server_that_ends_before_it_answers_fails_without_an_owned_process(
+    tmp_path: Path, behavior: str
+) -> None:
+    server = _server(tmp_path, behavior)
+    with pytest.raises(RuntimeError, match="speech provider failed"):
+        server.load()
+    _, _, pid, _ = observed(tmp_path / "cache")
+    server.close()
     assert_reaped(pid)
 
 
 def test_load_after_a_failed_startup_is_refused(tmp_path: Path) -> None:
-    engine = _engine(tmp_path, "startup-exit")
+    server = _server(tmp_path, "startup-exit")
     with pytest.raises(ProviderFailedError):
-        engine.load()
+        server.load()
     with pytest.raises(ProviderFailedError):
-        engine.load()
-    engine.close()
+        server.load()
+    server.close()
 
 
-def test_unsupported_language_is_refused_before_any_request(tmp_path: Path) -> None:
-    engine = _engine(tmp_path)
-    engine.load()
-    with pytest.raises(UnsupportedLanguageError):
-        list(engine.pcm_chunks("hello", "fr"))
-    assert engine.ready is True
-    engine.close()
-
-
-def test_request_before_load_is_refused_as_not_ready(tmp_path: Path) -> None:
-    engine = _engine(tmp_path)
+def test_a_request_before_load_is_refused_as_not_ready(tmp_path: Path) -> None:
     with pytest.raises(ProviderNotReadyError):
-        list(engine.pcm_chunks("hello", "de"))
+        _server(tmp_path).connect(1)
 
 
-def test_duplicate_terminal_is_rejected_before_a_later_request(tmp_path: Path) -> None:
-    engine = _engine(tmp_path, "duplicate-terminal")
-    engine.load()
-    assert list(engine.pcm_chunks("first", "de")) == [b"\x00\x01"]
-    with pytest.raises(ProviderProtocolError):
-        list(engine.pcm_chunks("second", "de"))
-    engine.close()
-
-
-def test_partial_cancel_frame_cannot_extend_the_single_drain_deadline(
+def test_a_server_without_a_private_directory_is_refused_and_closes_cleanly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("speech_service.provider_process.CANCEL_DRAIN_SECONDS", 0.05)
-    monkeypatch.setattr("speech_service.provider_process.TERMINATE_GRACE_SECONDS", 5)
-    engine = _engine(tmp_path, "partial-cancel")
-    engine.load()
-    chunks = engine.pcm_chunks("cancel", "de")
-    assert next(chunks) == b"\x00\x01"
-    started = time.monotonic()
-    chunks.close()
-    assert time.monotonic() - started < 1
-    _, _, pid, _ = observed(tmp_path / "cache")
-    engine.close()
-    assert engine.ready is False
-    assert_reaped(pid)
+    fatal = threading.Event()
+    server = _server(tmp_path)
+    server.set_fatal_callback(fatal.set)
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path / "no-temporary-root"))
+    refused: list[ProviderFailedError] = []
+
+    def load() -> None:
+        try:
+            server.load()
+        except ProviderFailedError as error:
+            refused.append(error)
+
+    loader = threading.Thread(target=load, daemon=True)
+    loader.start()
+    loader.join(timeout=5)
+
+    assert refused
+    server.close()
+    assert fatal.is_set() is False
 
 
-def test_qwen_cancel_beyond_drain_reaps_then_runtime_loads_a_fresh_worker(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("speech_service.provider_process.CANCEL_DRAIN_SECONDS", 0.05)
-    monkeypatch.setattr("speech_service.provider_process.TERMINATE_GRACE_SECONDS", 5)
-    root, cache = closed_provider(tmp_path, "partial-cancel")
-    constructed: list[ProviderProcess] = []
-
-    def factory(_voice: VoiceId) -> ProviderProcess:
-        engine = _provider_process(root, cache)
-        constructed.append(engine)
-        return engine
-
-    runtime = Runtime(
-        {VoiceId.THORSTEN: None},
-        dependencies=RuntimeDependencies(
-            catalogue=CATALOGUE,
-            engine_factory=factory,
-            missing_artifacts=lambda _voice: (),
-        ),
-    )
-    runtime.load()
-    first = constructed[0]
-    chunks = first.pcm_chunks("cancel", "de")
-    assert next(chunks) == b"\x00\x01"
-    chunks.close()
-    _, _, first_pid, _ = observed(cache)
-
-    runtime.health()
-
-    assert runtime.capture(VoiceId.THORSTEN) is None
-    assert_reaped(first_pid)
-    runtime.close()
-
-
-def test_constructor_has_no_thread_process_or_filesystem_side_effect(
+def test_the_constructor_has_no_thread_process_or_filesystem_side_effect(
     tmp_path: Path,
 ) -> None:
     before = {thread.ident for thread in threading.enumerate()}
-    engine = ProviderProcess(
-        ProviderLaunch(
-            model_name=QWEN_MODEL_ID,
-            sample_rate=QWEN_SAMPLE_RATE,
-            executable=tmp_path / "missing",
-            arguments=("--device", "cpu", "--cache", str(tmp_path / "cache")),
-        )
+    server = ProviderProcess(
+        ProviderLaunch(executable=tmp_path / "missing", arguments=())
     )
-    engine.close()
+    server.close()
     assert {thread.ident for thread in threading.enumerate()} == before
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.parametrize(
-    ("behavior", "text"), [("normal", "wait-cancel"), ("partial-cancel", "cancel")]
-)
-def test_close_allows_bounded_active_cancel_before_reaping(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    behavior: str,
-    text: str,
-) -> None:
-    drain_seconds = 0.2
-    grace_seconds = 5
-    monkeypatch.setattr(
-        "speech_service.provider_process.CANCEL_DRAIN_SECONDS", drain_seconds
-    )
-    monkeypatch.setattr(
-        "speech_service.provider_process.TERMINATE_GRACE_SECONDS", grace_seconds
-    )
-    engine = _engine(tmp_path, behavior)
-    engine.load()
-    chunks = engine.pcm_chunks(text, "de")
-    assert next(chunks) == b"\x00\x01"
-    outcomes: list[ProviderCleanupFailedError | None] = []
-
-    def close_engine() -> None:
-        try:
-            engine.close()
-        except ProviderCleanupFailedError as error:
-            outcomes.append(error)
-        else:
-            outcomes.append(None)
-
-    closing = threading.Thread(target=close_engine)
-    closing.start()
-    threading.Event().wait(0.05)
-
-    started = time.monotonic()
-    chunks.close()
-    cancelled_seconds = time.monotonic() - started
-    closing.join(timeout=5)
-    closed_seconds = time.monotonic() - started
-
-    assert not closing.is_alive()
-    assert outcomes == [None]
-    assert cancelled_seconds < drain_seconds + 1
-    assert closed_seconds < grace_seconds
-    assert (tmp_path / "cache/cancel-observed").exists()
-    _, _, pid, _ = observed(tmp_path / "cache")
-    assert_reaped(pid)
-
-
-def test_shutdown_during_handshake_closes_pending_without_publication(
+def test_shutdown_during_the_health_wait_closes_pending_without_publication(
     tmp_path: Path,
 ) -> None:
     root, cache = closed_provider(tmp_path, "held-ready")
-    runtime = Runtime(
-        {VoiceId.THORSTEN: None},
-        dependencies=RuntimeDependencies(
-            catalogue=CATALOGUE,
-            engine_factory=lambda _voice: _provider_process(root, cache),
-            missing_artifacts=lambda _voice: (),
-        ),
+    runtime = _runtime(
+        lambda _voice: QwenSpeaking(_process(root, cache), QwenSpeaker.RYAN)
     )
 
     def start() -> None:
@@ -598,24 +349,15 @@ def test_shutdown_during_handshake_closes_pending_without_publication(
     assert_reaped(pid)
 
 
-def test_missing_entrypoint_failed_exec_leaves_no_retained_engine(
-    tmp_path: Path,
-) -> None:
+def test_a_missing_launcher_leaves_no_retained_engine(tmp_path: Path) -> None:
     fatal = threading.Event()
-    runtime = Runtime(
-        {VoiceId.THORSTEN: None},
-        dependencies=RuntimeDependencies(
-            catalogue=CATALOGUE,
-            engine_factory=lambda _voice: ProviderProcess(
-                ProviderLaunch(
-                    model_name=QWEN_MODEL_ID,
-                    sample_rate=QWEN_SAMPLE_RATE,
-                    executable=tmp_path / "missing",
-                    arguments=("--device", "cpu", "--cache", str(tmp_path)),
-                )
+    runtime = _runtime(
+        lambda _voice: QwenSpeaking(
+            ProviderProcess(
+                ProviderLaunch(executable=tmp_path / "missing", arguments=())
             ),
-            missing_artifacts=lambda _voice: (),
-        ),
+            QwenSpeaker.RYAN,
+        )
     )
     runtime.set_fatal_callback(fatal.set)
     with pytest.raises(RuntimeError, match="failed to load"):
@@ -628,12 +370,12 @@ def test_missing_entrypoint_failed_exec_leaves_no_retained_engine(
     assert fatal.is_set() is False
 
 
-def test_real_child_is_reaped_when_publication_setup_raises(
+def test_a_real_child_is_reaped_when_the_owner_fails_after_the_spawn(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fatal = threading.Event()
-    engine = _engine(tmp_path, "term-resistant")
-    engine.set_fatal_callback(fatal.set)
+    server = _server(tmp_path, "term-resistant")
+    server.set_fatal_callback(fatal.set)
     real_popen = subprocess.Popen
     started: list[int] = []
 
@@ -642,101 +384,119 @@ def test_real_child_is_reaped_when_publication_setup_raises(
         started.append(child.pid)
         return child
 
-    class BrokenDecoder:
-        def __init__(self) -> None:
-            raise RuntimeError
+    def broken(_child: object) -> None:
+        raise RuntimeError
 
-    monkeypatch.setattr("speech_service.provider_process.FrameDecoder", BrokenDecoder)
-    monkeypatch.setattr(
-        "speech_service.provider_process.subprocess.Popen", recording_popen
-    )
+    monkeypatch.setattr(f"{_OWNER}.TERMINATE_GRACE_SECONDS", 0.05)
+    monkeypatch.setattr(f"{_OWNER}.subprocess.Popen", recording_popen)
+    monkeypatch.setattr(f"{_OWNER}._require_stderr", broken)
     with pytest.raises(RuntimeError, match="speech provider failed"):
-        engine.load()
+        server.load()
     assert fatal.wait(timeout=5)
-    engine.close()
+    server.close()
     assert len(started) == 1
     assert_reaped(started[0])
 
 
-def test_cleanup_failure_reaps_and_reports_fatal_lifecycle(
+def test_a_cleanup_failure_reaps_and_reports_a_fatal_lifecycle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fatal = threading.Event()
     started = fail_every_reap(monkeypatch)
-    engine = _engine(tmp_path)
-    engine.set_fatal_callback(fatal.set)
-    engine.load()
+    server = _server(tmp_path)
+    server.set_fatal_callback(fatal.set)
+    server.load()
 
-    with pytest.raises(RuntimeError, match="speech provider cleanup failed"):
-        engine.close()
+    with pytest.raises(ProviderCleanupFailedError, match="cleanup failed"):
+        server.close()
 
     assert fatal.wait(timeout=5)
     assert len(started) == 1
     assert_reaped(started[0])
 
 
-def test_term_resistant_leader_reaches_kill_and_reap(
+def test_a_term_resistant_server_reaches_kill_and_reap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("speech_service.provider_process.TERMINATE_GRACE_SECONDS", 0.05)
-    engine = _engine(tmp_path, "term-resistant")
-    engine.load()
+    monkeypatch.setattr(f"{_OWNER}.TERMINATE_GRACE_SECONDS", 0.05)
+    server = _server(tmp_path, "term-resistant")
+    server.load()
     _, _, pid, _ = observed(tmp_path / "cache")
-    engine.close()
+    server.close()
     assert_reaped(pid)
 
 
-def test_parent_death_signal_follows_the_real_creator_thread(tmp_path: Path) -> None:
-    provider_source = Path(__file__).parents[1] / "providers/qwen/src"
-    contract_source = Path(__file__).parents[1] / "providers/provider-contract/src"
-    helper = r'''
-import contextlib
-import os
-import subprocess
+def test_a_stage_process_that_outlives_its_server_ends_with_the_service_stop(
+    tmp_path: Path,
+) -> None:
+    server = _server(tmp_path, "with-stage")
+    server.load()
+    cache = tmp_path / "cache"
+    _, _, pid, _ = observed(cache)
+    stage = int((cache / "stage").read_text())
+
+    os.kill(pid, signal.SIGKILL)
+    deadline = time.monotonic() + 5
+    while server.ready and time.monotonic() < deadline:
+        time.sleep(0.01)
+    server.close()
+
+    assert not server.ready
+    assert has_ended(stage)
+
+
+def test_a_server_whose_start_ends_by_exit_is_reaped_before_the_load_is_refused(
+    tmp_path: Path,
+) -> None:
+    root, cache = closed_provider(tmp_path, "held-ready")
+    server = _process(root, cache)
+    loading = threading.Thread(target=_load_quietly, args=(server,))
+    loading.start()
+    (pid,) = wait_for_starts(cache, 1)
+
+    release_load(cache, pid, LoadOutcome.EXIT)
+    loading.join(timeout=5)
+
+    assert not loading.is_alive()
+    assert_reaped(pid)
+    server.close()
+
+
+_SERVICE = """
 import sys
-import tempfile
 import threading
 from pathlib import Path
 
-ready = Path(sys.argv[1])
-child_code = """
-import os, sys, time
-from pathlib import Path
-from speech_qwen.__main__ import install_parent_death_signal
-install_parent_death_signal(int(sys.argv[1]))
-Path(sys.argv[2]).write_text(str(os.getpid()))
-while True: time.sleep(1)
+from speech_service.provider_process import ProviderLaunch, ProviderProcess
+
+root, cache = Path(sys.argv[1]), Path(sys.argv[2])
+server = ProviderProcess(ProviderLaunch(
+    executable=root / "qwen/.venv/bin/speech-qwen-server",
+    arguments=("--cache", str(cache)),
+))
+loading = threading.Thread(target=server.load)
+loading.start()
+loading.join()
+print((cache / "server-starts").read_text().split()[0], flush=True)
+threading.Event().wait()
 """
-owned = []
-def create():
-    child = subprocess.Popen([
-        sys.executable, "-c", child_code, str(os.getpid()), str(ready)
-    ])
-    owned.append(child)
-    for _ in range(500):
-        if ready.exists():
-            return
-        threading.Event().wait(0.01)
-    raise RuntimeError("child never installed PDEATHSIG")
-creator = threading.Thread(target=create)
-creator.start()
-creator.join()
-child = owned[0]
-print("responsive", flush=True)
-raise SystemExit(0 if child.wait(timeout=5) == -9 else 1)
-'''
-    environment = {
-        "PYTHONPATH": os.pathsep.join((str(provider_source), str(contract_source)))
-    }
 
-    async def execute_helper() -> tuple[int, bytes]:
-        completed = await run_process(
-            [sys.executable, "-c", helper, str(tmp_path / "ready")],
-            env=environment,
-            check=False,
-        )
-        return completed.returncode, completed.stdout
 
-    returncode, output = run(execute_helper)
-    assert returncode == 0
-    assert output == b"responsive\n"
+def test_the_server_outlives_a_load_thread_and_dies_with_the_service_process(
+    tmp_path: Path,
+) -> None:
+    root, cache = closed_provider(tmp_path)
+
+    with subprocess.Popen(
+        [sys.executable, "-c", _SERVICE, str(root), str(cache)],
+        stdout=subprocess.PIPE,
+        text=True,
+    ) as service:
+        server_pid = int(service.stdout.readline())
+        survived_the_load_thread = not has_ended(server_pid, within=0.5)
+
+        service.kill()
+        service.wait()
+
+        assert survived_the_load_thread
+        assert has_ended(server_pid)

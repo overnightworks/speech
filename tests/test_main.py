@@ -6,14 +6,13 @@ import os
 import signal
 import socket
 import subprocess
-import sys
 import threading
 import traceback
 from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
-from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
+from speech_provider_contract import QwenSpeaker
 
 from shipped_catalogue import CATALOGUE
 from speech_client.wire import VOICES, Language, VoiceId
@@ -24,11 +23,18 @@ from speech_service.config import Settings
 from speech_service.hearing import Hearing
 from speech_service.provider_process import ProviderLaunch, ProviderProcess
 from speech_service.service import Runtime, RuntimeDependencies
+from speech_service.speaking import QwenSpeaking
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.hear_support import WAIT_SECONDS, FakeHearing, loaded
 from tests.support.identity_support import write_caller_configuration
+from tests.support.launcher_support import (
+    LoadOutcome,
+    closed_provider,
+    provider_launcher,
+    release_load,
+    server_starts,
+)
 from tests.support.tcp_server_support import free_loopback_port, listens_on
-from tests.support.worker_support import provider_worker
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -224,36 +230,9 @@ def test_an_offered_piper_voice_without_its_files_ends_the_start_naming_the_voic
     assert not listens_on(settings.port)
 
 
-def _provider_ready_on_release(root: Path) -> Path:
-    """A provider entrypoint that reports ready once its cache holds `allow-ready`."""
-    entrypoint = provider_worker(root)
-    entrypoint.parent.mkdir(parents=True)
-    entrypoint.write_text(
-        f"""#!{sys.executable}
-import os
-import time
-from pathlib import Path
-protocol = os.fdopen(os.dup(1), "wb", buffering=0)
-null = os.open(os.devnull, os.O_WRONLY)
-os.dup2(null, 1)
-os.close(null)
-cache = Path(__import__("sys").argv[-1])
-while not (cache / "allow-ready").exists():
-    time.sleep(0.01)
-from speech_provider_contract import Frame, FrameKind, write_frame
-write_frame(protocol, Frame(FrameKind.READY, 0, b"\\x00\\x01\\x00\\x00]\\xc0"))
-while True:
-    time.sleep(1)
-""",
-        encoding="utf-8",
-    )
-    entrypoint.chmod(0o700)
-    return entrypoint
-
-
-class _ObservedProvider(ProviderProcess):
-    def __init__(self, launch: ProviderLaunch, closed: threading.Event) -> None:
-        super().__init__(launch)
+class _ObservedSpeaking(QwenSpeaking):
+    def __init__(self, process: ProviderProcess, closed: threading.Event) -> None:
+        super().__init__(process, QwenSpeaker.RYAN)
         self._observed_close = closed
 
     def close(self) -> None:
@@ -266,17 +245,15 @@ class _ObservedProvider(ProviderProcess):
 def test_shutdown_closes_a_pending_real_adapter_before_awaiting_its_load(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    entrypoint = _provider_ready_on_release(tmp_path / "providers")
+    root, cache = closed_provider(tmp_path, "held-ready")
     spawned = threading.Event()
     closed = threading.Event()
-    cache = tmp_path / "cache"
 
-    engine = _ObservedProvider(
-        ProviderLaunch(
-            model_name=QWEN_MODEL_ID,
-            sample_rate=QWEN_SAMPLE_RATE,
-            executable=entrypoint,
-            arguments=("--device", "cpu", "--cache", str(cache)),
+    engine = _ObservedSpeaking(
+        ProviderProcess(
+            ProviderLaunch(
+                executable=provider_launcher(root), arguments=("--cache", str(cache))
+            )
         ),
         closed,
     )
@@ -297,9 +274,12 @@ def test_shutdown_closes_a_pending_real_adapter_before_awaiting_its_load(
 
     server = _SignalledServer(spawned)
 
+    released = threading.Event()
+
     def release_the_load() -> None:
-        cache.mkdir(parents=True, exist_ok=True)
-        (cache / "allow-ready").touch()
+        released.set()
+        (pid,) = server_starts(cache)
+        release_load(cache, pid, LoadOutcome.READY)
 
     # Only a missing close would need it: the load then waits for its release.
     watchdog = threading.Timer(5, release_the_load)
@@ -318,7 +298,7 @@ def test_shutdown_closes_a_pending_real_adapter_before_awaiting_its_load(
 
     assert outcome == 0
     assert closed.is_set()
-    assert not (cache / "allow-ready").exists()
+    assert not released.is_set()
 
 
 def test_owned_speaking_failure_stops_the_server_and_returns_failure(

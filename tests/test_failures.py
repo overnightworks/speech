@@ -13,7 +13,6 @@ from speech_service.failures import (
     SpeakingFailedError,
     log_failure,
 )
-from speech_service.provider_process import ProviderSynthesisFailedError
 
 _SENTENCE = "Ein Satz, den nur der Aufrufer kennt"
 
@@ -121,20 +120,22 @@ def test_control_characters_in_a_type_name_are_escaped(
     assert all(" " <= character <= "~" for line in lines for character in line)
 
 
-def test_a_stopping_layer_logs_the_chain_a_provider_error_carries_once(
+def test_a_stopping_layer_logs_the_note_a_payload_free_error_carries_once(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     logger = logging.getLogger("tests.failures")
-    chain = "builtins.OSError[EIO]\n  File provider.py, line 3, in synthesize"
+    note = "ModuleNotFoundError: No module named 'vllm_omni'"
+    error = PayloadFreeError("provider failed")
+    error.add_note(note)
 
     with (
         caplog.at_level(logging.WARNING, logger=logger.name),
         pytest.raises(SpeakingFailedError),
         PayloadFreeFailure(logger, "speaking.failed", reraise_as=SpeakingFailedError),
     ):
-        raise ProviderSynthesisFailedError(chain)
+        raise error
 
-    assert caplog.text.count("File provider.py, line 3, in synthesize") == 1
+    assert caplog.text.count(note) == 1
     assert all(not hasattr(record, "failure_chain") for record in caplog.records)
 
 
