@@ -98,7 +98,7 @@ def start_server(
     server of `user_id` left in `shared_memory_directory` is removed first. Once
     the server is healthy, `when_server_ends` runs when its process ends.
     """
-    _remove_leftover_shared_memory(shared_memory_directory, user_id)
+    remove_leftover_shared_memory(shared_memory_directory, user_id)
     process = subprocess.Popen(  # noqa: S603 - argv is the closed server command with no shell
         command,
         stdin=subprocess.DEVNULL,
@@ -135,7 +135,9 @@ def _call_when_ended(
     when_server_ends()
 
 
-def _remove_leftover_shared_memory(directory: Path, user_id: int) -> None:
+def remove_leftover_shared_memory(
+    directory: Path = _SHARED_MEMORY_DIRECTORY, user_id: int = _OWN_USER_ID
+) -> None:
     """Remove the wake directories of `user_id` that no process reads from any more.
 
     The directory is writable by every user, so an entry counts only when it is

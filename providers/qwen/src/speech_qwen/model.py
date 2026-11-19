@@ -1,4 +1,4 @@
-"""The pinned Qwen3-TTS 1.7B voice, spoken through a vLLM-Omni server child."""
+"""The pinned Qwen3-TTS 1.7B voice, served by a vLLM-Omni server."""
 
 from __future__ import annotations
 
@@ -6,51 +6,29 @@ import importlib.resources
 import importlib.util
 import json
 import sys
-from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from speech_provider_contract import (
-    MAX_PCM_BYTES,
-    QWEN_ARTIFACTS,
-    QWEN_DEVICE,
-    QWEN_MODEL_ID,
-    QWEN_REVISION,
-    QwenSpeaker,
-)
+from speech_provider_contract import QWEN_ARTIFACTS, QWEN_MODEL_ID, QWEN_REVISION
 
-from speech_qwen.server import Server, fresh_socket_path, start_server
+from speech_qwen.server import Server, fresh_socket_path
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Sequence
-    from http.client import HTTPResponse
+    from collections.abc import Callable, Sequence
     from importlib.resources.abc import Traversable
 
 LANGUAGE_NAMES = {"de": "German", "en": "English"}
-_RESPONSE_SECONDS = 120.0
-"""How long the server may stay silent in the middle of a response."""
-_SAMPLE_BYTES = 2
 # The deploy config reserves 0.3 of the card for each stage, 14.4 GB on a
 # 24 GB card, while both stages together measured 9.4 GB resident. The talker
 # keeps its share; the decoder takes half of its own.
 _STAGE_MEMORY_FRACTIONS = {"0": 0.3, "1": 0.15}
 
 
-class SpeechRequestError(RuntimeError):
-    """The server refused a speech request or ended its audio inside a sample."""
+def pinned_server_command(cache: Path, socket_path: Path) -> list[str]:
+    """Return the command that serves the pinned checkpoint of the local Hub `cache`.
 
-
-def load_model(
-    device: str,
-    cache: Path,
-    *,
-    start: Callable[[Sequence[str], Path], Server] = start_server,
-) -> Server:
-    """Start the server with `start` on the pinned checkpoint in the local Hub cache."""
-    if device != QWEN_DEVICE:
-        message = "unsupported Qwen device"
-        raise ValueError(message)
-
+    The checkpoint resolves offline: a snapshot the cache lacks fails here.
+    """
     from huggingface_hub import snapshot_download
 
     checkpoint = snapshot_download(
@@ -61,7 +39,8 @@ def load_model(
         local_files_only=True,
         cache_dir=cache,
     )
-    return start_on_checkpoint(Path(checkpoint), start)
+    with importlib.resources.as_file(_deploy_config()) as deploy_config:
+        return _server_command(Path(checkpoint), deploy_config, socket_path)
 
 
 def start_on_checkpoint(
@@ -104,55 +83,3 @@ def _server_command(
         "--uds",
         str(socket_path),
     ]
-
-
-def pcm_chunks(
-    server: Server,
-    text: str,
-    language: str,
-    instructions: str | None = None,
-    *,
-    speaker: QwenSpeaker | str,
-) -> Iterator[bytes]:
-    """Yield signed PCM frames as the server streams them, none past `MAX_PCM_BYTES`."""
-    language_name = LANGUAGE_NAMES.get(language)
-    if language_name is None:
-        message = "unsupported Qwen language"
-        raise ValueError(message)
-    request: dict[str, object] = {
-        "input": text,
-        "voice": QwenSpeaker(speaker).value,
-        "language": language_name,
-        "response_format": "pcm",
-        "stream": True,
-        "stream_format": "audio",
-    }
-    if instructions is not None:
-        request["instructions"] = instructions
-    connection = server.connect(_RESPONSE_SECONDS)
-    try:
-        connection.request(
-            "POST",
-            "/v1/audio/speech",
-            json.dumps(request),
-            {"Content-Type": "application/json"},
-        )
-        response = connection.getresponse()
-        if response.status != HTTPStatus.OK:
-            raise SpeechRequestError
-        yield from _whole_samples(response)
-    finally:
-        connection.close()
-
-
-def _whole_samples(response: HTTPResponse) -> Iterator[bytes]:
-    """Re-cut what arrives into frames of whole samples, each as it arrives."""
-    carried = b""
-    while arrived := response.read1(MAX_PCM_BYTES - len(carried)):
-        available = carried + arrived
-        whole = len(available) - len(available) % _SAMPLE_BYTES
-        carried = available[whole:]
-        if whole:
-            yield available[:whole]
-    if carried:
-        raise SpeechRequestError

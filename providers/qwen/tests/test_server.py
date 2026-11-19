@@ -10,7 +10,6 @@ import socket
 import stat
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -19,6 +18,7 @@ import pytest
 from speech_qwen import server as server_module
 from speech_qwen.parent_death import install_parent_death_signal
 from speech_qwen.server import ServerStartError, fresh_socket_path
+from support.process_state import has_ended
 from support.worker_harness import start_fake_server
 
 if TYPE_CHECKING:
@@ -37,26 +37,6 @@ def _start_and_stop(tmp_path: Path, **options: int) -> None:
     process = start_fake_server("healthy", tmp_path, **options).process
     process.kill()
     process.wait()
-
-
-def _process_state(pid: int) -> str | None:
-    """Read the kernel's state line for `pid`; None once the pid is gone."""
-    try:
-        lines = Path(f"/proc/{pid}/status").read_text(encoding="ascii").splitlines()
-    except (FileNotFoundError, ProcessLookupError):
-        return None
-    return next(line for line in lines if line.startswith("State:"))
-
-
-def _has_ended(pid: int) -> bool:
-    """Whether `pid` is gone or a zombie that its adopter has yet to reap."""
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        state = _process_state(pid)
-        if state is None or "zombie" in state:
-            return True
-        time.sleep(0.01)
-    return False
 
 
 @pytest.fixture
@@ -241,7 +221,7 @@ def test_the_server_dies_with_its_worker(tmp_path: Path) -> None:
         worker.kill()
         worker.wait()
 
-        assert _has_ended(server_pid)
+        assert has_ended(server_pid)
 
 
 def test_the_worker_ends_when_its_server_dies_after_the_start(
