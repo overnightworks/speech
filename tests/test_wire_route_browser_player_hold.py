@@ -194,11 +194,12 @@ def test_a_streamed_sound_first_heard_in_the_pause_ramp_reports_its_start_and_pl
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
         async with activated(tmp_path) as stage:
-            await stage.prepare_bytes("short", SHORT)
-            await stage.hand_over(fed("short"))
+            # The sound outlasts the context's run on to the suspend.
+            await stage.prepare_bytes("long", LONG)
+            await stage.hand_over(fed("long"))
             await stage.settle()
             await stage.act("freezeClock")
-            await stage.act("feedWhile", "short", "pause")
+            await stage.act("feedWhile", "long", "pause")
             await stage.until("s.sounds[0].startedValue !== null")
             await stage.act("thawClock")
             await stage.until(SUSPENDED)
