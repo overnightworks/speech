@@ -204,6 +204,14 @@ def hear_call(app: FastAPI, body: bytes | None = None) -> SpeakCall:
     return SpeakCall(app, body or multipart_body(file=recording()), scope)
 
 
+def hear_call_begun(app: FastAPI) -> SpeakCall:
+    """Start a transcription request whose body is half sent, until `finish_upload`."""
+    body = multipart_body(file=recording())
+    half = len(body) // 2
+    scope = speak_scope(path=TRANSCRIPTIONS_PATH, content_type=MULTIPART)
+    return SpeakCall(app, body[:half], scope, held_back=body[half:])
+
+
 def hearing_gate_is_free(runtime: Runtime) -> bool:
     """Whether the hearing gate is free: no request left its lease behind."""
     lease = runtime.hearing.gate.try_acquire()
