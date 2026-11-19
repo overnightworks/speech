@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from tests.support.page_coverage_support import PageCoverage
 
@@ -13,16 +14,26 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from pathlib import Path
 
+    from playwright.async_api import Page
+
+TAKE_COVERAGE = "Profiler.takePreciseCoverage"
+
 
 class FakeSession:
     """A page session whose worklets answer, except one that detaches mid-request."""
 
     def __init__(self, detaching: str) -> None:
         """Detach `detaching` when a request reaches it."""
-        self.handlers: dict[str, object] = {}
+        self.handlers: dict[
+            str, Callable[[dict[str, object]], Awaitable[None] | None]
+        ] = {}
         self._detaching = detaching
 
-    def on(self, event: str, handler: object) -> None:
+    def on(
+        self,
+        event: str,
+        handler: Callable[[dict[str, object]], Awaitable[None] | None],
+    ) -> None:
         """Register the handler like a CDP session."""
         self.handlers[event] = handler
 
@@ -35,7 +46,7 @@ class FakeSession:
         assert params is not None
         target = str(params["sessionId"])
         message = json.loads(str(params["message"]))
-        if target == self._detaching:
+        if target == self._detaching and message["method"] == TAKE_COVERAGE:
             self.handlers["Target.detachedFromTarget"]({"sessionId": target})
         else:
             reply = {"id": message["id"], "result": {"result": [target]}}
@@ -54,8 +65,13 @@ def test_worklet_still_living_is_written_when_the_one_before_it_detaches(
             context=SimpleNamespace(new_cdp_session=_returning(session))
         )
         coverage = PageCoverage(tmp_path)
-        await coverage.watch(page)  # type: ignore[arg-type]
-        coverage._worklets.extend(["first", "second"])  # noqa: SLF001
+        await coverage.watch(cast("Page", page))
+        for target in ("first", "second"):
+            attached = session.handlers["Target.attachedToTarget"](
+                {"sessionId": target, "targetInfo": {"type": "worklet"}}
+            )
+            assert inspect.isawaitable(attached)
+            await attached
         await coverage.take_worklets()
 
     asyncio.run(scenario())
