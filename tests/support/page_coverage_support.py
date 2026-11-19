@@ -3,7 +3,9 @@
 Collecting is off unless `SPEECH_BROWSER_COVERAGE_DIR` names a directory, so local runs
 pay nothing. The worklet runs in its own global scope: the page's session attaches to it
 before it runs, starts the same coverage there and resumes it. Its scope ends with its
-audio context, so a test takes the worklet's coverage while the capture still runs.
+audio context, so a test takes the worklet's coverage while the capture still runs. A
+target that detached before or while it is addressed is gone: it gets no coverage and
+nothing waits for its reply.
 """
 
 from __future__ import annotations
@@ -16,12 +18,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from playwright.async_api import Error as PlaywrightError
+
 if TYPE_CHECKING:
     from playwright.async_api import CDPSession, Page
 
 COVERAGE_DIRECTORY_VARIABLE = "SPEECH_BROWSER_COVERAGE_DIR"
 WORKLET_TARGET = "worklet"
 PRECISE_COVERAGE = {"callCount": True, "detailed": True}
+NO_SUCH_SESSION = "No session with given id"
 
 
 class PageCoverage:
@@ -32,7 +37,9 @@ class PageCoverage:
         self._directory = directory
         self._session: CDPSession | None = None
         self._worklets: list[str] = []
-        self._replies: dict[int, asyncio.Future[dict[str, object]]] = {}
+        self._replies: dict[
+            int, tuple[str, asyncio.Future[dict[str, object] | None]]
+        ] = {}
         self._message_ids = itertools.count(1)
 
     @classmethod
@@ -51,6 +58,7 @@ class PageCoverage:
         await session.send("Profiler.startPreciseCoverage", PRECISE_COVERAGE)
         session.on("Target.attachedToTarget", self._attached)
         session.on("Target.receivedMessageFromTarget", self._received)
+        session.on("Target.detachedFromTarget", self._detached)
         # Non-flat: Playwright for Python's CDPSession has no child sessions.
         await session.send(
             "Target.setAutoAttach",
@@ -59,9 +67,10 @@ class PageCoverage:
 
     async def take_worklets(self) -> None:
         """Write the coverage of every worklet still running."""
-        for target in self._worklets:
+        for target in list(self._worklets):
             taken = await self._to_target(target, "Profiler.takePreciseCoverage")
-            self._write(taken["result"])
+            if taken is not None:
+                self._write(taken["result"])
         self._worklets.clear()
 
     async def write(self) -> None:
@@ -77,27 +86,45 @@ class PageCoverage:
             await self._to_target(
                 target, "Profiler.startPreciseCoverage", PRECISE_COVERAGE
             )
-            self._worklets.append(target)
+            if target not in self._worklets:
+                self._worklets.append(target)
         await self._to_target(target, "Runtime.runIfWaitingForDebugger")
 
     def _received(self, event: dict[str, object]) -> None:
         message = json.loads(str(event["message"]))
-        reply = self._replies.pop(message.get("id"), None)
-        if reply is not None and not reply.done():
-            reply.set_result(message)
+        awaited = self._replies.pop(message.get("id"), None)
+        if awaited is not None and not awaited[1].done():
+            awaited[1].set_result(message)
+
+    def _detached(self, event: dict[str, object]) -> None:
+        target = str(event["sessionId"])
+        if target in self._worklets:
+            self._worklets.remove(target)
+        for message_id, (awaited_target, reply) in list(self._replies.items()):
+            if awaited_target == target:
+                del self._replies[message_id]
+                if not reply.done():
+                    reply.set_result(None)
 
     async def _to_target(
         self, target: str, method: str, params: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    ) -> dict[str, object] | None:
+        """Send to a child target; None when it is gone."""
         assert self._session is not None
         message_id = next(self._message_ids)
         reply = asyncio.get_running_loop().create_future()
-        self._replies[message_id] = reply
+        self._replies[message_id] = (target, reply)
         message = {"id": message_id, "method": method, "params": params or {}}
-        await self._session.send(
-            "Target.sendMessageToTarget",
-            {"sessionId": target, "message": json.dumps(message)},
-        )
+        try:
+            await self._session.send(
+                "Target.sendMessageToTarget",
+                {"sessionId": target, "message": json.dumps(message)},
+            )
+        except PlaywrightError as error:
+            self._replies.pop(message_id, None)
+            if NO_SUCH_SESSION not in str(error):
+                raise
+            return None
         return await reply
 
     def _write(self, coverage: object) -> None:
