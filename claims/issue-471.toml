@@ -1,0 +1,8 @@
+claim_id = "b0a72e5147004d75933909ec95b6c993"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "a93935024e1b468b2a20e99032ad209fff4642a6"
+branch = "claude/issue-471-live-resampler"
+scope = ["src/speech_service/live_session.py", "src/speech_service/pcm.py", "tests"]
+opened_commit = "f475a0249594e34eecc855daedcd9aabe69a0ecc"
+whole_reason = "One resampler replaces another; its tests sit across the live and recording suites."
