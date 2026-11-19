@@ -60,9 +60,11 @@ def test_a_launcher_whose_service_is_already_gone_ends_without_starting_a_server
     def gone(_pid: int) -> None:
         raise RuntimeError
 
+    arguments = _arguments(tmp_path, parent=1)
+
     with pytest.raises(SystemExit) as ended:
         launcher.main(
-            _arguments(tmp_path, parent=1),
+            arguments,
             tie_to_parent=gone,
             remove_leftovers=lambda: started.append("clean"),
             server_command=lambda *_: started.append("command") or [],
