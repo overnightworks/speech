@@ -217,9 +217,9 @@ class QwenSpeaking:
                 yield from self._answer(connection, request)
             finally:
                 connection.close()
-        except (OSError, http.client.HTTPException) as error:
+        except OSError, http.client.HTTPException:
             self._fail(reason="connection")
-            raise ProviderSynthesisFailedError from error
+            raise ProviderSynthesisFailedError from None
 
     def _answer(
         self, connection: http.client.HTTPConnection, request: dict[str, object]

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE, QwenSpeaker
 
+from speech_service.failures import log_failure
 from speech_service.provider_process import (
     ProviderLaunch,
     ProviderNotReadyError,
@@ -170,17 +171,21 @@ def test_a_sample_rate_other_than_qwens_fails_the_synthesis(
         assert voice.ready is True
 
 
-def test_a_server_that_ends_mid_stream_fails_the_synthesis_and_the_engine(
-    speaking: Callable[[str], QwenSpeaking],
+def test_a_server_that_ends_mid_stream_fails_the_synthesis_and_logs_no_server_text(
+    speaking: Callable[[str], QwenSpeaking], caplog: pytest.LogCaptureFixture
 ) -> None:
     voice = speaking("normal")
     chunks = voice.pcm_chunks("midstream-exit", "de")
 
     assert next(chunks) == b"\x00\x01"
-    with pytest.raises(ProviderSynthesisFailedError):
+    with pytest.raises(ProviderSynthesisFailedError) as raised:
         list(chunks)
+    transport_text = str(raised.value.__context__)
+    log_failure(logging.getLogger("speaking"), "speaking.failed", raised.value)
 
     assert voice.ready is False
+    assert transport_text
+    assert transport_text not in caplog.text
 
 
 def test_closing_the_stream_early_hangs_up_and_leaves_the_server_ready(
