@@ -37,7 +37,7 @@ SPEECH_CONFIG_FILE=/absolute/path/to/speech.toml uv run speech-service
 - **Hearing.** `uv run speech-fetch-hearing-model large-v3`, then
   `SPEECH_HEARING_MODEL=large-v3` (on a GPU also `uv sync --locked --extra gpu`).
   `small` fits a CPU but can mishear; use `large-v3` where meaning counts.
-- **A GPU voice.** Set `SPEECH_PROVIDER_ROOT=providers`, run `uv sync --locked`
+- **A GPU voice.** Set `SPEECH_PROVIDER_ROOT=$PWD/providers` (absolute), run `uv sync --locked`
   in `providers/qwen`, fetch again. Qwen runs on `cuda`, reserving 0.45 of it.
 - **A container.** `Dockerfile` and `compose.yaml` run the small image: CPU,
   the Piper voices and `small`, all baked in at build.
