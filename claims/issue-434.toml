@@ -1,0 +1,8 @@
+claim_id = "8eac90f61bd84b6b9eccc8d00587800d"
+agent = "Claude 1c28c70f-b9e3-4666-80ff-8274d2dcf8fd"
+role = "builder"
+base = "6b4bef9d6aef10c280b007a311dfb68d933fec8f"
+branch = "claude/issue-434-speak-early-leave"
+scope = ["docs/wire.md", "src/speech_service/wire_route.py", "tests/support/speak_support.py", "tests/test_wire_route_early_leave.py", "tests/test_wire_route_hearing_places.py", "tests/test_wire_route_logs.py"]
+opened_commit = "ac1477079431654bcf6f53156f3b8831af7541e5"
+whole_reason = "One behaviour, the early leave's log line, in its one production file with the wire document and the four test files that own speak lines and leaves."
