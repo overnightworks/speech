@@ -133,24 +133,24 @@ def test_with_every_place_kept_a_body_over_the_cap_is_still_too_large() -> None:
         "busy",
         "heard",
         "leaves",
-        "leaves-waiting",
+        "cancelled-waiting",
         "leaves-mid-decode",
     ],
 )
 def test_a_kept_place_is_freed_when_its_request_ends(ending: str) -> None:
-    """WIRE-161: a place frees after a refusal, a leave and the decode."""
+    """WIRE-161: a place frees after a refusal, a leave, a cancel and the decode."""
 
     async def scenario() -> int:
         engine = FakeHearing(hold=ending == "leaves-mid-decode")
         runtime = hear_runtime(engine)
         app = hear_app(
             runtime,
-            hearing_max_waiting_requests=int(ending == "leaves-waiting"),
+            hearing_max_waiting_requests=int(ending == "cancelled-waiting"),
             hearing_busy_wait_seconds=SHORT_WAIT_SECONDS,
             max_recording_bytes=len(_valid()),
         )
         taken = None
-        if ending in {"busy", "leaves-waiting"}:
+        if ending in {"busy", "cancelled-waiting"}:
             taken = runtime.hearing.gate.try_acquire()
         match ending:
             case "too-large":
@@ -163,7 +163,7 @@ def test_a_kept_place_is_freed_when_its_request_ends(ending: str) -> None:
                 first = hear_call(app)
         if ending == "leaves-mid-decode":
             await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
-        if ending in {"leaves", "leaves-waiting", "leaves-mid-decode"}:
+        if ending in {"leaves", "cancelled-waiting", "leaves-mid-decode"}:
             await _arrived(first)
             first.task.cancel()
             await asyncio.gather(first.task, return_exceptions=True)
@@ -179,6 +179,54 @@ def test_a_kept_place_is_freed_when_its_request_ends(ending: str) -> None:
         return next_one.status_code
 
     assert asyncio.run(scenario()) == HTTP_200_OK
+
+
+def test_a_caller_leaving_while_its_request_waits_for_the_decode_frees_its_place() -> (
+    None
+):
+    """WIRE-161: the server reports the leave; no handler is cancelled."""
+
+    async def scenario() -> int:
+        runtime = hear_runtime(FakeHearing())
+        app = hear_app(runtime, hearing_max_waiting_requests=1)
+        taken = runtime.hearing.gate.try_acquire()
+        leaver = hear_call(app)
+        await _arrived(leaver)
+        leaver.disconnect()
+        await leaver.finish()
+        successor = hear_call(app)
+        await _arrived(successor)
+        if taken is not None:
+            taken.close()
+        await successor.finish()
+        return successor.status_code
+
+    assert asyncio.run(scenario()) == HTTP_200_OK
+
+
+@pytest.mark.parametrize("gate", ["free", "taken-without-waiting"])
+def test_a_complete_upload_whose_caller_has_left_is_never_heard_and_frees_its_place(
+    gate: str,
+) -> None:
+    """WIRE-161: a caller gone before the decode begins costs no decode and no place."""
+
+    async def scenario() -> tuple[int, int]:
+        engine = FakeHearing()
+        runtime = hear_runtime(engine)
+        app = hear_app(runtime, hearing_max_waiting_requests=0)
+        taken = runtime.hearing.gate.try_acquire() if gate != "free" else None
+        leaver = hear_call_begun(app)
+        await _arrived(leaver)
+        leaver.disconnect()
+        leaver.finish_upload()
+        await leaver.finish()
+        if taken is not None:
+            taken.close()
+        successor = hear_call(app)
+        await successor.finish()
+        return len(engine.heard), successor.status_code
+
+    assert asyncio.run(scenario()) == (1, HTTP_200_OK)
 
 
 async def _decode_over(runtime: Runtime) -> None:

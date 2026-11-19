@@ -268,6 +268,10 @@ class SpeakCall:
         """Send the part held back, which ends the body."""
         self._upload_finished.set()
 
+    def disconnect(self) -> None:
+        """Report the caller gone, as the server does; the handler is not cancelled."""
+        self._disconnect.set()
+
     async def _run(
         self,
         app: FastAPI,

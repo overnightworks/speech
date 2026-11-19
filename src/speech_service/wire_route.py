@@ -348,6 +348,25 @@ def _replayed(request: Request, body: bytes) -> Request:
     return Request(request.scope, receive)
 
 
+async def _until_caller_leaves(request: Request) -> None:
+    """Return when the server reports the caller gone; the body is already read."""
+    while (await request.receive())["type"] != "http.disconnect":
+        pass
+
+
+def _give_up(acquiring: asyncio.Future[Lease | None]) -> None:
+    """Cancel a wait for the gate; a lease it won meanwhile is closed, never kept."""
+
+    def close_lease(done: asyncio.Future[Lease | None]) -> None:
+        if not done.cancelled():
+            lease = done.result()
+            if lease is not None:
+                lease.close()
+
+    acquiring.add_done_callback(close_lease)
+    acquiring.cancel()
+
+
 def _heard(
     recording: bytes, language: Language, max_seconds: float
 ) -> Callable[[HearingEngine], str]:
@@ -403,7 +422,7 @@ class _TranscriptionRoute:
             return _refused(RefusalCode.TOO_LARGE)
         if isinstance(read, _Unkept):
             return self._busy()
-        lease = await self._admitted(read.place, deadline)
+        lease = await self._admitted(request, read.place, deadline)
         if lease is None:
             return self._busy()
         parsed = await self._parsed_within(lease, _replayed(request, read.body))
@@ -412,12 +431,12 @@ class _TranscriptionRoute:
         recording, fields = parsed
         return await self._answer(lease, recording, fields.language)
 
-    async def _admitted(self, place: Lease, deadline: float) -> Lease | None:
+    async def _admitted(
+        self, request: Request, place: Lease, deadline: float
+    ) -> Lease | None:
         """The decode's lease, whose close frees `place` too; `None` frees it now."""
         try:
-            lease = await self._runtime.hearing.gate.acquire(
-                deadline, self._settings.hearing_max_waiting_requests
-            )
+            lease = await self._leased_unless_left(request, deadline)
         except BaseException:
             place.close()
             raise
@@ -425,6 +444,36 @@ class _TranscriptionRoute:
             place.close()
             return None
         return _freeing(lease, place)
+
+    async def _leased_unless_left(
+        self, request: Request, deadline: float
+    ) -> Lease | None:
+        """The decode's lease; `None` if none comes by `deadline` or the caller leaves.
+
+        The server never cancels a handler whose caller has gone: its disconnect
+        is the next thing the request receives once its body is read.
+        """
+        acquiring = asyncio.ensure_future(
+            self._runtime.hearing.gate.acquire(
+                deadline, self._settings.hearing_max_waiting_requests
+            )
+        )
+        leaving = asyncio.ensure_future(_until_caller_leaves(request))
+        try:
+            await asyncio.wait(
+                {acquiring, leaving}, return_when=asyncio.FIRST_COMPLETED
+            )
+            left = leaving.done()
+        except BaseException:
+            _give_up(acquiring)
+            raise
+        finally:
+            leaving.cancel()
+        if left:
+            _give_up(acquiring)
+            await asyncio.wait({acquiring})
+            return None
+        return acquiring.result()
 
     async def _hearing_refusal(self, request: Request) -> JSONResponse | None:
         admitted = await self._callers.admit(request.headers)
