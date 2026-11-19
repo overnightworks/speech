@@ -198,6 +198,17 @@ The limits, each answered without decoding more than it must:
   request that finds the decode taken and every place taken is refused at once
   with `busy` and `Retry-After`; so is one whose wait runs out. **WIRE-44** The decode is
   freed only when it has finished, even if the caller has gone.
+- **WIRE-160** A recording is kept in memory only while its request holds one of
+  `1 + SPEECH_HEARING_MAX_WAITING_REQUESTS` places, which it takes when it arrives.
+  Without a place the service still counts the body's bytes, so `too_large` is
+  answered first (WIRE-30), and then answers `busy` with `Retry-After`: the
+  recording is never heard, even if a place frees while it arrives.
+- **WIRE-161** A place is freed when its request is refused, when its caller leaves
+  before its decode has begun and when its decode has returned. A decode that has
+  begun keeps its place until it returns, even if the caller has gone (WIRE-44).
+- **WIRE-162** An upload still arriving `SPEECH_HEARING_BUSY_WAIT_SECONDS` after the
+  request arrived is `busy`, even on an idle service, and its place goes to the next
+  request. A request not admitted by then gives its place back.
 
 **WIRE-45** Audio that PyAV cannot read, or that holds no sound, is `invalid_request` with
 `param` `file`. **WIRE-46** A body that is not a multipart form, or has no `file`, is
@@ -440,7 +451,7 @@ names is not part of the contract, but for WIRE-139.
 | WIRE-98 | `forbidden` | 403 | both tokens are valid but do not permit the request: not a workload token, an unregistered app, tokens of different clients or of one subject, a person outside the app group or the service group | |
 | WIRE-100 | `invalid_request` | 422 | the body is not a JSON object, a field is missing, unknown or mistyped, a value is not accepted, or `input` is empty, without a letter or digit, or over the limit, or `instructions` are not accepted (WIRE-141, WIRE-142); for a recording: the form or `file` is missing, a field is unknown or not accepted, or the audio cannot be decoded (`param` `file`) | |
 | WIRE-101 | `too_large` | 413 | the body is over `SPEECH_MAX_BODY_BYTES` (a recording: `SPEECH_MAX_RECORDING_BYTES`), or the recording is longer than `SPEECH_MAX_RECORDING_SECONDS` (`param` `file`) | |
-| WIRE-102 | `busy` | 429 | the one synthesis (a recording: the one decode) is taken and its waiting places are taken (answered at once), or it is not free within its wait: `SPEECH_MAX_WAITING_REQUESTS` and `SPEECH_BUSY_WAIT_SECONDS`, for a recording `SPEECH_HEARING_MAX_WAITING_REQUESTS` and `SPEECH_HEARING_BUSY_WAIT_SECONDS` | `Retry-After`: the wait in whole seconds, at least 1 |
+| WIRE-102 | `busy` | 429 | the one synthesis (a recording: the one decode) is taken and its waiting places are taken (answered at once), or it is not free within its wait (a recording: or no place keeps it, or its upload outlasts the wait, WIRE-160, WIRE-162): `SPEECH_MAX_WAITING_REQUESTS` and `SPEECH_BUSY_WAIT_SECONDS`, for a recording `SPEECH_HEARING_MAX_WAITING_REQUESTS` and `SPEECH_HEARING_BUSY_WAIT_SECONDS` | `Retry-After`: the wait in whole seconds, at least 1 |
 | WIRE-103 | `unavailable` | 503 | the tokens cannot be checked because the issuer's key set is unreachable and no cached key serves, or the named voice cannot speak: it is not offered, the start load still runs, its load failed or found its files missing, its engine process died while the request waited, or the drain began (`param` `voice`); for a recording: hearing is not loaded or configured, the drain began, or its decode failed | |
 
 **WIRE-104** Apps read the `busy` wait with `busy_wait(status, headers)` in

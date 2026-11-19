@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import gc
 import logging
+import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Protocol
@@ -389,6 +390,8 @@ class Hearing:
         self._sessions = 0
         self._no_sessions = asyncio.Event()
         self._no_sessions.set()
+        self._recordings = 0
+        self._recordings_guard = threading.Lock()
         self._drain_began_at: float | None = None
 
     def load(self) -> None:
@@ -480,6 +483,23 @@ class Hearing:
         self._sessions -= 1
         if not self._sessions:
             self._no_sessions.set()
+
+    def keep_recording(self, limit: int) -> Lease | None:
+        """A place to keep one recording's bytes, or `None` while `limit` are kept.
+
+        A recording is kept from its first byte until its decode has returned, so
+        `limit` recordings at most are in memory. Closing the lease frees the place
+        from any thread, as the decode's worker does.
+        """
+        with self._recordings_guard:
+            if self._recordings >= limit:
+                return None
+            self._recordings += 1
+        return Lease(self._end_recording)
+
+    def _end_recording(self) -> None:
+        with self._recordings_guard:
+            self._recordings -= 1
 
     def submit[Result](
         self, lease: Lease, job: Callable[[HearingEngine], Result]

@@ -16,6 +16,7 @@ import httpx2
 
 import hearing_figures as figures
 from image_judgement import (
+    MemoryCounts,
     TmpUsage,
     baked_caller,
     minting_for,
@@ -57,6 +58,10 @@ KEY_SERVER: Final = "key-server"
 LIVE_PACE_SECONDS: Final = 0.05
 LIVE_WAIT_SECONDS: Final = 120
 MEMORY_PEAK_FILE: Final = "/sys/fs/cgroup/memory.peak"
+MEMORY_CURRENT_FILE: Final = "/sys/fs/cgroup/memory.current"
+MEMORY_EVENTS_FILE: Final = "/sys/fs/cgroup/memory.events"
+# `docker update` cannot lift a cap, only set a higher one.
+UNCAPPED_MIB: Final = 2**20
 HEALTHY_TIMEOUT_SECONDS: Final = 120
 STOP_TIMEOUT_SECONDS: Final = 5
 HEARING_LANGUAGE: Final = Language.DE.value
@@ -340,12 +345,37 @@ class Session:
 
     def memory_peak_mib(self) -> int:
         """The service container's peak memory since it started, from its cgroup."""
-        peak = self.compose.run("exec", "-T", SERVICE, "cat", MEMORY_PEAK_FILE)
-        return int(peak.stdout) // 2**20
+        return self._cgroup_mib(MEMORY_PEAK_FILE)
+
+    def memory_current_mib(self) -> int:
+        """The service container's memory in use now, from its cgroup."""
+        return self._cgroup_mib(MEMORY_CURRENT_FILE)
+
+    def _cgroup_mib(self, path: str) -> int:
+        figure = self.compose.run("exec", "-T", SERVICE, "cat", path)
+        return int(figure.stdout) // 2**20
+
+    def cap_memory(self, mebibytes: int) -> None:
+        """Cap the service container's memory, and its swap with it, in place."""
+        cap = f"{mebibytes}m"
+        container = container_of(self.compose, SERVICE)
+        docker("update", "--memory", cap, "--memory-swap", cap, container)
+
+    def memory_counts(self) -> MemoryCounts:
+        """The service container's restarts and its cgroup's kills for memory."""
+        container = container_of(self.compose, SERVICE)
+        restarts = docker("inspect", "--format", "{{.RestartCount}}", container)
+        events = self.compose.run("exec", "-T", SERVICE, "cat", MEMORY_EVENTS_FILE)
+        return MemoryCounts(int(restarts), oom_kills(events.stdout))
 
     def collect_log(self) -> None:
         """Keep the service's log so far; a recreated container loses its own."""
         self.logs.append(self.compose.run("logs", "--no-color", SERVICE).stdout)
+
+
+def oom_kills(events: str) -> int:
+    """The `oom_kill` count of a cgroup's `memory.events` file."""
+    return int(dict(line.split() for line in events.splitlines())["oom_kill"])
 
 
 def service_config(compose: Compose) -> dict[str, Any]:

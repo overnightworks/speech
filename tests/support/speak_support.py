@@ -235,8 +235,14 @@ class SpeakCall:
         app: FastAPI,
         body: bytes | None = None,
         scope: dict[str, object] | None = None,
+        *,
+        held_back: bytes | None = None,
     ) -> None:
-        """Start the request now; `scope` defaults to a speak request's."""
+        """Start the request now; `scope` defaults to a speak request's.
+
+        With `held_back` the body is sent in two parts: `body` now, `held_back` once
+        `finish_upload` is called.
+        """
         self.messages: list[dict[str, object]] = []
         self.began = time.monotonic()
         self.started_after = 0.0
@@ -244,18 +250,52 @@ class SpeakCall:
         self.headers: dict[str, str] = {}
         self._started = asyncio.Event()
         self._disconnect = asyncio.Event()
+        self._upload_finished = asyncio.Event()
+        self._receiving = asyncio.Event()
         self.task = asyncio.create_task(
-            self._run(app, body or speak_body(), scope or speak_scope())
+            self._run(app, body or speak_body(), scope or speak_scope(), held_back)
         )
 
-    async def _run(self, app: FastAPI, body: bytes, scope: dict[str, object]) -> None:
+    async def received(self) -> None:
+        """Return once the request asked for its first bytes.
+
+        The request task runs on until its next real suspension before the caller
+        resumes, so it is then waiting for more bytes, a gate or its decode.
+        """
+        await asyncio.wait_for(self._receiving.wait(), timeout=ASGI_TIMEOUT_SECONDS)
+
+    def finish_upload(self) -> None:
+        """Send the part held back, which ends the body."""
+        self._upload_finished.set()
+
+    def disconnect(self) -> None:
+        """Report the caller gone, as the server does; the handler is not cancelled."""
+        self._disconnect.set()
+
+    async def _run(
+        self,
+        app: FastAPI,
+        body: bytes,
+        scope: dict[str, object],
+        held_back: bytes | None,
+    ) -> None:
         sent = False
+        rest_sent = held_back is None
 
         async def receive() -> dict[str, object]:
-            nonlocal sent
+            nonlocal sent, rest_sent
+            self._receiving.set()
             if not sent:
                 sent = True
-                return {"type": "http.request", "body": body, "more_body": False}
+                return {
+                    "type": "http.request",
+                    "body": body,
+                    "more_body": not rest_sent,
+                }
+            if not rest_sent:
+                await self._upload_finished.wait()
+                rest_sent = True
+                return {"type": "http.request", "body": held_back, "more_body": False}
             await self._disconnect.wait()
             return {"type": "http.disconnect"}
 
