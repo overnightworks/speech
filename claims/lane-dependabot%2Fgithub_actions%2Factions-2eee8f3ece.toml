@@ -1,0 +1,8 @@
+claim_id = "1ac7bf5dd87643b8a08094bb757256ce"
+agent = "Claude 1c28c70f-b9e3-4666-80ff-8274d2dcf8fd"
+role = "builder"
+base = "651c5cb58668cef138c5fddf5ba7d92017aeaa1a"
+branch = "dependabot/github_actions/actions-2eee8f3ece"
+scope = [".github/workflows/ci.yml", ".github/workflows/code-scanning.yml", ".github/workflows/release-distributions.yml", ".github/workflows/release.yml"]
+opened_commit = "003e681dc4b6d80cc5585e3daf453e6aaf6a3d71"
+whole_reason = "One Dependabot actions group bumps the same action versions across four workflow files, and splitting it would separate one group update."
