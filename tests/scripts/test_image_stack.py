@@ -14,11 +14,13 @@ import image_stack
 from image_judgement import baked_caller
 from image_stack import REPOSITORY
 from prove_speech import SENTENCES
-from speech_client.wire import VOICES, SpeechRequest, VoiceId
+from shipped_catalogue import CATALOGUE, first_language
+from speech_client.wire import SpeechRequest
 from speech_service.config import load_caller_config
 
 if TYPE_CHECKING:
     from proof_identity import Minting
+    from speech_client.wire import VoiceId
 
 
 class FakeDocker:
@@ -96,7 +98,7 @@ class RecordingCompose(image_stack.Compose):
         return subprocess.CompletedProcess([], 0, json.dumps(answer), "")
 
 
-@pytest.mark.parametrize("voice", list(VoiceId))
+@pytest.mark.parametrize("voice", list(CATALOGUE))
 def test_the_session_speaks_each_voice_in_a_language_the_service_accepts(
     minting: Minting, voice: VoiceId
 ) -> None:
@@ -116,5 +118,5 @@ def test_the_session_speaks_each_voice_in_a_language_the_service_accepts(
 
     (specification,) = compose.specifications
     spoken = SpeechRequest.model_validate_json(base64.b64decode(specification["body"]))
-    assert spoken.spoken_language == VOICES[voice].languages[0]
+    assert spoken.spoken_language == first_language(voice)
     assert spoken.input == SENTENCES[spoken.spoken_language]

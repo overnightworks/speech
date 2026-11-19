@@ -40,11 +40,16 @@ from proof_identity import (
     mint_pair,
     proof_identity,
 )
-from shipped_catalogue import CATALOGUE, CATALOGUE_FILE, PIPER_VOICES
+from shipped_catalogue import (
+    CATALOGUE,
+    CATALOGUE_FILE,
+    ON_DEMAND_VOICES,
+    PIPER_VOICES,
+    first_language,
+)
 from speech_client.health import fetch_health
 from speech_client.wire import (
     SPEECH_PATH,
-    VOICES,
     Health,
     Language,
     ResponseFormat,
@@ -228,9 +233,7 @@ def speak_measured(
         connection.request(
             "POST",
             SPEECH_PATH,
-            speech_request_body(
-                text, voice, ResponseFormat.WAV, VOICES[voice].languages[0]
-            ),
+            speech_request_body(text, voice, ResponseFormat.WAV, first_language(voice)),
             speech_request_headers(
                 workload_token=pair.workload, person_token=pair.person
             ),
@@ -257,7 +260,7 @@ def speak_measured(
 def proof_voice(offered: frozenset[VoiceId]) -> VoiceId:
     """The voice a proof speaks: the GPU voice the offer names, else a Piper voice."""
     return min(
-        (voice for voice in offered if not CATALOGUE[voice].engine.loads_at_start),
+        (voice for voice in offered if voice in ON_DEMAND_VOICES),
         default=PIPER_PROOF_VOICE,
     )
 
@@ -433,9 +436,8 @@ def _require_log_without_text(log: str, texts: Iterable[str]) -> None:
 
 
 def _require_speaking(health: Health, voice: VoiceId) -> None:
-    offered = health.speaking.voices.get(voice.value)
-    if offered is None or offered.model is not VOICES[voice].model:
-        message = f"speaking.voices does not offer {voice.value!r}: {health.speaking!r}"
+    if voice not in health.speaking.voices:
+        message = f"speaking.voices does not offer {voice!r}: {health.speaking!r}"
         raise SystemExit(message)
 
 
@@ -592,7 +594,7 @@ def _prove_contract(
 ) -> None:
     print("contract_client_start")
     completed = subprocess.run(  # noqa: S603 - argv is this interpreter and this repository's client script with no shell
-        contract_client_command(base_url, voice.value, minting_path),
+        contract_client_command(base_url, voice, minting_path),
         check=False,
         cwd=work_directory,
         env=env,
@@ -619,7 +621,7 @@ def free_local_port() -> int:
 
 def offer_setting(offered: Collection[VoiceId]) -> str:
     """The `SPEECH_VOICES` value that offers `offered`, in catalogue order."""
-    return ",".join(name.value for name in VoiceId if name in offered)
+    return ",".join(name for name in CATALOGUE if name in offered)
 
 
 def speech_environment(

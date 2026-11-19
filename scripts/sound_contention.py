@@ -22,7 +22,7 @@ from sound_taggers import (
     timed,
     windows_of,
 )
-from speech_client.wire import Language, VoiceId
+from speech_client.wire import Language
 from speech_service.hearing import ScoreIdentifier, WhisperHearing
 from speech_service.hearing_models import HearingModel, fetch_model, voiced_floor
 from speech_service.piper_voices import fetch_voice_files
@@ -40,7 +40,10 @@ PHASE_SECONDS: Final = 40.0
 CONTENTION_CLIPS: Final = 40
 SPOKEN_SENTENCES: Final = 40
 HEARING_MODEL: Final = HearingModel.SMALL
-PIPER_VOICES: Final = ((VoiceId.THORSTEN, Language.DE), (VoiceId.NORMAN, Language.EN))
+PIPER_VOICES: Final = (
+    ("de_DE-thorsten-medium", Language.DE),
+    ("en_US-norman-medium", Language.EN),
+)
 _INT16_PEAK: Final = 32767
 
 
@@ -133,7 +136,7 @@ def measure_contention(
     spoken = corpus.sentences[: 2 * SPOKEN_SENTENCES]
     for voice_id, language in PIPER_VOICES:
         fetch_voice_files(CATALOGUE[voice_id], cache / "voices")
-        voice = PiperSpeaking(voice_id.value, cache / "voices")
+        voice = PiperSpeaking(voice_id, cache / "voices")
         voice.load()
         texts = [s.transcript for s in spoken if s.language is language]
         speakers.append(

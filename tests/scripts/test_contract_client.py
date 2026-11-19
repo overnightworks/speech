@@ -12,11 +12,10 @@ from typing import TYPE_CHECKING
 import jwt
 import pytest
 
-from shipped_catalogue import CATALOGUE, PIPER_VOICES
+from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, PIPER_VOICES, first_language
 from speech_client.wire import (
     AUTHORIZATION_HEADER,
     CONTENT_TYPE_HEADER,
-    VOICES,
     WORKLOAD_TOKEN_HEADER,
     Health,
     SpeechRequest,
@@ -38,6 +37,12 @@ if TYPE_CHECKING:
 
 CLIENT = script_module("contract_client")
 PROVE = script_module("prove_speech")
+
+
+def contract_speak(base_url: str, text: str, voice: VoiceId, minting: Minting) -> bytes:
+    return CLIENT.speak(base_url, text, voice, first_language(voice), minting)
+
+
 HEARING = script_module("prove_hearing")
 
 
@@ -58,7 +63,7 @@ def test_both_proof_scripts_reach_a_running_speech_over_tcp(
 ) -> None:
     async def scenario() -> tuple[object, bytes, bytes]:
         runtime = Runtime(
-            {VoiceId.THORSTEN: FakeSpeaking()},
+            {PIPER_VOICES[0]: FakeSpeaking()},
             memory_probe=lambda: 0,
             dependencies=RuntimeDependencies(catalogue=CATALOGUE),
         )
@@ -67,13 +72,13 @@ def test_both_proof_scripts_reach_a_running_speech_over_tcp(
             return (
                 await asyncio.to_thread(PROVE.read_health, server.base_url),
                 await asyncio.to_thread(
-                    CLIENT.speak, server.base_url, "Hallo", VoiceId.THORSTEN, minting
+                    contract_speak, server.base_url, "Hallo", PIPER_VOICES[0], minting
                 ),
                 await asyncio.to_thread(
                     PROVE.speak_measured,
                     server.base_url,
                     "Hallo",
-                    VoiceId.THORSTEN,
+                    PIPER_VOICES[0],
                     minting,
                 ),
             )
@@ -90,7 +95,7 @@ def test_prove_points_the_service_at_the_repository_provider_environments(
 ) -> None:
     monkeypatch.delenv("SPEECH_PROVIDER_ROOT", raising=False)
 
-    environment = PROVE.speech_environment(8080, VoiceId.THORSTEN, identity)
+    environment = PROVE.speech_environment(8080, PIPER_VOICES[0], identity)
 
     provider_root = Path(environment["SPEECH_PROVIDER_ROOT"])
     assert provider_root.is_absolute()
@@ -101,8 +106,8 @@ def test_prove_points_the_service_at_the_repository_provider_environments(
     "offered",
     [
         frozenset(PIPER_VOICES),
-        frozenset({VoiceId.RYAN}),
-        frozenset({*PIPER_VOICES, VoiceId.RYAN}),
+        frozenset({ON_DEMAND_VOICES[0]}),
+        frozenset({*PIPER_VOICES, ON_DEMAND_VOICES[0]}),
     ],
     ids=["piper", "gpu", "both"],
 )
@@ -114,11 +119,11 @@ def test_prove_speaks_the_gpu_voice_the_offer_names_else_piper(
     assert PROVE.proof_voice(offered) is next(iter(on_demand), PROVE.PIPER_PROOF_VOICE)
 
 
-@pytest.mark.parametrize("voice", list(VoiceId))
+@pytest.mark.parametrize("voice", list(CATALOGUE))
 def test_prove_offers_the_service_the_voice_it_speaks_beside_a_piper_voice(
     monkeypatch: pytest.MonkeyPatch, identity: ProofIdentity, voice: VoiceId
 ) -> None:
-    monkeypatch.setenv("SPEECH_VOICES", VoiceId.RYAN.value)
+    monkeypatch.setenv("SPEECH_VOICES", ON_DEMAND_VOICES[0])
 
     environment = PROVE.speech_environment(8080, voice, identity)
 
@@ -131,7 +136,7 @@ def test_prove_keeps_a_provider_root_the_caller_set(
 ) -> None:
     monkeypatch.setenv("SPEECH_PROVIDER_ROOT", "/elsewhere")
 
-    environment = PROVE.speech_environment(8080, VoiceId.THORSTEN, identity)
+    environment = PROVE.speech_environment(8080, PIPER_VOICES[0], identity)
 
     assert environment["SPEECH_PROVIDER_ROOT"] == "/elsewhere"
 
@@ -142,7 +147,7 @@ def test_prove_defaults_to_the_card_proof(
     for name in ("SPEECH_DEVICE", "CUDA_VISIBLE_DEVICES"):
         monkeypatch.delenv(name, raising=False)
 
-    environment = PROVE.speech_environment(8080, VoiceId.THORSTEN, identity)
+    environment = PROVE.speech_environment(8080, PIPER_VOICES[0], identity)
 
     assert environment["SPEECH_DEVICE"] == "cuda"
     assert "CUDA_VISIBLE_DEVICES" not in environment
@@ -153,7 +158,7 @@ def test_prove_takes_the_device_and_hides_the_card_on_the_cpu(
 ) -> None:
     monkeypatch.setenv("SPEECH_DEVICE", "cpu")
 
-    environment = PROVE.speech_environment(8080, VoiceId.THORSTEN, identity)
+    environment = PROVE.speech_environment(8080, PIPER_VOICES[0], identity)
 
     assert environment["SPEECH_DEVICE"] == "cpu"
     assert environment["CUDA_VISIBLE_DEVICES"] == ""
@@ -178,7 +183,7 @@ def test_prove_exits_before_any_start_on_help_or_an_unknown_argument(
 
 
 @pytest.mark.parametrize("chunks_before_failing", [0, 1])
-@pytest.mark.parametrize("speak", [CLIENT.speak, PROVE.speak_measured])
+@pytest.mark.parametrize("speak", [contract_speak, PROVE.speak_measured])
 def test_a_proof_client_rejects_a_body_the_service_aborted(
     minting: Minting,
     speak: Callable[[str, str, str, Minting], object],
@@ -187,14 +192,14 @@ def test_a_proof_client_rejects_a_body_the_service_aborted(
     async def scenario() -> None:
         voice = FailingSpeaking(chunks_before_failing=chunks_before_failing)
         runtime = Runtime(
-            {VoiceId.THORSTEN: voice},
+            {PIPER_VOICES[0]: voice},
             memory_probe=lambda: 0,
             dependencies=RuntimeDependencies(catalogue=CATALOGUE),
         )
         async with serving_over_tcp(runtime) as server:
             with pytest.raises(SystemExit):
                 await asyncio.to_thread(
-                    speak, server.base_url, "Hallo", VoiceId.THORSTEN, minting
+                    speak, server.base_url, "Hallo", PIPER_VOICES[0], minting
                 )
 
     asyncio.run(scenario())
@@ -242,12 +247,12 @@ def _unverified_subject(token: str) -> str:
     return jwt.decode(token, options={"verify_signature": False})["sub"]
 
 
-@pytest.mark.parametrize("speak", [CLIENT.speak, PROVE.speak_measured])
+@pytest.mark.parametrize("speak", [contract_speak, PROVE.speak_measured])
 def test_each_speaking_script_sends_the_workload_token_and_the_persons_bearer(
     minting: Minting, speak: Callable[..., object]
 ) -> None:
     with _recording_speech_service() as (base_url, requests):
-        speak(base_url, "Hallo", VoiceId.THORSTEN, minting)
+        speak(base_url, "Hallo", PIPER_VOICES[0], minting)
 
     (headers,) = (request.headers for request in requests)
     scheme, _, person = headers[AUTHORIZATION_HEADER].partition(" ")
@@ -263,7 +268,7 @@ def test_each_speaking_script_sends_the_workload_token_and_the_persons_bearer(
     "speak",
     [
         pytest.param(
-            lambda url, voice, minting: CLIENT.speak(url, "Hallo", voice, minting),
+            lambda url, voice, minting: contract_speak(url, "Hallo", voice, minting),
             id="contract client",
         ),
         pytest.param(
@@ -272,7 +277,7 @@ def test_each_speaking_script_sends_the_workload_token_and_the_persons_bearer(
         ),
     ],
 )
-@pytest.mark.parametrize("voice", list(VoiceId))
+@pytest.mark.parametrize("voice", list(CATALOGUE))
 def test_a_script_speaks_each_voice_in_a_language_the_service_accepts(
     minting: Minting, voice: VoiceId, speak: Callable[[str, VoiceId, Minting], object]
 ) -> None:
@@ -281,14 +286,14 @@ def test_a_script_speaks_each_voice_in_a_language_the_service_accepts(
 
     (request,) = requests
     spoken = SpeechRequest.model_validate_json(request.body)
-    assert spoken.spoken_language == VOICES[voice].languages[0]
+    assert spoken.spoken_language == first_language(voice)
 
 
 def test_the_contract_client_command_passes_the_minting_file_path_and_no_secret(
     minting: Minting, identity: ProofIdentity
 ) -> None:
     command = PROVE.contract_client_command(
-        "http://127.0.0.1:1", VoiceId.THORSTEN, identity.minting_path
+        "http://127.0.0.1:1", PIPER_VOICES[0], identity.minting_path
     )
 
     assert str(identity.minting_path) in command
@@ -297,13 +302,13 @@ def test_the_contract_client_command_passes_the_minting_file_path_and_no_secret(
     )
     options = CLIENT.parse_arguments(command[2:])
     assert options.minting_file == identity.minting_path
-    assert options.voice == VoiceId.THORSTEN
+    assert options.voice == PIPER_VOICES[0]
 
 
 def test_prove_hands_the_service_its_configuration_and_the_proofs_ca(
     identity: ProofIdentity,
 ) -> None:
-    environment = PROVE.speech_environment(8080, VoiceId.THORSTEN, identity)
+    environment = PROVE.speech_environment(8080, PIPER_VOICES[0], identity)
 
     assert environment["SPEECH_CONFIG_FILE"] == str(identity.configuration_path)
     assert environment["SSL_CERT_FILE"] == str(identity.ca_path)
@@ -314,7 +319,7 @@ def test_prove_binds_the_service_to_the_loopback_port_it_picked(
 ) -> None:
     port = PROVE.free_local_port()
 
-    environment = PROVE.speech_environment(port, VoiceId.THORSTEN, identity)
+    environment = PROVE.speech_environment(port, PIPER_VOICES[0], identity)
 
     assert environment["SPEECH_HOST"] == "127.0.0.1"
     assert environment["SPEECH_PORT"] == str(port)

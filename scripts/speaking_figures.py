@@ -17,7 +17,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 import hearing_figures as figures
-from speech_client.wire import VOICES, Language
+from shipped_catalogue import first_language
+from speech_client.wire import Language
 from speech_service.pcm import BYTES_PER_SAMPLE, pcm_from_wav, rms
 
 if TYPE_CHECKING:
@@ -64,7 +65,7 @@ def spoken_of(answer: tuple[bytes, float, float]) -> Spoken:
 
 def language_of(voice: VoiceId) -> Language:
     """The language the catalogue says `voice` speaks first."""
-    return VOICES[voice].languages[0]
+    return first_language(voice)
 
 
 def sentence_of(voice: VoiceId, sentences: Mapping[Language, str]) -> str:
@@ -173,7 +174,7 @@ def prove_each_voice(
             sentence_of(voice, sentences),
             voice,
             limit=limit,
-            label=f"speak_wire_{voice.value}",
+            label=f"speak_wire_{voice}",
         )
         for voice in voices
     }
@@ -271,7 +272,7 @@ def prove_two_voices(
         answers = run_together(tasks)
         for voice, answer in zip(pair, answers, strict=True):
             spoken = spoken_of(answer)
-            label = f"speak_pair_{voice.value}_rep{repetition}"
+            label = f"speak_pair_{voice}_rep{repetition}"
             print(
                 label,
                 f"first_byte_s={spoken.first_audio_seconds:.3f}",
@@ -288,14 +289,14 @@ def prove_two_voices(
         )
         alone = singles[voice]
         print(
-            f"speak_pair_{voice.value}_median",
+            f"speak_pair_{voice}_median",
             f"first_byte_s={beside['first_audio_seconds']:.3f}",
             f"single_first_byte_s={alone.first_audio_seconds:.3f}",
             f"total_s={beside['total_seconds']:.3f}",
             f"single_total_s={alone.total_seconds:.3f}",
             f"n={len(runs)}",
         )
-        record[voice.value] = {
+        record[voice] = {
             "single": _record_of_times(
                 [alone.first_audio_seconds], [alone.total_seconds]
             ),
@@ -365,7 +366,7 @@ def speaking_record(
     return {
         "device": device,
         "voices": {
-            voice.value: {
+            voice: {
                 "first_audio_seconds": figure.first_audio_seconds,
                 "total_seconds": figure.total_seconds,
                 "real_time_factor": figure.real_time_factor,

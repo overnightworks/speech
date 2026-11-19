@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 import speaking_marks as marks
-from speech_client.wire import VOICES, Health, Language, ResponseFormat, VoiceId
+from speech_client.wire import Health, Language, ResponseFormat
 from speech_service.ogg_opus import ogg_opus_chunks
 from speech_service.pcm import wav_header
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE, sine_pcm
@@ -17,6 +17,10 @@ from tests.support.fakes_support import SPEAK_SAMPLE_RATE, sine_pcm
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from speech_client.wire import VoiceId
+
+GERMAN_VOICE = "de_DE-thorsten-medium"
+ENGLISH_VOICE = "en_US-norman-medium"
 TEXT = "Ja gern. Nein danke."
 SENTENCE_SECONDS = 0.5
 WORDS = [
@@ -233,19 +237,19 @@ def test_every_voice_is_proved_in_every_format_with_its_own_text(
 
     record = marks.prove_marks(
         speak,
-        [VoiceId.THORSTEN, VoiceId.NORMAN],
+        [GERMAN_VOICE, ENGLISH_VOICE],
         {Language.DE: TEXT, Language.EN: TEXT},
         sentences=2,
     )
 
     assert [(voice, fmt) for _text, voice, fmt in asked] == [
         (voice, fmt)
-        for voice in (VoiceId.THORSTEN, VoiceId.NORMAN)
+        for voice in (GERMAN_VOICE, ENGLISH_VOICE)
         for fmt in ResponseFormat
     ]
     assert set(record) == {
-        f"speak_sse_{voice.value}_{fmt.value}"
-        for voice in (VoiceId.THORSTEN, VoiceId.NORMAN)
+        f"speak_sse_{voice}_{fmt.value}"
+        for voice in (GERMAN_VOICE, ENGLISH_VOICE)
         for fmt in ResponseFormat
     }
     assert "words=4 sounds=10" in capsys.readouterr().out
@@ -263,8 +267,8 @@ def test_the_proof_needs_health_to_give_words_and_sounds(
             "speaking": {
                 "ready": True,
                 "voices": {
-                    VoiceId.THORSTEN.value: {
-                        "model": VOICES[VoiceId.THORSTEN].model,
+                    GERMAN_VOICE: {
+                        "model": "piper",
                         "name": "n",
                         "languages": ["de"],
                         "takes_instructions": False,
@@ -280,7 +284,7 @@ def test_the_proof_needs_health_to_give_words_and_sounds(
     )
 
     if passes:
-        marks.require_gives_marks(health, [VoiceId.THORSTEN])
+        marks.require_gives_marks(health, [GERMAN_VOICE])
     else:
         with pytest.raises(SystemExit):
-            marks.require_gives_marks(health, [VoiceId.THORSTEN])
+            marks.require_gives_marks(health, [GERMAN_VOICE])

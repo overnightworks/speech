@@ -14,11 +14,10 @@ from packaging.markers import Marker
 
 from hearing_figures import voiced_seconds, words
 from prove_speech import spoken_in_log
-from shipped_catalogue import CATALOGUE, PIPER_VOICES
+from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, PIPER_VOICES
 from speech_client.outcomes import RetryAfterError, busy_wait
 from speech_client.wire import (
     REFUSAL_STATUS,
-    VOICES,
     Health,
     Language,
     Refusal,
@@ -101,15 +100,13 @@ def baked_caller(config: CallerConfig, app: str) -> BakedCaller:
 
 def first_gpu_voice() -> VoiceId:
     """The first voice of the catalogue that does not load at start."""
-    return next(
-        voice for voice in VoiceId if not CATALOGUE[voice].engine.loads_at_start
-    )
+    return ON_DEMAND_VOICES[0]
 
 
 def first_english_voice() -> VoiceId:
     """The first Piper voice of the baked offer that speaks English."""
     return next(
-        voice for voice in PIPER_VOICES if Language.EN in VOICES[voice].languages
+        voice for voice in PIPER_VOICES if Language.EN in CATALOGUE[voice].languages
     )
 
 
@@ -486,14 +483,14 @@ def require_ready_within(seconds: float, start_period: str) -> None:
 def require_offer(health: Health, voices: Iterable[VoiceId]) -> None:
     """Fail unless `/health` offers exactly `voices`."""
     offered = set(health.speaking.voices)
-    if offered != {voice.value for voice in voices}:
+    if offered != set(voices):
         message = f"/health offers {sorted(offered)}"
         raise SystemExit(message)
 
 
 def require_gpu_voice_down(health: Health, voice: VoiceId) -> None:
     """Fail unless `voice` is not ready while speaking and hearing are."""
-    voice_ready = health.speaking.voices[voice.value].ready
+    voice_ready = health.speaking.voices[voice].ready
     if not (health.speaking.ready and health.hearing.ready) or voice_ready:
         message = (
             f"/health is not {voice} down beside a ready service: "
