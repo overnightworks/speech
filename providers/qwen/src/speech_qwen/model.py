@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from importlib.resources.abc import Traversable
 
-LANGUAGE_NAMES = {"de": "German", "en": "English"}
 # The deploy config reserves 0.3 of the card for each stage, 14.4 GB on a
 # 24 GB card, while both stages together measured 9.4 GB resident. The talker
 # keeps its share; the decoder takes half of its own.

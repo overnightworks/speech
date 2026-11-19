@@ -13,7 +13,7 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from speech_provider_contract import QWEN_ARTIFACTS
+from speech_provider_contract import QWEN_ARTIFACTS, QWEN_LANGUAGE_NAMES
 
 from speech_qwen.server import Server, start_server
 
@@ -92,13 +92,13 @@ def design_voices(  # noqa: PLR0913 - one value per input of the script
         if path.exists() or path.with_suffix(".txt").exists():
             raise FileExistsError(path)
 
-    from speech_qwen.model import LANGUAGE_NAMES, start_on_checkpoint
+    from speech_qwen.model import start_on_checkpoint
 
     checkpoint = download(DESIGN_MODEL_ID, DESIGN_REVISION, cache)
     server = start_on_checkpoint(Path(checkpoint), start)
     with _stopped(server):
         audio_bodies = [
-            _render(server, description, LANGUAGE_NAMES[language], sentence)
+            _render(server, description, QWEN_LANGUAGE_NAMES[language], sentence)
             for _ in audio_paths
         ]
     for path, body in zip(audio_paths, audio_bodies, strict=True):

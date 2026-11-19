@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 QWEN_SAMPLE_RATE = 24_000
 QWEN_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
 QWEN_REVISION = "0c0e3051f131929182e2c023b9537f8b1c68adfe"
+QWEN_LANGUAGE_NAMES = {"de": "German", "en": "English"}
+"""The languages Qwen speaks, by the name its server takes."""
 QWEN_ARTIFACTS = (
     ".gitattributes",
     "README.md",

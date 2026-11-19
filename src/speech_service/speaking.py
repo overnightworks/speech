@@ -9,7 +9,12 @@ from functools import partial
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Protocol, assert_never, runtime_checkable
 
-from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE, QwenSpeaker
+from speech_provider_contract import (
+    QWEN_LANGUAGE_NAMES,
+    QWEN_MODEL_ID,
+    QWEN_SAMPLE_RATE,
+    QwenSpeaker,
+)
 
 from speech_client.wire import GivesMarks, SentenceMarks
 from speech_service.catalogue import PiperEntry, QwenEntry
@@ -154,8 +159,6 @@ def _spoken(chunk: AudioChunk) -> Sentence:
     )
 
 
-QWEN_LANGUAGE_NAMES = {"de": "German", "en": "English"}
-"""The languages Qwen speaks, by the name its server takes."""
 _RESPONSE_SECONDS = 120.0
 """How long the server may stay silent in the middle of a response."""
 _PCM_READ_BYTES = 64 * 1024
