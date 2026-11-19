@@ -315,6 +315,28 @@ def test_the_tracks_ended_event_stops_capture_after_the_last_partial_frame(
     assert 0 < len(frames[-1]) <= HOP_FRAME_BYTES
 
 
+@pytest.mark.parametrize("how", ["suspend", "close"])
+def test_a_context_that_stops_running_after_it_streamed_ends_the_capture_once(
+    tmp_path: Path, how: str
+) -> None:
+    async def scenario() -> tuple[dict[str, object], list[bytes | str]]:
+        async with _stage(tmp_path) as stage:
+            await stage.switch_on_until_streaming(source="tone")
+            await stage.page.evaluate(f"window.stopContext({how!r})")
+            await stage.until("seen.ended !== null")
+            return await stage.seen(), stage.side.frames
+
+    seen, frames = asyncio.run(scenario())
+
+    assert seen["ended"] == {"kind": "local", "failure": "context-stopped"}
+    assert seen["endedCount"] == 1
+    assert seen["errors"] == []
+    assert set(seen["socketStatesAtEnd"]) <= {CLOSED}
+    assert set(seen["contextStatesAtEnd"]) <= {"closed"}
+    assert [len(frame) for frame in frames] == seen["sentBytes"]
+    assert 0 < len(frames[-1]) <= HOP_FRAME_BYTES
+
+
 def test_the_worklet_loads_from_its_file_under_webauths_policy(tmp_path: Path) -> None:
     streamed = asyncio.run(_stream_and_stop(tmp_path, "tone"))
 

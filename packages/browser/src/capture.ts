@@ -27,7 +27,7 @@ export interface Capture {
   stop(): void;
 }
 
-export type LocalFailure = "no-audio-track" | "worklet-refused" | "context-failed";
+export type LocalFailure = "no-audio-track" | "worklet-refused" | "context-failed" | "context-stopped";
 
 export type CaptureEnd =
   | { readonly kind: "hop"; readonly close: HopClose }
@@ -77,6 +77,14 @@ class CaptureRun {
   #resampler: Resampler | undefined;
   readonly #framer = new Framer();
   readonly #onTrackEnded = (): void => this.finish();
+  // A context that leaves "running" after it streamed (suspended, interrupted or closed by the host) sends no more audio.
+  // No resume() is tried: a browser resumes a context only under user activation or a policy, and an interruption by
+  // the host's sound server ends at the host's time, so a retry would only leave the hop open and silent.
+  readonly #onContextStateChange = (): void => {
+    if (this.#context?.state !== "running") {
+      this.finish({ kind: "local", failure: "context-stopped" });
+    }
+  };
 
   constructor(options: CaptureOptions) {
     this.#options = options;
@@ -160,6 +168,7 @@ class CaptureRun {
     this.#node.port.onmessage = (event: MessageEvent<Float32Array>) => this.#send(resampler.push(event.data));
     this.#source = context.createMediaStreamSource(new MediaStream([this.#track as MediaStreamTrack]));
     this.#source.connect(this.#node);
+    context.addEventListener("statechange", this.#onContextStateChange);
     this.#startedGate.resolve("streaming");
   }
 
@@ -180,6 +189,7 @@ class CaptureRun {
     }
     this.#cause = cause;
     this.#track?.removeEventListener("ended", this.#onTrackEnded);
+    this.#context?.removeEventListener("statechange", this.#onContextStateChange);
     this.#source?.disconnect();
     if (this.#node !== undefined) {
       this.#node.port.onmessage = null;
@@ -194,7 +204,9 @@ class CaptureRun {
   async #settle(): Promise<void> {
     let code = 0;
     try {
-      [code] = await Promise.all([this.#socketClosed, this.#context?.close()]);
+      // close() of a closed context rejects, and the host may have closed it already.
+      const closing = this.#context?.state === "closed" ? undefined : this.#context?.close();
+      [code] = await Promise.all([this.#socketClosed, closing]);
     } finally {
       const cause = this.#cause === "socket" ? endOfSocket(code) : (this.#cause as CaptureEnd);
       this.#startedGate.resolve("ended");

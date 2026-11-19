@@ -169,6 +169,9 @@ window.endTrack = () => {
   track.dispatchEvent(new Event("ended"));
 };
 
+// The context stops underneath the capture, as a failing sound server does: not through the app's stop().
+window.stopContext = (how) => contexts[0][how]();
+
 document.getElementById("switch").addEventListener("click", () => (capture === null ? switchOn() : switchOff()));
 if (query.get("start") === "load") {
   void switchOn();
