@@ -201,7 +201,8 @@ async def _read_recording(
 
     Every byte is counted: a body over `limit` bytes is `TOO_LARGE` and the rest
     is never read. A body without a place at its arrival, or whose place the
-    deadline took back, is read on without being kept and ends `NO_PLACE`. The
+    deadline took back, or that ends at or after the deadline, is read on without
+    being kept and ends `NO_PLACE`. The
     place is closed unless it is handed on in the `_Kept`.
     """
     upload = _Upload(place)
@@ -223,6 +224,8 @@ async def _read_recording(
         raise
     finally:
         expiry.cancel()
+    if deadline <= clock.now():
+        upload.drop()
     return upload.kept()
 
 

@@ -12,6 +12,7 @@ from starlette.status import (
 )
 
 from speech_client.wire import RETRY_AFTER_HEADER, RefusalCode
+from tests.support.clock_support import FakeClock
 from tests.support.hear_support import (
     WAIT_SECONDS,
     FakeHearing,
@@ -22,7 +23,6 @@ from tests.support.hear_support import (
     multipart_body,
     recording,
 )
-from tests.support.clock_support import FakeClock
 from tests.support.speak_support import SpeakCall, assert_call_refusal
 
 if TYPE_CHECKING:
@@ -246,6 +246,44 @@ async def _place_frees(runtime: Runtime) -> None:
         while (place := runtime.hearing.keep_recording(1)) is None:  # noqa: ASYNC110 - a place has no event to await
             await asyncio.sleep(0)
     place.close()
+
+
+def test_an_upload_ending_after_its_wait_is_busy_though_its_timer_has_not_run() -> None:
+    """WIRE-162: the deadline decides, not whether its timer got to run first."""
+
+    async def scenario() -> tuple[SpeakCall, FakeHearing]:
+        clock = FakeClock()
+        engine = FakeHearing()
+        app = hear_app(
+            hear_runtime(engine, clock), hearing_busy_wait_seconds=SHORT_WAIT_SECONDS
+        )
+        upload = hear_call_begun(app)
+        await clock.until_a_wait_begins()
+        clock.jump(SHORT_WAIT_SECONDS)
+        upload.finish_upload()
+        await upload.finish()
+        return upload, engine
+
+    upload, engine = asyncio.run(scenario())
+
+    assert_call_refusal(upload, HTTP_429_TOO_MANY_REQUESTS, RefusalCode.BUSY, None)
+    assert not engine.heard
+
+
+def test_a_whole_body_is_busy_when_the_wait_is_zero() -> None:
+    """WIRE-162: with no wait, no upload is still arriving in time."""
+
+    async def scenario() -> tuple[SpeakCall, FakeHearing]:
+        engine = FakeHearing()
+        app = hear_app(hear_runtime(engine, FakeClock()), hearing_busy_wait_seconds=0)
+        upload = hear_call(app)
+        await upload.finish()
+        return upload, engine
+
+    upload, engine = asyncio.run(scenario())
+
+    assert_call_refusal(upload, HTTP_429_TOO_MANY_REQUESTS, RefusalCode.BUSY, None)
+    assert not engine.heard
 
 
 def test_an_upload_within_its_wait_on_an_idle_service_is_heard() -> None:
