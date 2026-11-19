@@ -202,10 +202,9 @@ async def _read_recording(
     Every byte is counted: a body over `limit` bytes is `TOO_LARGE` and the rest
     is never read. A body without a place at its arrival, or whose place the
     deadline took back, or that ends at or after the deadline, is read on without
-    being kept and ends `NO_PLACE`. The
-    place is closed unless it is handed on in the `_Kept`. A `deadline` already
-    reached at the start has no upload to cut off, so the clock is not compared
-    with it.
+    being kept and ends `NO_PLACE`. A `deadline` already reached at the start has
+    no upload to cut off, so the clock is not compared with it. The place is
+    closed unless it is handed on in the `_Kept`.
     """
     upload = _Upload(place)
     arrival = clock.now()
