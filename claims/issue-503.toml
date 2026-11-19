@@ -3,6 +3,6 @@ agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
 role = "builder"
 base = "dad3e03c00bee705cb771a0b169cc94097d3f0e4"
 branch = "claude/issue-503-derived-offer"
-scope = ["Dockerfile", "README.md", "docs/ARCHITECTURE.md", "docs/wire.md", "src/speech_service", "tests"]
+scope = ["Dockerfile", "README.md", "docs/ARCHITECTURE.md", "docs/wire.md", "scripts/shipped_catalogue.py", "src/speech_service", "tests"]
 opened_commit = "95b7f7283c48aba5c1508415ddcfd25350a55dd7"
 whole_reason = "One default moves from a baked list into the service: its decider, the image, the tests that pin it and the three documents that state it change together."
