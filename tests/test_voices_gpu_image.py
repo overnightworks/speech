@@ -28,6 +28,7 @@ def test_a_gpu_stage_offers_every_catalogue_voice_by_its_own_settings(
 ) -> None:
     settings = _settings_of(stage_name, monkeypatch)
 
+    assert settings.voices is None
     assert offered_voices(
         CATALOGUE, settings.voices, settings.carried_engines
     ) == tuple(CATALOGUE)

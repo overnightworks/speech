@@ -1,6 +1,7 @@
 """A voice is fetched at its pin: Piper checked and whole, a GPU voice into the Hub."""
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,6 +23,7 @@ from speech_service.voices import missing_artifacts, piper_voice_paths
 from tests.support.catalogue_support import (
     PIPER_REPOSITORY,
     piper_table,
+    qwen_table,
     write_catalogue,
 )
 from tests.support.hear_support import write_snapshot
@@ -177,6 +179,7 @@ def test_the_command_without_an_argument_fetches_every_offered_piper_voice(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setenv("SPEECH_VOICE_CACHE", str(tmp_path))
+    monkeypatch.delenv("SPEECH_PROVIDER_ROOT", raising=False)
 
     fetch_voice.main([], scenario)
 
@@ -258,6 +261,26 @@ def test_an_offered_gpu_voice_is_fetched_once_into_the_configured_hub_cache(
     assert [
         (call["repo_id"], call["revision"], call["token"]) for call in snapshot.calls
     ] == [(QWEN_MODEL_ID, QWEN_REVISION, False)]
+
+
+def test_the_command_with_a_provider_root_and_no_voice_setting_fetches_every_catalogue_voice(
+    scenario: Scenario,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with Path(os.environ["SPEECH_CATALOGUE_FILE"]).open("a") as catalogue_file:
+        catalogue_file.write(qwen_table())
+    monkeypatch.setenv("SPEECH_VOICE_CACHE", str(tmp_path / "voices"))
+    monkeypatch.setenv("SPEECH_HUGGINGFACE_CACHE", str(tmp_path / "hub"))
+    monkeypatch.setenv("SPEECH_PROVIDER_ROOT", str(tmp_path))
+    monkeypatch.delenv("SPEECH_VOICES", raising=False)
+    snapshot = SnapshotScenario()
+
+    fetch_voice.main([], scenario, snapshot)
+
+    assert len(capsys.readouterr().out.split()) == len(PIPER_VOICES) + 1
+    assert [call["repo_id"] for call in snapshot.calls] == [QWEN_MODEL_ID]
 
 
 def test_the_command_takes_no_argument() -> None:

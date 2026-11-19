@@ -182,8 +182,11 @@ def test_settings_refuse_a_port_that_is_not_a_tcp_port(
         Settings()
 
 
-def test_every_piper_voice_is_offered_by_default() -> None:
+def test_every_piper_voice_is_offered_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """WIRE-107: every piper voice is offered by default."""
+    monkeypatch.delenv("SPEECH_PROVIDER_ROOT", raising=False)
     offered = Runtime.from_settings(Settings()).health().speaking.voices
 
     assert list(offered) == [voice.value for voice in PIPER_VOICES]
