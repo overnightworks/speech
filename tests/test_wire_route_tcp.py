@@ -28,6 +28,7 @@ from speech_client.wire import (
     AUTHORIZATION_HEADER,
     REALTIME_PATH,
     SPEECH_PATH,
+    TRACEPARENT_HEADER,
     RefusalCode,
     ResponseFormat,
     VoiceId,
@@ -569,3 +570,35 @@ def test_tcp_logs_a_denied_realtime_upgrade_as_one_refusal_and_no_error(
     ]
     assert [line["level"] for line in refused] == ["info"]
     assert not [line for line in lines if line["level"] in {"error", "critical"}]
+
+
+@pytest.mark.parametrize(
+    "incoming",
+    [None, "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"],
+    ids=["without_traceparent", "with_traceparent"],
+)
+def test_tcp_refused_upgrade_lines_share_one_trace_and_name_the_route(
+    incoming: str | None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A refused upgrade's refusal and ending lines share a trace id and a route."""
+    headers = {} if incoming is None else {TRACEPARENT_HEADER: incoming}
+
+    async def scenario() -> None:
+        async with serving_over_tcp(
+            _gated_runtime(FakeSpeaking()), production_logging=True
+        ) as server:
+            host, port = _address(server)
+            url = f"ws://{host}:{port}{REALTIME_PATH}?intent=transcription"
+            with pytest.raises(InvalidStatus):
+                await connect(url, additional_headers=headers)
+
+    with configured("speech"):
+        asyncio.run(scenario())
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    refusal = next(line for line in lines if line["event"] == "session.refused")
+    ended = next(line for line in lines if line["event"] == "websocket.ended")
+    assert refusal["trace_id"] == ended["trace_id"]
+    assert ended["route"]
+    if incoming is not None:
+        assert ended["trace_id"] == incoming.split("-")[1]

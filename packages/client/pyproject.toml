@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["overnightworks-logline @ git+https://github.com/overnightworks/logline@v1.4.0"]
+dev = ["overnightworks-logline @ git+https://github.com/overnightworks/logline@v1.6.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/speech_client"]
