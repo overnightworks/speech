@@ -15,8 +15,8 @@ from python_multipart.exceptions import FormParserError
 from starlette.background import BackgroundTask
 from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException
-from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.requests import ClientDisconnect, Request
+from starlette.responses import JSONResponse, Response
 
 from speech_client.wire import (
     API_VERSION,
@@ -53,7 +53,6 @@ if TYPE_CHECKING:
 
     from fastapi import FastAPI
     from starlette.datastructures import FormData
-    from starlette.responses import Response
     from starlette.types import Message, Receive, Scope, Send
     from starlette.websockets import WebSocket
 
@@ -68,6 +67,8 @@ logger = logging.getLogger(__name__)
 _VERSION_PREFIX: Final = "/v{version:int}"
 _BEARER_CHALLENGE: Final = "Bearer"
 _LEAVE_NOTICE_SECONDS: Final = 1.0
+# The status the request line shows for a client that left; nobody reads it.
+_CLIENT_LEFT: Final = 499
 
 
 class _Refusal(JSONResponse):
@@ -242,17 +243,25 @@ class _SpeechRoute:
 
     async def speak(self, request: Request) -> Response:
         set_route(request.scope, SPEECH_PATH)
-        received = StepTimer("speak.ended", logger)
+        step = StepTimer("speak.ended", logger)
+        try:
+            return await self._answered(request, step)
+        except asyncio.CancelledError:
+            step.end_cancelled()
+            raise
+        except ClientDisconnect:
+            step.end_cancelled()
+            return Response(status_code=_CLIENT_LEFT)
+
+    async def _answered(self, request: Request, step: StepTimer) -> Response:
         admitted = await self._callers.admit(request.headers)
         if isinstance(admitted, RefusalCode):
-            return _ended_refused(received, _refused(admitted))
+            return _ended_refused(step, _refused(admitted))
         accepted = self._runtime.clock.now()
         parsed = await self._checked(request)
         if isinstance(parsed, _Refusal):
-            return _ended_refused(received, parsed)
-        step = StepTimer(
-            "speak.ended",
-            logger,
+            return _ended_refused(step, parsed)
+        step.add(
             voice=parsed.voice.value,
             stream_format=parsed.stream_format.value,
             marks_words=0,
@@ -401,7 +410,10 @@ class _TranscriptionRoute:
 
     async def transcribe(self, request: Request) -> Response:
         set_route(request.scope, TRANSCRIPTIONS_PATH)
-        response = await self._transcribed(request)
+        try:
+            response = await self._transcribed(request)
+        except ClientDisconnect:
+            return Response(status_code=_CLIENT_LEFT)
         if isinstance(response, _Refusal):
             logger.info("transcription.refused", extra={"reason": response.code.value})
         return response

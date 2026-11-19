@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import traceback
+from concurrent.futures import Future
 from typing import TYPE_CHECKING
 
 import pytest
@@ -13,15 +14,17 @@ from starlette.status import HTTP_200_OK
 
 from speech_client.wire import SPEECH_PATH, RefusalCode, SentenceMarks, Sound, VoiceId
 from speech_service.config import Settings
+from speech_service.control import create_control_app
 from speech_service.failures import SpeakingFailedError
 from tests.support.fakes_support import FakeMarkingSpeaking, FakeSpeaking
-from tests.support.identity_support import valid_headers
+from tests.support.identity_support import valid_callers, valid_headers
 from tests.support.speak_support import (
     ASGI_TIMEOUT_SECONDS,
     DisconnectingReceive,
     HoldingSend,
     app_over,
     fake_runtime,
+    gate_acquisition_began,
     post_speech,
     speak_app,
     speak_body,
@@ -29,12 +32,16 @@ from tests.support.speak_support import (
     speak_scope,
     sse_body,
     status_of,
+    synthesis_gate,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from fastapi import FastAPI
+
+    from speech_service.callers import SpeechCallers
+    from speech_service.service import Runtime
 
 
 def _wrong_voice_body() -> bytes:
@@ -373,6 +380,80 @@ def test_a_client_that_leaves_before_the_first_chunk_writes_its_speak_line_as_ca
     (line,) = _speak_lines(caplog)
     assert line.outcome == "cancelled"
     assert not hasattr(line, "first_output_ms")
+
+
+async def _held_at(
+    await_point: str, runtime: Runtime, callers: SpeechCallers, blocked: asyncio.Event
+) -> asyncio.Event:
+    """Make a request wait at `await_point` for `blocked`; set once it is there."""
+    reached = asyncio.Event()
+    if await_point == "caller-check":
+
+        async def admit(_headers: object) -> object:
+            reached.set()
+            await blocked.wait()
+
+        callers.admit = admit  # type: ignore[method-assign]
+    if await_point == "load":
+
+        def never_loaded(_voice: VoiceId) -> Future[None]:
+            reached.set()
+            return Future()
+
+        runtime.load_on_demand = never_loaded  # type: ignore[method-assign]
+    if await_point == "gate":
+        reached = gate_acquisition_began(runtime)
+    return reached
+
+
+@pytest.mark.parametrize("await_point", ["caller-check", "body", "load", "gate"])
+def test_a_request_cancelled_at_any_await_writes_one_speak_line_as_cancelled(
+    await_point: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    voice = VoiceId.RYAN if await_point == "load" else VoiceId.THORSTEN
+
+    async def scenario() -> None:
+        blocked = asyncio.Event()  # never set: the request waits until cancelled
+        runtime = fake_runtime(voice=voice)
+        callers = valid_callers()
+        reached = await _held_at(await_point, runtime, callers, blocked)
+        held = (
+            synthesis_gate(runtime, voice).try_acquire()
+            if await_point == "gate"
+            else None
+        )
+        sent = False
+
+        async def receive() -> dict[str, object]:
+            nonlocal sent
+            if await_point == "body":
+                reached.set()
+            if sent or await_point == "body":
+                await blocked.wait()
+            sent = True
+            return {
+                "type": "http.request",
+                "body": speak_body(voice),
+                "more_body": False,
+            }
+
+        async def send(_message: dict[str, object]) -> None:
+            await blocked.wait()
+
+        app = create_control_app(Settings(), runtime, callers)
+        call = asyncio.create_task(app(speak_scope(), receive, send))
+        await asyncio.wait_for(reached.wait(), timeout=ASGI_TIMEOUT_SECONDS)
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+        if held is not None:
+            held.close()
+
+    asyncio.run(scenario())
+
+    (line,) = _speak_lines(caplog)
+    assert line.outcome == "cancelled"
 
 
 def test_the_speak_line_and_the_request_line_carry_the_trace_of_the_callers_traceparent(

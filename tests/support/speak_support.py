@@ -269,7 +269,7 @@ class SpeakCall:
         self._upload_finished.set()
 
     def disconnect(self) -> None:
-        """Report the caller gone, as the server does; the handler is not cancelled."""
+        """Report the caller gone, as the server does, also mid-upload."""
         self._disconnect.set()
 
     async def _run(
@@ -293,7 +293,15 @@ class SpeakCall:
                     "more_body": not rest_sent,
                 }
             if not rest_sent:
-                await self._upload_finished.wait()
+                finished = asyncio.ensure_future(self._upload_finished.wait())
+                left = asyncio.ensure_future(self._disconnect.wait())
+                await asyncio.wait(
+                    {finished, left}, return_when=asyncio.FIRST_COMPLETED
+                )
+                finished.cancel()
+                left.cancel()
+                if not self._upload_finished.is_set():
+                    return {"type": "http.disconnect"}
                 rest_sent = True
                 return {"type": "http.request", "body": held_back, "more_body": False}
             await self._disconnect.wait()
