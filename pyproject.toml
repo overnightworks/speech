@@ -103,6 +103,6 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 # Asserts are the tests' checks; a test function's name is its documentation.
-# The tests start the service and the workers as subprocesses with fixed argv.
+# The tests start the service and the servers as subprocesses with fixed argv.
 "tests/**" = ["S101", "S603", "D103"]
 "packages/client/tests/**" = ["S101", "D103"]

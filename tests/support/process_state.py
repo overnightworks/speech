@@ -1,24 +1,18 @@
-"""The kernel's view of a process the tests started."""
+"""Whether a process the tests started has ended."""
 
 import time
 from pathlib import Path
 
 
-def process_state(pid: int) -> str | None:
-    """Read the kernel's state line for `pid`; None once the pid is gone."""
-    try:
-        lines = Path(f"/proc/{pid}/status").read_text(encoding="ascii").splitlines()
-    except FileNotFoundError, ProcessLookupError:
-        return None
-    return next(line for line in lines if line.startswith("State:"))
-
-
 def has_ended(pid: int, *, within: float = 5) -> bool:
-    """Whether `pid` is gone or a zombie, within `within` seconds."""
+    """Whether `pid` is gone or a zombie its adopter has yet to reap, in `within` s."""
     deadline = time.monotonic() + within
     while time.monotonic() < deadline:
-        state = process_state(pid)
-        if state is None or "zombie" in state:
+        try:
+            status = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+        except FileNotFoundError, ProcessLookupError:
+            return True
+        if status.rpartition(")")[2].split()[0] == "Z":
             return True
         time.sleep(0.01)
     return False

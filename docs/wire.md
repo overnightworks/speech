@@ -441,7 +441,7 @@ names is not part of the contract, but for WIRE-139.
 | WIRE-100 | `invalid_request` | 422 | the body is not a JSON object, a field is missing, unknown or mistyped, a value is not accepted, or `input` is empty, without a letter or digit, or over the limit, or `instructions` are not accepted (WIRE-141, WIRE-142); for a recording: the form or `file` is missing, a field is unknown or not accepted, or the audio cannot be decoded (`param` `file`) | |
 | WIRE-101 | `too_large` | 413 | the body is over `SPEECH_MAX_BODY_BYTES` (a recording: `SPEECH_MAX_RECORDING_BYTES`), or the recording is longer than `SPEECH_MAX_RECORDING_SECONDS` (`param` `file`) | |
 | WIRE-102 | `busy` | 429 | the one synthesis (a recording: the one decode) is taken and its waiting places are taken (answered at once), or it is not free within its wait: `SPEECH_MAX_WAITING_REQUESTS` and `SPEECH_BUSY_WAIT_SECONDS`, for a recording `SPEECH_HEARING_MAX_WAITING_REQUESTS` and `SPEECH_HEARING_BUSY_WAIT_SECONDS` | `Retry-After`: the wait in whole seconds, at least 1 |
-| WIRE-103 | `unavailable` | 503 | the tokens cannot be checked because the issuer's key set is unreachable and no cached key serves, or the named voice cannot speak: it is not offered, the start load still runs, its load failed or found its files missing, its worker died while the request waited, or the drain began (`param` `voice`); for a recording: hearing is not loaded or configured, the drain began, or its decode failed | |
+| WIRE-103 | `unavailable` | 503 | the tokens cannot be checked because the issuer's key set is unreachable and no cached key serves, or the named voice cannot speak: it is not offered, the start load still runs, its load failed or found its files missing, its engine process died while the request waited, or the drain began (`param` `voice`); for a recording: hearing is not loaded or configured, the drain began, or its decode failed | |
 
 **WIRE-104** Apps read the `busy` wait with `busy_wait(status, headers)` in
 `speech_client.wire`: it returns the wait in whole seconds, `None` for any
@@ -515,7 +515,7 @@ Piper voice's is 0 until it is loaded). A client reads each id as a string, so a
 does not know, under a model and in languages it knows, does not break its reading of
 health. **WIRE-126** A voice's `ready` is true exactly when a request for it
 would be spoken now: never during the start load or once the drain began, and
-never for a GPU voice that is not loaded, failed, or whose worker died.
+never for a GPU voice that is not loaded, failed, or whose engine process died.
 **WIRE-127** The service builds the answer through `Health` in `speech_client.wire`,
 which ignores keys it does not know. **WIRE-128** `hearing.model` is the configured hearing
 model, or `unavailable` when none is configured; **WIRE-129** `hearing.ready` is false while

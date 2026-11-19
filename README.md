@@ -65,11 +65,11 @@ networks and the read-only root); what differs when you run it:
 - **Memory.** The service and its Qwen server peaked at 12.7 GB of host memory.
 - **`/dev/shm`.** The server's stages pass data through it, so size it above
   Docker's 64 MB default (`--shm-size`, or `--ipc=host`).
-- **`/tmp`.** Writable: the Qwen worker keeps its compile caches there.
+- **`/tmp`.** Writable: the Qwen server keeps its compile caches there.
 - **Startup probe.** `/health` answers while the models load, with `ready` false.
   Qwen took about 5 minutes to load and large-v3 under 10 seconds, so probe until
   `speaking.ready` and `hearing.ready` are both true and allow 10 minutes: the
-  worker gives its server 600 seconds, and a slower start ends the process.
+  service gives the server 600 seconds, and a slower start ends the process.
 
 ## Models
 

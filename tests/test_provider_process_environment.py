@@ -48,7 +48,7 @@ def test_library_path_names_the_cuda_packages_of_any_python_three_venv(
 
 
 @pytest.mark.parametrize("variable", ["NUMBA_CACHE_DIR", "TMPDIR", "HOME"])
-def test_writable_directories_are_the_workers_scratch_directory(
+def test_writable_directories_are_the_servers_scratch_directory(
     tmp_path: Path, variable: str
 ) -> None:
     scratch = tmp_path / "scratch"

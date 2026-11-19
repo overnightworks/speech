@@ -226,7 +226,7 @@ class VoiceSlot:
         return dead is None or self._closed(dead, _Closing.DEAD)
 
     def _closed(self, engine: SpeakingEngine, closing: _Closing) -> bool:
-        """Close `engine`; a failed close is fatal, because a worker may remain."""
+        """Close `engine`; a failed close is fatal, because a server may remain."""
         try:
             engine.close()
         except Exception:

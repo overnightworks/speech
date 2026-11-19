@@ -18,7 +18,7 @@ flowchart LR
     app[App holding both tokens] -->|speak, hear a recording| listener[TCP listener]
     edge[Edge, app network] -->|health| listener
     listener --> service[speech_service]
-    service -->|isolated processes| providers[providers/*]
+    service -->|starts it, HTTP over a Unix socket| providers[providers/*]
     service -->|key set, https| issuer[Identity issuer]
 ```
 
@@ -44,7 +44,7 @@ flowchart LR
   [Delivery](#delivery). `scripts/prove_image.py` proves the small one.
 - `packages/client`: the wire types an app and the service share (the closed voice catalogue among them), the bounded speaking call, the bounded health fetch, the live hearing session (`HearingSession`: the allowed languages, a token source awaited before every opening, frames held up to a caller-set byte limit, typed server events that name each item's language and sit on one audio timeline, a reopening after a drain or a cut within `RECONNECT_BOUND`, one closed outcome union), the relay (`relay`) of a browser socket to that session an app makes, and `hear_utterances`, which builds that session and hands an app finished utterances.
 - `packages/browser`: the framework-free browser package (`overnightworks-speech-browser`) an app's page streams its microphone and plays sounds with. `startCapture` takes the first audio track of the app's own stream, resamples it with a filter to the wire's PCM16 at 24 kHz in its own same-origin AudioWorklet file and main-thread resampler, and sends 100 ms frames to the app's relay route, capturing only once the hop socket is open, so it sends no audio older than the app's accept of that socket; it has no loudness gate, hands the app every message the app's own server sends down the hop (its optional `onMessage`, uninterpreted, in arrival order, until the capture ends), and its `ended` names how the hop ended. `createPlayer` plays the sounds an app hands it, each as bytes or the URL of the app's own route, in the order of the calls (a route answering 16-bit mono PCM WAV plays while its body still arrives, its chunks scheduled back to back; every other sound plays whole), as sources into the player's one GainNode, the only input of the output (the one node a per-frame reader can tap: the player's `tap` property returns it, and the package builds no reader of its own). It reports each sound's start and end once; the start carries the context time at which the sound's first sample plays and the context it plays on (none for a sound that ended first), and the end says how it ended (played, stopped, muted, refused (no user activation, or `resume()` refused), or failed to load); `pause` ramps the gain to 0 over an edge of a few tens of milliseconds, which is click-free, then suspends the context, so the clock, the scheduled sources and each start the app read stay valid; a streamed body that arrives meanwhile queues on the frozen clock, and no sound starts until `resume` resumes the context and ramps the gain back to 1, so the sounds play on where they paused. `stop` ramps the gain to 0 over the same edge and ends the playing sound as stopped where the ramp ends, on the audio clock, and ends every waiting sound at once and aborts their fetches; a stop while paused ends all at once and leaves the pause. `setMuted(true)` ends the playing and every waiting sound at once, aborts their fetches and clears a pause, and `close` also closes the context. The gain changes in no other way. The ends of played, stopped and muted sounds carry `playedSeconds`, read from the context's clock. Both are exported from one entry, `index.ts`. Its `hop.ts` is generated from `PcmFormat` and `speech_client.relay` by `scripts/generate_browser_wire.py`.
-- `providers/*`: the voices that run in their own processes and environments. Each is its own uv project with its own lock; `providers/provider-contract` is the shared source the others install from. The client in `packages/client` is a uv workspace member of the root.
+- `providers/*`: the voices that run in their own environments. Qwen's is a launcher the service starts as its child, which becomes vLLM-Omni's server. Each is its own uv project with its own lock; `providers/provider-contract` is the shared source the others install from. The client in `packages/client` is a uv workspace member of the root.
 
 ### Speaking
 
@@ -71,24 +71,29 @@ flowchart LR
   with no process and no CUDA context, until a request names it. Its first
   request starts the slot's one load job on a thread the slot owns, and every
   request for that voice awaits the same job. Nothing unloads a voice.
-- **Qwen speaks through its own server.** Its worker starts `vllm-omni serve`
-  as a child in `load`, on the pinned checkpoint, and `load` returns once the
-  child answers its health check. A request goes to it over HTTP on a Unix
-  socket and its audio is read per arrived chunk, so the first chunk reaches the
-  caller before the second is made; the instructions cross as the request's
-  `instructions`. The server reserves 0.45 of the card (0.3 for the talker, 0.15
+- **Qwen speaks through its own server.** The service starts `speech-qwen-server`
+  as its child on a thread it owns for the engine's life, and the launcher
+  replaces itself with `vllm-omni serve` on the pinned checkpoint. `load` returns
+  once the server answers its health check within 600 seconds while the child
+  lives. A request goes to it over HTTP on a Unix socket, one connection each,
+  and its audio is read per arrived chunk, so the first chunk reaches the caller
+  before the second is made; closing the response closes the connection. The
+  voice and the instructions cross as the request's `voice` and `instructions`.
+  A refusal, a broken stream, audio that ends inside a sample or a sample rate
+  other than the engine's fails the synthesis and the engine; the next request
+  reloads it. The server reserves 0.45 of the card (0.3 for the talker, 0.15
   for the decoder) and assumes nothing about being alone on it.
 - **Three load rules.** A request that leaves never cancels a shared load: the
   job's future runs before its thread starts and requests await it shielded. A
-  load first checks the voice's pinned files and worker, and a failed load
-  closes and reaps what it built, and any worker a crash left, before it
-  resolves, so a retry starts only once no worker of that voice remains. An
+  load first checks the voice's pinned files and launcher, and a failed load
+  closes and reaps what it built, and any server a crash left, before it
+  resolves, so a retry starts only once no server of that voice remains. An
   engine is closed only off the event loop: on the job's thread, the start and
   stop threads, or Starlette's threadpool.
-- **Failure isolation.** A failed load, missing files or a crashed worker make
+- **Failure isolation.** A failed load, missing files or a crashed server make
   that voice refuse 503 `unavailable` with `param` `voice` and report itself
   not ready, while the Piper voices and hearing keep serving; the next request loads it
-  again. A worker that cannot be reaped ends the process.
+  again. A server that cannot be reaped ends the process.
 - **One readiness.** `/health` and the refusal read the same answer, so no voice
   is ready during the start load or once the drain began, and `speaking.ready`
   is every offered Piper voice's. A request that held its voice's gate across a stop or a crash is
@@ -188,8 +193,8 @@ catalogue), and the service has no route to a registry or a
 hub. The small image carries no GPU voice and hears with `small` on the CPU. The
 healthcheck requires Piper and hearing
 to be ready, so a deployment that cannot hear is not recorded. Qwen is offered
-only when the start setting names it, and then launches on `cuda`, the provider
-contract's one device for it, whatever device hearing uses. Offered on the
+only when the start setting names it, and then runs on the card whatever device
+hearing uses. Offered on the
 small image, which lacks its environment and weights, it is not installed: its
 requests are refused `unavailable`, `/health` reports it not ready, and the
 Piper voices and hearing keep serving.
@@ -269,34 +274,33 @@ the old pod stops (a rolling update that never lowers the ready count).
   (on the speak and transcription routes and at a realtime upgrade). A failed
   step is one error line, its own; the failure chain before it is a warning, logged once as a message-free
   exception.
-  Nothing is written per chunk or frame. The GPU provider child writes no
+  Nothing is written per chunk or frame. The GPU server child writes no
   log stream of its own.
 - A provider's failure lines carry only closed codes and numbers:
-  `synthesis.failed` its request id, `provider.exited` its phase, exit status
-  and, before READY, a closed reason. The provider's own text, its FAILED
-  chain (types, errno names or numbers, int error codes and exit statuses, and
-  code frames, escaped and at most 4 KB) or its startup stderr, travels as the
-  exception's note and reaches the log once, where the exception stops. The
-  provider's stderr after READY stays /dev/null.
-- Qwen's server is the worker's child, reachable only through a Unix socket in
-  the worker's private directory, a fresh path per start, so no port opens and a
-  server left by an earlier start is never mistaken for the new one. Readiness
-  counts only while that child lives. It sends no telemetry
+  `synthesis.failed` the HTTP status or a closed reason, `provider.exited` its
+  phase, exit status and, before ready, a closed reason. The server's error
+  bodies are never read into a log. Its stderr tail (at most 64 KiB) before it
+  is ready travels as the note of the load's failure and reaches the log once,
+  where the exception stops; what it writes after ready is read and discarded.
+- Qwen's server is the service's child, reachable only through a Unix socket in
+  a private directory (mode 0700) of the service, a fresh path per start, so no
+  port opens and a server left by an earlier start is never mistaken for the new
+  one. Readiness counts only while that child lives. It sends no telemetry
   (`VLLM_NO_USAGE_STATS`, `DO_NOT_TRACK`), compiles nothing with `nvcc`, which
   the image does not carry (its FlashInfer sampler is off through
   `VLLM_USE_FLASHINFER_SAMPLER`, vLLM's other FlashInfer kernels are off while
   no `nvcc` is found, and attention takes FlashAttention below compute
   capability 10; only Triton and Inductor compile, with the image's `gcc`), its
-  stdout goes nowhere, and its
-  stderr joins the worker's own, which is the startup file until READY and
-  `/dev/null` after.
-- The server dies with its worker (the parent-death signal, set on the worker's
-  main thread) and stays in the worker's process group, so the service's stop
-  ends every stage process through that group, also after the worker died first.
-  The worker ends when its server does, so health never reports a voice whose
-  server is gone. The next start removes the wake directories a killed server
-  left in `/dev/shm`, those its user owns and no process still reads; a link
-  there is never followed.
+  stdin and stdout are `/dev/null`, and its stderr is a pipe the service drains
+  on a thread, so a full pipe never blocks it.
+- The server dies with the service (the parent-death signal, set by the launcher
+  and kept across its `exec`; the service starts the launcher on its long-lived
+  owner thread, because the signal follows that thread) and stays in its own
+  process group, so the service's stop ends every stage process through that
+  group, also after the server died first. The service polls its child, so health
+  never reports a voice whose server is gone. The launcher removes the wake
+  directories a killed server left in `/dev/shm` before it starts the next, those
+  its user owns and no process still reads; a link there is never followed.
 - vLLM-Omni's deploy config and its tokenizer load still ask for
   `trust_remote_code`; the command no longer does. The pinned snapshot holds no
   Python file and no `auto_map`, and the process runs offline, so there is no
@@ -359,6 +363,13 @@ the old pod stops (a rolling update that never lowers the ready count).
 - **Orpheus (`Thorsten-Voice/tv-orpheus-v1`):** a 3B talker of about 8 GB, its
   first audio never measured here; reopens when it is measured inside the
   one-second first-audio target.
+- **Engines as their own pods:** an engine outside the service's process, a
+  sidecar of the same pod included, would change ruled loading at start
+  (WIRE-09, WIRE-143) and leave the service's private directory and caller
+  check, whether it listens on a port or on a socket the containers share;
+  reopens when the operator wants the GPU engine rolled independently of the
+  service, platform's rollout rule demands a rolling update for the pod that
+  holds the card, or a second card or platform GPU sharing exists.
 - **Chatterbox, Magpie and VoxCPM:** each GPU voice costs its own environment,
   weights and card proof; reopens when the operator names a voice he wants.
 - **Piper `thorsten-high`:** its first audio through the service was over the
@@ -373,7 +384,7 @@ the old pod stops (a rolling update that never lowers the ready count).
   switch `compose.yaml` runs the service, naming no GPU voice and reserving no
   card: it speaks with Piper and hears on the CPU. The card reservation and its
   proof wait for the platform's GPU design.
-- A GPU voice is proven with a fake worker and a fake server. CI builds and
+- A GPU voice is proven with a fake launcher that serves the server's HTTP. CI builds and
   proves the small image; a pull request that changes the `Dockerfile`, a
   `uv.lock` or `providers/` also builds the gpu stage without pushing it, so a
   change that breaks its environment turns the gate red before the release.

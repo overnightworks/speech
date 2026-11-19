@@ -129,25 +129,6 @@ class _OwnerExit(Enum):
     PROVIDER_FAILURE = "provider_failure"
 
 
-class _UnixConnection(http.client.HTTPConnection):
-    """An HTTP connection over the Unix socket the server listens on."""
-
-    def __init__(self, socket_path: Path, timeout: float) -> None:
-        super().__init__("localhost", timeout=timeout)
-        self._socket_path = socket_path
-
-    def connect(self) -> None:
-        """Connect to the socket path instead of a host and port."""
-        unix_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        try:
-            unix_socket.settimeout(self.timeout)
-            unix_socket.connect(str(self._socket_path))
-        except BaseException:
-            unix_socket.close()
-            raise
-        self.sock = unix_socket
-
-
 class _StderrTail:
     """The last bytes a server wrote to stderr, kept only until it is ready."""
 
@@ -242,12 +223,15 @@ class ProviderProcess:
             raise ProviderFailedError(self._startup_stderr)
 
     def connect(self, timeout: float) -> http.client.HTTPConnection:
-        """Open a connection to the ready server; its reads give up after `timeout`."""
+        """Open a connection to the ready server; its reads give up after `timeout`.
+
+        `OSError` when the server no longer listens.
+        """
         with self._state_lock:
             socket_path = self._socket_path
             if socket_path is None or not self.ready or self._closing or self._failed:
                 raise ProviderNotReadyError
-        return _UnixConnection(socket_path, timeout)
+        return _connect_unix(socket_path, timeout)
 
     def mark_failed(self) -> None:
         """Stop serving: the server is stopped and the next load starts a new one."""
@@ -434,8 +418,28 @@ def _signal_group(group: int, signal_number: signal.Signals) -> None:
         os.killpg(group, signal_number)
 
 
+def _connect_unix(socket_path: Path, timeout: float) -> http.client.HTTPConnection:
+    """Open an HTTP connection over the Unix socket at `socket_path`.
+
+    `OSError` when nothing listens there; every read gives up after `timeout`.
+    """
+    unix_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        unix_socket.settimeout(timeout)
+        unix_socket.connect(str(socket_path))
+    except BaseException:
+        unix_socket.close()
+        raise
+    connection = http.client.HTTPConnection("localhost", timeout=timeout)
+    connection.sock = unix_socket
+    return connection
+
+
 def _is_healthy(socket_path: Path) -> bool:
-    connection = _UnixConnection(socket_path, _HEALTH_REQUEST_SECONDS)
+    try:
+        connection = _connect_unix(socket_path, _HEALTH_REQUEST_SECONDS)
+    except OSError:
+        return False
     try:
         connection.request("GET", _HEALTH_PATH)
         return connection.getresponse().status == HTTPStatus.OK

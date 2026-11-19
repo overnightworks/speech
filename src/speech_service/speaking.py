@@ -211,14 +211,15 @@ class QwenSpeaking:
         }
         if instructions is not None:
             request["instructions"] = instructions
-        connection = self._process.connect(_RESPONSE_SECONDS)
         try:
-            yield from self._answer(connection, request)
+            connection = self._process.connect(_RESPONSE_SECONDS)
+            try:
+                yield from self._answer(connection, request)
+            finally:
+                connection.close()
         except (OSError, http.client.HTTPException) as error:
             self._fail(reason="connection")
             raise ProviderSynthesisFailedError from error
-        finally:
-            connection.close()
 
     def _answer(
         self, connection: http.client.HTTPConnection, request: dict[str, object]

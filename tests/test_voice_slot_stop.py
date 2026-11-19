@@ -62,7 +62,7 @@ _SHORT_DRAIN = StageSetup(
 _SHORT_DRAIN_WAIT = {"hearing_final_wait_seconds": _DRAIN_BOUND_SECONDS / 2}
 
 
-def test_sigterm_during_a_load_refuses_its_waiters_reaps_the_worker_and_exits_zero(
+def test_sigterm_during_a_load_refuses_its_waiters_reaps_the_server_and_exits_zero(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def scenario(serving: Serving, stage: GpuVoiceStage) -> tuple[int, list]:

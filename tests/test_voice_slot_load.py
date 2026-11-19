@@ -460,9 +460,9 @@ def test_an_offered_voice_whose_files_are_missing_is_refused_and_named_in_the_lo
         tmp_path, monkeypatch, StageSetup("normal", qwen_installed=missing != "weights")
     ) as stage:
         entrypoint = stage.settings.provider_root / "qwen/.venv/bin"
-        (worker,) = entrypoint.iterdir()
+        (launcher,) = entrypoint.iterdir()
         if missing == "entrypoint":
-            worker.unlink()
+            launcher.unlink()
         client = TestClient(stage.app())
         refused = [post_speech(client, speak_body(VoiceId.RYAN)) for _ in range(2)]
         _assert_piper_and_hearing_serve(client)
@@ -472,7 +472,7 @@ def test_an_offered_voice_whose_files_are_missing_is_refused_and_named_in_the_lo
         assert_unavailable(response)
     assert stage.starts() == []
     assert health.speaking.voices[VoiceId.RYAN].ready is False
-    named = QWEN_ARTIFACTS if missing == "weights" else (worker.name,)
+    named = QWEN_ARTIFACTS if missing == "weights" else (launcher.name,)
     logged = [
         record
         for record in caplog.records
