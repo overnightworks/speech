@@ -276,7 +276,7 @@ def test_stop_ramps_down_without_a_click_then_ends_and_the_next_sound_is_at_full
     assert min(heard) >= FULL_PEAK
 
 
-def test_a_sound_handed_over_as_the_stopped_one_ends_early_waits_for_the_ramp_and_is_at_full_volume(
+def test_a_sound_handed_over_as_the_stopped_one_ends_early_starts_at_full_volume(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
