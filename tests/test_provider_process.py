@@ -284,8 +284,9 @@ def test_load_after_a_failed_startup_is_refused(tmp_path: Path) -> None:
 
 
 def test_a_request_before_load_is_refused_as_not_ready(tmp_path: Path) -> None:
+    server = _server(tmp_path)
     with pytest.raises(ProviderNotReadyError):
-        _server(tmp_path).connect(1)
+        server.connect(1)
 
 
 def test_a_server_without_a_private_directory_is_refused_and_closes_cleanly(
