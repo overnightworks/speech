@@ -204,7 +204,8 @@ The limits, each answered without decoding more than it must:
   answered first (WIRE-30), and then answers `busy` with `Retry-After`: the
   recording is never heard, even if a place frees while it arrives.
 - **WIRE-161** A place is freed when its request is refused, when its caller leaves
-  and when its decode has returned.
+  before its decode has begun and when its decode has returned. A decode that has
+  begun keeps its place until it returns, even if the caller has gone (WIRE-44).
 - **WIRE-162** An upload still arriving `SPEECH_HEARING_BUSY_WAIT_SECONDS` after the
   request arrived is `busy`, even on an idle service, and its place goes to the next
   request. A request not admitted by then gives its place back.
