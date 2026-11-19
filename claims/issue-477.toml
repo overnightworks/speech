@@ -3,6 +3,6 @@ agent = "Claude 1c28c70f-b9e3-4666-80ff-8274d2dcf8fd"
 role = "builder"
 base = "704a185bb38f5005f677516676e4bb7629595992"
 branch = "claude/issue-477-logline-1x"
-scope = ["packages/client/pyproject.toml", "pyproject.toml", "tests/support/tcp_server_support.py", "tests/test_wire_route_tcp.py", "uv.lock"]
+scope = ["packages/client/pyproject.toml", "pyproject.toml", "tests/support/tcp_server_support.py", "tests/test_main_serve_lifecycle.py", "tests/test_wire_route_tcp.py", "uv.lock"]
 opened_commit = "50157dba0f25df9549052f437fad3c405b21d8a5"
 whole_reason = "One dependency move: the service manifest, the client dev pin, the lock and the two tests that pin logline's uvicorn records."
