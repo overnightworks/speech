@@ -1,4 +1,4 @@
-"""The parent-death signal a worker and the server it starts both carry."""
+"""The parent-death signal the launcher and the server it becomes both carry."""
 
 import ctypes
 import os

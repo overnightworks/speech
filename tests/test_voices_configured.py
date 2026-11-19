@@ -1,5 +1,7 @@
 """The start setting is the one source of the offer."""
 
+import asyncio
+import time
 from typing import TYPE_CHECKING
 
 import pytest
@@ -27,23 +29,27 @@ from tests.support.identity_support import (
     valid_callers,
     valid_headers,
 )
+from tests.support.launcher_support import SERVER_WAIT_SECONDS, received_requests
 from tests.support.speak_support import (
+    SpeakCall,
     app_over,
     assert_unavailable,
     fake_runtime,
     post_speech,
     speak_body,
+    wav_body,
 )
-from tests.support.worker_support import spoken_instructions, spoken_language_codes
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from tests.support.gpu_voice_support import GpuVoiceStage
 
 _DEFAULT_OFFER = StageSetup(voices=frozenset(PIPER_VOICES))
 _ONE_PIPER_VOICE = StageSetup(voices=frozenset({VoiceId.THORSTEN}))
 
 
-def test_by_default_every_piper_voice_is_offered_and_speaks_without_a_worker(
+def test_by_default_every_piper_voice_is_offered_and_speaks_without_a_server(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """WIRE-07, WIRE-107, WIRE-125: by default every piper voice is offered."""
@@ -100,7 +106,7 @@ def test_speaking_is_ready_when_only_a_gpu_voice_is_offered(
     assert list(health.speaking.voices) == [VoiceId.RYAN.value]
 
 
-def test_every_registered_app_speaks_an_offered_gpu_voice_through_one_worker(
+def test_every_registered_app_speaks_an_offered_gpu_voice_through_one_server(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """WIRE-07, WIRE-09, WIRE-114: each registered app speaks an offered GPU voice."""
@@ -123,25 +129,25 @@ def test_every_registered_app_speaks_an_offered_gpu_voice_through_one_worker(
 
 
 @pytest.mark.parametrize("language", VOICES[VoiceId.RYAN].languages)
-def test_ryan_is_spoken_by_the_worker_in_the_language_asked_for(
+def test_ryan_is_spoken_by_the_server_in_the_language_asked_for(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, language: Language
 ) -> None:
-    """WIRE-138: ryan is spoken with the provider's language byte of the language."""
-    provider_language_byte = {Language.DE: 1, Language.EN: 2}[language]
+    """WIRE-138: ryan is spoken in the language of the request."""
+    language_name = {Language.DE: "German", Language.EN: "English"}[language]
     with gpu_voice_stage(tmp_path, monkeypatch, StageSetup("normal")) as stage:
         spoken = post_speech(
             TestClient(stage.app()), speak_body(VoiceId.RYAN, language=language)
         )
 
     assert spoken.status_code == HTTP_200_OK
-    assert spoken_language_codes(stage.cache) == [provider_language_byte]
+    assert [r["language"] for r in received_requests(stage.cache)] == [language_name]
 
 
 @pytest.mark.parametrize("instructions", [None, "Lass mich ausreden, zornig und laut"])
-def test_ryan_is_spoken_by_the_worker_with_the_instructions_asked_for(
+def test_ryan_is_spoken_by_the_server_with_the_instructions_asked_for(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, instructions: str | None
 ) -> None:
-    """WIRE-141: the instructions of a request reach the worker with its text."""
+    """WIRE-141: the instructions of a request reach the server with its text."""
     with gpu_voice_stage(tmp_path, monkeypatch, StageSetup("normal")) as stage:
         spoken = post_speech(
             TestClient(stage.app()),
@@ -149,7 +155,9 @@ def test_ryan_is_spoken_by_the_worker_with_the_instructions_asked_for(
         )
 
     assert spoken.status_code == HTTP_200_OK
-    assert spoken_instructions(stage.cache) == [instructions]
+    assert [r.get("instructions") for r in received_requests(stage.cache)] == [
+        instructions
+    ]
 
 
 @pytest.mark.parametrize("voice", [v for v in VoiceId if v is not VoiceId.THORSTEN])
@@ -222,3 +230,28 @@ def test_hearing_is_not_mounted() -> None:
 
     with pytest.raises(WebSocketDisconnect), client.websocket_connect("/hear"):
         pass
+
+
+def test_ryans_first_chunk_reaches_the_caller_before_the_server_sends_the_second(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WIRE-06: audio streams as the server produces it."""
+
+    async def scenario(stage: GpuVoiceStage) -> tuple[bytes, bool, bytes]:
+        call = SpeakCall(stage.app(), speak_body(VoiceId.RYAN, "gate"))
+        assert await call.status() == HTTP_200_OK
+        deadline = time.monotonic() + SERVER_WAIT_SECONDS
+        while not wav_body(call.messages).endswith(b"\x00\x01"):
+            assert time.monotonic() < deadline
+            await asyncio.sleep(0.01)
+        before_second = wav_body(call.messages)
+        running = not call.task.done()
+        (stage.cache / "release-second").touch()
+        return before_second, running, await call.finish()
+
+    with gpu_voice_stage(tmp_path, monkeypatch, StageSetup("normal")) as stage:
+        before_second, running, whole = asyncio.run(scenario(stage))
+
+    assert running is True
+    assert before_second.endswith(b"\x00\x01")
+    assert pcm_from_wav(whole)[1] == b"\x00\x01\x02\x03"

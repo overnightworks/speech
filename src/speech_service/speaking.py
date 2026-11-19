@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import http.client
+import json
+import logging
 from functools import partial
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Protocol, assert_never, runtime_checkable
 
 from speech_provider_contract import (
-    QWEN_DEVICE,
+    QWEN_LANGUAGE_NAMES,
     QWEN_MODEL_ID,
     QWEN_SAMPLE_RATE,
+    QwenSpeaker,
 )
 
 from speech_client.wire import GivesMarks, SentenceMarks
@@ -23,18 +28,22 @@ from speech_service.provider_process import (
     ProviderId,
     ProviderLaunch,
     ProviderProcess,
+    ProviderSynthesisFailedError,
+    UnsupportedLanguageError,
     provider_entrypoint,
 )
 from speech_service.voices import piper_voice_paths
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
+    from collections.abc import Callable, Generator, Iterator
     from pathlib import Path
 
     from piper import AudioChunk, PiperVoice
 
     from speech_service.catalogue import CatalogueEntry
     from speech_service.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -150,7 +159,114 @@ def _spoken(chunk: AudioChunk) -> Sentence:
     )
 
 
-LocalSpeaking = PiperSpeaking | ProviderProcess
+_RESPONSE_SECONDS = 120.0
+"""How long the server may stay silent in the middle of a response."""
+_PCM_READ_BYTES = 64 * 1024
+_SAMPLE_BYTES = 2
+_SAMPLE_RATE_HEADER = "x-audio-sample-rate"
+_SPEECH_PATH = "/v1/audio/speech"
+
+
+class QwenSpeaking:
+    """One Qwen voice, spoken through the vLLM-Omni server its process owns."""
+
+    def __init__(self, process: ProviderProcess, speaker: QwenSpeaker) -> None:
+        """Remember the server's owner and the voice every request names."""
+        self.model_name = QWEN_MODEL_ID
+        self.sample_rate = QWEN_SAMPLE_RATE
+        self._process = process
+        self._speaker = speaker
+
+    @property
+    def ready(self) -> bool:
+        """Whether the server is up, healthy and not failed."""
+        return self._process.ready
+
+    def load(self) -> None:
+        """Start the server and return once it answers its health check."""
+        self._process.load()
+
+    def set_fatal_callback(self, callback: Callable[[], None]) -> None:
+        """Give the server's owner the runtime's lifecycle failure seam."""
+        self._process.set_fatal_callback(callback)
+
+    def close(self) -> None:
+        """Stop the server and everything it started."""
+        self._process.close()
+
+    def pcm_chunks(
+        self, text: str, language: str, instructions: str | None = None
+    ) -> Generator[bytes]:
+        """Stream the server's PCM, each part as it arrives, in whole samples.
+
+        Closing the generator closes the connection. A refusal, a broken
+        connection, audio that ends inside a sample or a sample rate that is not
+        Qwen's fails the synthesis and the server with it.
+        """
+        language_name = _language_name(language)
+        request: dict[str, object] = {
+            "input": text,
+            "voice": self._speaker.value,
+            "language": language_name,
+            "response_format": "pcm",
+            "stream": True,
+            "stream_format": "audio",
+        }
+        if instructions is not None:
+            request["instructions"] = instructions
+        try:
+            connection = self._process.connect(_RESPONSE_SECONDS)
+            try:
+                yield from self._answer(connection, request)
+            finally:
+                connection.close()
+        except OSError, http.client.HTTPException:
+            self._fail(reason="connection")
+            raise ProviderSynthesisFailedError from None
+
+    def _answer(
+        self, connection: http.client.HTTPConnection, request: dict[str, object]
+    ) -> Iterator[bytes]:
+        connection.request(
+            "POST",
+            _SPEECH_PATH,
+            json.dumps(request),
+            {"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        if response.status != HTTPStatus.OK:
+            self._fail(status=response.status)
+            raise ProviderSynthesisFailedError
+        rate = response.getheader(_SAMPLE_RATE_HEADER)
+        if rate is not None and rate.strip() != str(self.sample_rate):
+            self._fail(reason="sample_rate")
+            raise ProviderSynthesisFailedError
+        carried = b""
+        while arrived := response.read1(_PCM_READ_BYTES):
+            available = carried + arrived
+            whole = len(available) - len(available) % _SAMPLE_BYTES
+            carried = available[whole:]
+            if whole:
+                yield available[:whole]
+        if carried:
+            self._fail(reason="partial_sample")
+            raise ProviderSynthesisFailedError
+
+    def _fail(self, **fields: object) -> None:
+        """Log why the synthesis failed, without the server's answer, and stop it."""
+        logger.warning("synthesis.failed", extra=fields)
+        self._process.mark_failed()
+
+
+def _language_name(language: str) -> str:
+    normalized = language.strip().lower().replace("_", "-")
+    name = QWEN_LANGUAGE_NAMES.get((normalized or "de").split("-", 1)[0])
+    if name is None:
+        raise UnsupportedLanguageError
+    return name
+
+
+LocalSpeaking = PiperSpeaking | QwenSpeaking
 
 
 def speaking_for_voice(settings: Settings, voice: CatalogueEntry) -> LocalSpeaking:
@@ -159,22 +275,16 @@ def speaking_for_voice(settings: Settings, voice: CatalogueEntry) -> LocalSpeaki
         case PiperEntry():
             return PiperSpeaking(voice.id.value, settings.voice_cache)
         case QwenEntry():
-            return ProviderProcess(
-                ProviderLaunch(
-                    model_name=QWEN_MODEL_ID,
-                    sample_rate=QWEN_SAMPLE_RATE,
-                    executable=provider_entrypoint(
-                        settings.provider_root, ProviderId.QWEN
-                    ),
-                    arguments=(
-                        "--device",
-                        QWEN_DEVICE,
-                        "--cache",
-                        str(settings.huggingface_cache),
-                        "--speaker",
-                        voice.pin.speaker.value,
-                    ),
+            return QwenSpeaking(
+                ProviderProcess(
+                    ProviderLaunch(
+                        executable=provider_entrypoint(
+                            settings.provider_root, ProviderId.QWEN
+                        ),
+                        arguments=("--cache", str(settings.huggingface_cache)),
+                    )
                 ),
+                voice.pin.speaker,
             )
         case unreachable:
             assert_never(unreachable)

@@ -1,4 +1,4 @@
-"""A stop refuses what waits for a GPU voice, reaps its worker, exits by its cause."""
+"""A stop refuses what waits for a GPU voice, reaps its server, exits by its cause."""
 
 from __future__ import annotations
 
@@ -22,6 +22,17 @@ from tests.support.gpu_voice_support import (
     gpu_voice_stage,
     speak_headers,
 )
+from tests.support.launcher_support import (
+    SERVER_WAIT_SECONDS,
+    LoadOutcome,
+    assert_reaped,
+    hold_exits,
+    is_running,
+    release_exit,
+    release_load,
+    wait_for_held_exit,
+    wait_for_starts,
+)
 from tests.support.speak_support import (
     SpeakCall,
     app_over,
@@ -33,17 +44,6 @@ from tests.support.speak_support import (
     speak_body,
 )
 from tests.support.tcp_server_support import listens_on
-from tests.support.worker_support import (
-    WORKER_WAIT_SECONDS,
-    LoadOutcome,
-    assert_reaped,
-    hold_exits,
-    is_running,
-    release_exit,
-    release_load,
-    wait_for_held_exit,
-    wait_for_starts,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -54,7 +54,7 @@ if TYPE_CHECKING:
 _LOADING = StageSetup(started=False)
 _SERVING = StageSetup("normal", started=False)
 _DRAIN_BOUND_SECONDS = 1.0
-# The fake worker holds a stream until the engine closes, so a stream the test
+# The fake server holds a stream until the engine closes, so a stream the test
 # leaves running lasts until the bound.
 _SHORT_DRAIN = StageSetup(
     "normal", started=False, drain_turn_seconds=_DRAIN_BOUND_SECONDS / 2
@@ -62,7 +62,7 @@ _SHORT_DRAIN = StageSetup(
 _SHORT_DRAIN_WAIT = {"hearing_final_wait_seconds": _DRAIN_BOUND_SECONDS / 2}
 
 
-def test_sigterm_during_a_load_refuses_its_waiters_reaps_the_worker_and_exits_zero(
+def test_sigterm_during_a_load_refuses_its_waiters_reaps_the_server_and_exits_zero(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def scenario(serving: Serving, stage: GpuVoiceStage) -> tuple[int, list]:
@@ -114,7 +114,7 @@ def test_sigterm_during_a_failed_loads_cleanup_waits_for_it_and_exits_by_its_rea
             release_load(stage.cache, pid, LoadOutcome.FAILED)
             await asyncio.to_thread(wait_for_held_exit, stage.cache, pid)
             serving.sigterm()
-            deadline = time.monotonic() + WORKER_WAIT_SECONDS
+            deadline = time.monotonic() + SERVER_WAIT_SECONDS
             while await asyncio.to_thread(listens_on, serving.port):
                 assert time.monotonic() < deadline
             waited = not serving.task.done() and is_running(pid)
@@ -123,7 +123,9 @@ def test_sigterm_during_a_failed_loads_cleanup_waits_for_it_and_exits_by_its_rea
             assert_unavailable(await refused)
             return waited, outcome
 
-    setup = StageSetup(started=False, reaps_fail=reap_fails)
+    setup = StageSetup(
+        started=False, reaps_fail=reap_fails, health_deadline_seconds=1.0
+    )
     with gpu_voice_stage(tmp_path, monkeypatch, setup) as stage:
         hold_exits(stage.cache)
         serving = Serving(stage, monkeypatch)
@@ -137,7 +139,7 @@ def test_sigterm_during_a_failed_loads_cleanup_waits_for_it_and_exits_by_its_rea
     assert serving.fatal.is_set() is reap_fails
 
 
-def test_a_failed_load_whose_worker_cannot_be_reaped_ends_the_service_nonzero(
+def test_a_failed_load_whose_server_cannot_be_reaped_ends_the_service_nonzero(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def scenario(serving: Serving, stage: GpuVoiceStage) -> int:
@@ -146,7 +148,7 @@ def test_a_failed_load_whose_worker_cannot_be_reaped_ends_the_service_nonzero(
                 client.post(SPEECH_PATH, content=speak_body(VoiceId.RYAN))
             )
             (pid,) = await asyncio.to_thread(wait_for_starts, stage.cache, 1)
-            release_load(stage.cache, pid, LoadOutcome.FAILED)
+            release_load(stage.cache, pid, LoadOutcome.EXIT)
             outcome = await serving.task
             await asyncio.gather(asked, return_exceptions=True)
             return outcome
@@ -166,7 +168,7 @@ async def _load_and_stream(client: httpx2.AsyncClient) -> httpx2.Response:
     loaded = await client.post(SPEECH_PATH, content=speak_body(VoiceId.RYAN))
     assert loaded.status_code == HTTPStatus.OK
     request = client.build_request(
-        "POST", SPEECH_PATH, content=speak_body(VoiceId.RYAN, "wait-cancel")
+        "POST", SPEECH_PATH, content=speak_body(VoiceId.RYAN, "wait-disconnect")
     )
     streaming = await client.send(request, stream=True)
     assert streaming.status_code == HTTPStatus.OK
@@ -209,7 +211,7 @@ def test_sigterm_mid_stream_lets_the_stream_run_to_the_drain_bound_then_aborts_i
 
 def _kept_alive(port: int) -> http.client.HTTPConnection:
     """A connection that answered GET /health whole and stays open for more."""
-    connection = http.client.HTTPConnection(LOOPBACK, port, timeout=WORKER_WAIT_SECONDS)
+    connection = http.client.HTTPConnection(LOOPBACK, port, timeout=SERVER_WAIT_SECONDS)
     connection.request("GET", "/health")
     answer = connection.getresponse()
     answer.read()
@@ -232,7 +234,7 @@ async def _queued_before_the_stop(
     """The server reads the request before it handles SIGTERM, as a race lets it."""
     queued = gate_acquisition_began(stage.runtime, VoiceId.RYAN)
     _send_qwen_request(connection)
-    await asyncio.wait_for(queued.wait(), WORKER_WAIT_SECONDS)
+    await asyncio.wait_for(queued.wait(), SERVER_WAIT_SECONDS)
     serving.sigterm()
 
 
@@ -291,7 +293,7 @@ def test_a_request_waiting_at_the_gate_when_the_service_stops_is_refused_not_bus
         app = app_over(runtime, busy_wait_seconds=0.2)
         holder = SpeakCall(app)
         await holder.status()
-        await asyncio.to_thread(voice.entered_first_step.wait, WORKER_WAIT_SECONDS)
+        await asyncio.to_thread(voice.entered_first_step.wait, SERVER_WAIT_SECONDS)
         queued = gate_acquisition_began(runtime)
         waiting = SpeakCall(app)
         await queued.wait()

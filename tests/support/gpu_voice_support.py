@@ -1,4 +1,4 @@
-"""A service started from its settings, over a fake Piper, ear and worker."""
+"""A service started from its settings, over a fake Piper, ear and Qwen server."""
 
 from __future__ import annotations
 
@@ -30,15 +30,15 @@ from speech_service.service import Runtime
 from speech_service.voices import piper_voice_paths
 from tests.support.hear_support import FakeHearing
 from tests.support.identity_support import valid_callers, valid_headers
-from tests.support.speak_support import ASGI_TIMEOUT_SECONDS, wav_body
-from tests.support.tcp_server_support import answers_http
-from tests.support.worker_support import (
-    WORKER_WAIT_SECONDS,
+from tests.support.launcher_support import (
+    SERVER_WAIT_SECONDS,
     closed_provider,
     fail_every_reap,
     release_exit,
-    worker_starts,
+    server_starts,
 )
+from tests.support.speak_support import ASGI_TIMEOUT_SECONDS, wav_body
+from tests.support.tcp_server_support import answers_http
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -96,7 +96,7 @@ def install_piper(monkeypatch: pytest.MonkeyPatch, voice_cache: Path) -> None:
 
 @dataclass(frozen=True, slots=True)
 class GpuVoiceStage:
-    """The runtime `Runtime.from_settings` built, its app, and the worker's cache."""
+    """The runtime `Runtime.from_settings` built, its app and the server cache."""
 
     runtime: Runtime
     settings: Settings
@@ -108,16 +108,18 @@ class GpuVoiceStage:
         return create_control_app(self.settings, self.runtime, valid_callers())
 
     def starts(self) -> list[int]:
-        """The pids of every worker started so far."""
-        return worker_starts(self.cache)
+        """The pids of every server started so far."""
+        return server_starts(self.cache)
 
 
 @dataclass(frozen=True, slots=True)
 class StageSetup:
-    """The fake worker's behaviour and what the stage installs and offers.
+    """The fake server's behaviour and what the stage installs and offers.
 
     The start load has run unless `started` is false. With `reaps_fail`, every
-    worker's cleanup fails once it is reaped, so the stage's close may raise.
+    server's cleanup fails once it is reaped, so the stage's close may raise.
+    With `health_deadline_seconds`, a server that never answers fails its load
+    after that long.
     """
 
     behavior: str = "held-ready"
@@ -126,6 +128,7 @@ class StageSetup:
     hearing: FakeHearing | None = None
     started: bool = True
     reaps_fail: bool = False
+    health_deadline_seconds: float | None = None
     drain_turn_seconds: float = DRAIN_TURN_SECONDS
 
 
@@ -138,7 +141,7 @@ def gpu_voice_stage(
 ) -> Iterator[GpuVoiceStage]:
     """A service built by `Runtime.from_settings` as `setup` says.
 
-    On exit every held worker exit is released and the runtime is closed.
+    On exit every held server exit is released and the runtime is closed.
     """
     setup = setup or StageSetup()
     behavior = setup.behavior
@@ -149,6 +152,11 @@ def gpu_voice_stage(
     ear = setup.hearing or FakeHearing()
     if setup.reaps_fail:
         fail_every_reap(monkeypatch)
+    if setup.health_deadline_seconds is not None:
+        monkeypatch.setattr(
+            "speech_service.provider_process.HEALTH_DEADLINE_SECONDS",
+            setup.health_deadline_seconds,
+        )
     configured = Settings(
         voices=setup.voices,
         provider_root=root,
@@ -166,7 +174,7 @@ def gpu_voice_stage(
             runtime.load()
         yield GpuVoiceStage(runtime, configured, cache, ear)
     finally:
-        for pid in worker_starts(cache):
+        for pid in server_starts(cache):
             release_exit(cache, pid)
         try:
             runtime.close()
@@ -223,7 +231,7 @@ class LoadWaits:
         """Return once `count` requests hold the load; fails after a bounded wait."""
         with self._changed:
             assert self._changed.wait_for(
-                lambda: self._count >= count, timeout=WORKER_WAIT_SECONDS
+                lambda: self._count >= count, timeout=SERVER_WAIT_SECONDS
             ), f"{count} requests never waited for the load"
 
 
@@ -272,7 +280,7 @@ class Serving:
                 StopPolicy(grace_seconds=STOP_GRACE_SECONDS),
             )
         )
-        deadline = time.monotonic() + WORKER_WAIT_SECONDS
+        deadline = time.monotonic() + SERVER_WAIT_SECONDS
         while not await asyncio.to_thread(answers_http, self.port):
             assert time.monotonic() < deadline
         while self._stage.runtime.loading:
@@ -280,7 +288,7 @@ class Serving:
             await asyncio.sleep(0.01)
         return httpx2.AsyncClient(
             base_url=f"http://{LOOPBACK}:{self.port}",
-            timeout=WORKER_WAIT_SECONDS,
+            timeout=SERVER_WAIT_SECONDS,
             headers=speak_headers(),
         )
 

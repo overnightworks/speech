@@ -1,52 +1,49 @@
-"""Bootstrap Qwen after reserving stdout for its binary protocol."""
+"""The launcher the service starts: it becomes `vllm-omni serve` on the given socket."""
 
 import argparse
 import os
-from functools import partial
-
-from speech_provider_contract import (
-    QWEN_SAMPLE_RATE,
-    ProviderFunctions,
-    QwenSpeaker,
-    serve_provider,
-)
+from collections.abc import Callable, Sequence
+from pathlib import Path
 
 from speech_qwen.parent_death import install_parent_death_signal
+from speech_qwen.server import remove_leftover_shared_memory
 
 
-def main() -> int:
-    """Redirect ordinary stdout, then enter the shared provider loop."""
-    arguments = _arguments()
-    protocol_stdout = os.dup(1)
-    null = os.open(os.devnull, os.O_WRONLY)
-    os.dup2(null, 1)
-    os.close(null)
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    tie_to_parent: Callable[[int], None] = install_parent_death_signal,
+    remove_leftovers: Callable[[], None] = remove_leftover_shared_memory,
+    server_command: Callable[[Path, Path], list[str]] | None = None,
+    execute: Callable[[str, list[str]], object] = os.execv,
+) -> None:
+    """Tie this process to the service, then replace it with the server.
+
+    The parent-death signal survives the exec, so the server dies with the
+    thread of the service that started this launcher. The keywords are the
+    boundaries: the signal, the shared-memory clean-up, the closed command of
+    the pinned server (imported only when used) and the exec.
+    """
+    arguments = _arguments(argv)
     try:
-        install_parent_death_signal(arguments.expected_parent_pid)
+        tie_to_parent(arguments.expected_parent_pid)
     except RuntimeError:
-        return 1
-    from speech_qwen.model import load_model, pcm_chunks
+        raise SystemExit(1) from None
+    remove_leftovers()
+    if server_command is None:
+        from speech_qwen.model import pinned_server_command as server_command
 
-    return serve_provider(
-        device=arguments.device,
-        cache=arguments.cache,
-        protocol_stdout=protocol_stdout,
-        sample_rate=QWEN_SAMPLE_RATE,
-        functions=ProviderFunctions(
-            load_model,
-            partial(pcm_chunks, speaker=arguments.speaker),
-        ),
-    )
+    command = server_command(arguments.cache, arguments.socket)
+    execute(command[0], command)
 
 
-def _arguments() -> argparse.Namespace:
+def _arguments(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-parent-pid", type=int, required=True)
-    parser.add_argument("--device", required=True)
-    parser.add_argument("--cache", required=True)
-    parser.add_argument("--speaker", type=QwenSpeaker, required=True)
-    return parser.parse_args()
+    parser.add_argument("--cache", type=Path, required=True)
+    parser.add_argument("--socket", type=Path, required=True)
+    return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

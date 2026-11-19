@@ -1,173 +1,56 @@
-"""A provider that fails leaves its cause in the service log, without the sentence."""
+"""A server that fails to start leaves its cause in the log, without the sentence."""
 
 from __future__ import annotations
 
+import contextlib
 import logging
-import os
-import signal
 import sys
-import time
+import threading
 import tomllib
 from pathlib import Path
 
 import pytest
-from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE
+from speech_provider_contract import QwenSpeaker
 
 from speech_service.provider_process import (
     ProviderFailedError,
     ProviderId,
     ProviderLaunch,
     ProviderProcess,
-    ProviderProtocolError,
     ProviderStartFailure,
     ProviderSynthesisFailedError,
     provider_entrypoint,
 )
-from tests.support.worker_support import closed_provider, provider_worker
+from speech_service.speaking import QwenSpeaking
+from tests.support.launcher_support import (
+    closed_provider,
+    provider_launcher,
+    wait_for_starts,
+)
 
-_ENTRYPOINT = """#!{python}
-{body}
-"""
-
-_CONTRACT_BODY = """import os
-import sys
-from pathlib import Path
-
-from speech_provider_contract import ProviderFunctions, serve_provider
-
-cache = sys.argv[sys.argv.index("--cache") + 1]
-protocol_stdout = os.dup(1)
-
-
-def load(device, cache):
-    if {fail_load!r}:
-        raise RuntimeError("model weights unreadable")
-    return object()
-
-
-def synthesize(model, text, language, instructions):
-    print(text, file=sys.stderr, flush=True)
-    Path(cache).mkdir(exist_ok=True)
-    Path(cache, "stderr-target").write_text(os.readlink("/proc/self/fd/2"))
-    yield b"\\x00\\x01"
-
-
-raise SystemExit(serve_provider(
-    device="cpu", cache=cache, protocol_stdout=protocol_stdout,
-    sample_rate=24000, functions=ProviderFunctions(load, synthesize),
-))
-"""
-
-
-_FAILING_BODY = """import errno
-import os
-import sys
-from pathlib import Path
-
-from speech_provider_contract import ProviderFunctions, serve_provider
-
-cache = sys.argv[sys.argv.index("--cache") + 1]
-protocol_stdout = os.dup(1)
-
-
-class AcceleratorError(RuntimeError):
-    pass
-
-
-class SentenceCode(int):
-    def __new__(cls, value, text):
-        code = super().__new__(cls, value)
-        code.text = text
-        return code
-
-    def __str__(self):
-        return self.text
-
-    __repr__ = __str__
-
-    def __format__(self, _specification):
-        return self.text
-
-
-def coded(code):
-    error = AcceleratorError()
-    error.error_code = code
-    return error
-
-
-class PropertyCodeError(RuntimeError):
-    def __init__(self, text):
-        super().__init__()
-        self.text = text
-
-    @property
-    def error_code(self):
-        Path(cache, "property-ran").write_text("ran")
-        return self.text
-
-
-def synthesize(model, text, language, instructions):
-{synthesis}
-    yield b"\\x00\\x01"
-
-
-raise SystemExit(serve_provider(
-    device="cpu", cache=cache, protocol_stdout=protocol_stdout,
-    sample_rate=24000,
-    functions=ProviderFunctions(lambda _device, _cache: object(), synthesize),
-))
-"""
-_STAGE_BODY = """import os
-import subprocess
-import sys
-from pathlib import Path
-
-from speech_provider_contract import ProviderFunctions, serve_provider
-
-cache = Path(sys.argv[sys.argv.index("--cache") + 1])
-protocol_stdout = os.dup(1)
-stage = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
-cache.mkdir(exist_ok=True)
-cache.joinpath("worker").write_text(str(os.getpid()))
-cache.joinpath("stage").write_text(str(stage.pid))
-
-raise SystemExit(serve_provider(
-    device="cpu", cache=str(cache), protocol_stdout=protocol_stdout,
-    sample_rate=24000,
-    functions=ProviderFunctions(lambda _device, _cache: object(), lambda *_: ()),
-))
-"""
-_EXIT_STATUS = 3
 _SENTENCE = "Ein Satz, den nur der Aufrufer kennt"
 
 
-def _provider(tmp_path: Path, body: str) -> ProviderProcess:
+def _launching(tmp_path: Path, body: str) -> ProviderProcess:
+    """A server whose launcher runs `body` instead of the fake."""
     root, cache = closed_provider(tmp_path)
-    entrypoint = provider_worker(root)
-    entrypoint.write_text(
-        _ENTRYPOINT.format(python=sys.executable, body=body), encoding="utf-8"
-    )
+    entrypoint = provider_launcher(root)
+    entrypoint.write_text(f"#!{sys.executable}\n{body}", encoding="utf-8")
     return ProviderProcess(
-        ProviderLaunch(
-            model_name=QWEN_MODEL_ID,
-            sample_rate=QWEN_SAMPLE_RATE,
-            executable=entrypoint,
-            arguments=("--device", "cpu", "--cache", str(cache)),
-        )
+        ProviderLaunch(executable=entrypoint, arguments=("--cache", str(cache)))
     )
 
 
-def test_the_derived_worker_name_is_the_script_the_provider_declares() -> None:
-    declared = tomllib.loads(
-        (Path(__file__).parents[1] / "providers/qwen/pyproject.toml").read_text(
-            encoding="utf-8"
-        )
-    )["project"]["scripts"]
-
-    entrypoint = provider_entrypoint(Path("providers"), ProviderId.QWEN)
-
-    assert entrypoint is not None
-    assert entrypoint.name in declared
+def _serving(tmp_path: Path) -> QwenSpeaking:
+    root, cache = closed_provider(tmp_path)
+    return QwenSpeaking(
+        ProviderProcess(
+            ProviderLaunch(
+                executable=provider_launcher(root), arguments=("--cache", str(cache))
+            )
+        ),
+        QwenSpeaker.RYAN,
+    )
 
 
 def _ended_records(
@@ -193,43 +76,6 @@ def _logged_everywhere(caplog: pytest.LogCaptureFixture) -> str:
     )
 
 
-def test_provider_failing_to_import_logs_the_module_and_its_own_exit_status(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    engine = _provider(tmp_path, "import module_that_is_not_installed")
-
-    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError) as failed:
-        engine.load()
-    engine.close()
-
-    (ended,) = _ended_records(caplog, "before_ready")
-    assert ended.exit_status == 1
-    assert ended.reason == ProviderStartFailure.EXITED
-    assert (
-        "ModuleNotFoundError: No module named 'module_that_is_not_installed'"
-        in _failure_text(failed.value)
-    )
-    assert not hasattr(ended, "stderr_tail")
-    assert "module_that_is_not_installed" not in _logged_everywhere(caplog)
-
-
-def test_provider_failing_to_load_the_model_logs_its_cause_and_a_reaped_status(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    engine = _provider(tmp_path, _CONTRACT_BODY.format(fail_load=True))
-
-    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError) as failed:
-        engine.load()
-    engine.close()
-
-    (ended,) = _ended_records(caplog, "before_ready")
-    assert "RuntimeError: model weights unreadable" in _failure_text(failed.value)
-    assert "model weights unreadable" not in _logged_everywhere(caplog)
-    # Whether the service's stop or the provider's own exit comes first is a
-    # race; either way the reaped provider has a status.
-    assert isinstance(ended.exit_status, int)
-
-
 def _failing_start_after_writing(stderr_bytes: int) -> str:
     return (
         "import sys\n"
@@ -240,27 +86,59 @@ def _failing_start_after_writing(stderr_bytes: int) -> str:
     )
 
 
-def test_a_root_cause_printed_before_a_long_traceback_reaches_the_log(
+def test_the_launcher_name_is_a_script_the_qwen_project_declares() -> None:
+    declared = tomllib.loads(
+        (Path(__file__).parents[1] / "providers/qwen/pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+    )["project"]["scripts"]
+
+    entrypoint = provider_entrypoint(Path("providers"), ProviderId.QWEN)
+
+    assert entrypoint is not None
+    assert entrypoint.name in declared
+
+
+def test_a_launcher_failing_to_import_logs_its_exit_status_and_notes_the_module(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    engine = _provider(tmp_path, _failing_start_after_writing(20 * 1024))
+    server = _launching(tmp_path, "import module_that_is_not_installed")
 
     with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError) as failed:
-        engine.load()
-    engine.close()
+        server.load()
+    server.close()
+
+    (ended,) = _ended_records(caplog, "before_ready")
+    assert ended.exit_status == 1
+    assert ended.reason == ProviderStartFailure.EXITED
+    assert (
+        "ModuleNotFoundError: No module named 'module_that_is_not_installed'"
+        in _failure_text(failed.value)
+    )
+    assert "module_that_is_not_installed" not in _logged_everywhere(caplog)
+
+
+def test_a_root_cause_printed_before_a_long_traceback_reaches_the_note(
+    tmp_path: Path,
+) -> None:
+    server = _launching(tmp_path, _failing_start_after_writing(20 * 1024))
+
+    with pytest.raises(ProviderFailedError) as failed:
+        server.load()
+    server.close()
 
     assert "ROOT CAUSE: engine core failed" in _failure_text(failed.value)
 
 
-def test_a_provider_writing_without_end_cannot_grow_the_log_without_limit(
+def test_a_server_writing_without_end_cannot_grow_the_note_without_limit(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     written = 1024 * 1024
-    engine = _provider(tmp_path, _failing_start_after_writing(written))
+    server = _launching(tmp_path, _failing_start_after_writing(written))
 
     with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError) as failed:
-        engine.load()
-    engine.close()
+        server.load()
+    server.close()
 
     (ended,) = _ended_records(caplog, "before_ready")
     assert ended.reason == ProviderStartFailure.STDERR_OVERSIZED
@@ -268,220 +146,76 @@ def test_a_provider_writing_without_end_cannot_grow_the_log_without_limit(
     assert "ROOT CAUSE" not in _failure_text(failed.value)
 
 
-def test_a_provider_that_breaks_the_handshake_logs_a_failed_start_reason(
+def test_a_server_stopped_by_the_service_before_it_answers_logs_a_failed_start_reason(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    engine = _provider(
-        tmp_path,
-        "import sys, time\nsys.stdout.buffer.write(b'not a frame')\n"
-        "sys.stdout.flush()\ntime.sleep(60)",
+    root, cache = closed_provider(tmp_path, "held-ready")
+    server = ProviderProcess(
+        ProviderLaunch(
+            executable=provider_launcher(root), arguments=("--cache", str(cache))
+        )
     )
+    loading = threading.Thread(target=_load_quietly, args=(server,))
 
-    with caplog.at_level(logging.WARNING), pytest.raises(ProviderFailedError):
-        engine.load()
-    engine.close()
+    with caplog.at_level(logging.WARNING):
+        loading.start()
+        wait_for_starts(cache, 1)
+        server.close()
+        loading.join(timeout=5)
 
     (ended,) = _ended_records(caplog, "before_ready")
     assert ended.reason == ProviderStartFailure.START_FAILED
 
 
-def test_ready_provider_logs_no_startup_record_and_its_stderr_reaches_no_log(
+def _load_quietly(server: ProviderProcess) -> None:
+    with contextlib.suppress(ProviderFailedError):
+        server.load()
+
+
+def test_a_ready_server_logs_no_startup_record_and_its_stderr_reaches_no_log(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    engine = _provider(tmp_path, _CONTRACT_BODY.format(fail_load=False))
+    voice = _serving(tmp_path)
 
     with caplog.at_level(logging.DEBUG):
-        engine.load()
-        assert list(engine.pcm_chunks("caller secret words", "de")) == [b"\x00\x01"]
-        engine.close()
+        voice.load()
+        assert list(voice.pcm_chunks(_SENTENCE, "de")) == [b"\x00\x01"]
+        voice.close()
 
     assert _ended_records(caplog) == []
-    assert "caller secret words" not in _logged_everywhere(caplog)
-    assert (tmp_path / "cache/stderr-target").read_text() == os.devnull
-
-
-def _failed_synthesis_chain(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture, synthesis: str
-) -> str:
-    engine = _provider(tmp_path, _FAILING_BODY.format(synthesis=synthesis))
-    with caplog.at_level(logging.DEBUG):
-        engine.load()
-        with pytest.raises(ProviderSynthesisFailedError) as raised:
-            list(engine.pcm_chunks(_SENTENCE, "de"))
-        engine.close()
-    _assert_no_sentence(caplog)
-    (record,) = (
-        record for record in caplog.records if record.getMessage() == "synthesis.failed"
-    )
-    assert record.request_id == 1
-    assert not hasattr(record, "cause")
-    return _failure_text(raised.value)
-
-
-def _assert_no_sentence(caplog: pytest.LogCaptureFixture) -> None:
     assert _SENTENCE not in _logged_everywhere(caplog)
+    assert "server noise before ready" not in _logged_everywhere(caplog)
 
 
-def test_a_failed_synthesis_chains_its_errno_and_frame_and_an_ended_record(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    message = _failed_synthesis_chain(
-        tmp_path,
-        caplog,
-        "    raise OSError(errno.EROFS, text, '/' + text)",
-    )
-
-    assert "builtins.OSError[EROFS]" in message
-    assert ", in synthesize\n" in message
-    assert _ended_records(caplog, "after_ready")
-
-
-def test_a_failed_synthesis_with_the_sentence_as_errno_names_no_errno(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    message = _failed_synthesis_chain(tmp_path, caplog, "    raise OSError(text, 'x')")
-
-    assert "builtins.OSError" in message
-    assert "builtins.OSError[" not in message
-
-
-@pytest.mark.parametrize(
-    ("raised", "rendered"),
-    [
-        ("coded(209)", " error_code 209"),
-        ("coded(text)", None),
-        ("coded(SentenceCode(209, text))", None),
-        ("PropertyCodeError(text)", None),
-    ],
-    ids=["int", "sentence", "int-subclass", "property"],
-)
-def test_a_failed_synthesis_renders_only_an_exact_int_error_code(
+def test_a_server_writing_much_after_ready_never_blocks_on_its_stderr(
     tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
-    raised: str,
-    rendered: str | None,
 ) -> None:
-    message = _failed_synthesis_chain(tmp_path, caplog, f"    raise {raised}")
-
-    if rendered is None:
-        assert "error_code" not in message
-    else:
-        assert rendered in message
-    assert not (tmp_path / "cache/property-ran").exists()
-
-
-def test_a_failed_synthesis_leaves_its_notes_unrendered(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    message = _failed_synthesis_chain(
-        tmp_path,
-        caplog,
-        "    error = RuntimeError()\n    error.add_note(text)\n    raise error",
+    voice = _serving(tmp_path)
+    voice.load()
+    spoken: list[bytes] = []
+    speaking = threading.Thread(
+        target=lambda: spoken.extend(voice.pcm_chunks("chatty", "de")), daemon=True
     )
 
-    assert "builtins.RuntimeError" in message
+    speaking.start()
+    speaking.join(timeout=10)
+
+    assert spoken == [b"\x00\x01"]
+    assert voice.ready is True
+    voice.close()
 
 
-def test_a_failed_synthesis_names_its_chain_from_the_root_cause_with_its_frames(
+def test_a_server_that_dies_after_ready_logs_its_exit_status_and_no_sentence(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    message = _failed_synthesis_chain(
-        tmp_path,
-        caplog,
-        "    try:\n        raise KeyError(text)\n    except KeyError as error:\n"
-        "        raise AcceleratorError() from error",
-    )
+    voice = _serving(tmp_path)
 
-    assert message.startswith("builtins.KeyError -> __main__.AcceleratorError\n")
-    assert "\nbuiltins.KeyError\n  File " in message
-    assert "    raise KeyError(text)\n" in message
-
-
-def test_a_failed_synthesis_escapes_control_and_non_ascii_source_characters(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    message = _failed_synthesis_chain(
-        tmp_path,
-        caplog,
-        "    raise RuntimeError()  # tab\there, feed\x0chere, \xe9",
-    )
-
-    assert "# tab\\there, feed\\x0chere, \\xe9" in message
-
-
-def test_a_failure_during_a_cancel_drain_logs_its_request(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    engine = _provider(
-        tmp_path,
-        _FAILING_BODY.format(
-            synthesis="    try:\n        while True:\n            yield b'\\x00\\x01'\n"
-            "    except GeneratorExit:\n        raise OSError(errno.EIO, text)"
-        ),
-    )
     with caplog.at_level(logging.DEBUG):
-        engine.load()
-        chunks = engine.pcm_chunks(_SENTENCE, "de")
-        assert next(chunks) == b"\x00\x01"
-        chunks.close()
-        engine.close()
+        voice.load()
+        with pytest.raises(ProviderSynthesisFailedError):
+            list(voice.pcm_chunks("midstream-exit", "de"))
+        voice.close()
 
-    _assert_no_sentence(caplog)
-    (failed,) = (r for r in caplog.records if r.getMessage() == "synthesis.failed")
-    assert failed.request_id == 1
-    assert not hasattr(failed, "cause")
-    carrying = [
-        r for r in caplog.records if "builtins.OSError[EIO]" in caplog.handler.format(r)
-    ]
-    assert carrying == [failed]
-    assert engine.ready is False
-
-
-def test_a_provider_that_dies_after_ready_logs_its_exit_status(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    engine = _provider(
-        tmp_path, _FAILING_BODY.format(synthesis=f"    os._exit({_EXIT_STATUS})")
-    )
-    with caplog.at_level(logging.DEBUG):
-        engine.load()
-        with pytest.raises(ProviderProtocolError):
-            list(engine.pcm_chunks(_SENTENCE, "de"))
-        engine.close()
-
-    _assert_no_sentence(caplog)
+    assert _SENTENCE not in _logged_everywhere(caplog)
     (ended,) = _ended_records(caplog, "after_ready")
-    assert ended.exit_status == _EXIT_STATUS
-
-
-def _has_ended(pid: int) -> bool:
-    """Whether `pid` is gone or a zombie that its adopter has yet to reap."""
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        try:
-            status = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
-        except FileNotFoundError, ProcessLookupError:
-            return True
-        if status.rpartition(")")[2].split()[0] == "Z":
-            return True
-        time.sleep(0.01)
-    return False
-
-
-def test_a_stage_process_that_outlives_its_worker_ends_with_the_service_stop(
-    tmp_path: Path,
-) -> None:
-    engine = _provider(tmp_path, _STAGE_BODY)
-    engine.load()
-    cache = tmp_path / "cache"
-    worker = int((cache / "worker").read_text())
-    stage = int((cache / "stage").read_text())
-
-    os.kill(worker, signal.SIGKILL)
-    deadline = time.monotonic() + 5
-    while engine.ready and time.monotonic() < deadline:
-        time.sleep(0.01)
-    engine.close()
-
-    assert not engine.ready
-    assert _has_ended(stage)
+    assert ended.exit_status == 1

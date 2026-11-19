@@ -14,11 +14,6 @@ entry = "providers/"
 reason = "the GPU and CPU speech providers, each its own uv project with its own lock"
 
 [[layout.allow]]
-path = "providers/qwen/tests/test_worker.py"
-rule = "test-layout"
-reason = "it tests the provider contract, a sibling project with no tests of its own"
-
-[[layout.allow]]
 path = "tests/test_qwen_environment.py"
 rule = "test-layout"
 reason = "it tests the lock of providers/qwen, a sibling project with no tests of its own"
@@ -29,7 +24,7 @@ reason = "vllm-omni 0.32.0 declares Requires-Python <3.14,>=3.11, so no locked w
 
 [[python.allow]]
 path = "providers/provider-contract/pyproject.toml"
-reason = "the Qwen worker imports it on Python 3.12, where vllm-omni 0.32.0 (Requires-Python <3.14,>=3.11) caps it"
+reason = "the Qwen launcher imports it on Python 3.12, where vllm-omni 0.32.0 (Requires-Python <3.14,>=3.11) caps it"
 
 # providers/qwen/uv.lock: advisories no relock reaches
 [[advisories.allow]]
@@ -38,7 +33,7 @@ lock = "providers/qwen/uv.lock"
 until = 2027-01-31
 date = 2026-10-21
 item = "overnightworks/speech#2"
-reason = "accelerate 1.12.0: vllm-omni 0.32.0 pins accelerate==1.12.0; local TTS worker, text over a local socket"
+reason = "accelerate 1.12.0: vllm-omni 0.32.0 pins accelerate==1.12.0; local TTS server, text over a local socket"
 
 [[advisories.allow]]
 id = "GHSA-h35f-9h28-mq5c"
@@ -46,7 +41,7 @@ lock = "providers/qwen/uv.lock"
 until = 2027-01-31
 date = 2026-11-13
 item = "overnightworks/speech#2"
-reason = "setuptools 80.10.2: vllm 0.32.0 requires setuptools<81.0.0 and the fix starts at 83.0.0; it concerns building sdists, local TTS worker, text over a local socket"
+reason = "setuptools 80.10.2: vllm 0.32.0 requires setuptools<81.0.0 and the fix starts at 83.0.0; it concerns building sdists, local TTS server, text over a local socket"
 
 [[advisories.allow]]
 id = "GHSA-xmj3-9gf7-h52w"
@@ -54,4 +49,4 @@ lock = "providers/qwen/uv.lock"
 until = 2027-01-31
 date = 2026-11-13
 item = "overnightworks/speech#2"
-reason = "setuptools 80.10.2: vllm 0.32.0 requires setuptools<81.0.0 and the fix starts at 84.1.0; it concerns Windows paths, local TTS worker, text over a local socket"
+reason = "setuptools 80.10.2: vllm 0.32.0 requires setuptools<81.0.0 and the fix starts at 84.1.0; it concerns Windows paths, local TTS server, text over a local socket"

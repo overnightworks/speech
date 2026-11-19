@@ -179,7 +179,7 @@ class Runtime:
         """The voice's shared load, started if none runs; `None` if none may.
 
         A Piper voice never loads on demand, and no voice does during the start.
-        A GPU voice the start loaded reloads here once its worker died.
+        A GPU voice the start loaded reloads here once its server died.
         """
         if self.slots[voice].catalogued.engine.loads_at_start or self.loading:
             return None

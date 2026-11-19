@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-speech-qwen-worker = "speech_qwen.__main__:main"
+speech-qwen-server = "speech_qwen.__main__:main"
 speech-qwen-design-voice = "speech_qwen.design_voice:main"
 
 [tool.uv.sources]
@@ -61,7 +61,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.flake8-tidy-imports]
-# The model libraries stay unloaded until the worker loads.
+# The model libraries stay unloaded until the launcher resolves the checkpoint.
 banned-module-level-imports = [
     "huggingface_hub",
     "speech_qwen.model",
