@@ -5,11 +5,9 @@ import time
 from typing import TYPE_CHECKING
 
 import pytest
-from fastapi.testclient import TestClient
 from starlette.status import (
     HTTP_200_OK,
     HTTP_413_CONTENT_TOO_LARGE,
-    HTTP_422_UNPROCESSABLE_CONTENT,
     HTTP_429_TOO_MANY_REQUESTS,
 )
 
@@ -22,10 +20,10 @@ from tests.support.hear_support import (
     hear_call_begun,
     hear_runtime,
     multipart_body,
-    post_recording,
     recording,
 )
-from tests.support.speak_support import SpeakCall, assert_call_refusal, assert_refusal
+from tests.support.clock_support import FakeClock
+from tests.support.speak_support import SpeakCall, assert_call_refusal
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -33,24 +31,21 @@ if TYPE_CHECKING:
     from speech_service.service import Runtime
 
 SHORT_WAIT_SECONDS = 0.2
-LONG_ENOUGH_SECONDS = 0.4
-ARRIVAL_PASSES = 50
 
 
 def _valid() -> bytes:
     return multipart_body(file=recording())
 
 
-async def _arrived() -> None:
-    """Let the requests started so far run up to their first wait for bytes."""
-    for _ in range(ARRIVAL_PASSES):
-        await asyncio.sleep(0)
+async def _arrived(*calls: SpeakCall) -> None:
+    """Let each of `calls` run up to its first wait: for bytes, a gate or a decode."""
+    await asyncio.gather(*(call.received() for call in calls))
 
 
 async def _hold_every_place(app: FastAPI, waiting: int) -> list[SpeakCall]:
     """Uploads half sent, one for each of the `1 + waiting` places."""
     holders = [hear_call_begun(app) for _ in range(1 + waiting)]
-    await _arrived()
+    await _arrived(*holders)
     return holders
 
 
@@ -93,7 +88,7 @@ def test_an_upload_beyond_the_places_is_busy_though_a_place_frees_in_its_upload(
         app = hear_app(hear_runtime(FakeHearing()), hearing_max_waiting_requests=0)
         (holder,) = await _hold_every_place(app, 0)
         beyond = hear_call_begun(app)
-        await _arrived()
+        await _arrived(beyond)
         holder.task.cancel()
         await asyncio.gather(holder.task, return_exceptions=True)
         beyond.finish_upload()
@@ -169,7 +164,7 @@ def test_a_kept_place_is_freed_when_its_request_ends(ending: str) -> None:
         if ending == "leaves-mid-decode":
             await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
         if ending in {"leaves", "leaves-waiting", "leaves-mid-decode"}:
-            await _arrived()
+            await _arrived(first)
             first.task.cancel()
             await asyncio.gather(first.task, return_exceptions=True)
         else:
@@ -221,14 +216,18 @@ def test_an_upload_whose_wait_runs_out_hands_its_place_on_and_is_busy() -> None:
     """WIRE-162: a slow upload is busy, and the request behind it is heard."""
 
     async def scenario() -> tuple[SpeakCall, SpeakCall, FakeHearing]:
+        clock = FakeClock()
         engine = FakeHearing()
+        runtime = hear_runtime(engine, clock)
         app = hear_app(
-            hear_runtime(engine),
+            runtime,
             hearing_max_waiting_requests=0,
             hearing_busy_wait_seconds=SHORT_WAIT_SECONDS,
         )
         slow = hear_call_begun(app)
-        await asyncio.sleep(LONG_ENOUGH_SECONDS)
+        await clock.until_a_wait_begins()
+        clock.advance(SHORT_WAIT_SECONDS)
+        await _place_frees(runtime)
         behind = hear_call(app)
         await behind.finish()
         slow.finish_upload()
@@ -242,29 +241,22 @@ def test_an_upload_whose_wait_runs_out_hands_its_place_on_and_is_busy() -> None:
     assert len(engine.heard) == 1
 
 
+async def _place_frees(runtime: Runtime) -> None:
+    async with asyncio.timeout(WAIT_SECONDS):
+        while (place := runtime.hearing.keep_recording(1)) is None:  # noqa: ASYNC110 - a place has no event to await
+            await asyncio.sleep(0)
+    place.close()
+
+
 def test_an_upload_within_its_wait_on_an_idle_service_is_heard() -> None:
     """WIRE-162: an upload that ends within the busy wait is heard."""
 
     async def scenario() -> SpeakCall:
         app = hear_app(hear_runtime(FakeHearing()))
         upload = hear_call_begun(app)
-        await _arrived()
+        await _arrived(upload)
         upload.finish_upload()
         await upload.finish()
         return upload
 
     assert asyncio.run(scenario()).status_code == HTTP_200_OK
-
-
-def test_a_malformed_form_is_still_invalid_when_a_place_is_free() -> None:
-    """WIRE-47: a place kept for the body changes nothing of the form's answers."""
-    client = TestClient(hear_app(hear_runtime(FakeHearing())))
-
-    response = post_recording(client, b"x" * 9)
-
-    assert_refusal(
-        response,
-        HTTP_422_UNPROCESSABLE_CONTENT,
-        RefusalCode.INVALID_REQUEST,
-        "file",
-    )

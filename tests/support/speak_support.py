@@ -251,9 +251,18 @@ class SpeakCall:
         self._started = asyncio.Event()
         self._disconnect = asyncio.Event()
         self._upload_finished = asyncio.Event()
+        self._receiving = asyncio.Event()
         self.task = asyncio.create_task(
             self._run(app, body or speak_body(), scope or speak_scope(), held_back)
         )
+
+    async def received(self) -> None:
+        """Return once the request asked for its first bytes.
+
+        The request task runs on until its next real suspension before the caller
+        resumes, so it is then waiting for more bytes, a gate or its decode.
+        """
+        await asyncio.wait_for(self._receiving.wait(), timeout=ASGI_TIMEOUT_SECONDS)
 
     def finish_upload(self) -> None:
         """Send the part held back, which ends the body."""
@@ -271,6 +280,7 @@ class SpeakCall:
 
         async def receive() -> dict[str, object]:
             nonlocal sent, rest_sent
+            self._receiving.set()
             if not sent:
                 sent = True
                 return {

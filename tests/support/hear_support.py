@@ -138,12 +138,12 @@ def loaded(
     return hearing
 
 
-def hear_runtime(engine: FakeHearing | None) -> Runtime:
-    """A runtime whose voice speaks and whose hearing is `engine`, loaded."""
+def hear_runtime(engine: FakeHearing | None, clock: Clock | None = None) -> Runtime:
+    """A runtime whose voice speaks and whose hearing is `engine`, loaded on `clock`."""
     return Runtime(
         {VoiceId.THORSTEN: FakeSpeaking()},
         memory_probe=lambda: 0,
-        hearing=loaded(engine),
+        hearing=loaded(engine, clock),
         dependencies=RuntimeDependencies(catalogue=CATALOGUE),
     )
 
