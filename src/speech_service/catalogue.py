@@ -150,15 +150,17 @@ def load_catalogue(path: Path) -> Catalogue:
 
 
 def offered_voices(
-    catalogue: Catalogue, requested: Collection[VoiceId] | None
+    catalogue: Catalogue,
+    requested: Collection[VoiceId] | None,
+    carried: Collection[Engine],
 ) -> tuple[VoiceId, ...]:
-    """The voices to offer, in catalogue order: `requested`, else every Piper voice.
+    """The voices to offer, in catalogue order: `requested`, else those of `carried`.
 
     Raises `CatalogueError` naming a requested voice the catalogue does not hold.
     """
     if requested is None:
         return tuple(
-            voice for voice, entry in catalogue.items() if entry.engine is Engine.PIPER
+            voice for voice, entry in catalogue.items() if entry.engine in carried
         )
     absent = sorted(voice.value for voice in requested if voice not in catalogue)
     if absent:

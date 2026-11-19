@@ -28,8 +28,8 @@ SPEECH_CONFIG_FILE=/absolute/path/to/speech.toml uv run speech-service
 ```
 
 The first command installs the CPU path (Piper). `SPEECH_CATALOGUE_FILE` names the
-voice catalogue, which holds each voice and its pin. The second fetches the voices
-`SPEECH_VOICES` offers (the five Piper voices by default) at their pins; the service never downloads. The third starts the
+voice catalogue, which holds each voice and its pin. The second fetches the voices the
+service offers at their pins (the five Piper voices without `SPEECH_PROVIDER_ROOT`, every catalogue voice with it, unless `SPEECH_VOICES` names them); the service never downloads. The third starts the
 service on `127.0.0.1:8080`; it refuses to start without the caller file.
 [`deploy/speech.toml`](deploy/speech.toml) is the file the container image
 carries and shows its keys. `uv run speech-service --help` prints usage.
@@ -41,9 +41,8 @@ a card, run it as `SPEECH_DEVICE=cpu uv run python scripts/prove_speech.py`.
 - **Hearing.** Fetch a model, then name it: `uv run speech-fetch-hearing-model large-v3`,
   then `SPEECH_HEARING_MODEL=large-v3`. On the GPU, sync with
   `uv sync --locked --extra gpu` as well, or hearing stays unavailable.
-- **A GPU voice.** Name it beside the Piper voices in `SPEECH_VOICES`, for example
-  `SPEECH_VOICES=de_DE-thorsten-medium,de_DE-kerstin-medium,en_US-norman-medium,en_US-ljspeech-medium,en_GB-cori-medium,ryan`,
-  fetch with `uv run speech-fetch-voice` and run `uv sync --locked` inside
+- **A GPU voice.** Set `SPEECH_PROVIDER_ROOT` and the offer holds every catalogue voice
+  (`SPEECH_VOICES` narrows it), fetch with `uv run speech-fetch-voice` and run `uv sync --locked` inside
   `providers/qwen`. It always runs on `cuda` and reserves about 11 GB of it (0.45 of a 24 GB card).
 - **A container.** `Dockerfile` and `compose.yaml` build and run the service on
   the CPU with the five Piper voices and the `small` hearing model,
@@ -54,7 +53,7 @@ a card, run it as `SPEECH_DEVICE=cpu uv run python scripts/prove_speech.py`.
 
 Every release publishes two images to GHCR: `ghcr.io/overnightworks/speech:<version>`
 is the small one, and `ghcr.io/overnightworks/speech:<version>-gpu` is the same
-service for a card (`docker build --target gpu .`). It bakes all six voices,
+service for a card (`docker build --target gpu .`). It bakes every catalogue voice,
 Qwen's `ryan` among them, and Whisper large-v3. It loads Qwen and large-v3 at
 start, hears on `cuda`, and `/health` is ready only after both are loaded.
 It is configured like the small image (`SPEECH_HOST`, `SPEECH_CONFIG_FILE`, the
@@ -115,7 +114,7 @@ The process's own:
 | `SPEECH_CATALOGUE_FILE` | none | Absolute path of the voice catalogue, [`deploy/catalogue.toml`](deploy/catalogue.toml) in a checkout and set by the images; the service and `speech-fetch-voice` do not start without it |
 | `SPEECH_VOICE_CACHE` | `~/.cache/piper` | Where Piper's files are kept and fetched to |
 | `SPEECH_HUGGINGFACE_CACHE` | the Hugging Face Hub cache | Where hearing's and Qwen's files are kept and fetched to |
-| `SPEECH_PROVIDER_ROOT` | none | Directory of the provider environments, `providers` in a checkout; a GPU voice needs it |
+| `SPEECH_PROVIDER_ROOT` | none | Directory of the provider environments, `providers` in a checkout; a GPU voice needs it, and with it the default offer holds every catalogue voice |
 | `SPEECH_LOAD_GPU_VOICES_AT_START` | `false` | `true` loads every offered GPU voice at start and holds `/health` not ready until it is loaded; the GPU image sets it |
 | `LOG_LEVEL` | `info` | The log level, `debug` to `critical`; logline reads it, and a malformed value stops the start |
 | `SERVICE_VERSION` | none | The `version` of every log line |

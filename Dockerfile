@@ -3,8 +3,6 @@
 # only FROM lines, so uv is a stage of its own. The last stage is the small
 # image, the default target; the gpu image is the `gpu` target.
 
-# The voices the gpu image bakes and offers: every voice of the catalogue.
-ARG GPU_VOICES=de_DE-thorsten-medium,de_DE-kerstin-medium,en_US-norman-medium,en_US-ljspeech-medium,en_GB-cori-medium,ryan
 FROM ghcr.io/astral-sh/uv:0.13.8@sha256:5cc1805e2426484abca4ad46ea783bab281fdb225fd82d8ce6d66a81254bac85 AS uv
 FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS python-base
 ENV PATH=/opt/venv/bin:$PATH
@@ -56,16 +54,16 @@ RUN speech-fetch-voice && speech-fetch-hearing-model small
 FROM dependencies AS gpu-dependencies
 RUN uv sync --locked --no-dev --no-editable --extra gpu
 
-# Every offered voice and large-v3, each at its pinned revision. Qwen's files and
-# the hearing model share the Hub cache.
+# Every offered voice and large-v3, each at its pinned revision: the provider
+# root makes the offer every catalogue voice, as in the gpu stage. Qwen's files
+# and the hearing model share the Hub cache.
 FROM dependencies AS gpu-weights
-ARG GPU_VOICES
 COPY deploy/catalogue.toml /app/deploy/catalogue.toml
 ENV HF_HOME=/tmp/huggingface \
     SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml \
     SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing \
-    SPEECH_VOICES=$GPU_VOICES
+    SPEECH_PROVIDER_ROOT=/opt/providers
 RUN speech-fetch-voice && speech-fetch-hearing-model large-v3
 
 # The Qwen provider is its own project on CPython 3.12, which vLLM-Omni caps
@@ -97,7 +95,6 @@ RUN uv sync --locked --no-dev --no-editable \
  && mv /opt/providers/qwen/.venv/lib/python3.12/site-packages/nvidia /opt/qwen-nvidia
 
 FROM python-base AS gpu
-ARG GPU_VOICES
 # Triton builds its CUDA utility module from C source at run time.
 RUN apt-get update \
  && apt-get install --yes --no-install-recommends gcc libc6-dev \
@@ -110,8 +107,7 @@ COPY --from=qwen-environment /opt/qwen-nvidia /opt/providers/qwen/.venv/lib/pyth
 COPY --from=qwen-environment /opt/providers/qwen/.venv /opt/providers/qwen/.venv
 COPY deploy/speech.toml deploy/speech.toml
 COPY deploy/catalogue.toml /app/deploy/catalogue.toml
-ENV SPEECH_VOICES=$GPU_VOICES \
-    SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml \
+ENV SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml \
     SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing \
     SPEECH_PROVIDER_ROOT=/opt/providers \

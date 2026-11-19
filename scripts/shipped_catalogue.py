@@ -3,15 +3,17 @@
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
-from speech_service.catalogue import load_catalogue, offered_voices
+from speech_service.catalogue import Engine, load_catalogue, offered_voices
 
 if TYPE_CHECKING:
     from speech_client.wire import Language, VoiceId
 
 CATALOGUE_FILE: Final = Path(__file__).resolve().parents[1] / "deploy/catalogue.toml"
 CATALOGUE: Final = load_catalogue(CATALOGUE_FILE)
-PIPER_VOICES: Final[tuple[VoiceId, ...]] = offered_voices(CATALOGUE, None)
-"""The voices the service offers by default, in catalogue order."""
+PIPER_VOICES: Final[tuple[VoiceId, ...]] = offered_voices(
+    CATALOGUE, None, {Engine.PIPER}
+)
+"""The voices the service offers without a provider root, in catalogue order."""
 ON_DEMAND_VOICES: Final[tuple[VoiceId, ...]] = tuple(
     voice for voice, entry in CATALOGUE.items() if not entry.engine.loads_at_start
 )
