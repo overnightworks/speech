@@ -103,7 +103,7 @@ revisions, and the service has no route to a registry or hub.
 ### Trust
 
 - Keycloak is the root; a registered app with valid tokens is trusted within its
-  config, and can only slow another, bounded by the busy wait and input limit.
+  config, and can only slow another, bounded by the busy wait and input limit (WIRE-160).
 - Every capability passes the caller check. Only `GET /health` and the refusals
   that carry no capability (404 `not_found`, 400 `unsupported_version`) answer
   before it. `/health` is reachable only inside edge's app network: the code
