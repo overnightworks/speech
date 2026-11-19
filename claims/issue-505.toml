@@ -1,8 +1,0 @@
-claim_id = "f59d1495373a4f2a870ac2547a04916e"
-agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
-role = "builder"
-base = "d69d872a78a20abf47c04321b273d58a66df557c"
-branch = "claude/issue-505-vllm-http"
-scope = ["README.md", "docs/ARCHITECTURE.md", "docs/wire.md", "providers/provider-contract/src/speech_provider_contract/__init__.py", "providers/qwen", "pyproject.toml", "quality/baseline.toml", "quality/config.toml", "src/speech_service", "tests"]
-opened_commit = "31499c260ed8ad90529af9784794cd3fb07fe588"
-whole_reason = "One boundary is replaced: the frames go together with their only caller, so a split would leave dead protocol code on main."
