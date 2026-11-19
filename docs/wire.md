@@ -205,9 +205,9 @@ The limits, each answered without decoding more than it must:
   recording is never heard, even if a place frees while it arrives.
 - **WIRE-161** A place is freed when its request is refused, when its caller leaves
   and when its decode has returned.
-- **WIRE-162** A place is kept at most `SPEECH_HEARING_BUSY_WAIT_SECONDS` after the
-  request arrived. An upload still arriving then is `busy`, even on an idle
-  service, and its place goes to the next request.
+- **WIRE-162** An upload still arriving `SPEECH_HEARING_BUSY_WAIT_SECONDS` after the
+  request arrived is `busy`, even on an idle service, and its place goes to the next
+  request. A request not admitted by then gives its place back.
 
 **WIRE-45** Audio that PyAV cannot read, or that holds no sound, is `invalid_request` with
 `param` `file`. **WIRE-46** A body that is not a multipart form, or has no `file`, is
