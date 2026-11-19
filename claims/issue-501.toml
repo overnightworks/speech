@@ -1,0 +1,8 @@
+claim_id = "3cfcca67e6fe4c089aefc1524903252b"
+agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
+role = "builder"
+base = "81d12bc07c3480417a8c2fd458ed5ed4115ae1ec"
+branch = "claude/issue-501-scripts-catalogue"
+scope = ["scripts", "tests/fixtures/image/inspect_image.py", "tests/scripts"]
+opened_commit = "aac39b400099a017ca18da223abf6f69385ba8a3"
+whole_reason = "Every script reads the catalogue the same way, so the move is one coherent change across the scripts and their tests."
