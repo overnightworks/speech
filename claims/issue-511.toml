@@ -1,7 +1,0 @@
-claim_id = "89c3393278fd4836a46b0d2ad28a3237"
-agent = "Claude ad2f8d3e-1bfd-427e-a2e7-59637bb81cc1"
-role = "builder"
-base = "60a1f13cdd6defdce7c37efc0f7fc80fd6ab40eb"
-branch = "claude/issue-511-stop-ramp-flake"
-scope = ["packages/browser/src/player.ts", "tests/fixtures/browser/player_page.js", "tests/test_wire_route_browser_player_hold.py"]
-opened_commit = "1da14c46ed5b5272d1eadd119af7a09a90d295cc"
