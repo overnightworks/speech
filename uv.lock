@@ -803,7 +803,7 @@ requires-dist = [
     { name = "overnightworks-logline", git = "https://github.com/overnightworks/logline?rev=v1.6.0" },
     { name = "overnightworks-speech-client", editable = "packages/client" },
     { name = "overnightworks-speech-provider-contract", editable = "providers/provider-contract" },
-    { name = "overnightworks-webauth", git = "https://github.com/overnightworks/webauth?rev=v0.36.0" },
+    { name = "overnightworks-webauth", git = "https://github.com/overnightworks/webauth?rev=v0.42.0" },
     { name = "piper-tts", extras = ["alignment"], specifier = "==1.8.0" },
     { name = "pydantic-settings", specifier = "==2.16.3" },
     { name = "python-multipart", specifier = "==0.0.33" },
@@ -826,12 +826,13 @@ dev = [
 
 [[package]]
 name = "overnightworks-webauth"
-version = "0.36.0"
-source = { git = "https://github.com/overnightworks/webauth?rev=v0.36.0#c02e10cfec6fdd4d179a56b2a95864744e53f440" }
+version = "0.42.0"
+source = { git = "https://github.com/overnightworks/webauth?rev=v0.42.0#50a2d2db64d95abf6106cd792dedc27dd227b884" }
 dependencies = [
     { name = "anyio" },
     { name = "cryptography" },
     { name = "fastapi" },
+    { name = "overnightworks-logline" },
     { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "starlette" },

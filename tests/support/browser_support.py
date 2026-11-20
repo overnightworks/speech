@@ -24,7 +24,6 @@ from pydantic import SecretStr
 from webauth.config import SessionLifetime, WebAuthConfig, install_web_auth_config
 from webauth.middleware import SecurityHeadersMiddleware
 from webauth.policies import SecurityHeadersPolicy, default_content_security_policy
-from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
 from speech_client.hearing import HearingSession, SessionTokens
@@ -150,7 +149,6 @@ class RecordingSocket:
 def _web_auth_config() -> WebAuthConfig:
     return WebAuthConfig(
         session_secret=SecretStr("stand-in app session secret, 32+ chars"),
-        trusted_proxies=TrustedProxies(),
         rate_limits=SingleProcessRateLimitBackend(),
         allowed_hosts_exact=frozenset({LOOPBACK}),
         session_lifetime=SessionLifetime(
