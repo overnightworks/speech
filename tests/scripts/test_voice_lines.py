@@ -128,8 +128,11 @@ def test_a_speak_without_an_audible_sample_fails_the_run() -> None:
     def silent(_text: str, _voice: VoiceId) -> tuple[bytes, float, float]:
         return wav_of(bytes(4800)), 0.1, 1.0
 
+    parsed = arguments()
+    final_source = finals(1, 1, 1, 1)
+
     with pytest.raises(SystemExit) as raised:
-        LINES.measure(arguments(), silent, finals(1, 1, 1, 1))
+        LINES.measure(parsed, silent, final_source)
 
     assert raised.value.code != 0
 
