@@ -231,9 +231,11 @@ def test_the_command_prints_only_json_and_exits_by_the_lines(
 ) -> None:
     fake = FakeService(Speaker([0.1] * 4))
     monkeypatch.delenv(LINES.LOAD_AT_START_SETTING, raising=False)
+    parsed = arguments(first_audio_max=limit)
+    ports = fake.ports()
 
     with pytest.raises(SystemExit) as raised:
-        LINES.prove(arguments(first_audio_max=limit), **fake.ports())
+        LINES.prove(parsed, **ports)
 
     assert raised.value.code == exit_status
     assert json.loads(capsys.readouterr().out)["voice"] == VOICE
@@ -248,11 +250,13 @@ def test_a_gone_caller_ends_the_command_before_the_loaded_half(
     os.close(write)
     fake = FakeService(Speaker([0.1] * 4))
     monkeypatch.delenv(LINES.LOAD_AT_START_SETTING, raising=False)
+    parsed = arguments(two_halves=True, runs=1)
+    ports = fake.ports()
 
     with os.fdopen(read, closefd=False) as stdin, monkeypatch.context() as patched:
         patched.setattr(sys, "stdin", stdin)
         with pytest.raises(SystemExit) as raised:
-            LINES.prove(arguments(two_halves=True, runs=1), **fake.ports())
+            LINES.prove(parsed, **ports)
 
     assert raised.value.code != 0
     warm_up_and_idle_run = 1 + 1
