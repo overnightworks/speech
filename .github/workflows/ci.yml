@@ -283,7 +283,7 @@ jobs:
           fi
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
-  # A plain docker build: the pull request token of a Dependabot lock update is
+  # A build without the reusable image workflow: the pull request token of a Dependabot lock update is
   # read-only, and the quality image workflow asks for packages, attestations and
   # id-token write even without a push. The build is the release's, minus the push.
   gpu-image:
