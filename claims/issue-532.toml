@@ -1,0 +1,8 @@
+claim_id = "775278f4d5c2456d9b2bb362a3a9ac44"
+agent = "Claude 1c28c70f-b9e3-4666-80ff-8274d2dcf8fd"
+role = "builder"
+base = "a67ddf450a0b86d2c43179bf393d3df75a594a8e"
+branch = "claude/issue-532-voice-lines-command"
+scope = ["AGENTS.md", "quality/config.toml", "scripts/prove_speech.py", "scripts/speaking_figures.py", "scripts/voice_lines.py", "tests/scripts/test_prove_speech.py", "tests/scripts/test_speaking_figures.py", "tests/scripts/test_voice_lines.py"]
+opened_commit = "d811707cf3e00cd2bd1cc43c097d084687e22e49"
+whole_reason = "One command with its tests, plus the two existing figure owners whose factor direction and ready timeout it corrects; splitting would land a command that reports the inverse factor."
