@@ -255,7 +255,9 @@ jobs:
   # runner only when it changes what the gpu stage is built from. The two jobs
   # are: decide on the standard runner, then call the build. The build job always
   # runs, because the quality gate and the landing path read a skipped mandatory
-  # job as red; with nothing changed it only says so, on the standard runner.
+  # job as red; with nothing changed it only says so, on the standard runner. The
+  # build waits for the fast jobs: when one of them fails, the build is skipped
+  # and reads red at the gate, and the paid runner is never started.
   gpu-paths:
     name: "Speech: gpu image paths"
     runs-on: ubuntu-24.04
@@ -286,7 +288,7 @@ jobs:
   # id-token write even without a push. The build is the release's, minus the push.
   gpu-image:
     name: "Speech: gpu image build"
-    needs: gpu-paths
+    needs: [gpu-paths, speech, qwen-provider, image]
     uses: $/.github/workflows/gpu-image-build.yml
     permissions:
       contents: read
