@@ -20,7 +20,7 @@ import os
 import select
 import statistics
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, TextIO
 
@@ -59,6 +59,8 @@ FIGURES: Final = (
     "first_audio_seconds",
     "first_audible_seconds",
     "real_time_factor",
+    "total_seconds",
+    "audio_seconds",
     "final_seconds",
 )
 
@@ -73,7 +75,18 @@ class Run:
     first_audio_seconds: float
     first_audible_seconds: float
     real_time_factor: float
+    total_seconds: float
+    audio_seconds: float
     final_seconds: float
+
+
+@dataclass(frozen=True)
+class Figure:
+    """One figure over a half's runs."""
+
+    median: float
+    max: float
+    runs: list[float]
 
 
 def first_audible_seconds(spoken: figures.Spoken) -> float:
@@ -93,29 +106,27 @@ def measure_run(speak: Speak, hear: Hear, voice: VoiceId) -> Run:
         spoken.first_audio_seconds,
         first_audible_seconds(spoken),
         spoken.real_time_factor,
+        spoken.total_seconds,
+        spoken.audio_seconds,
         hear(),
     )
 
 
-def summarised(runs: Sequence[Run]) -> dict[str, dict[str, object]]:
+def summarised(runs: Sequence[Run]) -> dict[str, Figure]:
     """Median, maximum and every value of each figure."""
-    result: dict[str, dict[str, object]] = {}
+    result: dict[str, Figure] = {}
     for name in FIGURES:
         values = [getattr(run, name) for run in runs]
-        result[name] = {
-            "median": statistics.median(values),
-            "max": max(values),
-            "runs": values,
-        }
+        result[name] = Figure(statistics.median(values), max(values), values)
     return result
 
 
 def judged(
-    half: Mapping[str, Mapping[str, object]], limits: Mapping[str, float | None]
+    half: Mapping[str, Figure], limits: Mapping[str, float | None]
 ) -> dict[str, dict[str, object]]:
     """Each given limit with whether the half's slowest run kept it."""
     return {
-        name: {"limit": limit, "met": float(half[name]["max"]) <= limit}  # type: ignore[arg-type]
+        name: {"limit": limit, "met": half[name].max <= limit}
         for name, limit in limits.items()
         if limit is not None
     }
@@ -145,7 +156,7 @@ def clip_of(service: Service, seconds: float) -> bytes:
 
 def measure_half(
     speak: Speak, hear: Hear, voice: VoiceId, runs: int
-) -> dict[str, dict[str, object]]:
+) -> dict[str, Figure]:
     """The summarised figures of `runs` warm runs."""
     return summarised([measure_run(speak, hear, voice) for _ in range(runs)])
 
@@ -159,7 +170,7 @@ def measure(
     """The command's JSON document for a started service's `speak` and `hear`."""
     voice = arguments.voice
     measure_run(speak, hear, voice)
-    halves: dict[str, dict[str, dict[str, object]]] = {}
+    halves: dict[str, dict[str, Figure]] = {}
     if arguments.two_halves:
         halves["idle"] = measure_half(speak, hear, voice, arguments.runs)
         print(HALF_SIGNAL, file=sys.stderr, flush=True)
@@ -181,7 +192,10 @@ def measure(
         "device": arguments.device,
         "runs": arguments.runs,
         "clip_seconds": arguments.clip_seconds,
-        "halves": halves,
+        "halves": {
+            half: {name: asdict(figure) for name, figure in summary.items()}
+            for half, summary in halves.items()
+        },
         "lines": lines,
         "met": all(line["met"] for line in lines.values()),
     }
@@ -194,7 +208,7 @@ def parse_arguments(arguments: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--hearing-model", type=HearingModel, choices=list(HearingModel), required=True
     )
-    parser.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
+    parser.add_argument("--device", choices=["cpu", "cuda"], required=True)
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--clip-seconds", type=float, default=12.5)
     for name in ("first-audio-max", "rtf-max", "final-max"):

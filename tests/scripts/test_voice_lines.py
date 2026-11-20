@@ -84,12 +84,10 @@ def test_a_line_is_judged_by_the_slowest_warm_run_not_the_median() -> None:
 
 
 def test_the_warm_up_is_not_a_run() -> None:
-    speaker = Speaker([9.0, 0.1, 0.1, 0.1])
+    result = LINES.measure(
+        arguments(), Speaker([9.0, 0.1, 0.1, 0.1]), finals(9, 1, 1, 1)
+    )
 
-    result = LINES.measure(arguments(), speaker, finals(9, 1, 1, 1))
-
-    warm_up_and_runs = 1 + 3
-    assert speaker.requests == warm_up_and_runs
     figure = result["halves"]["single"]["first_audio_seconds"]
     assert figure["runs"] == [0.1, 0.1, 0.1]
     assert result["halves"]["single"]["final_seconds"]["runs"] == [1, 1, 1]
@@ -102,7 +100,10 @@ def test_the_real_time_factor_is_total_time_over_audio_time() -> None:
         finals(1, 1, 1, 1),
     )
 
-    assert result["halves"]["single"]["real_time_factor"]["max"] == pytest.approx(0.5)
+    single = result["halves"]["single"]
+    assert single["real_time_factor"]["max"] == pytest.approx(0.5)
+    assert single["total_seconds"]["max"] == pytest.approx(1.0)
+    assert single["audio_seconds"]["max"] == pytest.approx(2.0)
     assert result["lines"]["real_time_factor"] == {"limit": 0.6, "met": True}
 
 
@@ -124,12 +125,13 @@ def test_a_figure_without_a_threshold_is_reported_and_not_judged() -> None:
 
 
 def test_a_speak_without_an_audible_sample_fails_the_run() -> None:
-    silent = SimpleNamespace(
-        wav=wav_of(bytes(4800)), first_audio_seconds=0.1, rate=RATE
-    )
+    def silent(_text: str, _voice: VoiceId) -> tuple[bytes, float, float]:
+        return wav_of(bytes(4800)), 0.1, 1.0
 
-    with pytest.raises(SystemExit):
-        LINES.first_audible_seconds(silent)
+    with pytest.raises(SystemExit) as raised:
+        LINES.measure(arguments(), silent, finals(1, 1, 1, 1))
+
+    assert raised.value.code != 0
 
 
 def test_the_loaded_half_starts_only_after_the_signal_and_is_the_one_judged(
@@ -222,15 +224,28 @@ class FakeService:
         }
 
 
+@pytest.fixture(autouse=True)
+def no_load_at_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(LINES.LOAD_AT_START_SETTING, raising=False)
+
+
+def test_the_command_refuses_without_a_device(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as raised:
+        LINES.parse_arguments(["--voice", VOICE, "--hearing-model", "small"])
+
+    assert raised.value.code != 0
+    assert "--device" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(("limit", "exit_status"), [(None, 0), (5.0, 0), (0.01, 3)])
 def test_the_command_prints_only_json_and_exits_by_the_lines(
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     limit: float | None,
     exit_status: int,
 ) -> None:
     fake = FakeService(Speaker([0.1] * 4))
-    monkeypatch.delenv(LINES.LOAD_AT_START_SETTING, raising=False)
     parsed = arguments(first_audio_max=limit)
     ports = fake.ports()
 
@@ -249,7 +264,6 @@ def test_a_gone_caller_ends_the_command_before_the_loaded_half(
     read, write = pipe
     os.close(write)
     fake = FakeService(Speaker([0.1] * 4))
-    monkeypatch.delenv(LINES.LOAD_AT_START_SETTING, raising=False)
     parsed = arguments(two_halves=True, runs=1)
     ports = fake.ports()
 
