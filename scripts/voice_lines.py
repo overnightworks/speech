@@ -44,6 +44,7 @@ from speech_service.pcm import BYTES_PER_SAMPLE, pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
+    from contextlib import AbstractContextManager
 
     from hearing_client import Service
 
@@ -205,21 +206,28 @@ def parse_arguments(arguments: list[str]) -> argparse.Namespace:
     return parsed
 
 
-def prove(arguments: argparse.Namespace) -> None:
+def prove(
+    arguments: argparse.Namespace,
+    *,
+    service: Callable[..., AbstractContextManager[Service]] = hearing_service,
+    speak: Callable[..., tuple[bytes, float, float]] = speak_measured,
+    hear: Callable[[Service, Language, bytes], tuple[float, str]] = hear_file,
+    clip: Callable[[Service, float], bytes] = clip_of,
+) -> None:
     """Start the service, measure, print the document and exit with its verdict."""
     output = sys.stdout
     with contextlib.redirect_stdout(sys.stderr):
         os.environ.update(start_settings(arguments.voice))
-        with hearing_service(
+        with service(
             arguments.device, arguments.hearing_model, arguments.voice
-        ) as service:
-            clip = clip_of(service, arguments.clip_seconds)
+        ) as started:
+            spoken_clip = clip(started, arguments.clip_seconds)
             result = measure(
                 arguments,
-                lambda text, voice: speak_measured(
-                    service.base_url, text, voice, service.minting
+                lambda text, voice: speak(
+                    started.base_url, text, voice, started.minting
                 ),
-                lambda: hear_file(service, Language.DE, clip)[0],
+                lambda: hear(started, Language.DE, spoken_clip)[0],
             )
     json.dump(result, output)
     output.write("\n")

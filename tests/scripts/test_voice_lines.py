@@ -196,6 +196,32 @@ def test_only_a_gpu_voice_is_told_to_load_at_start() -> None:
     assert LINES.start_settings(PIPER_VOICES[0]) == {}
 
 
+@dataclass
+class FakeService:
+    """The ports `prove` takes; the service prints noise on stdout."""
+
+    speaker: Speaker
+
+    @contextlib.contextmanager
+    def service(self, *_: object) -> Iterator[SimpleNamespace]:  # noqa: D102
+        sys.stdout.write("noise from the service\n")
+        yield SimpleNamespace(base_url="", minting=None)
+
+    def speak(self, _url: str, text: str, voice: VoiceId, _minting: object):  # noqa: ANN201, D102
+        return self.speaker(text, voice)
+
+    def hear(self, *_: object) -> tuple[float, str]:  # noqa: D102
+        return 1.0, "text"
+
+    def ports(self) -> dict[str, object]:  # noqa: D102
+        return {
+            "service": self.service,
+            "speak": self.speak,
+            "hear": self.hear,
+            "clip": lambda *_: b"",
+        }
+
+
 @pytest.mark.parametrize(("limit", "exit_status"), [(None, 0), (5.0, 0), (0.01, 3)])
 def test_the_command_prints_only_json_and_exits_by_the_lines(
     monkeypatch: pytest.MonkeyPatch,
@@ -203,20 +229,32 @@ def test_the_command_prints_only_json_and_exits_by_the_lines(
     limit: float | None,
     exit_status: int,
 ) -> None:
-    @contextlib.contextmanager
-    def service(*_: object) -> Iterator[SimpleNamespace]:
-        sys.stdout.write("noise from the service\n")
-        yield SimpleNamespace(base_url="", minting=None)
-
-    speaker = Speaker([0.1] * 4)
-    monkeypatch.setattr(LINES, "hearing_service", service)
-    monkeypatch.setattr(LINES, "clip_of", lambda *_: b"")
-    monkeypatch.setattr(LINES, "speak_measured", lambda _url, *rest: speaker(*rest[:2]))
-    monkeypatch.setattr(LINES, "hear_file", lambda *_: (1.0, "text"))
+    fake = FakeService(Speaker([0.1] * 4))
     monkeypatch.delenv(LINES.LOAD_AT_START_SETTING, raising=False)
 
     with pytest.raises(SystemExit) as raised:
-        LINES.prove(arguments(first_audio_max=limit))
+        LINES.prove(arguments(first_audio_max=limit), **fake.ports())
 
     assert raised.value.code == exit_status
     assert json.loads(capsys.readouterr().out)["voice"] == VOICE
+
+
+def test_a_gone_caller_ends_the_command_before_the_loaded_half(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    pipe: tuple[int, int],
+) -> None:
+    read, write = pipe
+    os.close(write)
+    fake = FakeService(Speaker([0.1] * 4))
+    monkeypatch.delenv(LINES.LOAD_AT_START_SETTING, raising=False)
+
+    with os.fdopen(read, closefd=False) as stdin, monkeypatch.context() as patched:
+        patched.setattr(sys, "stdin", stdin)
+        with pytest.raises(SystemExit) as raised:
+            LINES.prove(arguments(two_halves=True, runs=1), **fake.ports())
+
+    assert raised.value.code != 0
+    warm_up_and_idle_run = 1 + 1
+    assert fake.speaker.requests == warm_up_and_idle_run
+    assert capsys.readouterr().out == ""
