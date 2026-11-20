@@ -1,0 +1,7 @@
+claim_id = "b343b67ae12840238880e4f25d14c595"
+agent = "Claude 1c28c70f-b9e3-4666-80ff-8274d2dcf8fd"
+role = "builder"
+base = "835062be3b1490916ae18cf57276cf1e0c3c37cf"
+branch = "claude/issue-527-cheaper-gpu-build"
+scope = [".github/workflows/ci.yml", ".github/workflows/gpu-image-build.yml"]
+opened_commit = "1b42f8287a11f9bae530d1351159fcffde3180f2"
