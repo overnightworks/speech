@@ -51,8 +51,8 @@ class Spoken:
 
     @property
     def real_time_factor(self) -> float:
-        """Seconds of audio made per second of the answer."""
-        return self.audio_seconds / self.total_seconds if self.total_seconds else 0.0
+        """Seconds the answer took per second of audio it holds."""
+        return self.total_seconds / self.audio_seconds if self.audio_seconds else 0.0
 
 
 def spoken_of(answer: tuple[bytes, float, float]) -> Spoken:

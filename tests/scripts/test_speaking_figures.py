@@ -43,7 +43,7 @@ def answer(
 
 def singles(seconds: float = 2.0) -> dict[VoiceId, figures.VoiceFigures]:
     return {
-        voice: figures.VoiceFigures(wav(seconds), 0.2, 1.0, seconds, 2.0)
+        voice: figures.VoiceFigures(wav(seconds), 0.2, 1.0, seconds, 0.5)
         for voice in PIPER_VOICES
     }
 
@@ -107,7 +107,7 @@ def test_the_medians_of_a_voice_are_those_of_its_repetitions() -> None:
     )
 
     assert medians.first_audio_seconds == pytest.approx(0.3)
-    assert medians.real_time_factor == pytest.approx(2.0)
+    assert medians.real_time_factor == pytest.approx(0.5)
 
 
 def test_two_voices_report_their_times_beside_their_own_single_runs() -> None:
