@@ -22,8 +22,9 @@ from fastapi.staticfiles import StaticFiles
 from playwright.async_api import async_playwright
 from pydantic import SecretStr
 from webauth.config import SessionLifetime, WebAuthConfig, install_web_auth_config
-from webauth.middleware import SecurityHeadersMiddleware
+from webauth.middleware import ClientAddressMiddleware, SecurityHeadersMiddleware
 from webauth.policies import SecurityHeadersPolicy, default_content_security_policy
+from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
 
 from speech_client.hearing import HearingSession, SessionTokens
@@ -341,6 +342,7 @@ def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
             permissions_policy=MICROPHONE_ON,
         ),
     )
+    app.add_middleware(ClientAddressMiddleware, trusted_proxies=TrustedProxies())
 
     @app.get(f"/{RECORDING}")
     async def recording() -> FileResponse:
