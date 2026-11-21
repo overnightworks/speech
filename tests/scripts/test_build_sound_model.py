@@ -4,14 +4,11 @@ import importlib.abc
 import importlib.machinery
 import os
 import sys
-from typing import TYPE_CHECKING
+import types
 
 import pytest
 
 from tests.support.script_support import script_module
-
-if TYPE_CHECKING:
-    import types
 
 
 class _EnvironmentAtImport(importlib.abc.MetaPathFinder, importlib.abc.Loader):
@@ -48,7 +45,8 @@ def test_build_script_sets_telemetry_off_before_importing_onnxruntime(
     monkeypatch.setenv("ORT_DISABLE_TELEMETRY", before or "restored")
     if before is None:
         monkeypatch.delenv("ORT_DISABLE_TELEMETRY")
-    monkeypatch.delitem(sys.modules, "onnxruntime", raising=False)
+    monkeypatch.setitem(sys.modules, "onnxruntime", types.ModuleType("onnxruntime"))
+    monkeypatch.delitem(sys.modules, "onnxruntime")
     finder = _EnvironmentAtImport()
     monkeypatch.setattr(sys, "meta_path", [finder, *sys.meta_path])
     script_module("build_sound_model")
