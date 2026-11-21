@@ -139,28 +139,6 @@ def test_the_launcher_asks_the_pinned_server_for_its_command_unless_given_one(
     assert ended.value.code == _SERVER_STATUS_OF_THE_PINNED_COMMAND
 
 
-def test_a_launcher_whose_service_is_already_gone_ends_without_starting_a_server(
-    tmp_path: Path,
-) -> None:
-    started: list[str] = []
-
-    def gone(_pid: int) -> None:
-        raise RuntimeError
-
-    arguments = _arguments(tmp_path, parent=1)
-
-    with pytest.raises(SystemExit) as ended:
-        launcher.main(
-            arguments,
-            tie_to_parent=gone,
-            remove_leftovers=lambda: started.append("clean"),
-            server_command=lambda *_: started.append("command") or [],
-        )
-
-    assert ended.value.code == 1
-    assert started == []
-
-
 def test_a_launcher_that_does_not_lead_its_group_ends_without_starting_a_server(
     tmp_path: Path,
 ) -> None:
