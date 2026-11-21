@@ -103,6 +103,29 @@ def test_the_launcher_ties_itself_to_the_service_then_cleans_up_and_starts_the_s
     ]
 
 
+def test_the_launcher_hands_its_server_command_absolute_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    handed: list[tuple[Path, Path]] = []
+
+    def served(cache: Path, socket_path: Path) -> list[str]:
+        handed.append((cache, socket_path))
+        return [sys.executable, "-c", "pass"]
+
+    arguments = ["--expected-parent-pid", "1", "--cache=-cache", "--socket=-s"]
+
+    with pytest.raises(SystemExit):
+        launcher.main(
+            arguments,
+            tie_to_parent=lambda _pid: None,
+            remove_leftovers=lambda: None,
+            server_command=served,
+        )
+
+    assert handed == [(tmp_path / "-cache", tmp_path / "-s")]
+
+
 def test_a_launcher_whose_service_is_already_gone_ends_without_starting_a_server(
     tmp_path: Path,
 ) -> None:

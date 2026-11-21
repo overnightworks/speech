@@ -86,9 +86,14 @@ def _end_as(server_status: int) -> None:
 def _arguments(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-parent-pid", type=int, required=True)
-    parser.add_argument("--cache", type=Path, required=True)
-    parser.add_argument("--socket", type=Path, required=True)
+    parser.add_argument("--cache", type=_absolute_path, required=True)
+    parser.add_argument("--socket", type=_absolute_path, required=True)
     return parser.parse_args(argv)
+
+
+def _absolute_path(value: str) -> Path:
+    """Anchor the path at the working directory, so no option can look like it."""
+    return Path(value).resolve()
 
 
 if __name__ == "__main__":
