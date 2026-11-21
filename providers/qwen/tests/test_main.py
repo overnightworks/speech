@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,8 @@ from speech_qwen import __main__ as launcher
 from support.process_state import await_pid_file, group_has_ended, has_ended
 
 _FAKE_SERVER = Path(__file__).parent / "support" / "fake_vllm_omni.py"
+
+_SERVER_STATUS_AFTER_SIGTERM = 7
 
 # Between SIGRTMIN and SIGRTMAX, where `signal.Signals` has no member.
 _UNNAMED_REAL_TIME_SIGNAL = 40
@@ -148,6 +151,41 @@ def test_the_launcher_ends_as_its_server_ended(
     ended = _run_launcher(tmp_path, sys.executable, "-c", server_program)
 
     assert ended.returncode == launcher_status
+
+
+def test_the_launcher_survives_the_services_group_sigterm_and_waits_for_the_server(
+    tmp_path: Path,
+) -> None:
+    ready_file = tmp_path / "server.ready"
+    server = (
+        "import os, signal, sys, time\n"
+        "from pathlib import Path\n"
+        "signal.signal(signal.SIGTERM, lambda *_: "
+        f"sys.exit({_SERVER_STATUS_AFTER_SIGTERM}))\n"
+        f"Path({str(ready_file)!r}).write_text(str(os.getpid()))\n"
+        "time.sleep(3600)\n"
+    )
+    with subprocess.Popen(  # noqa: S603 - the launcher is the program of this test
+        [
+            sys.executable,
+            "-c",
+            _LAUNCHER,
+            str(os.getpid()),
+            sys.executable,
+            "-c",
+            server,
+        ],
+        cwd=tmp_path,
+        start_new_session=True,
+    ) as launcher_process:
+        try:
+            await_pid_file(ready_file)
+            os.killpg(launcher_process.pid, signal.SIGTERM)
+
+            assert launcher_process.wait(timeout=60) == _SERVER_STATUS_AFTER_SIGTERM
+        finally:
+            with suppress(ProcessLookupError):
+                os.killpg(launcher_process.pid, signal.SIGKILL)
 
 
 def test_the_whole_group_ends_with_the_service_even_before_a_stage_arms_its_own_signal(
