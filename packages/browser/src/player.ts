@@ -524,7 +524,10 @@ class PlayerRun {
       if (instant || this.#flow === "paused" || this.#context.state !== "running" || playing.sources.size === 0) {
         this.#playing = undefined;
         silence(playing);
-        playing.item.end({ kind, playedSeconds: playing.playedBy(this.#context.currentTime) });
+        playing.item.end({
+          kind,
+          playedSeconds: playing.playedBy(Math.min(this.#context.currentTime, playing.stoppingAt ?? Infinity)),
+        });
       } else if (playing.stoppingAt === undefined) {
         this.#fadeOut(playing);
       }
