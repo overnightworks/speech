@@ -1,0 +1,8 @@
+claim_id = "758ce235be8f47c79e224b3ed8499c7e"
+agent = "Claude 6721bb1e-84a1-4fcb-9239-504c71d70ec0"
+role = "builder"
+base = "a17325fcf6f32feef8dca822c3b513ce8a27eb0f"
+branch = "claude/issue-561-browser-player-played-seconds"
+scope = ["packages/browser/src/player.ts", "tests/fixtures/browser/player_page.js", "tests/support/browser_player_support.py", "tests/test_wire_route_browser_player.py"]
+opened_commit = "afceb7811679f09e71c4663ee81317805be95423"
+whole_reason = "The player's new read, the page and support that expose it to the browser test, and that test are one capability."
