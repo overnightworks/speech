@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import io
-from dataclasses import replace
 import wave
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -499,9 +499,7 @@ def test_timing_and_error_records_carry_plain_numbers() -> None:
     }
 
 
-def test_the_live_final_is_the_time_from_speech_stopped_to_the_completed_transcript() -> (
-    None
-):
+def test_the_live_final_runs_from_speech_stopped_to_the_completed_transcript() -> None:
     stopped = replace(turn(2.0, (), 6.5), speech_stopped_seconds=4.0)
 
     assert figures.final_after_speech_stopped(stopped) == pytest.approx(2.5)
