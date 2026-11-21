@@ -164,7 +164,7 @@ def _fetched_settings(tmp_path: Path, **settings: object) -> Settings:
 def test_a_start_with_sounds_on_and_no_sound_model_ends_naming_the_way_out(
     tmp_path: Path,
 ) -> None:
-    """Scenario row 5."""
+    """WIRE-169: a start without the model names the way out."""
     settings = _fetched_settings(tmp_path, sound_model_directory=tmp_path / "none")
 
     with pytest.raises(SoundModelMissingError) as refused:
@@ -175,7 +175,7 @@ def test_a_start_with_sounds_on_and_no_sound_model_ends_naming_the_way_out(
 
 
 def test_a_start_with_sounds_off_needs_no_sound_model(tmp_path: Path) -> None:
-    """Scenario row 8."""
+    """WIRE-169: with sounds off nothing is checked or loaded."""
     settings = _fetched_settings(
         tmp_path, sound_events=False, sound_model_directory=tmp_path / "none"
     )
@@ -186,7 +186,7 @@ def test_a_start_with_sounds_off_needs_no_sound_model(tmp_path: Path) -> None:
 def test_a_start_without_hearing_never_reads_the_sound_settings(
     tmp_path: Path,
 ) -> None:
-    """Scenario row 9."""
+    """WIRE-169: without a hearing model the sound settings are not read."""
     settings = Settings(sound_model_directory=tmp_path / "none")
 
     hearing_from_settings(settings, LoopClock())
@@ -203,7 +203,7 @@ def test_a_start_without_hearing_never_reads_the_sound_settings(
 def test_a_sound_model_that_fails_its_load_stops_the_start_and_frees_the_engine(
     tmp_path: Path, labels: list[str], input_shape: tuple[int, int]
 ) -> None:
-    """Scenario rows 6, 7."""
+    """WIRE-169: a model that fails its load stops the start."""
     engine = FakeHearing()
     model = FakeSoundModel(input_shape=input_shape, answer_labels=labels)
     sounds = SoundTaggers(write_model_directory(tmp_path, labels), opener_of(model))

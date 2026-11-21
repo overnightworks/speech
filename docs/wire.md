@@ -221,7 +221,7 @@ service is busy, a malformed form is answered `busy` like any other request, and
 
 **WIRE-48** `WS /v1/realtime?intent=transcription` hears audio as it arrives. **WIRE-49** It speaks the
 events of OpenAI's Realtime transcription session that this service applies, and
-nothing else. **WIRE-50** Both tokens travel in the upgrade request's headers, as on the
+one event of its own, sound detection (WIRE-163). **WIRE-50** Both tokens travel in the upgrade request's headers, as on the
 other routes; a client sends them from a server, never from a browser.
 **WIRE-140** The tokens are checked once, at the upgrade; a session runs on after either
 token expires until it ends, so the app ends a hearing when its right to hear ends. A
@@ -242,13 +242,14 @@ its first append; the service answers `session.updated` with the applied session
 **WIRE-57** Accepted: the format absent or exactly `{"type": "audio/pcm", "rate": 24000}`;
 `transcription.model` absent or `speech`; `transcription.language`
 absent, `de` or `en`; `transcription.languages` absent or a non-empty array of
-distinct `de` or `en`; `turn_detection` absent or `{"type": "server_vad"}`. **WIRE-58** Anything
+distinct `de` or `en`; `turn_detection` absent or `{"type": "server_vad"}`;
+`sound_detection` absent or `{"type": "audioset"}` (WIRE-164). **WIRE-58** Anything
 else ends the session with an `error`, among it a second update, an update after
 audio, `null` turn detection, `language` and `languages` together, an empty or
 repeating `languages`, a code the service does not hear (`param` ends with the
 element's index, such as `...transcription.languages.1`), an explicit `null` for
-either field, and every field the service does not apply (prompt, keywords, noise
-reduction, include).
+either field, an explicit `null` or any other `type` for `sound_detection`, and every
+field the service does not apply (prompt, keywords, noise reduction, include).
 
 **Languages.** **WIRE-135** `transcription.languages` is a strict, ordered set; its
 first element is the main language. A `languages` update is echoed by `session.updated`
@@ -300,6 +301,7 @@ exactly one `speak.ended` (with its `outcome`, which is `cancelled` when the cli
 | WIRE-75 | `conversation.item.input_audio_transcription.completed` (`item_id`, `content_index` 0, `transcript`, `usage`, `languages`, `traceparent`) | the authoritative text, possibly empty, with `usage` `{"type": "duration", "seconds": ...}`, `languages` (WIRE-136) and the turn's `traceparent` (WIRE-150); it replaces the deltas |
 | WIRE-76 | `conversation.item.input_audio_transcription.failed` (`item_id`, `content_index` 0, `error`) | only as a session ends |
 | WIRE-77 | `error` (`error.type`, `error.code`, `error.message`, `error.param`, `error.event_id`) | the session ends after it |
+| WIRE-163 | `input_audio_buffer.sound_detected` (`sound`, `audio_start_ms`, `audio_end_ms`) | a sound began, in a session that asked (below); it has no `item_id` |
 
 `audio_start_ms` and `audio_end_ms` (WIRE-70, WIRE-72) count milliseconds of the audio
 the service received in this session, from its first byte, in the service's 16 kHz time,
@@ -311,6 +313,30 @@ so the audio the turn decodes begins up to 0.35 s earlier. `audio_end_ms` is the
 all audio in the turn: it includes the silence that ended it (WIRE-66), or lies 30 s
 after the turn's pre-roll starts. `usage.seconds` (WIRE-75) is the length of that
 audio, pre-roll included.
+
+**Sounds.** **WIRE-164** A session asks for sounds with `session.audio.input.sound_detection`
+`{"type": "audioset"}` in its `session.update`, and only a session that asked gets
+`input_audio_buffer.sound_detected`; without the ask every event and echo is as it would
+be without sounds. **WIRE-165** `session.updated` echoes the field when it was asked for and
+sound events are on, and leaves it out, without an error, when they are off
+(`SPEECH_SOUND_EVENTS`, WIRE-169); `session.created` never carries it. **WIRE-166** `sound` is
+one of `Laughter`, `Cough`, `Clapping` and `Screaming`, the AudioSet display names; throat
+clearing and sighing are not sent. The service folds the AudioSet classes Laughter, Giggle,
+Snicker and Belly laugh into `Laughter`, and Clapping and Applause into `Clapping`; Applause is
+a class of its own in AudioSet, not a child of Clapping, so that fold is this service's own
+mapping. **WIRE-167** The service scores the session's audio in windows of 2 s, hopped by
+0.5 s on the session clock of WIRE-70, the first window once 2 s have arrived. A sound is sent
+at the first window in which its highest score reaches 0.1, with `audio_start_ms` and
+`audio_end_ms` the window's bounds, so `audio_start_ms` is a lower bound of where the sound
+starts. It ends after two scored windows in a row below 0.1, and then a new one may begin; a
+window the service skipped because an earlier one was still being scored, or because several
+fell due together, counts neither way. Two sounds in one window are sent in the order above.
+The wire carries no score (WIRE-67); the service writes one `sound.detected` line for each event
+and none for a window. **WIRE-168** Sounds never delay a receive or a decode. A sound
+that fails to be scored ends the session `unavailable`, as a failed partial does (WIRE-81): the
+client was told sounds are on, so losing them silently would read as "no sound". After an
+`error` or the close no sound event follows. During a drain (WIRE-146) sounds are sent until
+the `1012` close, which they never delay.
 
 **WIRE-136** `completed.languages` is `[{"code": "<code>"}]` with exactly one element, the
 language the turn was decoded in: also for a session of one language, for a turn heard in
@@ -509,6 +535,14 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
 - **WIRE-121** `SPEECH_MAX_RECORDING_BYTES` (default 25 MiB, at least 1) and
   `SPEECH_MAX_RECORDING_SECONDS` (default `300`, above 0): the largest request
   body and the longest recording.
+- **WIRE-169** `SPEECH_SOUND_EVENTS` (`true` or `false`, default `true`): with `false` the
+  sound model does not load and an ask is echoed without its field (WIRE-165).
+  `SPEECH_SOUND_MODEL_DIRECTORY` (absolute path, default `~/.cache/frame-mn10`, and
+  `/opt/sound-model` in the images): the model that
+  `scripts/build_sound_model.py` builds. Both matter only with `SPEECH_HEARING_MODEL`.
+  With sounds on and the model missing the start ends, naming the setting, the build
+  command and the switch; a model that does not load ends it too. The service never
+  downloads it.
 - **WIRE-148** `SPEECH_LIVE_SILENCE_SECONDS` (default `0.5`, above 0, at most 10): the
   silence that ends a live turn.
 

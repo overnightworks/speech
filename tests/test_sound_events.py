@@ -68,6 +68,7 @@ def _first_window(stream: SoundStream) -> SoundWindow:
 def test_a_label_of_a_sound_names_that_sound(
     tmp_path: Path, label: str, sound: SoundName
 ) -> None:
+    """WIRE-166: the labels of a sound fold into its name."""
     stream = _stream(tmp_path)
     window = _first_window(stream)
 
@@ -99,7 +100,7 @@ def test_a_sound_begins_when_its_score_reaches_the_threshold(
 
 
 def test_no_hop_is_due_before_two_seconds_of_audio(tmp_path: Path) -> None:
-    """Scenario row 19."""
+    """WIRE-167: no window is due before 2 s of audio."""
     stream = _stream(tmp_path)
 
     stream.add(_audio(1.99))
@@ -146,7 +147,7 @@ def test_a_sound_event_carries_the_bounds_of_the_hop_that_heard_it(
 def test_several_due_hops_and_a_hop_in_flight_score_only_the_latest(
     tmp_path: Path,
 ) -> None:
-    """Scenario row 15."""
+    """WIRE-167: only the latest due hop is scored."""
     stream = _stream(tmp_path)
 
     stream.add(_audio(4))
@@ -168,7 +169,7 @@ def test_several_due_hops_and_a_hop_in_flight_score_only_the_latest(
 def test_a_sound_is_one_event_until_two_scored_hops_in_a_row_are_below(
     tmp_path: Path,
 ) -> None:
-    """Scenario row 16."""
+    """WIRE-167: a sound ends after two scored hops in a row below the threshold."""
     stream = _stream(tmp_path)
     window = _first_window(stream)
     began = stream.scored(window, scores_of({"Cough": 0.5}))
@@ -189,7 +190,7 @@ def test_a_sound_is_one_event_until_two_scored_hops_in_a_row_are_below(
 
 
 def test_a_skipped_hop_neither_continues_nor_ends_a_sound(tmp_path: Path) -> None:
-    """Scenario row 15."""
+    """WIRE-167: a skipped hop counts neither way."""
     stream = _stream(tmp_path)
     window = _first_window(stream)
     stream.scored(window, scores_of({"Cough": 0.5}))
@@ -206,7 +207,7 @@ def test_a_skipped_hop_neither_continues_nor_ends_a_sound(tmp_path: Path) -> Non
 def test_two_sounds_in_one_window_are_two_events_in_a_fixed_order(
     tmp_path: Path,
 ) -> None:
-    """Scenario row 18."""
+    """WIRE-167: two sounds in one window are two events in a fixed order."""
     stream = _stream(tmp_path)
     window = _first_window(stream)
 
@@ -221,7 +222,7 @@ def test_two_sounds_in_one_window_are_two_events_in_a_fixed_order(
 def test_a_directory_lacking_the_model_names_the_setting_the_build_and_the_switch(
     tmp_path: Path,
 ) -> None:
-    """Scenario row 5."""
+    """WIRE-169: a start without the model names the way out."""
     directory = write_model_directory(tmp_path / "model", skip="labels.json")
 
     with pytest.raises(SoundModelMissingError) as missing:
@@ -240,7 +241,7 @@ def test_a_complete_directory_passes_the_check(tmp_path: Path) -> None:
 def test_a_model_whose_labels_lack_a_label_of_a_sound_does_not_load(
     tmp_path: Path,
 ) -> None:
-    """Scenario row 6."""
+    """WIRE-169: a model whose labels lack a mapped one does not load."""
     labels = [label for label in LABELS if label != "Applause"]
     directory = write_model_directory(tmp_path, labels)
     taggers = SoundTaggers(directory, opener_of(FakeSoundModel(answer_labels=labels)))
@@ -261,7 +262,7 @@ def test_a_model_whose_labels_lack_a_label_of_a_sound_does_not_load(
 def test_a_model_of_another_shape_does_not_load(
     tmp_path: Path, model: FakeSoundModel
 ) -> None:
-    """Scenario row 7."""
+    """WIRE-169: a model of another shape does not load."""
     directory = write_model_directory(tmp_path)
     taggers = SoundTaggers(directory, opener_of(model))
 

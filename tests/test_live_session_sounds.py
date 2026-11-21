@@ -68,7 +68,7 @@ def _sound_events(socket: FakeSocket) -> list[dict[str, object]]:
 def test_a_session_that_asks_is_echoed_the_ask_and_gets_one_event_per_sound(
     tmp_path: Path,
 ) -> None:
-    """Scenario row 2."""
+    """WIRE-163, WIRE-167: a sound is one event with its window's bounds."""
 
     async def scenario() -> FakeSocket:
         session, socket, model, hearing = await _asking(tmp_path)
@@ -92,7 +92,7 @@ def test_a_session_that_asks_is_echoed_the_ask_and_gets_one_event_per_sound(
 def test_a_session_that_does_not_ask_is_scored_nowhere_and_echoed_no_field(
     tmp_path: Path,
 ) -> None:
-    """Scenario row 1."""
+    """WIRE-164, WIRE-165: a session that does not ask is untouched."""
 
     async def scenario() -> tuple[FakeSocket, FakeSoundModel]:
         session, socket, model, hearing = await _asking(tmp_path, ask=False)
@@ -116,7 +116,7 @@ def test_a_session_that_does_not_ask_is_scored_nowhere_and_echoed_no_field(
 def test_a_hearing_without_sounds_echoes_no_field_hears_on_and_sends_no_event(
     *, ask: bool
 ) -> None:
-    """Scenario rows 3, 4."""
+    """WIRE-165: without sounds an ask is echoed without its field."""
 
     async def scenario() -> FakeSocket:
         session, socket = await started(loaded(FakeHearing(), FakeClock()))
@@ -142,7 +142,7 @@ def test_a_hearing_without_sounds_echoes_no_field_hears_on_and_sends_no_event(
 def test_an_ask_of_another_kind_ends_the_session_invalid(
     tmp_path: Path, ask: dict[str, str]
 ) -> None:
-    """Scenario row 20."""
+    """WIRE-58, WIRE-164: an ask of another kind is refused."""
 
     async def scenario() -> FakeSocket:
         session, socket, _, hearing = await _asking(tmp_path, ask=False)
@@ -159,7 +159,7 @@ def test_an_ask_of_another_kind_ends_the_session_invalid(
 def test_a_run_that_raises_ends_the_session_unavailable_with_no_sound_after(
     tmp_path: Path,
 ) -> None:
-    """Scenario row 10."""
+    """WIRE-168: a failed score ends the session unavailable."""
 
     async def scenario() -> FakeSocket:
         session, socket, model, hearing = await _asking(tmp_path)
@@ -178,7 +178,7 @@ def test_a_run_that_raises_ends_the_session_unavailable_with_no_sound_after(
 
 
 def test_a_refused_submit_ends_the_session_unavailable(tmp_path: Path) -> None:
-    """Scenario row 11."""
+    """WIRE-168: a refused submit ends the session unavailable."""
 
     async def scenario() -> FakeSocket:
         taggers, _ = loaded_taggers(tmp_path)
@@ -199,7 +199,7 @@ def test_a_refused_submit_ends_the_session_unavailable(tmp_path: Path) -> None:
 def test_a_hop_in_flight_when_the_session_ends_by_error_sends_nothing(
     tmp_path: Path,
 ) -> None:
-    """Scenario row 12."""
+    """WIRE-168: no sound event follows an error."""
 
     async def scenario() -> FakeSocket:
         session, socket, model, hearing = await _asking(tmp_path, hold=True)
@@ -219,7 +219,7 @@ def test_a_hop_in_flight_when_the_session_ends_by_error_sends_nothing(
 
 
 def test_a_hop_in_flight_when_the_client_leaves_sends_nothing(tmp_path: Path) -> None:
-    """Scenario row 13."""
+    """WIRE-168: a client that leaves gets nothing."""
 
     async def scenario() -> FakeSocket:
         session, socket, model, hearing = await _asking(tmp_path, hold=True)
@@ -239,7 +239,7 @@ def test_a_hop_in_flight_when_the_client_leaves_sends_nothing(tmp_path: Path) ->
 def test_sounds_are_sent_during_a_drain_and_the_close_is_the_turns(
     tmp_path: Path,
 ) -> None:
-    """Scenario row 14."""
+    """WIRE-146, WIRE-168: sounds are sent during a drain until its close."""
 
     async def scenario() -> FakeSocket:
         session, socket, model, hearing = await _asking(tmp_path)
@@ -261,7 +261,7 @@ def test_sounds_are_sent_during_a_drain_and_the_close_is_the_turns(
 
 
 def test_a_hop_in_flight_at_the_drains_close_sends_nothing(tmp_path: Path) -> None:
-    """Scenario row 14."""
+    """WIRE-146, WIRE-168: sounds are sent during a drain until its close."""
 
     async def scenario() -> FakeSocket:
         session, socket, model, hearing = await _asking(tmp_path, hold=True)
@@ -288,7 +288,7 @@ def test_a_hop_in_flight_at_the_drains_close_sends_nothing(tmp_path: Path) -> No
 def test_each_sound_event_is_one_log_line_and_a_quiet_hop_none(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Scenario row 2."""
+    """WIRE-167: each sound event is one log line, and a quiet window none."""
 
     async def scenario() -> None:
         session, _, model, hearing = await _asking(tmp_path)
@@ -312,7 +312,7 @@ def test_each_sound_event_is_one_log_line_and_a_quiet_hop_none(
 def test_a_failed_run_is_logged_by_its_type_and_never_by_its_message(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Scenario row 10."""
+    """WIRE-168: a failed score ends the session unavailable."""
 
     async def scenario() -> None:
         session, _, model, hearing = await _asking(tmp_path)

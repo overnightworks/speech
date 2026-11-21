@@ -132,6 +132,7 @@ ENV SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml \
     SPEECH_PROVIDER_ROOT=/opt/providers \
     SPEECH_LOAD_GPU_VOICES_AT_START=true \
     SPEECH_HEARING_MODEL=large-v3 \
+    SPEECH_SOUND_MODEL_DIRECTORY=/opt/sound-model \
     SPEECH_DEVICE=cuda
 RUN useradd --no-create-home --uid 1001 speech
 USER 1001

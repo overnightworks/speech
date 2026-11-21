@@ -14,6 +14,7 @@ services:
       SPEECH_VOICE_CACHE: /opt/voices
       SPEECH_HUGGINGFACE_CACHE: /opt/hearing
       SPEECH_HEARING_MODEL: small
+      SPEECH_SOUND_MODEL_DIRECTORY: /opt/sound-model
       SSL_CERT_FILE: /run/secrets/step_ca_root
     secrets:
       - step_ca_root

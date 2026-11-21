@@ -28,7 +28,7 @@ type Scores = npt.NDArray[np.float32]
 
 WINDOW_SAMPLES: Final = 2 * SAMPLE_RATE
 HOP_SAMPLES: Final = SAMPLE_RATE // 2
-# The hit-rates the sounds are measured at hold for this threshold.
+# The sounds' measured hit-rates are those at this threshold.
 THRESHOLD: Final = 0.1
 QUIET_HOPS_TO_END: Final = 2
 MODEL_FILE: Final = "frame_mn10.onnx"
