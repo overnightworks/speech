@@ -225,7 +225,11 @@ def worst_difference(model, onnx: Path, labels: int) -> float:  # noqa: ANN001 -
         if found.shape != expected.shape or found.shape[1] != labels:
             message = f"the ONNX scores are {found.shape}, PyTorch's {expected.shape}"
             raise RuntimeError(message)
-        worst = max(worst, float(np.abs(found - expected).max()))
+        difference = np.abs(found - expected)
+        if not np.isfinite(difference).all():
+            message = "the ONNX or PyTorch scores hold a non-finite value"
+            raise RuntimeError(message)
+        worst = max(worst, float(difference.max()))
     return worst
 
 
