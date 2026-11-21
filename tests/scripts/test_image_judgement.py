@@ -682,5 +682,6 @@ def test_anything_but_one_laughter_inside_the_clip_fails_the_proof(
 
 def test_a_session_that_did_not_ask_hears_no_sound_or_fails_the_proof() -> None:
     judged.require_no_sounds([])
+    heard = [_laugh()]
     with pytest.raises(SystemExit, match="did not ask"):
-        judged.require_no_sounds([_laugh()])
+        judged.require_no_sounds(heard)

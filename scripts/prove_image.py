@@ -451,7 +451,7 @@ def cell_english_voice(session: Session, model: HearingModel) -> None:
 
 
 def cell_live_sounds(session: Session) -> None:
-    """Cell 22: the reference laughter is one Laughter to a session that asks, no more.
+    """Cell 24: the reference laughter is one Laughter to a session that asks, no more.
 
     The sound is delivered only to a session that asks (`on_sound` of the client).
     """
@@ -463,7 +463,7 @@ def cell_live_sounds(session: Session) -> None:
     require_one_laughter(asked, clip_ms)
     require_no_sounds(session.hear_sounds(pair, wav, asking=False))
     print(
-        f"cell 22: held; the {clip_ms} ms reference clip gave one Laughter from"
+        f"cell 24: held; the {clip_ms} ms reference clip gave one Laughter from"
         f" {asked[0].audio_start_ms} ms to {asked[0].audio_end_ms} ms to a session"
         " that asked, and no sound to one that did not"
     )
@@ -698,7 +698,7 @@ def print_teardown(outcome: Teardown, project: str) -> None:
 def hearing_cells(
     session: Session, plain: Compose, wav: bytes, started_after: float
 ) -> None:
-    """Cells 13 to 19 and 22: hearing in the image, after a start of `started_after`."""
+    """Cells 13 to 19 and 24: hearing in the image, after a start of `started_after`."""
     model = HearingModel(service_config(plain)["environment"][HEARING_MODEL_SETTING])
     cell_hearing_ready(session, plain, started_after)
     cell_recording(session, wav)
