@@ -1,8 +1,0 @@
-claim_id = "bea09ee7af314f1198e12f051e848579"
-agent = "Claude 55f7ebfb-40f9-4237-94b5-767bcb68bb45"
-role = "builder"
-base = "adaf36070395f503acba379095ce1d4bb9b21a0b"
-branch = "claude/issue-545-no-onnxruntime-telemetry"
-scope = ["docs/ARCHITECTURE.md", "scripts/build_sound_model.py", "src/speech_service/__main__.py", "tests/scripts", "tests/test_main.py"]
-opened_commit = "399d96beb1eafb3ff3f75f1197c55a633f5b0f76"
-whole_reason = "One switch at each onnxruntime process entry, its tests and the trust sentence that states it; splitting them would leave one entry leaking."
