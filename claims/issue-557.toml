@@ -3,6 +3,6 @@ agent = "Claude 6721bb1e-84a1-4fcb-9239-504c71d70ec0"
 role = "builder"
 base = "a17325fcf6f32feef8dca822c3b513ce8a27eb0f"
 branch = "claude/issue-557-client-on-sound-image-proof"
-scope = ["packages/client/src/speech_client/hearing.py", "packages/client/src/speech_client/utterances.py", "packages/client/tests", "scripts/image_stack.py", "scripts/prove_image.py", "tests/scripts/test_prove_image.py"]
+scope = ["packages/client/src/speech_client/hearing.py", "packages/client/src/speech_client/utterances.py", "packages/client/tests", "scripts/image_judgement.py", "scripts/image_stack.py", "scripts/prove_image.py", "tests/fixtures/image/live.py", "tests/scripts/test_image_judgement.py", "tests/scripts/test_prove_image.py"]
 opened_commit = "5f6108fca9195929b6ea9a5457b0e0d218af22b3"
 whole_reason = "The client's on_sound delivery with its tests and the image proof that drives it through the built small image are one capability."
