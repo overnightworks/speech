@@ -1,8 +1,0 @@
-claim_id = "70788059f7ad4155adcf68347a6f96c7"
-agent = "Claude 55f7ebfb-40f9-4237-94b5-767bcb68bb45"
-role = "builder"
-base = "1a36346b2e8bcf4b7caaf29fc7e7bb67f0594f0c"
-branch = "claude/issue-540-sound-events-to-asking-session"
-scope = [".aco/ahead-of-caller.toml", "Dockerfile", "README.md", "compose.yaml", "docs/ARCHITECTURE.md", "docs/wire.md", "packages/client/src/speech_client/realtime_wire.py", "packages/client/tests", "scripts/prove_speech.py", "src/speech_service/config.py", "src/speech_service/hearing.py", "src/speech_service/live_session.py", "src/speech_service/sound_events.py", "src/speech_service/voice_activity.py", "tests"]
-opened_commit = "84571558a7e070b26abd5ed5ce26d59732cf0bc2"
-whole_reason = "One wire capability across its owner module, the service wiring, the client's wire types and the docs that rule it; the 20-row scenario matrix can only be proven on the whole."
