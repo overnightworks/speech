@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
     from proof_identity import Minting, ProofIdentity
 
+ARGUMENT_ERROR_EXIT_CODE = 2
 CLIENT = script_module("contract_client")
 PROVE = script_module("prove_speech")
 
@@ -330,6 +331,50 @@ def test_the_contract_client_speaks_the_language_health_names_first_for_the_voic
 
     (request,) = requests
     assert SpeechRequest.model_validate_json(request.body).language == offered[0]
+
+
+@pytest.mark.parametrize("voice", list(CATALOGUE))
+def test_the_contract_client_speaks_the_voice_named_on_its_command_line(
+    minting: Minting, identity: ProofIdentity, voice: VoiceId
+) -> None:
+    health = Health(
+        speaking=SpeakingHealth(
+            ready=True,
+            voices={
+                voice: VoiceHealth(
+                    model=CATALOGUE[voice].engine.wire_model,
+                    name=CATALOGUE[voice].name,
+                    languages=CATALOGUE[voice].languages,
+                    takes_instructions=False,
+                    ready=True,
+                    sample_rate=SPEAK_SAMPLE_RATE,
+                )
+            },
+        ),
+        hearing=HearingHealth(model="any", ready=True),
+        card_memory_mb=0,
+    )
+
+    with _recording_speech_service(health) as (base_url, requests):
+        options = CLIENT.parse_arguments(
+            ["--minting-file", str(identity.minting_path), base_url, str(voice)]
+        )
+        CLIENT._run(base_url, options.voice, minting)  # noqa: SLF001 - the script's run step is the unit under test
+
+    (request,) = requests
+    assert SpeechRequest.model_validate_json(request.body).voice == voice
+
+
+def test_the_contract_client_refuses_a_voice_the_catalogue_does_not_name(
+    identity: ProofIdentity, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        CLIENT.parse_arguments(
+            ["--minting-file", str(identity.minting_path), "http://unused", "nobody"]
+        )
+
+    assert exit_info.value.code == ARGUMENT_ERROR_EXIT_CODE
+    assert "invalid choice" in capsys.readouterr().err
 
 
 def test_the_contract_client_command_passes_the_minting_file_path_and_no_secret(
