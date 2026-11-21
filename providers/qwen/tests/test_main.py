@@ -85,9 +85,11 @@ def test_the_launcher_ties_itself_to_the_service_then_cleans_up_and_starts_the_s
         steps.append(("command", cache, socket_path))
         return command
 
+    arguments = _arguments(tmp_path, parent=4321)
+
     with pytest.raises(SystemExit) as ended:
         launcher.main(
-            _arguments(tmp_path, parent=4321),
+            arguments,
             tie_to_parent=lambda pid: steps.append(("tie", pid)),
             remove_leftovers=lambda: steps.append("clean"),
             server_command=served,
