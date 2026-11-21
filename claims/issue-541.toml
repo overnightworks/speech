@@ -1,0 +1,8 @@
+claim_id = "9037a1a3494942298bebdf4acca734a5"
+agent = "Claude 55f7ebfb-40f9-4237-94b5-767bcb68bb45"
+role = "builder"
+base = "1a36346b2e8bcf4b7caaf29fc7e7bb67f0594f0c"
+branch = "claude/issue-541-voice-lines-warmups-live-route-host-load"
+scope = ["AGENTS.md", "scripts/hearing_client.py", "scripts/hearing_figures.py", "scripts/voice_lines.py", "tests/scripts/test_hearing_client.py", "tests/scripts/test_hearing_figures.py", "tests/scripts/test_prove_hearing.py", "tests/scripts/test_voice_lines.py"]
+opened_commit = "6aa47548940267d123e7fd4ac38415af23d44bc9"
+whole_reason = "One measurement command's new flags with the shared live-turn record it reads and their tests; the record's constructors in tests must move with it."
