@@ -1,8 +1,0 @@
-claim_id = "442781a1bcd94d75923958f83637a195"
-agent = "Claude 6721bb1e-84a1-4fcb-9239-504c71d70ec0"
-role = "builder"
-base = "8b15314d753bfe96f44958fe81cc1c2c7f9da0a1"
-branch = "claude/issue-564-take-logline-1-8-0"
-scope = ["packages/client/pyproject.toml", "pyproject.toml", "tests/test_wire_route_tcp.py", "uv.lock"]
-opened_commit = "f040029f9c9d12492375c16e1d6bf3818ebcfa01"
-whole_reason = "One dependency raise: both pins, the lock they share and the one test that restates the event name."
