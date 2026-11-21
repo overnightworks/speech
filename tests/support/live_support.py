@@ -20,6 +20,8 @@ SPEECH_LEVEL = 5000
 INPUT_RATE = 24_000
 WAIT_SECONDS = 5.0
 SPEECH_STOPPED = "input_audio_buffer.speech_stopped"
+SOUND_DETECTED = "input_audio_buffer.sound_detected"
+ASK_FOR_SOUNDS = {"type": "audioset"}
 COMPLETED = "conversation.item.input_audio_transcription.completed"
 FAILED = "conversation.item.input_audio_transcription.failed"
 
@@ -114,8 +116,12 @@ def update(
     language: str | None = "de",
     model: str | None = None,
     languages: list[str] | None = None,
+    sound_detection: dict[str, str] | None = None,
 ) -> str:
-    """A `session.update` message for `language` or `languages`, `model` if given."""
+    """A `session.update` message for `language` or `languages`, `model` if given.
+
+    It asks for sounds with `sound_detection`, when that is given.
+    """
     transcription: dict[str, object] = {}
     if language is not None:
         transcription["language"] = language
@@ -123,7 +129,9 @@ def update(
         transcription["languages"] = languages
     if model is not None:
         transcription["model"] = model
-    audio_input = {"transcription": transcription}
+    audio_input: dict[str, object] = {"transcription": transcription}
+    if sound_detection is not None:
+        audio_input["sound_detection"] = sound_detection
     session = {"type": "transcription", "audio": {"input": audio_input}}
     return json.dumps({"type": "session.update", "session": session})
 

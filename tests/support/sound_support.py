@@ -71,9 +71,8 @@ class FakeSoundModel:
         *,
         input_shape: Sequence[object] = (1, WINDOW_SAMPLES),
         answer_labels: Sequence[str] = LABELS,
-        hold: bool = False,
     ) -> None:
-        """Answer with `answer_labels`' columns; hold every run if `hold`."""
+        """Answer with `answer_labels`' columns."""
         self._input_shape = list(input_shape)
         self._labels = answer_labels
         self._script: list[Mapping[str, float]] = []
@@ -81,8 +80,12 @@ class FakeSoundModel:
         self.failure: Exception | None = None
         self.entered = threading.Event()
         self.release = threading.Event()
-        if not hold:
-            self.release.set()
+        self.release.set()
+
+    def hold_runs(self) -> None:
+        """Make every later run wait for `release`, announced by `entered`."""
+        self.entered.clear()
+        self.release.clear()
 
     def script(self, *answers: Mapping[str, float]) -> None:
         """Answer the next windows with these levels."""
