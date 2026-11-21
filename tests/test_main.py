@@ -6,12 +6,14 @@ import os
 import signal
 import socket
 import subprocess
+import sys
 import threading
 import traceback
 from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
+from logline.testing import configured
 from speech_provider_contract import QwenSpeaker
 
 from shipped_catalogue import CATALOGUE
@@ -637,3 +639,42 @@ def test_serve_exits_nonzero_naming_the_address_before_any_runtime_work(
     (record,) = [r for r in caplog.records if r.getMessage() == "listener.failed"]
     assert record.port == port
     assert not hasattr(record, "host")
+
+
+def _environment_seen_by_engines(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, before: str | None
+) -> str | None:
+    """`ORT_DISABLE_TELEMETRY` when the first engine would load, after `main` ran."""
+    monkeypatch.setenv("ORT_DISABLE_TELEMETRY", before or "restored")
+    if before is None:
+        monkeypatch.delenv("ORT_DISABLE_TELEMETRY")
+    monkeypatch.setattr(sys, "argv", ["speech-service"])
+    settings = _serving_settings(tmp_path)
+    monkeypatch.setenv("SPEECH_PORT", str(settings.port))
+    monkeypatch.setenv("SPEECH_CONFIG_FILE", str(settings.config_file))
+    seen: list[str | None] = []
+
+    def from_settings(_settings: Settings) -> Runtime:
+        seen.append(os.environ.get("ORT_DISABLE_TELEMETRY"))
+        raise RuntimeError
+
+    monkeypatch.setattr(Runtime, "from_settings", from_settings)
+    with configured("speech-service"), pytest.raises((SystemExit, RuntimeError)):
+        __main__.main()
+    return seen[0]
+
+
+@pytest.mark.parametrize(
+    ("before", "expected"),
+    [(None, "1"), ("0", "0")],
+    ids=["unset_is_switched_off", "operator_value_stays"],
+)
+def test_start_sets_onnxruntime_telemetry_off_before_engines_unless_named(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    before: str | None,
+    expected: str,
+) -> None:
+    assert (
+        _environment_seen_by_engines(monkeypatch, tmp_path, before=before) == expected
+    )

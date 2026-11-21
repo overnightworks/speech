@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 _CLOSE_GRACE_SECONDS: Final = 5.0
 _SERVICE_NAME: Final = "speech"
+_ONNXRUNTIME_TELEMETRY_SWITCH: Final = "ORT_DISABLE_TELEMETRY"
 _LOGGER = logging.getLogger(__name__)
 _USAGE_DESCRIPTION = "Serve the speech wire over TCP."
 _USAGE_EPILOG = (
@@ -55,6 +56,8 @@ class StopPolicy:
 def main() -> None:
     """Read one configuration and exit nonzero after a fatal lifecycle error."""
     _argument_parser().parse_args()
+    # onnxruntime reads the switch at import, so it is set before any engine loads.
+    os.environ.setdefault(_ONNXRUNTIME_TELEMETRY_SWITCH, "1")
     settings = load_settings()
     configure(_SERVICE_NAME)
     _LOGGER.info("process.started")
