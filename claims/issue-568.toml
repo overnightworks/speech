@@ -1,7 +1,0 @@
-claim_id = "879ac942bf524b3a972699701d907b89"
-agent = "Claude 6721bb1e-84a1-4fcb-9239-504c71d70ec0"
-role = "builder"
-base = "1d483681824e0c2d24ad73ce48572cecba1affc8"
-branch = "claude/issue-568-speech-runs-its-scheduled-audit"
-scope = [".aco/board.toml"]
-opened_commit = "5f5bdacb67a1f4e5e5718a7785e9425a77729800"
