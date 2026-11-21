@@ -1,7 +1,8 @@
 # An allowlist: everything is out of the build context, and only what the image
 # is built from comes back in. From the source trees that is Python source and
 # the client's py.typed, so a key or credential lying beside the code never
-# reaches the wheels.
+# reaches the wheels; the sound model's build script, its lock and its reference
+# clip are the only other files.
 *
 !pyproject.toml
 !uv.lock
@@ -16,6 +17,9 @@
 !providers/qwen/pyproject.toml
 !providers/qwen/uv.lock
 !providers/qwen/src/**/*.py
+!scripts/build_sound_model.py
+!scripts/build_sound_model.py.lock
+!scripts/sound_reference/laughter.wav
 
 # Nested repositories, environments and tool caches can hold Python files too.
 **/.git/**

@@ -48,6 +48,23 @@ ENV HF_HOME=/tmp/huggingface \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing
 RUN speech-fetch-voice && speech-fetch-hearing-model small
 
+# The sound model is converted to ONNX here and only its four files leave: torch
+# stays in this stage, so neither final image carries it. The script pins and
+# hashes every package in its own lock, --locked refuses a header that drifted
+# from it, and --no-build keeps third-party packages wheel-only, as above. The
+# script checks the ONNX against the PyTorch model before it writes anything.
+FROM python-base AS sound-model
+COPY --from=uv /uv /usr/local/bin/uv
+ENV UV_PYTHON_DOWNLOADS=never \
+    UV_NO_CACHE=1
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY scripts/build_sound_model.py scripts/build_sound_model.py.lock scripts/
+COPY scripts/sound_reference/laughter.wav scripts/sound_reference/laughter.wav
+RUN uv run --locked --no-build --script scripts/build_sound_model.py /opt/sound-model
+
 # The gpu image: the same service on the card, with the Qwen voice and the large
 # hearing model. The service venv gains the CUDA 12 libraries CTranslate2 loads
 # (the gpu extra); speech_service.cuda_libs finds them in that venv.
@@ -102,6 +119,7 @@ RUN apt-get update \
 COPY --from=gpu-dependencies /opt/venv /opt/venv
 COPY --from=gpu-weights /opt/voices /opt/voices
 COPY --from=gpu-weights /opt/hearing /opt/hearing
+COPY --from=sound-model /opt/sound-model /opt/sound-model
 COPY --from=qwen-environment /opt/python /opt/python
 COPY --from=qwen-environment /opt/qwen-nvidia /opt/providers/qwen/.venv/lib/python3.12/site-packages/nvidia
 COPY --from=qwen-environment /opt/providers/qwen/.venv /opt/providers/qwen/.venv
@@ -123,6 +141,7 @@ FROM python-base
 COPY --from=dependencies /opt/venv /opt/venv
 COPY --from=weights /opt/voices /opt/voices
 COPY --from=weights /opt/hearing /opt/hearing
+COPY --from=sound-model /opt/sound-model /opt/sound-model
 COPY deploy/speech.toml deploy/speech.toml
 COPY deploy/catalogue.toml /app/deploy/catalogue.toml
 ENV SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml

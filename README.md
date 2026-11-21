@@ -66,6 +66,7 @@ and large-v3 at start. It is configured like the small image; what differs:
 | Piper, English | `en_US-norman-medium`, `en_US-ljspeech-medium`, `en_GB-cori-medium` | Public domain per each model card |
 | Speaking, optional | [`Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice`](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice), speaker `ryan`, German and English | Apache-2.0 |
 | Hearing, optional | [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3), [`-small`](https://huggingface.co/Systran/faster-whisper-small) | MIT |
+| Sounds, in both images | [PretrainedSED](https://github.com/fschmid56/PretrainedSED) `frame_mn10`, converted to ONNX at image build; its `LICENSE` ships beside it | Code MIT; the author permits the checkpoints' use in applications ([#9](https://github.com/fschmid56/PretrainedSED/issues/9)); trained on AudioSet, whose ontology names are CC BY-SA 4.0 (Google) and credited here |
 
 Each model is pinned to a revision. `speech-qwen-design-voice` (in
 `providers/qwen`, GPU host) renders candidate voices offline from a description;
