@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
+from logline.testing import configured
 from speech_provider_contract import QwenSpeaker
 
 from shipped_catalogue import CATALOGUE
@@ -658,7 +659,7 @@ def _environment_seen_by_engines(
         raise RuntimeError
 
     monkeypatch.setattr(Runtime, "from_settings", from_settings)
-    with pytest.raises((SystemExit, RuntimeError)):
+    with configured("speech-service"), pytest.raises((SystemExit, RuntimeError)):
         __main__.main()
     return seen[0]
 
