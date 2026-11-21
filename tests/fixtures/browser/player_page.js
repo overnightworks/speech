@@ -49,6 +49,7 @@ const seen = {
   endedAtAction: null,
   peakRms: 0,
   playedSeries: [],
+  playedBeforeStop: null,
   heardOnsets: [],
   heardPeaks: [],
   contextAtAction: null,
@@ -218,10 +219,14 @@ function tapRms() {
   return Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
 }
 
-// As often as the page's tasks allow, so a read that steps back between two of the sound's events shows.
+// As often as the page's tasks allow, so a read that steps back between two of the sound's events shows. A task that
+// reads nothing new adds nothing, so the series stays as long as the read's own changes.
 const sampling = new MessageChannel();
 sampling.port1.onmessage = () => {
-  if (playbacks.length > 0) seen.playedSeries.push(playbacks[0].playedSeconds());
+  if (playbacks.length > 0) {
+    const played = playbacks[0].playedSeconds();
+    if (played !== seen.playedSeries.at(-1)) seen.playedSeries.push(played);
+  }
   sampling.port2.postMessage(null);
 };
 sampling.port2.postMessage(null);
@@ -356,6 +361,20 @@ window.playerPage = {
   thawClock: () => frozenClocks.clear(),
   mute: (muted) => act("mute", () => player.setMuted(muted)),
   close: () => act("close", () => player.close()),
+  // A stop, then `cut` once the context clock reads `secondsLater` on: the cut comes after the stop's edge, before the
+  // player's own end of the sound. `playedBeforeStop` is what the sound had played when the stop was asked for.
+  stopThenCutPastItsEdge: (cut, secondsLater) =>
+    act("stop+cut", () => {
+      seen.playedBeforeStop = playbacks[0].playedSeconds();
+      player.stop();
+      frozenClocks.set(contexts[0], contexts[0].currentTime + secondsLater);
+      try {
+        if (cut === "mute") player.setMuted(true);
+        else player.close();
+      } finally {
+        frozenClocks.clear();
+      }
+    }),
   listening: () => Promise.all(earsReady),
   // The app's reader: one analyser of the player's context, connected to `player.tap` from the outside.
   readTap: () => {

@@ -56,6 +56,8 @@ pytestmark = pytest.mark.browser
 # The late-chunk sound's first chunk; how far its read must grow after the next.
 LEAD_SECONDS = 1.0
 GROWTH_SECONDS = 0.3
+# How far past a stop's edge the clock reads when the cut comes.
+PAST_THE_EDGE_SECONDS = 0.5
 
 
 def test_three_sounds_play_in_the_order_handed_over(
@@ -753,6 +755,30 @@ def test_a_cut_sounds_read_stays_at_the_seconds_its_end_reports(
     reported = later["sounds"][0]["playedSeconds"]
     assert after_end["playedNow"][0] == reported
     assert later["playedNow"][0] == reported
+
+
+@pytest.mark.parametrize("cut", ["mute", "close"])
+def test_a_stopped_sound_cut_after_its_edge_reports_no_more_than_the_edge(
+    tmp_path: Path, cut: str
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.prepare_bytes("long", LONG)
+            await stage.hand_over(fed("long", lead_seconds=LEAD_SECONDS))
+            await stage.until("s.sounds[0].startedValue === 'playing'")
+            await stage.act("feed", "long")
+            await stage.act("stopThenCutPastItsEdge", cut, PAST_THE_EDGE_SECONDS)
+            await stage.finish()
+            await stage.settle()
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    reported = seen["sounds"][0]["playedSeconds"]
+    assert reported < seen["playedBeforeStop"] + PAST_THE_EDGE_SECONDS / 2
+    assert seen["playedNow"][0] == reported
+    series = seen["playedSeries"]
+    assert all(later >= earlier for earlier, later in itertools.pairwise(series))
 
 
 def test_a_streamed_sound_that_breaks_off_after_playing_keeps_what_it_played(
