@@ -46,7 +46,9 @@ def main(
         from speech_qwen.model import pinned_server_command as server_command
 
     command = server_command(arguments.cache, arguments.socket)
-    with subprocess.Popen(command) as server:  # noqa: S603 - the command is the closed pinned server
+    # The command is the closed pinned server and its arguments come from the
+    # trusted service; the scanner does not accept a guard on the two paths.
+    with subprocess.Popen(command) as server:  # noqa: S603  # NOSONAR(S8705)
         _end_as(server.wait())
 
 
