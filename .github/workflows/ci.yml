@@ -278,7 +278,8 @@ jobs:
         run: |
           changed=false
           if [ "$GITHUB_EVENT_NAME" = pull_request ] \
-            && ! git diff --quiet HEAD^1 HEAD -- Dockerfile ':(glob)**/uv.lock' providers/; then
+            && ! git diff --quiet HEAD^1 HEAD -- Dockerfile ':(glob)**/uv.lock' providers/ \
+              scripts/build_sound_model.py scripts/build_sound_model.py.lock scripts/sound_reference/; then
             changed=true
           fi
           echo "changed=$changed" >> "$GITHUB_OUTPUT"

@@ -88,6 +88,13 @@ revisions, and the service has no route to a registry or hub.
   3.12 (vLLM-Omni caps below the service's 3.14) beside CUDA 12 libraries and a
   C compiler for Triton. Too large for a standard runner's disk, it is built on
   `speech-gpu-build`.
+- Both images carry the sound model, `frame_mn10` as ONNX, in `/opt/sound-model`.
+  A build-only stage converts it: wheel-only packages from the lock of
+  `scripts/build_sound_model.py` (hashed, `--locked`), PretrainedSED's source and
+  checkpoint each fetched at a pinned sha256, and the ONNX held to the PyTorch
+  model on seeded noise and a CC0 clip before anything is written. The images
+  take only the ONNX, its labels and the upstream `LICENSE` from that stage:
+  its torch stays there, whatever torch the GPU image's Qwen environment brings.
 - The service sits on external and internal networks, never a default one; an
   absent network stops the start, so a run has no egress. The root is
   read-only, the user not root, no capability kept.
@@ -196,5 +203,11 @@ launcher; the image's speaking and hearing on the card by a GPU run.
   waits about five minutes for the server to load.
 - The service imports `piper-tts`, which is `GPL-3.0-or-later`, in an MIT
   repository; the obligation that follows is not settled here.
+- The sound model's weights are trained on AudioSet. PretrainedSED's code is
+  MIT and its author permits the checkpoints' use in applications, but the
+  training data's terms are not settled here, as with Piper's GPL.
+- Neither Dependabot nor the quality gate's advisory scan reads the inline
+  header or the lock of `scripts/build_sound_model.py`, so its pins move by hand
+  and its packages are not scanned for advisories.
 - A copied token works until its `exp`, with no leeway or sender constraint. A
   live hearing session outlives a token's expiry; the app ends it.

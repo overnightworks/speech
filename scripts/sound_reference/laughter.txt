@@ -1,0 +1,9 @@
+laughter.wav is the Freesound clip "Girl Laughing.wav" by jgreer,
+https://freesound.org/people/jgreer/sounds/335581/, licence CC0 1.0
+(http://creativecommons.org/publicdomain/zero/1.0/), as FSD50K ships it
+(evaluation clip 335581, labels Giggle and Laughter; FSD50K is itself CC-BY 4.0
+as a collection, each clip keeps its own licence).
+
+It is converted from the source's 44.1 kHz mono PCM16 to 16 kHz mono PCM16 and
+otherwise unchanged. scripts/build_sound_model.py holds the ONNX to the PyTorch
+model on every 2 s window of it, hopped by 0.5 s.
