@@ -380,7 +380,7 @@ class PlayerRun {
           this.#queue.shift();
           const scheduled = new Scheduled(head);
           this.#playing = scheduled;
-          head.follow(() => scheduled.playedBy(this.#context.currentTime));
+          head.follow(() => scheduled.playedBy(Math.min(this.#context.currentTime, scheduled.stoppingAt ?? Infinity)));
           if (loaded.kind === "buffer") {
             this.#schedule(scheduled, loaded.buffer, 0);
             scheduled.bodyScheduled = true;

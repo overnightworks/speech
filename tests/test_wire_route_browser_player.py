@@ -6,6 +6,7 @@ The flows run in Chromium on the stand-in app's page; see the shared stage.
 from __future__ import annotations
 
 import asyncio
+import itertools
 from typing import TYPE_CHECKING
 
 import pytest
@@ -773,6 +774,27 @@ def test_a_streamed_sound_that_breaks_off_after_playing_keeps_what_it_played(
     assert after_break["sounds"][0]["endedValue"] == "failed"
     assert before_break["playedNow"][0] > 0
     assert after_break["playedNow"][0] >= before_break["playedNow"][0]
+
+
+def test_the_read_never_steps_back_across_a_stops_fade_and_its_end(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.prepare_bytes("long", LONG)
+            await stage.hand_over(fed("long", lead_seconds=LEAD_SECONDS))
+            await stage.until("s.sounds[0].startedValue === 'playing'")
+            await stage.act("feed", "long")
+            await stage.act("stop")
+            await stage.finish()
+            await stage.settle()
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    series = seen["playedSeries"]
+    assert len(series) > 1
+    assert all(later >= earlier for earlier, later in itertools.pairwise(series))
 
 
 def test_a_sound_muted_at_hand_over_reads_zero_played_seconds(tmp_path: Path) -> None:

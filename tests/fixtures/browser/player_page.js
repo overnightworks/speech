@@ -48,6 +48,7 @@ const seen = {
   lastActionAt: null,
   endedAtAction: null,
   peakRms: 0,
+  playedSeries: [],
   heardOnsets: [],
   heardPeaks: [],
   contextAtAction: null,
@@ -216,6 +217,14 @@ function tapRms() {
   tapMeter.getFloatTimeDomainData(samples);
   return Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
 }
+
+// As often as the page's tasks allow, so a read that steps back between two of the sound's events shows.
+const sampling = new MessageChannel();
+sampling.port1.onmessage = () => {
+  if (playbacks.length > 0) seen.playedSeries.push(playbacks[0].playedSeconds());
+  sampling.port2.postMessage(null);
+};
+sampling.port2.postMessage(null);
 
 setInterval(() => {
   const level = rms();
