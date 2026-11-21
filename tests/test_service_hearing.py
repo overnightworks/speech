@@ -11,12 +11,17 @@ from speech_client.wire import HearingHealth, RefusalCode, VoiceId
 from speech_service import hearing_models
 from speech_service.clock import LoopClock
 from speech_service.config import Settings
-from speech_service.hearing import Hearing, ResourceUnavailableError
+from speech_service.hearing import (
+    Hearing,
+    ResourceUnavailableError,
+    hearing_from_settings,
+)
 from speech_service.hearing_models import (
     HearingModel,
     HearingModelMissingError,
 )
 from speech_service.service import Runtime, RuntimeDependencies
+from speech_service.sound_events import SoundModelMissingError, SoundTaggers
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.hear_support import (
     FakeHearing,
@@ -25,6 +30,13 @@ from tests.support.hear_support import (
     post_recording,
     recording,
     write_snapshot,
+)
+from tests.support.sound_support import (
+    LABELS,
+    FakeSoundModel,
+    loaded_taggers,
+    opener_of,
+    write_model_directory,
 )
 from tests.support.speak_support import assert_refusal, post_speech, speak_body
 
@@ -111,7 +123,11 @@ def test_without_a_hearing_model_health_names_hearing_unavailable() -> None:
 def test_a_configured_model_that_was_not_fetched_stops_the_start(
     tmp_path: Path,
 ) -> None:
-    settings = Settings(hearing_model=HearingModel.SMALL, huggingface_cache=tmp_path)
+    settings = Settings(
+        hearing_model=HearingModel.SMALL,
+        huggingface_cache=tmp_path,
+        sound_events=False,
+    )
 
     with pytest.raises(HearingModelMissingError, match="SPEECH_HEARING_MODEL"):
         Runtime.from_settings(settings)
@@ -122,7 +138,11 @@ def test_a_configured_model_that_was_fetched_is_named_in_health_before_it_loads(
 ) -> None:
     """WIRE-128, WIRE-129: a fetched model is named in health before it loads."""
     hearing_models.fetch_model(HearingModel.SMALL, tmp_path, write_snapshot)
-    settings = Settings(hearing_model=HearingModel.SMALL, huggingface_cache=tmp_path)
+    settings = Settings(
+        hearing_model=HearingModel.SMALL,
+        huggingface_cache=tmp_path,
+        sound_events=False,
+    )
 
     runtime = Runtime.from_settings(settings)
 
@@ -130,3 +150,102 @@ def test_a_configured_model_that_was_fetched_is_named_in_health_before_it_loads(
         "model": HearingModel.SMALL.value,
         "ready": False,
     }
+
+
+def _fetched_settings(tmp_path: Path, **settings: object) -> Settings:
+    hearing_models.fetch_model(HearingModel.SMALL, tmp_path / "hearing", write_snapshot)
+    return Settings(
+        hearing_model=HearingModel.SMALL,
+        huggingface_cache=tmp_path / "hearing",
+        **settings,
+    )
+
+
+def test_a_start_with_sounds_on_and_no_sound_model_ends_naming_the_way_out(
+    tmp_path: Path,
+) -> None:
+    """Scenario row 5."""
+    settings = _fetched_settings(tmp_path, sound_model_directory=tmp_path / "none")
+
+    with pytest.raises(SoundModelMissingError) as refused:
+        Runtime.from_settings(settings)
+
+    assert "SPEECH_SOUND_MODEL_DIRECTORY" in str(refused.value)
+    assert "SPEECH_SOUND_EVENTS=false" in str(refused.value)
+
+
+def test_a_start_with_sounds_off_needs_no_sound_model(tmp_path: Path) -> None:
+    """Scenario row 8."""
+    settings = _fetched_settings(
+        tmp_path, sound_events=False, sound_model_directory=tmp_path / "none"
+    )
+
+    Runtime.from_settings(settings)
+
+
+def test_a_start_without_hearing_never_reads_the_sound_settings(
+    tmp_path: Path,
+) -> None:
+    """Scenario row 9."""
+    settings = Settings(sound_model_directory=tmp_path / "none")
+
+    hearing_from_settings(settings, LoopClock())
+
+
+@pytest.mark.parametrize(
+    ("labels", "input_shape"),
+    [
+        ([label for label in LABELS if label != "Cough"], (1, 32000)),
+        (LABELS, (1, 16000)),
+    ],
+    ids=["a-mapped-label-missing", "wrong-input-shape"],
+)
+def test_a_sound_model_that_fails_its_load_stops_the_start_and_frees_the_engine(
+    tmp_path: Path, labels: list[str], input_shape: tuple[int, int]
+) -> None:
+    """Scenario rows 6, 7."""
+    engine = FakeHearing()
+    model = FakeSoundModel(input_shape=input_shape, answer_labels=labels)
+    sounds = SoundTaggers(write_model_directory(tmp_path, labels), opener_of(model))
+    hearing = Hearing(engine, LoopClock(), sounds=sounds)
+
+    with pytest.raises(RuntimeError, match="SPEECH_SOUND_MODEL_DIRECTORY"):
+        hearing.load()
+
+    assert engine.closed == 1
+    assert hearing.capture() is None
+
+
+def test_the_sound_model_loads_only_after_the_engine_is_ready(tmp_path: Path) -> None:
+    opened: list[object] = []
+    engine = FakeHearing(load_error=ResourceUnavailableError("the card is full"))
+
+    def opener(path: object) -> FakeSoundModel:
+        opened.append(path)
+        return FakeSoundModel()
+
+    directory = write_model_directory(tmp_path)
+    hearing = Hearing(engine, LoopClock(), sounds=SoundTaggers(directory, opener))
+
+    hearing.load()
+
+    assert opened == []
+    assert hearing.open_sound_stream() is None
+
+
+def test_a_loaded_hearing_opens_a_sound_stream_and_closing_it_stops_the_scoring(
+    tmp_path: Path,
+) -> None:
+    taggers, _ = loaded_taggers(tmp_path)
+    hearing = Hearing(FakeHearing(), LoopClock(), sounds=taggers)
+    hearing.load()
+    stream = hearing.open_sound_stream()
+    assert stream is not None
+    stream.add(bytes(64_000))
+    window = stream.next_window()
+    assert window is not None
+
+    hearing.close()
+
+    with pytest.raises(RuntimeError):
+        hearing.submit_sound(window)
