@@ -1,4 +1,0 @@
-[[code]]
-path = "scripts/build_sound_model.py"
-item = "#537"
-reason = "The images bake the converted model before the service's slice 2 loads it."

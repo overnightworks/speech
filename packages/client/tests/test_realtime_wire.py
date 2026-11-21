@@ -17,6 +17,8 @@ from speech_client.realtime_wire import (
     SessionCreated,
     SessionUpdate,
     SessionUpdated,
+    SoundDetected,
+    SoundName,
     SpeechStarted,
     SpeechStopped,
     TranscriptCompleted,
@@ -80,6 +82,9 @@ def test_a_session_update_names_the_language_it_applies() -> None:
         ({"format": {"type": "audio/pcm"}}, "audio.input.format.rate"),
         ({"format": {"rate": 24000}}, "audio.input.format.type"),
         ({"turn_detection": {}}, "audio.input.turn_detection.type"),
+        ({"sound_detection": {"type": "other"}}, "audio.input.sound_detection.type"),
+        ({"sound_detection": {}}, "audio.input.sound_detection.type"),
+        ({"sound_detection": None}, "audio.input.sound_detection"),
     ],
     ids=[
         "other-rate",
@@ -93,6 +98,9 @@ def test_a_session_update_names_the_language_it_applies() -> None:
         "format-without-rate",
         "format-without-type",
         "empty-turn-detection",
+        "other-sound-detection",
+        "sound-detection-without-type",
+        "null-sound-detection",
     ],
 )
 def test_a_session_update_with_a_value_the_service_does_not_apply_is_refused(
@@ -198,6 +206,39 @@ def test_the_echo_names_the_setting_in_the_form_the_client_sent(
     assert sent["session"]["audio"]["input"]["transcription"] == echoed
     reparsed = parse_client_event(_session_update(sent["session"]))
     assert reparsed == event
+
+
+def test_a_sound_detection_ask_is_echoed_and_an_absent_one_is_never_dumped() -> None:
+    asked = parse_client_event(
+        _session_update(
+            {
+                "type": "transcription",
+                "audio": {"input": {"sound_detection": {"type": "audioset"}}},
+            }
+        )
+    )
+    assert isinstance(asked, SessionUpdate)
+
+    echoed = json.loads(SessionUpdated(session=asked.session).model_dump_json())
+    plain = SessionUpdated(
+        session=TranscriptionSession(type="transcription")
+    ).model_dump_json()
+
+    assert echoed["session"]["audio"]["input"]["sound_detection"] == {
+        "type": "audioset"
+    }
+    assert "sound_detection" not in plain
+
+
+def test_a_session_without_the_ask_is_what_the_ask_leaves_out() -> None:
+    asked = TranscriptionSession.model_validate(
+        {
+            "type": "transcription",
+            "audio": {"input": {"sound_detection": {"type": "audioset"}}},
+        }
+    )
+
+    assert asked.without_sound_detection() == TranscriptionSession(type="transcription")
 
 
 def test_session_created_carries_no_languages_key() -> None:
@@ -328,6 +369,7 @@ def _each_server_event() -> list[ServerEvent]:
             item_id="item", error=item_failure(RefusalCode.BUSY, param="audio")
         ),
         error_event(RefusalCode.BUSY, param="audio"),
+        SoundDetected(sound=SoundName.LAUGHTER, audio_start_ms=1500, audio_end_ms=3500),
     ]
 
 
@@ -470,3 +512,21 @@ def test_a_refused_server_event_leaks_none_of_its_content() -> None:
     assert error.__context__ is None
     assert words not in str(error)
     assert words not in "".join(traceback.format_exception(error))
+
+
+def test_a_sound_event_carries_the_audioset_display_name_and_no_item() -> None:
+    event = json.loads(
+        SoundDetected(
+            sound=SoundName.CLAPPING, audio_start_ms=500, audio_end_ms=2500
+        ).model_dump_json()
+    )
+
+    assert event["type"] == "input_audio_buffer.sound_detected"
+    assert event["sound"] == "Clapping"
+    assert "item_id" not in event
+    assert {name.value for name in SoundName} == {
+        "Laughter",
+        "Cough",
+        "Clapping",
+        "Screaming",
+    }

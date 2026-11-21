@@ -9,6 +9,7 @@ none of them.
 from __future__ import annotations
 
 import json
+from enum import StrEnum
 from typing import Annotated, ClassVar, Final, Literal
 from uuid import uuid4
 
@@ -55,6 +56,14 @@ def _distinct(codes: tuple[Language, ...]) -> tuple[Language, ...]:
     return codes
 
 
+def _refuse_null(value: object, noun: str) -> object:
+    """A field dumped with `exclude_if=absent` refuses an explicit null."""
+    if value is None:
+        message = f"an explicit null is not {noun}"
+        raise ValueError(message)
+    return value
+
+
 AllowedLanguages = Annotated[
     tuple[Language, ...], Field(min_length=1), AfterValidator(_distinct)
 ]
@@ -75,10 +84,7 @@ class TranscriptionSetting(_SessionPart):
     @field_validator("language", "languages")
     @classmethod
     def _is_not_null(cls, value: object) -> object:
-        if value is None:
-            message = "an explicit null is not a language"
-            raise ValueError(message)
-        return value
+        return _refuse_null(value, "a language")
 
     @field_validator("languages")
     @classmethod
@@ -109,12 +115,27 @@ class ServerVad(_SessionPart):
     type: Literal["server_vad"]
 
 
+class SoundDetection(_SessionPart):
+    """Sound detection by the AudioSet tagger, asked for by a session that wants it."""
+
+    type: Literal["audioset"]
+
+
 class SessionInput(_SessionPart):
-    """The input side of a session."""
+    """The input side of a session.
+
+    `sound_detection` is dumped only when it was asked for.
+    """
 
     format: PcmFormat = PcmFormat(type="audio/pcm", rate=24000)
     transcription: TranscriptionSetting = TranscriptionSetting()
     turn_detection: ServerVad = ServerVad(type="server_vad")
+    sound_detection: SoundDetection | None = Field(None, exclude_if=absent)
+
+    @field_validator("sound_detection")
+    @classmethod
+    def _is_not_null(cls, value: object) -> object:
+        return _refuse_null(value, "a sound detection")
 
 
 class SessionAudio(_SessionPart):
@@ -131,6 +152,12 @@ class TranscriptionSession(_SessionPart):
 
     type: Literal["transcription"]
     audio: SessionAudio = SessionAudio()
+
+    def without_sound_detection(self) -> TranscriptionSession:
+        """This session as it is applied when its sound detection is not."""
+        audio_input = self.audio.input.model_copy(update={"sound_detection": None})
+        audio = self.audio.model_copy(update={"input": audio_input})
+        return self.model_copy(update={"audio": audio})
 
 
 class _ClientEvent(BaseModel):
@@ -256,6 +283,26 @@ class AudioCommitted(_ServerEvent):
     previous_item_id: str | None
 
 
+class SoundName(StrEnum):
+    """The sounds a session hears, by their AudioSet display names."""
+
+    LAUGHTER = "Laughter"
+    COUGH = "Cough"
+    CLAPPING = "Clapping"
+    SCREAMING = "Screaming"
+
+
+class SoundDetected(_ServerEvent):
+    """`input_audio_buffer.sound_detected`: a sound began in a session that asked."""
+
+    type: Literal["input_audio_buffer.sound_detected"] = (
+        "input_audio_buffer.sound_detected"
+    )
+    sound: SoundName
+    audio_start_ms: int
+    audio_end_ms: int
+
+
 class InputAudioPart(BaseModel):
     """The audio of a turn; the audio itself is never echoed."""
 
@@ -371,6 +418,7 @@ ServerEvent = (
     | SpeechStopped
     | AudioCommitted
     | ItemCreated
+    | SoundDetected
     | TranscriptCompleted
     | TranscriptFailed
     | ErrorEvent

@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from httpx2 import Response as ClientResponse
 
     from speech_service.clock import Clock
+    from speech_service.sound_events import SoundTaggers
 
 BOUNDARY = "recording-boundary"
 MULTIPART = f"multipart/form-data; boundary={BOUNDARY}"
@@ -128,11 +129,15 @@ def loaded(
     engine: FakeHearing | None,
     clock: Clock | None = None,
     *,
+    sounds: SoundTaggers | None = None,
     drain_turn_seconds: float = DRAIN_TURN_SECONDS,
 ) -> Hearing:
-    """Hearing over `engine`, loaded; its deadlines are on `clock`."""
+    """Hearing over `engine` and `sounds`, loaded; its deadlines are on `clock`."""
     hearing = Hearing(
-        engine, clock or LoopClock(), drain_turn_seconds=drain_turn_seconds
+        engine,
+        clock or LoopClock(),
+        sounds=sounds,
+        drain_turn_seconds=drain_turn_seconds,
     )
     hearing.load()
     return hearing

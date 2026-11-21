@@ -145,6 +145,38 @@ def test_prove_keeps_a_provider_root_the_caller_set(
     assert environment["SPEECH_PROVIDER_ROOT"] == "/elsewhere"
 
 
+@pytest.mark.parametrize(
+    ("exported", "started_with"),
+    [(None, "false"), ("true", "true")],
+    ids=["unset", "exported"],
+)
+def test_prove_starts_a_hearing_service_with_sounds_off_unless_exported(
+    monkeypatch: pytest.MonkeyPatch,
+    identity: ProofIdentity,
+    exported: str | None,
+    started_with: str,
+) -> None:
+    monkeypatch.delenv("SPEECH_SOUND_EVENTS", raising=False)
+    if exported is not None:
+        monkeypatch.setenv("SPEECH_SOUND_EVENTS", exported)
+
+    environment = PROVE.speech_environment(
+        8080, PIPER_VOICES[0], identity, hearing_model="small"
+    )
+
+    assert environment["SPEECH_SOUND_EVENTS"] == started_with
+
+
+def test_prove_leaves_the_sound_switch_alone_without_a_hearing_model(
+    monkeypatch: pytest.MonkeyPatch, identity: ProofIdentity
+) -> None:
+    monkeypatch.delenv("SPEECH_SOUND_EVENTS", raising=False)
+
+    environment = PROVE.speech_environment(8080, PIPER_VOICES[0], identity)
+
+    assert "SPEECH_SOUND_EVENTS" not in environment
+
+
 def test_prove_defaults_to_the_card_proof(
     monkeypatch: pytest.MonkeyPatch, identity: ProofIdentity
 ) -> None:

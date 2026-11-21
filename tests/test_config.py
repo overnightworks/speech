@@ -253,6 +253,35 @@ def test_a_relative_provider_root_is_refused(monkeypatch: pytest.MonkeyPatch) ->
         Settings()
 
 
+def test_the_sound_settings_are_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("SPEECH_SOUND_EVENTS", "false")
+    monkeypatch.setenv("SPEECH_SOUND_MODEL_DIRECTORY", str(tmp_path))
+
+    settings = Settings()
+
+    assert settings.sound_events is False
+    assert settings.sound_model_directory == tmp_path
+
+
+def test_the_default_sound_model_directory_is_absolute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SPEECH_SOUND_MODEL_DIRECTORY", raising=False)
+
+    assert Settings().sound_model_directory.is_absolute()
+
+
+def test_a_relative_sound_model_directory_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SPEECH_SOUND_MODEL_DIRECTORY", "relative/model")
+
+    with pytest.raises(ValueError, match="sound model directory"):
+        Settings()
+
+
 def test_provider_root_is_optional_for_the_default_piper_process(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

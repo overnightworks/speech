@@ -634,7 +634,8 @@ def speech_environment(
     """Return the process environment binding the loopback port, offering `voice`.
 
     `device` defaults to `SPEECH_DEVICE` from the caller's environment, else
-    `cuda`; `hearing_model` is left unset when absent.
+    `cuda`; `hearing_model` is left unset when absent. With a hearing model, sound
+    events start off unless the caller exported `SPEECH_SOUND_EVENTS`.
     """
     env = os.environ.copy()
     env["SPEECH_CONFIG_FILE"] = str(identity.configuration_path)
@@ -649,6 +650,7 @@ def speech_environment(
     env["SPEECH_VOICES"] = offer_setting({PIPER_PROOF_VOICE, voice})
     if hearing_model is not None:
         env["SPEECH_HEARING_MODEL"] = hearing_model
+        env.setdefault("SPEECH_SOUND_EVENTS", "false")
     env["SPEECH_BUSY_WAIT_SECONDS"] = str(
         PIPER_FIRST_BYTE_LIMIT_S + CONCURRENT_EXTRA_WAIT_SECONDS
     )

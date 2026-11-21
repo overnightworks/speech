@@ -37,6 +37,10 @@ SPEECH_CONFIG_FILE=/absolute/path/to/speech.toml uv run speech-service
 - **Hearing.** `uv run speech-fetch-hearing-model large-v3`, then
   `SPEECH_HEARING_MODEL=large-v3` (on a GPU also `uv sync --locked --extra gpu`).
   `small` fits a CPU but can mishear; use `large-v3` where meaning counts.
+  Sounds are on with hearing: build the sound model once with
+  `uv run --locked --no-build --script scripts/build_sound_model.py ~/.cache/frame-mn10`
+  (torch CPU into uv's cache, about a minute), or start with `SPEECH_SOUND_EVENTS=false`.
+  The images carry it.
 - **A GPU voice.** Set `SPEECH_PROVIDER_ROOT=$PWD/providers` (absolute), run `uv sync --locked`
   in `providers/qwen`, fetch again. Qwen runs on `cuda`, reserving 0.45 of it.
 - **A container.** `Dockerfile` and `compose.yaml` run the small image: CPU,
@@ -86,6 +90,8 @@ Every setting is read from `SPEECH_*`. The wire's settings are in
 | `SPEECH_VOICE_CACHE` | `~/.cache/piper` | Where Piper's files are kept and fetched to |
 | `SPEECH_HUGGINGFACE_CACHE` | the Hub cache | Where hearing's and Qwen's files are kept and fetched to |
 | `SPEECH_PROVIDER_ROOT` | none | Directory of the provider environments; a GPU voice needs it, and with it the default offer holds every catalogue voice |
+| `SPEECH_SOUND_EVENTS` | `true` | With hearing, whether sounds are detected for a session that asks; `false` loads no sound model |
+| `SPEECH_SOUND_MODEL_DIRECTORY` | `~/.cache/frame-mn10` | Absolute path of the model `scripts/build_sound_model.py` builds; the images set `/opt/sound-model` |
 | `SPEECH_LOAD_GPU_VOICES_AT_START` | `false` | `true` loads every offered GPU voice at start and holds `/health` not ready until then |
 | `LOG_LEVEL` | `info` | `debug` to `critical`; a malformed value stops the start |
 | `SERVICE_VERSION` | none | The `version` of every log line |

@@ -24,6 +24,7 @@ _PROVIDER_ROOT_ERROR = "provider root must be absolute"
 _VOICES_ERROR = (
     "SPEECH_VOICES must list catalogue voice ids separated by commas, each at most once"
 )
+_SOUND_MODEL_DIRECTORY_ERROR = "sound model directory must be absolute"
 _CONFIG_FILE_ERROR = "config file must be absolute"
 _CATALOGUE_FILE_ERROR = "catalogue file must be absolute"
 _CATALOGUE_FILE_UNSET_ERROR = "SPEECH_CATALOGUE_FILE must name the voice catalogue"
@@ -55,6 +56,10 @@ class Settings(BaseSettings):
     max_body_bytes: int = Field(default=32_768, ge=1)
     max_input_characters: int = Field(default=4096, ge=1)
     hearing_model: HearingModel | None = None
+    sound_events: bool = True
+    sound_model_directory: Path = Field(
+        default_factory=lambda: Path.home() / ".cache" / "frame-mn10"
+    )
     hearing_busy_wait_seconds: float = Field(default=30.0, ge=0, allow_inf_nan=False)
     hearing_max_waiting_requests: int = Field(default=3, ge=0)
     max_hearing_sessions: int = Field(default=1, ge=1)
@@ -86,6 +91,13 @@ class Settings(BaseSettings):
         if path is not None and not path.is_absolute():
             raise ValueError(_CONFIG_FILE_ERROR)
         return path
+
+    @field_validator("sound_model_directory")
+    @classmethod
+    def _sound_model_directory_is_absolute(cls, directory: Path) -> Path:
+        if not directory.is_absolute():
+            raise ValueError(_SOUND_MODEL_DIRECTORY_ERROR)
+        return directory
 
     @field_validator("provider_root")
     @classmethod
