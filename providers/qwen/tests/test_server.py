@@ -245,11 +245,11 @@ def parent_death_signal_cleared() -> Iterator[None]:
 
 @pytest.mark.usefixtures("parent_death_signal_cleared")
 def test_the_signal_is_set_while_the_creator_lives() -> None:
-    install_parent_death_signal(os.getppid())
+    install_parent_death_signal(os.getppid(), signal.SIGUSR1)
 
     signal_number = ctypes.c_int()
     ctypes.CDLL(None).prctl(PR_GET_PDEATHSIG, ctypes.byref(signal_number))
-    assert signal_number.value == signal.SIGKILL
+    assert signal_number.value == signal.SIGUSR1
 
 
 @pytest.mark.usefixtures("parent_death_signal_cleared")
@@ -257,7 +257,7 @@ def test_a_creator_that_is_already_gone_fails_the_signal() -> None:
     gone_creator = os.getppid() + 1
 
     with pytest.raises(RuntimeError):
-        install_parent_death_signal(gone_creator)
+        install_parent_death_signal(gone_creator, signal.SIGUSR1)
 
 
 def test_the_servers_output_reaches_the_service_only_before_the_worker_is_ready(

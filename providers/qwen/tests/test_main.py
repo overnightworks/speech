@@ -1,18 +1,44 @@
-"""The launcher ties the server to the service and becomes it."""
+"""The launcher runs the server in its own group and ends the group with the service."""
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 import sys
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
 from speech_qwen import __main__ as launcher
-from support.process_state import has_ended
+from support.process_state import await_pid_file, group_has_ended, has_ended
 
-if TYPE_CHECKING:
-    from pathlib import Path
+_FAKE_SERVER = Path(__file__).parent / "support" / "fake_vllm_omni.py"
+
+_LAUNCHER = """
+import sys
+from speech_qwen import __main__ as launcher
+
+launcher.main(
+    ["--expected-parent-pid", sys.argv[1], "--cache", "unused", "--socket", "unused"],
+    remove_leftovers=lambda: None,
+    server_command=lambda cache, socket: sys.argv[2:],
+)
+"""
+
+_SERVICE = f"""
+import os
+import subprocess
+import sys
+import threading
+
+launcher = subprocess.Popen(
+    [sys.executable, "-c", {_LAUNCHER!r}, str(os.getpid()), *sys.argv[1:]],
+    start_new_session=True,
+)
+print(launcher.pid, flush=True)
+threading.Event().wait()
+"""
 
 
 def _arguments(tmp_path: Path, parent: int) -> list[str]:
@@ -26,29 +52,45 @@ def _arguments(tmp_path: Path, parent: int) -> list[str]:
     ]
 
 
-def test_the_launcher_ties_itself_to_the_service_then_cleans_up_and_becomes_the_server(
+def _killed_by(killing_signal: signal.Signals) -> str:
+    return f"import os; os.kill(os.getpid(), {int(killing_signal)})"
+
+
+def _run_launcher(
+    tmp_path: Path, *server: str, leads_its_group: bool = True
+) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(  # noqa: S603 - the launcher is the program of this test
+        [sys.executable, "-c", _LAUNCHER, str(os.getpid()), *server],
+        cwd=tmp_path,
+        start_new_session=leads_its_group,
+        timeout=60,
+        check=False,
+    )
+
+
+def test_the_launcher_ties_itself_to_the_service_then_cleans_up_and_starts_the_server(
     tmp_path: Path,
 ) -> None:
     steps: list[object] = []
-    command = ["/closed/vllm-omni", "serve", "checkpoint"]
+    command = [sys.executable, "-c", "pass"]
 
     def served(cache: Path, socket_path: Path) -> list[str]:
         steps.append(("command", cache, socket_path))
         return command
 
-    launcher.main(
-        _arguments(tmp_path, parent=4321),
-        tie_to_parent=lambda pid: steps.append(("tie", pid)),
-        remove_leftovers=lambda: steps.append("clean"),
-        server_command=served,
-        execute=lambda path, argv: steps.append(("exec", path, argv)),
-    )
+    with pytest.raises(SystemExit) as ended:
+        launcher.main(
+            _arguments(tmp_path, parent=4321),
+            tie_to_parent=lambda pid: steps.append(("tie", pid)),
+            remove_leftovers=lambda: steps.append("clean"),
+            server_command=served,
+        )
 
+    assert ended.value.code == 0
     assert steps == [
         ("tie", 4321),
         "clean",
         ("command", tmp_path / "cache", tmp_path / "server.sock"),
-        ("exec", command[0], command),
     ]
 
 
@@ -68,47 +110,69 @@ def test_a_launcher_whose_service_is_already_gone_ends_without_starting_a_server
             tie_to_parent=gone,
             remove_leftovers=lambda: started.append("clean"),
             server_command=lambda *_: started.append("command") or [],
-            execute=lambda *_: started.append("exec"),
         )
 
     assert ended.value.code == 1
     assert started == []
 
 
-_SERVICE = r"""
-import os
-import subprocess
-import sys
-import threading
+def test_a_launcher_that_does_not_lead_its_group_ends_without_starting_a_server(
+    tmp_path: Path,
+) -> None:
+    started = tmp_path / "started"
+    server = f"open({str(started)!r}, 'w')"
 
-LAUNCHER = '''
-import os
-import sys
-from speech_qwen import __main__ as launcher
+    ended = _run_launcher(tmp_path, sys.executable, "-c", server, leads_its_group=False)
 
-launcher.main(
-    ["--expected-parent-pid", sys.argv[1], "--cache", "unused", "--socket", "unused"],
-    remove_leftovers=lambda: None,
-    server_command=lambda cache, socket: [
-        sys.executable, "-c", "import os, time\\nwhile True: time.sleep(1)"
+    assert ended.returncode == 1
+    assert not started.exists()
+
+
+@pytest.mark.parametrize(
+    ("server_program", "launcher_status"),
+    [
+        (_killed_by(signal.SIGTERM), -signal.SIGTERM),
+        (_killed_by(signal.SIGKILL), -signal.SIGKILL),
+        (_killed_by(signal.SIGSEGV), -signal.SIGSEGV),
+        ("raise SystemExit(0)", 0),
+        ("raise SystemExit(3)", 3),
     ],
 )
-'''
+def test_the_launcher_ends_as_its_server_ended(
+    tmp_path: Path, server_program: str, launcher_status: int
+) -> None:
+    ended = _run_launcher(tmp_path, sys.executable, "-c", server_program)
 
-launcher = subprocess.Popen([sys.executable, "-c", LAUNCHER, str(os.getpid())])
-print(launcher.pid, flush=True)
-threading.Event().wait()
-"""
+    assert ended.returncode == launcher_status
 
 
-def test_the_server_dies_with_the_service_that_started_its_launcher() -> None:
+def test_the_whole_group_ends_with_the_service_even_before_a_stage_arms_its_own_signal(
+    tmp_path: Path,
+) -> None:
+    stage_pid_file = tmp_path / "stage.pid"
+    stage_gate_file = tmp_path / "stage.gate"
+    server = [
+        sys.executable,
+        str(_FAKE_SERVER),
+        "stages",
+        "--uds",
+        str(tmp_path / "server.sock"),
+        "--stage-pid-file",
+        str(stage_pid_file),
+        "--stage-gate-file",
+        str(stage_gate_file),
+    ]
     with subprocess.Popen(  # noqa: S603 - the service is the program of this test
-        [sys.executable, "-c", _SERVICE], stdout=subprocess.PIPE, text=True
+        [sys.executable, "-c", _SERVICE, *server],
+        stdout=subprocess.PIPE,
+        text=True,
     ) as service:
-        server_pid = int(service.stdout.readline())
-        assert not has_ended(server_pid, within=0.5)
+        group = int(service.stdout.readline())
+        stage = await_pid_file(stage_pid_file)
+        assert not has_ended(stage, within=0)
+        assert not stage_gate_file.exists()
 
         service.kill()
         service.wait()
 
-        assert has_ended(server_pid)
+        assert group_has_ended(group)

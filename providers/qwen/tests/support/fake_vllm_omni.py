@@ -2,16 +2,20 @@
 
 import argparse
 import http.server
+import multiprocessing
 import os
 import signal
 import socketserver
+import subprocess
 import sys
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
-parser.add_argument("mode", choices=["healthy", "unhealthy", "exits"])
+parser.add_argument("mode", choices=["healthy", "unhealthy", "exits", "stages"])
 parser.add_argument("--uds", required=True)
 parser.add_argument("--pid-file")
+parser.add_argument("--stage-pid-file")
+parser.add_argument("--stage-gate-file")
 arguments = parser.parse_args()
 
 print("child-stdout-noise", flush=True)  # noqa: T201 - the test checks it reaches no output
@@ -22,6 +26,27 @@ if arguments.mode == "exits":
     sys.exit(3)
 if arguments.mode == "unhealthy":
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
+
+_STAGE = """
+import ctypes, signal, sys, time
+from pathlib import Path
+
+while not Path(sys.argv[1]).exists():
+    time.sleep(0.01)
+ctypes.CDLL(None).prctl(1, signal.SIGTERM)
+time.sleep(3600)
+"""
+
+
+def start_stage() -> None:
+    """Start as vLLM does: a resource tracker, then a stage arming its signal late."""
+    multiprocessing.get_context("spawn").Semaphore()
+    stage = subprocess.Popen([sys.executable, "-c", _STAGE, arguments.stage_gate_file])  # noqa: S603 - the stage is the program of this stand-in
+    Path(arguments.stage_pid_file).write_text(str(stage.pid), encoding="ascii")
+
+
+if arguments.mode == "stages":
+    start_stage()
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
