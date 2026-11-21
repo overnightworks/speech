@@ -134,8 +134,11 @@ revisions, and the service has no route to a registry or hub.
   directory with a fresh path per start, so no port opens and a stale server is
   never mistaken for the new one. It sends no telemetry, runs offline from a
   pinned snapshot with no Python file. The launcher's parent-death signal ends
-  the server's whole process group, stages included, when the service dies. The
-  launcher clears wake directories a killed server left in `/dev/shm`, never
+  the server's whole process group, stages included, when the service dies. A
+  SIGTERM sent to the launcher alone is ignored by design: its handler does
+  nothing, so the launcher waits for its server, which the service stops through
+  its group stop; SIGINT or SIGKILL end the launcher, and the service then
+  signals the group. The launcher clears wake directories a killed server left in `/dev/shm`, never
   following a link.
 - The browser hop of the client's relay belongs to the app. The browser package
   holds no token, interprets no message and opens no device (the app grants the
