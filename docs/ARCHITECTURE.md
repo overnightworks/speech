@@ -93,7 +93,8 @@ revisions, and the service has no route to a registry or hub.
   `scripts/build_sound_model.py` (hashed, `--locked`), PretrainedSED's source and
   checkpoint each fetched at a pinned sha256, and the ONNX held to the PyTorch
   model on seeded noise and a CC0 clip before anything is written. The images
-  carry only the ONNX, its labels and the upstream `LICENSE`, never torch.
+  take only the ONNX, its labels and the upstream `LICENSE` from that stage:
+  its torch stays there, whatever torch the GPU image's Qwen environment brings.
 - The service sits on external and internal networks, never a default one; an
   absent network stops the start, so a run has no egress. The root is
   read-only, the user not root, no capability kept.

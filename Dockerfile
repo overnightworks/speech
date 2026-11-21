@@ -48,11 +48,12 @@ ENV HF_HOME=/tmp/huggingface \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing
 RUN speech-fetch-voice && speech-fetch-hearing-model small
 
-# The sound model is converted to ONNX here and only its four files leave: torch
-# stays in this stage, so neither final image carries it. The script pins and
-# hashes every package in its own lock, --locked refuses a header that drifted
-# from it, and --no-build keeps third-party packages wheel-only, as above. The
-# script checks the ONNX against the PyTorch model before it writes anything.
+# The sound model is converted to ONNX here and only its four files leave: this
+# stage's torch stays in it, so neither final image takes torch from it. The
+# script pins and hashes every package in its own lock, --locked refuses a
+# header that drifted from it, and --no-build keeps third-party packages
+# wheel-only, as above. The script checks the ONNX against the PyTorch model
+# before it writes anything.
 FROM python-base AS sound-model
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_PYTHON_DOWNLOADS=never \
