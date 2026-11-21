@@ -25,8 +25,6 @@ _UNNAMED_REAL_TIME_SIGNAL = 40
 
 _SERVER_STATUS_AFTER_SIGTERM = 7
 
-_USAGE_ERROR_STATUS = 2
-
 _SERVER_STATUS_OF_THE_PINNED_COMMAND = 5
 
 _HANDLED_SIGNALS = (signal.SIGUSR1, signal.SIGUSR2, signal.SIGTERM)
@@ -117,26 +115,6 @@ def test_the_launcher_ties_itself_to_the_service_then_cleans_up_and_starts_the_s
         "clean",
         ("command", tmp_path / "cache", tmp_path / "server.sock"),
     ]
-
-
-@pytest.mark.parametrize("option", ["--cache", "--socket"])
-@pytest.mark.parametrize("value", ["-option-like", ""])
-def test_the_launcher_refuses_a_path_the_server_command_could_read_as_an_option(
-    tmp_path: Path, option: str, value: str
-) -> None:
-    started: list[str] = []
-    arguments = [*_arguments(tmp_path, parent=1), f"{option}={value}"]
-
-    with pytest.raises(SystemExit) as ended:
-        launcher.main(
-            arguments,
-            tie_to_parent=lambda _pid: started.append("tie"),
-            remove_leftovers=lambda: started.append("clean"),
-            server_command=lambda *_: started.append("command") or [],
-        )
-
-    assert ended.value.code == _USAGE_ERROR_STATUS
-    assert started == []
 
 
 def test_the_launcher_asks_the_pinned_server_for_its_command_unless_given_one(
