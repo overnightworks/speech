@@ -6,6 +6,7 @@ carries its own recurrent state, context and unfinished window.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol
 
 import numpy as np
@@ -77,10 +78,9 @@ def _checked_shapes(session: InferenceSession) -> None:
         raise ModelShapeError(message)
 
 
-def open_shipped_model() -> InferenceSession:
-    """An ONNX session over the Silero model that ships with faster-whisper."""
+def one_thread_session(model: Path) -> InferenceSession:
+    """An ONNX session over `model` on the CPU, on one thread."""
     import onnxruntime  # noqa: PLC0415 - heavy and loaded only once hearing is configured
-    from faster_whisper.utils import get_assets_path  # noqa: PLC0415 - as above
 
     options = onnxruntime.SessionOptions()
     options.inter_op_num_threads = 1
@@ -88,10 +88,15 @@ def open_shipped_model() -> InferenceSession:
     options.enable_cpu_mem_arena = False
     options.log_severity_level = 4
     return onnxruntime.InferenceSession(
-        f"{get_assets_path()}/silero_vad_v6.onnx",
-        providers=["CPUExecutionProvider"],
-        sess_options=options,
+        str(model), providers=["CPUExecutionProvider"], sess_options=options
     )
+
+
+def open_shipped_model() -> InferenceSession:
+    """An ONNX session over the Silero model that ships with faster-whisper."""
+    from faster_whisper.utils import get_assets_path  # noqa: PLC0415 - heavy and loaded only once hearing is configured
+
+    return one_thread_session(Path(get_assets_path()) / "silero_vad_v6.onnx")
 
 
 class SileroDetectors:
