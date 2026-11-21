@@ -1,8 +1,0 @@
-claim_id = "b006b9943a954f4997ce29441d8ff3c1"
-agent = "Claude a2f53adf-d850-4905-9ccf-e32905238eac"
-role = "builder"
-base = "976126a6a79d71db7c5792c163271acd0239377e"
-branch = "claude/issue-538-images-bake-frame-mn10"
-scope = [".aco/ahead-of-caller.toml", ".dockerignore", ".github/workflows/ci.yml", "Dockerfile", "README.md", "docs/ARCHITECTURE.md", "scripts/build_sound_model.py", "scripts/build_sound_model.py.lock", "scripts/onnx_session.py", "scripts/probe_sound_detector.py", "scripts/sound_contention.py", "scripts/sound_corpus.py", "scripts/sound_reference", "scripts/sound_taggers.py"]
-opened_commit = "8e41252192bd64ec09ccf5b66949adc754c0a338"
-whole_reason = "The conversion moves out of the probe files this slice deletes, so either half alone would leave two copies of the conversion or the probe without its build."
