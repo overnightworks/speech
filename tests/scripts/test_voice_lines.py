@@ -13,12 +13,14 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
-from hearing_figures import wav_of
+from hearing_figures import LiveTurn, wav_of
 from shipped_catalogue import ON_DEMAND_VOICES, PIPER_VOICES
+from speech_client.wire import Language
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
     from speech_client.wire import VoiceId
 
@@ -60,6 +62,8 @@ def arguments(**changes: object) -> SimpleNamespace:
         "rtf_max": None,
         "final_max": None,
         "two_halves": False,
+        "warmups": 1,
+        "route": "file",
     }
     return SimpleNamespace(**{**given, **changes})
 
@@ -162,6 +166,126 @@ def test_the_loaded_half_starts_only_after_the_signal_and_is_the_one_judged(
         0.5
     )
     assert result["lines"]["first_audio_seconds"]["met"] is False
+
+
+def live_turn(stopped: float, completed: float) -> LiveTurn:
+    return LiveTurn(5.0, (), (), completed, "text", Language.DE, stopped)
+
+
+def test_the_warm_ups_are_reported_with_their_figures_and_never_judged() -> None:
+    result = LINES.measure(
+        arguments(warmups=2, first_audio_max=0.2, final_max=2.0),
+        Speaker([9.0, 8.0, 0.1, 0.1, 0.1]),
+        finals(7, 6, 1, 1, 1),
+    )
+
+    warmups = result["warmups"]
+    assert [warm["first_audio_seconds"] for warm in warmups] == [9.0, 8.0]
+    assert [warm["final_seconds"] for warm in warmups] == [7, 6]
+    assert result["halves"]["single"]["final_seconds"]["runs"] == [1, 1, 1]
+    assert result["met"] is True
+
+
+def test_the_live_route_reports_its_own_final_and_names_each_route() -> None:
+    result = LINES.measure(
+        arguments(route="both", runs=2),
+        Speaker([0.1] * 3),
+        finals(1, 1, 1),
+        live=finals(2.5, 2.6, 2.7),
+    )
+
+    single = result["halves"]["single"]
+    assert single["final_seconds"]["runs"] == [1, 1]
+    assert single["live_final_seconds"]["runs"] == [2.6, 2.7]
+    assert result["final_routes"] == {
+        "final_seconds": "file",
+        "live_final_seconds": "live",
+    }
+
+
+@pytest.mark.parametrize(
+    ("route", "judged_lines", "met"),
+    [
+        ("file", {"final_seconds"}, True),
+        ("live", {"live_final_seconds"}, False),
+        ("both", {"final_seconds", "live_final_seconds"}, False),
+    ],
+)
+def test_the_final_limit_judges_each_route_the_run_names(
+    route: str, judged_lines: set[str], *, met: bool
+) -> None:
+    result = LINES.measure(
+        arguments(route=route, runs=1, final_max=2.0),
+        Speaker([0.1] * 2),
+        finals(1, 1),
+        live=finals(3, 3),
+    )
+
+    assert set(result["lines"]) == judged_lines
+    assert result["met"] is met
+
+
+def test_a_run_samples_the_host_before_and_after_with_its_load_and_busy_share() -> None:
+    readings = iter(
+        [
+            LINES.HostReading(load=2.0, busy_ticks=100, total_ticks=400),
+            LINES.HostReading(load=3.0, busy_ticks=160, total_ticks=500),
+        ]
+    )
+
+    result = LINES.measure(
+        arguments(runs=1, warmups=0),
+        Speaker([0.1]),
+        finals(1),
+        host=lambda: next(readings),
+    )
+
+    host = result["halves"]["single"]["host"]
+    assert host["load_start"]["runs"] == [2.0]
+    assert host["load_end"]["runs"] == [3.0]
+    assert host["cpu_busy_share"]["runs"] == [pytest.approx(0.6)]
+
+
+def test_the_host_reading_comes_from_the_proc_files_it_is_pointed_at(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "loadavg").write_text("1.50 2.00 3.00 1/100 999\n")
+    (tmp_path / "stat").write_text(
+        "cpu  10 0 20 60 10 0 0 0 0 0\ncpu0 1 1 1 1 1 1 1 1\n"
+    )
+
+    reading = LINES.host_reading(tmp_path)
+
+    assert reading.load == pytest.approx(1.5)
+    assert (reading.busy_ticks, reading.total_ticks) == (30, 100)
+
+
+def test_two_halves_with_the_live_route_signal_wait_and_judge_only_the_live_final(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    pipe: tuple[int, int],
+) -> None:
+    read, write = pipe
+    os.write(write, b"go\n")
+    fake = FakeService(Speaker([0.1] * 10))
+    parsed = arguments(route="live", two_halves=True, runs=2, warmups=1, final_max=1.5)
+
+    async def live(*_: object) -> LiveTurn:
+        return live_turn(stopped=4.0, completed=6.5)
+
+    ports = fake.ports()
+    with os.fdopen(read, closefd=False) as stdin, monkeypatch.context() as patched:
+        patched.setattr(sys, "stdin", stdin)
+        with pytest.raises(SystemExit) as raised:
+            LINES.prove(parsed, **ports, live=live)
+
+    captured = capsys.readouterr()
+    assert raised.value.code == LINES.MISSED_EXIT
+    assert LINES.HALF_SIGNAL in captured.err
+    result = json.loads(captured.out)
+    assert set(result["lines"]) == {"live_final_seconds"}
+    assert result["halves"]["loaded"]["live_final_seconds"]["runs"] == [2.5, 2.5]
+    assert "final_seconds" not in result["halves"]["idle"]
 
 
 @pytest.fixture

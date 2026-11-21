@@ -59,6 +59,7 @@ class LiveTurn:
     completed_seconds: float
     transcript: str
     language: Language
+    speech_stopped_seconds: float | None
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,14 @@ def timing_of(turn: LiveTurn) -> Timing:
         final_from_start=turn.completed_seconds,
         final_after_end=turn.completed_seconds - turn.question_seconds,
     )
+
+
+def final_after_speech_stopped(turn: LiveTurn) -> float:
+    """The seconds from the service's `speech_stopped` to the turn's final."""
+    if turn.speech_stopped_seconds is None:
+        message = "the live turn completed without a speech_stopped event"
+        raise SystemExit(message)
+    return turn.completed_seconds - turn.speech_stopped_seconds
 
 
 def _median_final_after_end(turns: Sequence[LiveTurn]) -> float:

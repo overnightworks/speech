@@ -18,6 +18,7 @@ from proof_identity import Minting, mint_pair
 from speech_client.hearing import HearingSession
 from speech_client.realtime_wire import (
     ErrorEvent,
+    SpeechStopped,
     TranscriptCompleted,
     TranscriptDelta,
     TranscriptFailed,
@@ -100,11 +101,14 @@ async def receive_turn(
     """Read server events until the turn completes; `None` if they end first."""
     delta_seconds: list[float] = []
     deltas: list[str] = []
+    speech_stopped: float | None = None
     async for event in events:
         elapsed = time.monotonic() - started
         if isinstance(event, TranscriptDelta):
             delta_seconds.append(elapsed)
             deltas.append(event.delta)
+        elif isinstance(event, SpeechStopped):
+            speech_stopped = elapsed
         elif isinstance(event, TranscriptCompleted):
             return LiveTurn(
                 question_seconds,
@@ -113,6 +117,7 @@ async def receive_turn(
                 elapsed,
                 event.transcript,
                 event.languages[0].code,
+                speech_stopped,
             )
         elif isinstance(event, TranscriptFailed | ErrorEvent):
             failure = f"the live session failed with {type(event).__name__}"

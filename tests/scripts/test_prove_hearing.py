@@ -19,7 +19,7 @@ from speech_client.outcomes import Unreachable
 from speech_client.wire import Health, RefusalCode, refusal
 from speech_service.hearing_models import HearingModel
 from speech_service.pcm import pcm_from_wav
-from tests.support.clock_support import FakeClock
+from tests.support.hearing_health_support import HEALTH_NO_HEARING, HEALTH_READY
 from tests.support.nvidia_support import FakeNvidiaSmi
 from tests.support.script_support import script_module
 
@@ -238,7 +238,9 @@ def test_an_english_long_turn_stays_one_turn_whatever_the_durations() -> None:
 
 
 async def _one_delta_turn(_: object, __: object, ___: bytes) -> HEARING.LiveTurn:
-    return HEARING.LiveTurn(2.0, (2.5,), ("Wie",), 6.0, "Wie", HEARING.Language.DE)
+    return HEARING.LiveTurn(
+        2.0, (2.5,), ("Wie",), 6.0, "Wie", HEARING.Language.DE, None
+    )
 
 
 def test_a_language_measured_with_one_delta_in_its_long_turn_is_not_measured() -> None:
@@ -255,6 +257,7 @@ def test_a_language_measured_with_one_delta_in_its_long_turn_is_not_measured() -
             6.0,
             "Wie spät",
             HEARING.Language.DE,
+            None,
         )
 
     def hear_recording(_: object, __: object, ___: bytes) -> tuple[float, str]:
@@ -457,98 +460,6 @@ def test_a_stage_that_does_not_apply_on_cpu_is_not_missing(
 
 
 HELD_MIB = 512
-
-
-def health_of(*, speaking: bool, hearing: bool) -> Health:
-    return Health.model_validate(
-        {
-            "speaking": {"ready": speaking, "voices": {}},
-            "hearing": {"model": "small", "ready": hearing},
-            "card_memory_mb": 0,
-        }
-    )
-
-
-HEALTH_READY = health_of(speaking=True, hearing=True)
-HEALTH_NO_HEARING = health_of(speaking=True, hearing=False)
-HEALTH_LOADING = health_of(speaking=False, hearing=False)
-
-
-def wait_loaded_with(health: Health, *, speaks: bool) -> Health:
-    clock = FakeClock()
-    return HEARING.wait_loaded(
-        "http://127.0.0.1:1",
-        lambda: None,
-        HEARING.LoadWait(lambda: speaks, lambda *_: health, clock.jump, clock.now),
-    )
-
-
-@pytest.mark.parametrize(
-    ("health", "speaks"),
-    [(HEALTH_READY, False), (HEALTH_NO_HEARING, True)],
-    ids=["hearing ready", "speaking served after a load without hearing"],
-)
-def test_the_service_has_loaded_when_hearing_is_ready_or_speaking_is_served(
-    health: Health, *, speaks: bool
-) -> None:
-    assert wait_loaded_with(health, speaks=speaks) == health
-
-
-@pytest.mark.parametrize(
-    ("health", "speaks"),
-    [(HEALTH_LOADING, True), (HEALTH_NO_HEARING, False)],
-    ids=["still loading", "speaking ready but not served"],
-)
-def test_a_service_that_never_finishes_loading_fails_the_wait(
-    health: Health, *, speaks: bool
-) -> None:
-    with pytest.raises(SystemExit, match="did not finish loading"):
-        wait_loaded_with(health, speaks=speaks)
-
-
-def test_a_wait_with_slow_health_answers_still_ends_at_its_time_limit() -> None:
-    clock = FakeClock()
-    slow_seconds = 35.0
-
-    def slow_health(*_: object) -> Health:
-        clock.jump(slow_seconds)
-        return HEALTH_LOADING
-
-    wait = HEARING.LoadWait(lambda: True, slow_health, clock.jump, clock.now)
-    with pytest.raises(SystemExit, match="did not finish loading"):
-        HEARING.wait_loaded("http://127.0.0.1:1", lambda: None, wait)
-
-    assert clock.now() < HEARING.READY_TIMEOUT_SECONDS + slow_seconds + 1
-
-
-def test_a_wait_that_never_heard_the_service_names_no_health() -> None:
-    clock = FakeClock()
-
-    def unreachable(*_: object) -> Unreachable:
-        return Unreachable()
-
-    wait = HEARING.LoadWait(lambda: True, unreachable, clock.jump, clock.now)
-    with pytest.raises(SystemExit) as failure:
-        HEARING.wait_loaded("http://127.0.0.1:1", lambda: None, wait)
-
-    assert "None" not in str(failure.value)
-
-
-def test_a_wait_ends_at_once_with_the_last_health_when_the_server_exited() -> None:
-    clock = FakeClock()
-    polls = iter([None, None, 1])
-
-    def exit_status() -> int | None:
-        return next(polls)
-
-    wait = HEARING.LoadWait(
-        lambda: True, lambda *_: HEALTH_LOADING, clock.jump, clock.now
-    )
-    with pytest.raises(SystemExit, match="exited with status 1") as failure:
-        HEARING.wait_loaded("http://127.0.0.1:1", exit_status, wait)
-
-    assert str(HEALTH_LOADING) in str(failure.value)
-    assert clock.now() < HEARING.READY_TIMEOUT_SECONDS
 
 
 @pytest.fixture
