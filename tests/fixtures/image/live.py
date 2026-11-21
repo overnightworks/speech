@@ -44,17 +44,18 @@ async def listen(
     sounds: list[dict[str, object]] = []
 
     async def collect() -> None:
-        sounds.extend(
-            [
-                {
-                    "sound": event.sound.value,
-                    "audio_start_ms": event.audio_start_ms,
-                    "audio_end_ms": event.audio_end_ms,
-                }
-                async for event in session.events()
-                if isinstance(event, SoundDetected)
-            ]
-        )
+        async for event in session.events():
+            match event:
+                case SoundDetected():
+                    sounds.append(
+                        {
+                            "sound": event.sound.value,
+                            "audio_start_ms": event.audio_start_ms,
+                            "audio_end_ms": event.audio_end_ms,
+                        }
+                    )
+                case _:
+                    pass
 
     async def settle() -> None:
         await sender
