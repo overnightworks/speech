@@ -637,3 +637,42 @@ def test_serve_exits_nonzero_naming_the_address_before_any_runtime_work(
     (record,) = [r for r in caplog.records if r.getMessage() == "listener.failed"]
     assert record.port == port
     assert not hasattr(record, "host")
+
+
+def _environment_seen_by_engines(
+    monkeypatch: pytest.MonkeyPatch, *, before: str | None
+) -> str | None:
+    """`ORT_DISABLE_TELEMETRY` when the first engine would load, after `main` ran."""
+    monkeypatch.setenv("ORT_DISABLE_TELEMETRY", before or "restored")
+    if before is None:
+        monkeypatch.delenv("ORT_DISABLE_TELEMETRY")
+    monkeypatch.setattr(__main__, "load_settings", Settings)
+    monkeypatch.setattr(__main__, "configure", lambda _name: None)
+    monkeypatch.setattr(__main__, "_argument_parser", _NoArguments)
+    seen: list[str | None] = []
+
+    def serve(_settings: Settings) -> object:
+        seen.append(os.environ.get("ORT_DISABLE_TELEMETRY"))
+        return object()
+
+    monkeypatch.setattr(__main__, "serve", serve)
+    monkeypatch.setattr(__main__.asyncio, "run", lambda _coroutine: 0)
+    with pytest.raises(SystemExit):
+        __main__.main()
+    return seen[0]
+
+
+class _NoArguments:
+    def parse_args(self) -> None:
+        return None
+
+
+@pytest.mark.parametrize(
+    ("before", "expected"),
+    [(None, "1"), ("0", "0")],
+    ids=["unset_is_switched_off", "operator_value_stays"],
+)
+def test_start_sets_onnxruntime_telemetry_off_before_engines_unless_named(
+    monkeypatch: pytest.MonkeyPatch, before: str | None, expected: str
+) -> None:
+    assert _environment_seen_by_engines(monkeypatch, before=before) == expected

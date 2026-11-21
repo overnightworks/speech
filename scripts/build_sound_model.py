@@ -45,6 +45,7 @@ import contextlib
 import hashlib
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import urllib.request
@@ -53,6 +54,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import numpy as np
+
+# onnxruntime reads the switch at import: set after it, its telemetry still connects.
+os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
+
 import onnxruntime
 
 if TYPE_CHECKING:

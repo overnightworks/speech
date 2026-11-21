@@ -120,6 +120,8 @@ revisions, and the service has no route to a registry or hub.
   another subject in the app's group and the service group. A call an app makes
   as itself is refused. Issuer, group and apps are configuration
   (`SPEECH_CONFIG_FILE`); a refusal never names the failed token or claim.
+- The process switches onnxruntime's built-in telemetry off (`ORT_DISABLE_TELEMETRY=1`), so
+  serving opens no outbound connection of its own.
 - No token, subject or key-set address reaches a log, an error or a repr, and
   no spoken or heard text reaches a log.
 - Qwen's server is reachable only through a Unix socket in a private 0700
