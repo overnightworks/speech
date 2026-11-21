@@ -7,10 +7,14 @@ updates:
     groups:
       actions:
         update-types: [minor, patch]
+  # The torch stack of the sound-model build and the gpu image has no wheels for the next Python minor yet, and the image never downloads an interpreter (UV_PYTHON_DOWNLOADS=never), so a minor bump fails the image build; a Python upgrade is its own deliberate lane.
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: uv
     directory: /
     schedule:
