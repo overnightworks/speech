@@ -446,10 +446,8 @@ class Hearing:
         except Exception:
             logger.exception("sound_model.failed")
             sounds.close()
-            return (
-                f"{DIRECTORY_SETTING}={sounds.directory} failed to load; "
-                f"{SWITCH}=false starts without sounds"
-            )
+            setting = f"{DIRECTORY_SETTING}={sounds.directory}"
+            return f"{setting} failed to load; {SWITCH}=false starts without sounds"
         logger.info("sound_model.ready")
         return None
 

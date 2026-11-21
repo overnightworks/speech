@@ -31,6 +31,8 @@ HOP_SAMPLES: Final = SAMPLE_RATE // 2
 # The sounds' measured hit-rates are those at this threshold.
 THRESHOLD: Final = 0.1
 QUIET_HOPS_TO_END: Final = 2
+# The model answers scores shaped [1, labels, frames].
+_SCORE_AXES: Final = 3
 MODEL_FILE: Final = "frame_mn10.onnx"
 LABELS_FILE: Final = "labels.json"
 MODEL_FILES: Final = (MODEL_FILE, f"{MODEL_FILE}.data", LABELS_FILE, "LICENSE")
@@ -187,7 +189,7 @@ class SoundTaggers:
         }
         silence = np.zeros((1, WINDOW_SAMPLES), dtype=np.float32)
         (answer,) = session.run(None, {_INPUT: silence})
-        if answer.ndim != 3 or answer.shape[:2] != (1, len(labels)):  # noqa: PLR2004 - [1, labels, frames]
+        if answer.ndim != _SCORE_AXES or answer.shape[:2] != (1, len(labels)):
             message = f"the sound model answers scores of shape {answer.shape}"
             raise SoundModelError(message)
         self._columns = columns
