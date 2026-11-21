@@ -15,6 +15,9 @@ from support.process_state import await_pid_file, group_has_ended, has_ended
 
 _FAKE_SERVER = Path(__file__).parent / "support" / "fake_vllm_omni.py"
 
+# Between SIGRTMIN and SIGRTMAX, where `signal.Signals` has no member.
+_UNNAMED_REAL_TIME_SIGNAL = 40
+
 _LAUNCHER = """
 import sys
 from speech_qwen import __main__ as launcher
@@ -52,8 +55,8 @@ def _arguments(tmp_path: Path, parent: int) -> list[str]:
     ]
 
 
-def _killed_by(killing_signal: signal.Signals) -> str:
-    return f"import os; os.kill(os.getpid(), {int(killing_signal)})"
+def _killed_by(killing_signal: int) -> str:
+    return f"import os; os.kill(os.getpid(), {killing_signal})"
 
 
 def _run_launcher(
@@ -134,6 +137,7 @@ def test_a_launcher_that_does_not_lead_its_group_ends_without_starting_a_server(
         (_killed_by(signal.SIGTERM), -signal.SIGTERM),
         (_killed_by(signal.SIGKILL), -signal.SIGKILL),
         (_killed_by(signal.SIGSEGV), -signal.SIGSEGV),
+        (_killed_by(_UNNAMED_REAL_TIME_SIGNAL), -_UNNAMED_REAL_TIME_SIGNAL),
         ("raise SystemExit(0)", 0),
         ("raise SystemExit(3)", 3),
     ],

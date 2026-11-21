@@ -76,8 +76,8 @@ def _wait_for_the_server(_signal_number: int, _frame: FrameType | None) -> None:
 def _end_as(server_status: int) -> None:
     """End as the server ended: a signal death as that signal, an exit as itself."""
     if server_status < 0:
-        killing_signal = signal.Signals(-server_status)
-        if killing_signal is not signal.SIGKILL:  # its disposition cannot be set
+        killing_signal = -server_status  # an int: real-time signals have no enum member
+        if killing_signal != signal.SIGKILL:  # its disposition cannot be set
             signal.signal(killing_signal, signal.SIG_DFL)
         os.kill(os.getpid(), killing_signal)
     raise SystemExit(server_status)
