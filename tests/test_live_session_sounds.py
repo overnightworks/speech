@@ -177,6 +177,24 @@ def test_a_run_that_raises_ends_the_session_unavailable_with_no_sound_after(
     assert _sound_events(socket) == []
 
 
+def test_a_hop_that_falls_due_in_flight_is_scored_when_the_run_returns(
+    tmp_path: Path,
+) -> None:
+    """WIRE-167: the latest hop that fell due while one was in flight is scored."""
+
+    async def scenario() -> int:
+        session, _, model, hearing = await _asking(tmp_path, hold=True)
+        await session.on_message(append(FIRST_HOP))
+        await _in_flight(model)
+        await session.on_message(append(audio(0.6)))
+        model.release.set()
+        await session.settled()
+        hearing.close()
+        return len(model.windows)
+
+    assert asyncio.run(scenario()) > 1
+
+
 def test_a_refused_submit_ends_the_session_unavailable(tmp_path: Path) -> None:
     """WIRE-168: a refused submit ends the session unavailable."""
 

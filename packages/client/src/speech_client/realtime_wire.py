@@ -56,6 +56,14 @@ def _distinct(codes: tuple[Language, ...]) -> tuple[Language, ...]:
     return codes
 
 
+def _refuse_null(value: object, noun: str) -> object:
+    """A field dumped with `exclude_if=absent` refuses an explicit null."""
+    if value is None:
+        message = f"an explicit null is not {noun}"
+        raise ValueError(message)
+    return value
+
+
 AllowedLanguages = Annotated[
     tuple[Language, ...], Field(min_length=1), AfterValidator(_distinct)
 ]
@@ -76,10 +84,7 @@ class TranscriptionSetting(_SessionPart):
     @field_validator("language", "languages")
     @classmethod
     def _is_not_null(cls, value: object) -> object:
-        if value is None:
-            message = "an explicit null is not a language"
-            raise ValueError(message)
-        return value
+        return _refuse_null(value, "a language")
 
     @field_validator("languages")
     @classmethod
@@ -130,10 +135,7 @@ class SessionInput(_SessionPart):
     @field_validator("sound_detection")
     @classmethod
     def _is_not_null(cls, value: object) -> object:
-        if value is None:
-            message = "an explicit null is not a sound detection"
-            raise ValueError(message)
-        return value
+        return _refuse_null(value, "a sound detection")
 
 
 class SessionAudio(_SessionPart):

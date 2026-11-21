@@ -539,7 +539,8 @@ version path (`/v-1/...`, `/vx/...`, `/speak`) gets the app's default 404 with
   sound model does not load and an ask is echoed without its field (WIRE-165).
   `SPEECH_SOUND_MODEL_DIRECTORY` (absolute path, default `~/.cache/frame-mn10`, and
   `/opt/sound-model` in the images): the model that
-  `scripts/build_sound_model.py` builds. Both matter only with `SPEECH_HEARING_MODEL`.
+  `scripts/build_sound_model.py` builds. Both take effect only with `SPEECH_HEARING_MODEL`; a malformed value
+  still stops the start.
   With sounds on and the model missing the start ends, naming the setting, the build
   command and the switch; a model that does not load ends it too. The service never
   downloads it.
