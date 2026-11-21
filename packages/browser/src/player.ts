@@ -25,7 +25,7 @@ export interface Playback {
   /**
    * The seconds of the sound the output has played by now, on the same clock and unit as `PlaybackEnd.playedSeconds`, so
    * an app adds no start to it. It is 0 before the sound starts, stands still while the output waits for a late chunk
-   * and while paused, and reads the end's `playedSeconds` once the sound has ended (0 for a refused or failed one). Never throws.
+   * and while paused, and reads the end's `playedSeconds` once the sound has ended (0 for a refused one, and for a failed one that never started; a failed one that played keeps what it played). Never throws.
    */
   playedSeconds(): number;
 }
@@ -167,7 +167,8 @@ class Queued {
   end(end: PlaybackEnd): void {
     if (!this.#over) {
       this.#over = true;
-      const played = "playedSeconds" in end ? end.playedSeconds : 0;
+      // A failed end carries no seconds: the sound keeps what it had played, 0 when it never started.
+      const played = "playedSeconds" in end ? end.playedSeconds : this.#playedSeconds();
       this.#playedSeconds = () => played;
       this.#started.resolve({ kind: "ended" });
       this.#ended.resolve(end);

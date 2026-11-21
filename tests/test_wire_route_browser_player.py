@@ -754,6 +754,27 @@ def test_a_cut_sounds_read_stays_at_the_seconds_its_end_reports(
     assert later["playedNow"][0] == reported
 
 
+def test_a_streamed_sound_that_breaks_off_after_playing_keeps_what_it_played(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> tuple[dict[str, object], dict[str, object]]:
+        async with activated(tmp_path) as stage:
+            await stage.hand_over(url(CUT_LATE))
+            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
+            await stage.settle()
+            before_break = await stage.snapshot()
+            stage.side.held_release.set()
+            await stage.until("s.sounds[0].endedValue !== null")
+            after_break = await stage.snapshot()
+            return before_break, after_break
+
+    before_break, after_break = asyncio.run(scenario())
+
+    assert after_break["sounds"][0]["endedValue"] == "failed"
+    assert before_break["playedNow"][0] > 0
+    assert after_break["playedNow"][0] >= before_break["playedNow"][0]
+
+
 def test_a_sound_muted_at_hand_over_reads_zero_played_seconds(tmp_path: Path) -> None:
     async def scenario() -> dict[str, object]:
         async with activated(tmp_path) as stage:
