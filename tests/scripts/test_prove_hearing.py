@@ -238,7 +238,9 @@ def test_an_english_long_turn_stays_one_turn_whatever_the_durations() -> None:
 
 
 async def _one_delta_turn(_: object, __: object, ___: bytes) -> HEARING.LiveTurn:
-    return HEARING.LiveTurn(2.0, (2.5,), ("Wie",), 6.0, "Wie", HEARING.Language.DE)
+    return HEARING.LiveTurn(
+        2.0, (2.5,), ("Wie",), 6.0, "Wie", HEARING.Language.DE, None
+    )
 
 
 def test_a_language_measured_with_one_delta_in_its_long_turn_is_not_measured() -> None:
@@ -255,6 +257,7 @@ def test_a_language_measured_with_one_delta_in_its_long_turn_is_not_measured() -
             6.0,
             "Wie spät",
             HEARING.Language.DE,
+            None,
         )
 
     def hear_recording(_: object, __: object, ___: bytes) -> tuple[float, str]:

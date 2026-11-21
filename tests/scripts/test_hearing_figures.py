@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+from dataclasses import replace
 import wave
 from pathlib import Path
 
@@ -60,6 +61,7 @@ def turn(
         completed_seconds=final,
         transcript="wort",
         language=language,
+        speech_stopped_seconds=None,
     )
 
 
@@ -495,3 +497,16 @@ def test_timing_and_error_records_carry_plain_numbers() -> None:
         "reference_words_total": 4,
         "rate": 0.25,
     }
+
+
+def test_the_live_final_is_the_time_from_speech_stopped_to_the_completed_transcript() -> (
+    None
+):
+    stopped = replace(turn(2.0, (), 6.5), speech_stopped_seconds=4.0)
+
+    assert figures.final_after_speech_stopped(stopped) == pytest.approx(2.5)
+
+
+def test_a_turn_without_speech_stopped_has_no_live_final() -> None:
+    with pytest.raises(SystemExit):
+        figures.final_after_speech_stopped(turn(2.0, (), 6.5))

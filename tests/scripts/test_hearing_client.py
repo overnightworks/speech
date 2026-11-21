@@ -17,6 +17,7 @@ from speech_client.realtime_wire import (
     DurationUsage,
     SessionCreated,
     SessionUpdated,
+    SpeechStopped,
     TranscriptCompleted,
     TranscriptionSession,
     TranscriptLanguage,
@@ -130,6 +131,26 @@ def test_a_valid_event_of_no_interest_is_ignored_until_the_turn_completes() -> N
 
     assert turn is not None
     assert (turn.transcript, turn.language) == ("Hallo", Language.EN)
+
+
+def test_the_turn_records_when_speech_stopped_for_the_live_final(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = iter([4.0, 6.5])
+    monkeypatch.setattr(CLIENT, "time", SimpleNamespace(monotonic=lambda: next(clock)))
+    stopped = SpeechStopped(item_id="i", audio_end_ms=1000)
+    completed = TranscriptCompleted(
+        item_id="i",
+        transcript="Hallo",
+        usage=DurationUsage(seconds=1.0),
+        languages=(TranscriptLanguage(code=Language.DE),),
+    )
+
+    turn = receive_turn([stopped, completed])
+
+    assert turn is not None
+    assert turn.speech_stopped_seconds == pytest.approx(4.0)
+    assert turn.completed_seconds == pytest.approx(6.5)
 
 
 def test_a_session_that_ends_without_a_turn_gives_no_turn() -> None:
