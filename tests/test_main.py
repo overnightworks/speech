@@ -6,6 +6,7 @@ import os
 import signal
 import socket
 import subprocess
+import sys
 import threading
 import traceback
 from typing import TYPE_CHECKING
@@ -640,31 +641,26 @@ def test_serve_exits_nonzero_naming_the_address_before_any_runtime_work(
 
 
 def _environment_seen_by_engines(
-    monkeypatch: pytest.MonkeyPatch, *, before: str | None
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, before: str | None
 ) -> str | None:
     """`ORT_DISABLE_TELEMETRY` when the first engine would load, after `main` ran."""
     monkeypatch.setenv("ORT_DISABLE_TELEMETRY", before or "restored")
     if before is None:
         monkeypatch.delenv("ORT_DISABLE_TELEMETRY")
-    monkeypatch.setattr(__main__, "load_settings", Settings)
-    monkeypatch.setattr(__main__, "configure", lambda _name: None)
-    monkeypatch.setattr(__main__, "_argument_parser", _NoArguments)
+    monkeypatch.setattr(sys, "argv", ["speech-service"])
+    settings = _serving_settings(tmp_path)
+    monkeypatch.setenv("SPEECH_PORT", str(settings.port))
+    monkeypatch.setenv("SPEECH_CONFIG_FILE", str(settings.config_file))
     seen: list[str | None] = []
 
-    def serve(_settings: Settings) -> object:
+    def from_settings(_settings: Settings) -> Runtime:
         seen.append(os.environ.get("ORT_DISABLE_TELEMETRY"))
-        return object()
+        raise RuntimeError
 
-    monkeypatch.setattr(__main__, "serve", serve)
-    monkeypatch.setattr(__main__.asyncio, "run", lambda _coroutine: 0)
-    with pytest.raises(SystemExit):
+    monkeypatch.setattr(Runtime, "from_settings", from_settings)
+    with pytest.raises((SystemExit, RuntimeError)):
         __main__.main()
     return seen[0]
-
-
-class _NoArguments:
-    def parse_args(self) -> None:
-        return None
 
 
 @pytest.mark.parametrize(
@@ -673,6 +669,11 @@ class _NoArguments:
     ids=["unset_is_switched_off", "operator_value_stays"],
 )
 def test_start_sets_onnxruntime_telemetry_off_before_engines_unless_named(
-    monkeypatch: pytest.MonkeyPatch, before: str | None, expected: str
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    before: str | None,
+    expected: str,
 ) -> None:
-    assert _environment_seen_by_engines(monkeypatch, before=before) == expected
+    assert (
+        _environment_seen_by_engines(monkeypatch, tmp_path, before=before) == expected
+    )
