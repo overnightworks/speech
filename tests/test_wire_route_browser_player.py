@@ -36,6 +36,7 @@ from tests.support.browser_player_support import (
     bytes_of,
     ends,
     events,
+    fed,
     starts,
     unactivated,
     url,
@@ -50,6 +51,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 pytestmark = pytest.mark.browser
+
+# The late-chunk sound's first chunk; how far its read must grow after the next.
+LEAD_SECONDS = 1.0
+GROWTH_SECONDS = 0.3
 
 
 def test_three_sounds_play_in_the_order_handed_over(
@@ -654,3 +659,70 @@ def test_the_start_of_a_sound_scheduled_right_after_another_ended_is_where_it_is
     assert seen["heardOnsets"][1] == pytest.approx(
         start["contextTime"], abs=ONSET_BOUND_FRAMES / seen["sampleRate"]
     )
+
+
+def test_a_streamed_sound_reads_still_across_a_late_chunks_gap_and_grows_after_it(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> tuple[dict[str, object], ...]:
+        async with activated(tmp_path) as stage:
+            await stage.prepare_bytes("long", LONG)
+            await stage.hand_over(fed("long", lead_seconds=LEAD_SECONDS))
+            await stage.until("s.sounds[0].startedValue === 'playing'")
+            await stage.until(f"s.playedNow[0] >= {LEAD_SECONDS}")
+            gap_begins = await stage.snapshot()
+            await stage.settle()
+            in_gap = await stage.snapshot()
+            await stage.act("feed", "long")
+            await stage.until(f"s.playedNow[0] > {LEAD_SECONDS + GROWTH_SECONDS}")
+            return gap_begins, in_gap, await stage.snapshot()
+
+    gap_begins, in_gap, after = asyncio.run(scenario())
+
+    step = in_gap["clockStep"]
+    assert in_gap["contextNow"] > gap_begins["contextNow"]
+    assert in_gap["playedNow"][0] == pytest.approx(LEAD_SECONDS, abs=step)
+    assert in_gap["playedNow"][0] == pytest.approx(gap_begins["playedNow"][0], abs=step)
+    assert after["playedNow"][0] > in_gap["playedNow"][0]
+
+
+@pytest.mark.parametrize("sound", [LONG, STREAMED], ids=["whole", "streamed"])
+def test_a_pause_holds_the_seconds_a_sound_has_played(
+    tmp_path: Path, sound: str
+) -> None:
+    async def scenario() -> tuple[dict[str, object], dict[str, object]]:
+        async with activated(tmp_path) as stage:
+            await stage.hand_over(url(sound))
+            await stage.until(f"s.playedNow[0] > {GROWTH_SECONDS}")
+            await stage.act("pause")
+            await stage.until("s.contextStates[0] === 'suspended'")
+            held = await stage.snapshot()
+            await stage.settle()
+            return held, await stage.snapshot()
+
+    held, later = asyncio.run(scenario())
+
+    assert held["playedNow"][0] > GROWTH_SECONDS
+    assert later["playedNow"][0] == held["playedNow"][0]
+
+
+@pytest.mark.parametrize("streamed", [False, True], ids=["whole", "streamed"])
+def test_the_seconds_a_sound_has_played_equal_those_its_end_reports(
+    tmp_path: Path, *, streamed: bool
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.prepare_bytes("long", LONG)
+            if streamed:
+                await stage.hand_over(fed("long", lead_seconds=LEAD_SECONDS))
+                await stage.act("feed", "long")
+            else:
+                await stage.hand_over(bytes_of("long"))
+            await stage.finish()
+            await stage.settle()
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    assert seen["sounds"][0]["playedSeconds"] > 0
+    assert seen["playedNow"][0] == seen["sounds"][0]["playedSeconds"]

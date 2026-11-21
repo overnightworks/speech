@@ -13,7 +13,7 @@ export type PlaybackEnd =
   | { readonly kind: "failed" }; // the fetch, the decode or a streamed body failed
 
 export type PlaybackStart =
-  /** `contextTime`: the time on `context`'s clock (`currentTime`) at which the sound's first sample plays, to within one render quantum. An app adds a timing relative to the sound's start to it to place that part on the clock it reads each frame. `context` is the AudioContext the sound plays on. */
+  /** `contextTime`: the time on `context`'s clock (`currentTime`) at which the sound's first sample plays, to within one render quantum. It places only the sound's first sample: a streamed sound's later chunk starts when it arrives if that is later than the one before ends, so the start plus a timing runs early after a stall. `Playback.playedSeconds()` reads how far the sound has played. `context` is the AudioContext the sound plays on. */
   | { readonly kind: "playing"; readonly contextTime: number; readonly context: AudioContext }
   | { readonly kind: "ended" }; // the sound ended first, so it has no start
 
@@ -22,6 +22,12 @@ export interface Playback {
   readonly started: Promise<PlaybackStart>;
   /** Resolves once and never rejects, with how the sound ended. A streamed body that breaks off ends "failed" where it broke. */
   readonly ended: Promise<PlaybackEnd>;
+  /**
+   * The seconds of the sound the output has played by now, on the same clock and unit as `PlaybackEnd.playedSeconds`, so
+   * an app adds no start to it. It is 0 before the sound starts, stands still while the output waits for a late chunk
+   * and while paused, and reads the end's `playedSeconds` once the sound has ended (0 for a refused or failed one). Never throws.
+   */
+  playedSeconds(): number;
 }
 
 export interface Player {
@@ -135,9 +141,21 @@ class Queued {
   readonly #started = Promise.withResolvers<PlaybackStart>();
   readonly #ended = Promise.withResolvers<PlaybackEnd>();
   #over = false;
+  #playedSeconds = (): number => 0;
 
   constructor() {
-    this.playback = { started: this.#started.promise, ended: this.#ended.promise };
+    this.playback = {
+      started: this.#started.promise,
+      ended: this.#ended.promise,
+      playedSeconds: () => this.#playedSeconds(),
+    };
+  }
+
+  /** From now on, `playback.playedSeconds()` reads `playedSeconds`, until the sound ends. */
+  follow(playedSeconds: () => number): void {
+    if (!this.#over) {
+      this.#playedSeconds = playedSeconds;
+    }
   }
 
   /** Only the first call counts: a streamed sound begins with its first chunk. */
@@ -149,6 +167,8 @@ class Queued {
   end(end: PlaybackEnd): void {
     if (!this.#over) {
       this.#over = true;
+      const played = "playedSeconds" in end ? end.playedSeconds : 0;
+      this.#playedSeconds = () => played;
       this.#started.resolve({ kind: "ended" });
       this.#ended.resolve(end);
     }
@@ -359,6 +379,7 @@ class PlayerRun {
           this.#queue.shift();
           const scheduled = new Scheduled(head);
           this.#playing = scheduled;
+          head.follow(() => scheduled.playedBy(this.#context.currentTime));
           if (loaded.kind === "buffer") {
             this.#schedule(scheduled, loaded.buffer, 0);
             scheduled.bodyScheduled = true;
