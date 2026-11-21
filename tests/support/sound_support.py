@@ -78,6 +78,7 @@ class FakeSoundModel:
         self._script: list[Mapping[str, float]] = []
         self.windows: list[np.ndarray] = []
         self.failure: Exception | None = None
+        self.thread_names: list[str] = []
         self.entered = threading.Event()
         self.release = threading.Event()
         self.release.set()
@@ -99,6 +100,7 @@ class FakeSoundModel:
         self, _outputs: object, feeds: Mapping[str, np.ndarray]
     ) -> list[np.ndarray]:
         """Record the window, wait for the release, answer or fail."""
+        self.thread_names.append(threading.current_thread().name)
         self.entered.set()
         if not self.release.wait(WAIT_SECONDS):
             message = "the run was never released"

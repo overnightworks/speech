@@ -1,5 +1,6 @@
 """Sound events: which sounds a model's scores name, and when one begins and ends."""
 
+import threading
 from typing import TYPE_CHECKING
 
 import pytest
@@ -203,6 +204,18 @@ def test_a_skipped_hop_neither_continues_nor_ends_a_sound(tmp_path: Path) -> Non
 
     assert after_skips == []
 
+    # A quiet hop, skipped hops and a second quiet hop end the sound: the skips
+    # neither continue it nor count as quiet themselves.
+    ended = _stream(tmp_path)
+    ended.scored(_first_window(ended), scores_of({"Cough": 0.5}))
+    _hop(ended, {})
+    ended.add(_audio(3))
+    skipping = ended.next_window()
+    assert skipping is not None
+    ended.scored(skipping, scores_of({}))
+
+    assert _hop(ended, {"Cough": 0.5}) == [SoundName.COUGH]
+
 
 def test_two_sounds_in_one_window_are_two_events_in_a_fixed_order(
     tmp_path: Path,
@@ -282,6 +295,8 @@ def test_a_loaded_model_scores_a_window_on_its_own_thread(tmp_path: Path) -> Non
         SoundName.LAUGHTER
     ]
     assert model.windows[0].shape == (1, 32000)
+    assert model.thread_names[-1].startswith("sounds")
+    assert model.thread_names[-1] != threading.current_thread().name
 
 
 def test_a_closed_taggers_takes_no_window(tmp_path: Path) -> None:
