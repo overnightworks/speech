@@ -15,6 +15,9 @@ socket's logger above debug; no outcome and no repr carries a token or heard tex
 - `traceparent` (default: the trace running when the session is built) goes on
   every upgrade as a header and parents only the service's own lines of the
   session, never a turn: a turn's trace comes back in its `transcript.completed`.
+- `sound_detection` (default false) asks the service for sounds in the session
+  update, so `events()` yields `SoundDetected` with its positions on the hearing's
+  audio timeline, as for speech. Without it the session update carries no ask.
 - `send(pcm)` queues PCM16 audio at 24 kHz. Audio queued before a session is
   open, or faster than it is written, is held up to `held_limit_bytes`; one byte
   over ends the session with `OverCap`, at any moment. A chunk leaves the held
@@ -131,6 +134,8 @@ from speech_client.realtime_wire import (
     SessionInput,
     SessionUpdate,
     SessionUpdated,
+    SoundDetected,
+    SoundDetection,
     SpeechStarted,
     SpeechStopped,
     TranscriptCompleted,
@@ -294,15 +299,25 @@ def realtime_url(base_url: str) -> str:
     )
 
 
-def session_update(languages: tuple[Language, ...]) -> str:
-    """The one `session.update` that sets the languages of a session."""
+def session_update(
+    languages: tuple[Language, ...], *, sound_detection: bool = False
+) -> str:
+    """The one `session.update` that sets the languages of a session.
+
+    It asks for sounds only when `sound_detection` is true; without it the bytes
+    carry no `sound_detection` key.
+    """
+    asked = (
+        {"sound_detection": SoundDetection(type="audioset")} if sound_detection else {}
+    )
     update = SessionUpdate(
         type="session.update",
         session=TranscriptionSession(
             type="transcription",
             audio=SessionAudio(
                 input=SessionInput(
-                    transcription=TranscriptionSetting(languages=languages)
+                    transcription=TranscriptionSetting(languages=languages),
+                    **asked,
                 )
             ),
         ),
@@ -396,6 +411,7 @@ class HearingSession:
         held_limit_bytes: int,
         opening_seconds: float = OPENING_SECONDS,
         traceparent: str | None = None,
+        sound_detection: bool = False,
     ) -> None:
         """Take every input; nothing is opened before `__aenter__`."""
         base_origin(base_url)
@@ -405,7 +421,7 @@ class HearingSession:
         self._url = realtime_url(base_url)
         self._traceparent_headers = traceparent_headers(traceparent)
         self._token_source = token_source
-        self._update = session_update(languages)
+        self._update = session_update(languages, sound_detection=sound_detection)
         self._deadline_seconds = deadline_seconds
         self._opening_seconds = opening_seconds
         self._held_limit_bytes = held_limit_bytes
@@ -746,6 +762,13 @@ class HearingSession:
             case SpeechStarted():
                 return event.model_copy(
                     update={"audio_start_ms": event.audio_start_ms + wire.offset_ms}
+                )
+            case SoundDetected():
+                return event.model_copy(
+                    update={
+                        "audio_start_ms": event.audio_start_ms + wire.offset_ms,
+                        "audio_end_ms": event.audio_end_ms + wire.offset_ms,
+                    }
                 )
             case SpeechStopped():
                 moved = event.audio_end_ms + wire.offset_ms
