@@ -273,10 +273,11 @@ def test_two_halves_with_the_live_route_signal_wait_and_judge_only_the_live_fina
     async def live(*_: object) -> LiveTurn:
         return live_turn(stopped=4.0, completed=6.5)
 
+    ports = fake.ports()
     with os.fdopen(read, closefd=False) as stdin, monkeypatch.context() as patched:
         patched.setattr(sys, "stdin", stdin)
         with pytest.raises(SystemExit) as raised:
-            LINES.prove(parsed, **fake.ports(), live=live)
+            LINES.prove(parsed, **ports, live=live)
 
     captured = capsys.readouterr()
     assert raised.value.code == LINES.MISSED_EXIT
