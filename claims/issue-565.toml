@@ -1,8 +1,0 @@
-claim_id = "940efe8041814a148a0e20a848faaf55"
-agent = "Claude 6721bb1e-84a1-4fcb-9239-504c71d70ec0"
-role = "builder"
-base = "1d483681824e0c2d24ad73ce48572cecba1affc8"
-branch = "claude/issue-565-take-quality-0-23-0"
-scope = [".github/workflows/ci.yml", ".github/workflows/code-scanning.yml", ".github/workflows/release-distributions.yml", ".github/workflows/release.yml"]
-opened_commit = "b63699c37dcadf9c7df9420a78246539e2208477"
-whole_reason = "One release raise: the same quality pin in the four workflows that call quality's reusable workflows."
