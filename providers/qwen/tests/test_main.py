@@ -77,11 +77,12 @@ def restored_sigusr2() -> Iterator[None]:
 
 
 def _run_launcher(
-    *server: str, leads_its_group: bool = True
+    *server: str, leads_its_group: bool = True, stderr: int | None = None
 ) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(  # noqa: S603 - the launcher is the program of this test
         [sys.executable, "-c", _LAUNCHER, str(os.getpid()), *server],
         start_new_session=leads_its_group,
+        stderr=stderr,
         timeout=60,
         check=False,
     )
@@ -145,9 +146,16 @@ def test_a_launcher_that_does_not_lead_its_group_ends_without_starting_a_server(
     started = tmp_path / "started"
     server = f"open({str(started)!r}, 'w')"
 
-    ended = _run_launcher(sys.executable, "-c", server, leads_its_group=False)
+    ended = _run_launcher(
+        sys.executable,
+        "-c",
+        server,
+        leads_its_group=False,
+        stderr=subprocess.PIPE,
+    )
 
     assert ended.returncode == 1
+    assert b"Traceback" not in ended.stderr
     assert not started.exists()
 
 
