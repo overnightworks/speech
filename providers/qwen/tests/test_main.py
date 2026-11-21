@@ -27,8 +27,6 @@ _SERVER_STATUS_AFTER_SIGTERM = 7
 
 _SERVER_STATUS_OF_THE_PINNED_COMMAND = 5
 
-_HANDLED_SIGNALS = (signal.SIGUSR1, signal.SIGUSR2, signal.SIGTERM)
-
 _LAUNCHER = """
 import sys
 from speech_qwen import __main__ as launcher
@@ -72,18 +70,18 @@ def _killed_by(killing_signal: int) -> str:
 
 
 @pytest.fixture
-def restored_signal_handlers() -> Iterator[None]:
-    saved = {number: signal.getsignal(number) for number in _HANDLED_SIGNALS}
+def restored_sigusr2() -> Iterator[None]:
+    saved = signal.getsignal(signal.SIGUSR2)
     yield
-    for number, handler in saved.items():
-        signal.signal(number, handler)
+    signal.signal(signal.SIGUSR2, saved)
 
 
-def _run_launcher(tmp_path: Path, *server: str) -> subprocess.CompletedProcess[bytes]:
+def _run_launcher(
+    *server: str, leads_its_group: bool = True
+) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(  # noqa: S603 - the launcher is the program of this test
         [sys.executable, "-c", _LAUNCHER, str(os.getpid()), *server],
-        cwd=tmp_path,
-        start_new_session=True,
+        start_new_session=leads_its_group,
         timeout=60,
         check=False,
     )
@@ -129,9 +127,11 @@ def test_the_launcher_asks_the_pinned_server_for_its_command_unless_given_one(
         ],
     )
 
+    arguments = _arguments(tmp_path, parent=1)
+
     with pytest.raises(SystemExit) as ended:
         launcher.main(
-            _arguments(tmp_path, parent=1),
+            arguments,
             tie_to_parent=lambda _pid: None,
             remove_leftovers=lambda: None,
         )
@@ -162,55 +162,30 @@ def test_a_launcher_whose_service_is_already_gone_ends_without_starting_a_server
 
 
 def test_a_launcher_that_does_not_lead_its_group_ends_without_starting_a_server(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
-    started: list[str] = []
-    monkeypatch.setattr(os, "getpgrp", lambda: os.getpid() + 1)
+    started = tmp_path / "started"
+    server = f"open({str(started)!r}, 'w')"
 
-    with pytest.raises(SystemExit) as ended:
-        launcher.main(
-            _arguments(tmp_path, parent=os.getppid()),
-            remove_leftovers=lambda: started.append("clean"),
-            server_command=lambda *_: started.append("command") or [],
-        )
+    ended = _run_launcher(sys.executable, "-c", server, leads_its_group=False)
 
-    assert ended.value.code == 1
-    assert started == []
+    assert ended.returncode == 1
+    assert not started.exists()
 
 
-@pytest.mark.usefixtures("restored_signal_handlers")
-def test_a_tied_launcher_ends_its_group_on_the_parent_death_signal_not_on_sigterm(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_the_parent_death_signal_kills_the_launchers_whole_group(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    armed: list[tuple[int, signal.Signals, object]] = []
+    # In-process because a real group kill ends the launcher before coverage writes.
     group_kills: list[tuple[int, int]] = []
-    monkeypatch.setattr(os, "getpgrp", os.getpid)
     monkeypatch.setattr(os, "killpg", lambda *kill: group_kills.append(kill))
-    monkeypatch.setattr(
-        launcher,
-        "install_parent_death_signal",
-        lambda pid, number: armed.append((pid, number, signal.getsignal(number))),
-    )
 
-    with pytest.raises(SystemExit):
-        launcher.main(
-            _arguments(tmp_path, parent=4321),
-            remove_leftovers=lambda: None,
-            server_command=lambda *_: [sys.executable, "-c", "pass"],
-        )
+    launcher._kill_group(signal.SIGUSR1, None)  # noqa: SLF001
 
-    (pid, number, handler_at_arming) = armed[0]
-    assert (pid, number) == (4321, signal.SIGUSR1)
-    assert callable(handler_at_arming)
-    handler_at_arming(number, None)
-    assert group_kills == [(os.getpid(), signal.SIGKILL)]
-    sigterm_handler = signal.getsignal(signal.SIGTERM)
-    assert callable(sigterm_handler)
-    sigterm_handler(signal.SIGTERM, None)
-    assert group_kills == [(os.getpid(), signal.SIGKILL)]
+    assert group_kills == [(os.getpgrp(), signal.SIGKILL)]
 
 
-@pytest.mark.usefixtures("restored_signal_handlers")
+@pytest.mark.usefixtures("restored_sigusr2")
 @pytest.mark.parametrize(
     ("killing_signal", "disposition_reset"),
     [(signal.SIGUSR2, True), (signal.SIGKILL, False)],
@@ -221,13 +196,15 @@ def test_the_launcher_raises_its_servers_killing_signal_at_itself(
     killing_signal: signal.Signals,
     disposition_reset: bool,  # noqa: FBT001 - a parametrized case, not an API
 ) -> None:
+    # In-process because a real self-kill ends the launcher before coverage writes.
     raised: list[tuple[int, int]] = []
     monkeypatch.setattr(os, "kill", lambda *kill: raised.append(kill))
     signal.signal(signal.SIGUSR2, lambda *_: None)
+    arguments = _arguments(tmp_path, parent=1)
 
     with pytest.raises(SystemExit):
         launcher.main(
-            _arguments(tmp_path, parent=1),
+            arguments,
             tie_to_parent=lambda _pid: None,
             remove_leftovers=lambda: None,
             server_command=lambda *_: [
@@ -253,20 +230,22 @@ def test_the_launcher_raises_its_servers_killing_signal_at_itself(
     ],
 )
 def test_the_launcher_ends_as_its_server_ended(
-    tmp_path: Path, server_program: str, launcher_status: int
+    server_program: str, launcher_status: int
 ) -> None:
-    ended = _run_launcher(tmp_path, sys.executable, "-c", server_program)
+    ended = _run_launcher(sys.executable, "-c", server_program)
 
     assert ended.returncode == launcher_status
 
 
-def test_the_launcher_survives_the_services_group_sigterm_and_waits_for_the_server(
+def test_the_launcher_survives_the_group_sigterm_and_leaves_its_server_the_default(
     tmp_path: Path,
 ) -> None:
     ready_file = tmp_path / "server.ready"
+    inherited_file = tmp_path / "server.inherited"
     server = (
         "import os, signal, sys, time\n"
         "from pathlib import Path\n"
+        f"Path({str(inherited_file)!r}).write_text(str(signal.getsignal(signal.SIGTERM)))\n"
         "signal.signal(signal.SIGTERM, lambda *_: "
         f"sys.exit({_SERVER_STATUS_AFTER_SIGTERM}))\n"
         f"Path({str(ready_file)!r}).write_text(str(os.getpid()))\n"
@@ -282,7 +261,6 @@ def test_the_launcher_survives_the_services_group_sigterm_and_waits_for_the_serv
             "-c",
             server,
         ],
-        cwd=tmp_path,
         start_new_session=True,
     ) as launcher_process:
         try:
@@ -290,6 +268,7 @@ def test_the_launcher_survives_the_services_group_sigterm_and_waits_for_the_serv
             os.killpg(launcher_process.pid, signal.SIGTERM)
 
             assert launcher_process.wait(timeout=60) == _SERVER_STATUS_AFTER_SIGTERM
+            assert inherited_file.read_text() == str(signal.SIG_DFL)
         finally:
             with suppress(ProcessLookupError):
                 os.killpg(launcher_process.pid, signal.SIGKILL)
