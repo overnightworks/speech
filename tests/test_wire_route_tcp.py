@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 import av
 import httpx2
 import pytest
+from logline import WEBSOCKET_EVENT
 from logline.testing import configured
 from starlette.status import (
     HTTP_200_OK,
@@ -566,7 +567,7 @@ def test_tcp_logs_a_denied_realtime_upgrade_as_one_refusal_and_no_error(
     refused = [
         line
         for line in lines
-        if line["event"] == "websocket.ended" and line["outcome"] == "refused"
+        if line["event"] == WEBSOCKET_EVENT and line["outcome"] == "refused"
     ]
     assert [line["level"] for line in refused] == ["info"]
     assert not [line for line in lines if line["level"] in {"error", "critical"}]
@@ -597,7 +598,7 @@ def test_tcp_refused_upgrade_lines_share_one_trace_and_name_the_route(
 
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     refusal = next(line for line in lines if line["event"] == "session.refused")
-    ended = next(line for line in lines if line["event"] == "websocket.ended")
+    ended = next(line for line in lines if line["event"] == WEBSOCKET_EVENT)
     assert refusal["trace_id"] == ended["trace_id"]
     assert ended["route"]
     if incoming is not None:
