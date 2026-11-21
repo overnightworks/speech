@@ -726,3 +726,43 @@ def test_the_seconds_a_sound_has_played_equal_those_its_end_reports(
 
     assert seen["sounds"][0]["playedSeconds"] > 0
     assert seen["playedNow"][0] == seen["sounds"][0]["playedSeconds"]
+
+
+@pytest.mark.parametrize("cut", ["stop", "mute"])
+def test_a_cut_sounds_read_stays_at_the_seconds_its_end_reports(
+    tmp_path: Path, cut: str
+) -> None:
+    async def scenario() -> tuple[dict[str, object], dict[str, object]]:
+        async with activated(tmp_path) as stage:
+            await stage.prepare_bytes("long", LONG)
+            await stage.hand_over(fed("long", lead_seconds=LEAD_SECONDS))
+            await stage.until("s.sounds[0].startedValue === 'playing'")
+            await stage.act("feed", "long")
+            if cut == "stop":
+                await stage.act("stop")
+            else:
+                await stage.set_muted(muted=True)
+            await stage.finish()
+            after_end = await stage.snapshot()
+            await stage.settle()
+            return after_end, await stage.snapshot()
+
+    after_end, later = asyncio.run(scenario())
+
+    reported = later["sounds"][0]["playedSeconds"]
+    assert after_end["playedNow"][0] == reported
+    assert later["playedNow"][0] == reported
+
+
+def test_a_sound_muted_at_hand_over_reads_zero_played_seconds(tmp_path: Path) -> None:
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.set_muted(muted=True)
+            await stage.hand_over(url(SHORT))
+            await stage.finish()
+            await stage.settle()
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    assert seen["playedNow"][0] == 0
