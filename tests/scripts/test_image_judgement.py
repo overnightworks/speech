@@ -13,6 +13,8 @@ from hearing_figures import to_wire_rate
 from image_stack import REPOSITORY, LiveOutcome, Reply
 from proof_identity import mint_pair
 from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, PIPER_VOICES
+from speech_client.realtime_wire import SoundName
+from speech_client.utterances import HeardSound
 from speech_client.wire import (
     Health,
     Language,
@@ -648,3 +650,38 @@ def test_a_service_that_was_healthy_after_its_start_period_fails_the_proof() -> 
 
     with pytest.raises(SystemExit, match="past 30s"):
         judged.require_ready_within(30.1, "30s")
+
+
+CLIP_MS = 3800
+
+
+def _laugh(start_ms: int = 500, end_ms: int = 2500) -> HeardSound:
+    return HeardSound(SoundName.LAUGHTER, start_ms, end_ms)
+
+
+def test_one_laughter_that_began_inside_the_clip_passes() -> None:
+    judged.require_one_laughter([_laugh()], CLIP_MS)
+
+
+@pytest.mark.parametrize(
+    ("sounds", "fault"),
+    [
+        pytest.param([], "heard \\[\\]", id="none"),
+        pytest.param([_laugh(), _laugh(1000, 3000)], "heard", id="two"),
+        pytest.param([HeardSound(SoundName.COUGH, 0, 2000)], "Cough", id="another"),
+        pytest.param([_laugh(CLIP_MS, CLIP_MS + 2000)], "not from inside", id="late"),
+        pytest.param([_laugh(-500, 1500)], "not from inside", id="before-the-audio"),
+    ],
+)
+def test_anything_but_one_laughter_inside_the_clip_fails_the_proof(
+    sounds: list[HeardSound], fault: str
+) -> None:
+    with pytest.raises(SystemExit, match=fault):
+        judged.require_one_laughter(sounds, CLIP_MS)
+
+
+def test_a_session_that_did_not_ask_hears_no_sound_or_fails_the_proof() -> None:
+    judged.require_no_sounds([])
+    heard = [_laugh()]
+    with pytest.raises(SystemExit, match="did not ask"):
+        judged.require_no_sounds(heard)

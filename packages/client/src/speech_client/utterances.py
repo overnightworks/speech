@@ -32,6 +32,12 @@ after `ended` is set no callback is called again.
   reopened (`speech_client.hearing`): the old session's unfinished items are
   forgotten, as the new session's items start afresh. Without it nothing of a
   reconnect reaches the app.
+- `on_sound`, if given, gets a `HeardSound` for each sound the service hears:
+  its name from the wire's closed list and the positions, in milliseconds of the
+  audio, that bound where it began, in event order with the other callbacks.
+  Passing it is what asks the service for sounds; without it the hearing asks for
+  none and sends the bytes it always sent, and a `sound_detected` that arrives
+  anyway raises `ServerEventError`.
 - A failed item or an `error` event ends the hearing: the browser is closed
   with `HopClose.SERVICE_FAILED` and the outcome is `ServiceFailed`, which names
   the event's code and nothing else of it.
@@ -58,6 +64,9 @@ from speech_client.hearing import (
 )
 from speech_client.realtime_wire import (
     ErrorEvent,
+    ServerEventError,
+    SoundDetected,
+    SoundName,
     SpeechStarted,
     SpeechStopped,
     TranscriptCompleted,
@@ -99,6 +108,15 @@ class SpeechStart:
 class SpeechStop:
     """The service ended a person's turn, `audio_end_ms` into the audio."""
 
+    audio_end_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class HeardSound:
+    """A sound the service heard, between `audio_start_ms` and `audio_end_ms`."""
+
+    sound: SoundName
+    audio_start_ms: int
     audio_end_ms: int
 
 
@@ -156,6 +174,7 @@ class HearingCallbacks:
     on_speech_started: Callable[[SpeechStart], Awaitable[None]] | None = None
     on_speech_stopped: Callable[[SpeechStop], Awaitable[None]] | None = None
     on_turn_ended: Callable[[TurnEnd], Awaitable[None]] | None = None
+    on_sound: Callable[[HeardSound], Awaitable[None]] | None = None
     on_reconnected: Callable[[Reconnected], Awaitable[None]] | None = None
 
 
@@ -173,6 +192,23 @@ class _Mapping:
                 self.items = _Items()
                 if self.callbacks.on_reconnected is not None:
                     await self.callbacks.on_reconnected(event)
+            case SpeechStarted() | SpeechStopped():
+                await self._on_speech(event)
+            case SoundDetected():
+                await self._on_sound(event)
+            case TranscriptDelta() if self.callbacks.on_partial is not None:
+                text = self.items.text.get(event.item_id, "") + event.delta
+                self.items.text[event.item_id] = text
+                await self.callbacks.on_partial(Partial(text))
+            case TranscriptCompleted():
+                await self._completed(event)
+            case TranscriptFailed() | ErrorEvent():
+                raise _ServiceFailedError(event.error.code)
+            case _:
+                return
+
+    async def _on_speech(self, event: SpeechStarted | SpeechStopped) -> None:
+        match event:
             case SpeechStarted():
                 self.items.started[event.item_id] = event.audio_start_ms
                 if self.callbacks.on_speech_started is not None:
@@ -185,16 +221,13 @@ class _Mapping:
                     await self.callbacks.on_speech_stopped(
                         SpeechStop(event.audio_end_ms)
                     )
-            case TranscriptDelta() if self.callbacks.on_partial is not None:
-                text = self.items.text.get(event.item_id, "") + event.delta
-                self.items.text[event.item_id] = text
-                await self.callbacks.on_partial(Partial(text))
-            case TranscriptCompleted():
-                await self._completed(event)
-            case TranscriptFailed() | ErrorEvent():
-                raise _ServiceFailedError(event.error.code)
-            case _:
-                return
+
+    async def _on_sound(self, event: SoundDetected) -> None:
+        if self.callbacks.on_sound is None:
+            raise ServerEventError
+        await self.callbacks.on_sound(
+            HeardSound(event.sound, event.audio_start_ms, event.audio_end_ms)
+        )
 
     async def _completed(self, event: TranscriptCompleted) -> None:
         start, end = self.items.finish(event.item_id)
@@ -237,6 +270,7 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
         held_limit_bytes=held_limit_bytes,
         opening_seconds=opening_seconds,
         traceparent=traceparent,
+        sound_detection=callbacks.on_sound is not None,
     )
     try:
         return await relay(
