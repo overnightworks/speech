@@ -37,6 +37,7 @@ from packages.client.tests.support.utterances_support import (
     service_not_answering,
     service_refusing,
     service_saying,
+    sound_detected,
     speaks_nonsense,
     started,
     stopped,
@@ -63,7 +64,14 @@ from speech_client.outcomes import (
     PastDeadline,
     Unreachable,
 )
-from speech_client.realtime_wire import TranscriptFailed, error_event, item_failure
+from speech_client.realtime_wire import (
+    ServerEventError,
+    SoundName,
+    TranscriptFailed,
+    error_event,
+    item_failure,
+    parse_client_event,
+)
 from speech_client.relay import (
     HOP_FRAME_BYTES,
     AppEnded,
@@ -72,6 +80,7 @@ from speech_client.relay import (
     RuleBroken,
 )
 from speech_client.utterances import (
+    HeardSound,
     Partial,
     ServiceFailed,
     Utterance,
@@ -112,6 +121,62 @@ def test_one_session_goes_to_the_origin_with_both_tokens_and_the_languages() -> 
         <= {name.title(): value for name, value in headers.items()}.items()
     )
     assert first == session_update(languages)
+
+
+@pytest.mark.parametrize("asked", [True, False], ids=["with-on-sound", "without"])
+def test_the_session_asks_for_sounds_only_when_the_app_passes_on_sound(
+    *, asked: bool
+) -> None:
+    arrived: list[str | bytes] = []
+
+    async def records(connection: ServerConnection) -> None:
+        arrived.append(await connection.recv())
+
+    asyncio.run(hear(functools.partial(service_saying, records), sounds=asked))
+
+    (first,) = arrived
+    asked_for = parse_client_event(first).session.audio.input.sound_detection
+    assert (asked_for is not None) is asked
+    if not asked:
+        assert first == session_update((Language.DE,))
+
+
+def test_a_sound_reaches_on_sound_in_event_order_with_its_positions() -> None:
+    recorder = Recorder()
+
+    asyncio.run(
+        hear(
+            hearing(
+                sound_detected(SoundName.LAUGHTER, 500, 2500),
+                completed("a", "ha"),
+                sound_detected(SoundName.COUGH, 3000, 5000),
+            ),
+            None,
+            recorder,
+            sounds=True,
+        )
+    )
+
+    assert recorder.got == [
+        HeardSound(SoundName.LAUGHTER, 500, 2500),
+        utterance_of("ha"),
+        HeardSound(SoundName.COUGH, 3000, 5000),
+    ]
+
+
+def test_a_sound_the_app_did_not_ask_for_raises_a_server_event_error() -> None:
+    recorder = Recorder()
+
+    with pytest.raises(ServerEventError):
+        asyncio.run(
+            hear(
+                hearing(sound_detected(SoundName.LAUGHTER, 0, 2000), stays_open=True),
+                None,
+                recorder,
+            )
+        )
+
+    assert recorder.got == []
 
 
 @pytest.mark.parametrize("language", list(Language))

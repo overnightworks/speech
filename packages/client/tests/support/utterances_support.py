@@ -20,6 +20,8 @@ from packages.client.tests.support.hearing_support import (
 )
 from speech_client.realtime_wire import (
     DurationUsage,
+    SoundDetected,
+    SoundName,
     SpeechStarted,
     SpeechStopped,
     TranscriptCompleted,
@@ -28,6 +30,7 @@ from speech_client.realtime_wire import (
 )
 from speech_client.relay import HOP_FRAME_BYTES
 from speech_client.utterances import (
+    HeardSound,
     HearingCallbacks,
     Partial,
     TurnEnd,
@@ -76,6 +79,10 @@ def started(item_id: str, at_ms: int) -> SpeechStarted:
 
 def stopped(item_id: str, at_ms: int) -> SpeechStopped:
     return SpeechStopped(item_id=item_id, audio_end_ms=at_ms)
+
+
+def sound_detected(name: SoundName, start_ms: int, end_ms: int) -> SoundDetected:
+    return SoundDetected(sound=name, audio_start_ms=start_ms, audio_end_ms=end_ms)
 
 
 def completed(
@@ -142,7 +149,7 @@ class Recorder:
     ended: asyncio.Event = field(default_factory=asyncio.Event)
     ends_after_first: bool = False
     raises: Exception | None = None
-    got: list[Utterance | Partial] = field(default_factory=list)
+    got: list[Utterance | Partial | HeardSound] = field(default_factory=list)
     turn_ends: list[TurnEnd] = field(default_factory=list)
     reconnected: list[Reconnected] = field(default_factory=list)
 
@@ -162,7 +169,11 @@ class Recorder:
         """Take the text so far."""
         await self._take(partial)
 
-    async def _take(self, heard: Utterance | Partial) -> None:
+    async def on_sound(self, sound: HeardSound) -> None:
+        """Take a heard sound."""
+        await self._take(sound)
+
+    async def _take(self, heard: Utterance | Partial | HeardSound) -> None:
         self.got.append(heard)
         if self.ends_after_first:
             self.ended.set()
@@ -233,6 +244,7 @@ async def hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
     recorder: Recorder | None = None,
     *,
     partials: bool = True,
+    sounds: bool = False,
     languages: tuple[Language, ...] = (Language.DE,),
     bounds: Bounds = Bounds(),
     token_source: TokenSource = fixed_tokens,
@@ -255,6 +267,7 @@ async def hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
                     on_utterance=recorder.on_utterance,
                     on_partial=recorder.on_partial if partials else None,
                     on_turn_ended=recorder.on_turn_ended,
+                    on_sound=recorder.on_sound if sounds else None,
                     on_reconnected=recorder.on_reconnected,
                 ),
             ),

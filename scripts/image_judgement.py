@@ -16,6 +16,7 @@ from hearing_figures import voiced_seconds, words
 from prove_speech import spoken_in_log
 from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, PIPER_VOICES
 from speech_client.outcomes import RetryAfterError, busy_wait
+from speech_client.realtime_wire import SoundName
 from speech_client.wire import (
     REFUSAL_STATUS,
     Health,
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
 
     from image_stack import LiveOutcome, Reply
     from proof_identity import Minting
+    from speech_client.utterances import HeardSound
     from speech_service.config import CallerConfig
 
 FORBIDDEN_PATH_PARTS: Final = frozenset({".git", "tests", "providers"})
@@ -422,6 +424,30 @@ def require_final(outcome: LiveOutcome, sentence: str) -> None:
         message = f"the live turn ended without a final: {outcome.error}"
         raise SystemExit(message)
     require_heard(outcome.final, sentence)
+
+
+def require_one_laughter(sounds: Iterable[HeardSound], clip_ms: int) -> None:
+    """Fail unless `sounds` is one laughter that began inside a clip of `clip_ms`."""
+    heard = list(sounds)
+    if [one.sound for one in heard] != [SoundName.LAUGHTER]:
+        names = [one.sound.value for one in heard]
+        message = f"expected exactly one Laughter, heard {names}"
+        raise SystemExit(message)
+    (laughter,) = heard
+    if not 0 <= laughter.audio_start_ms < min(laughter.audio_end_ms, clip_ms):
+        message = (
+            f"the laughter spans {laughter.audio_start_ms} to {laughter.audio_end_ms}"
+            f" ms, not from inside the {clip_ms} ms clip"
+        )
+        raise SystemExit(message)
+
+
+def require_no_sounds(sounds: Iterable[HeardSound]) -> None:
+    """Fail when a session that did not ask for sounds heard any."""
+    names = [one.sound.value for one in sounds]
+    if names:
+        message = f"a session that did not ask for sounds heard {names}"
+        raise SystemExit(message)
 
 
 def require_language(outcome: LiveOutcome, expected: Language) -> None:
