@@ -138,8 +138,8 @@ revisions, and the service has no route to a registry or hub.
   SIGTERM sent to the launcher alone is ignored by design: its handler does
   nothing, so the launcher waits for its server, which the service stops through
   its group stop; SIGINT or SIGKILL end the launcher, and the service then
-  signals the group. The launcher clears wake directories a killed server left in `/dev/shm`, never
-  following a link.
+  signals the group. The launcher clears wake directories a killed server left
+  in `/dev/shm`, never following a link.
 - The browser hop of the client's relay belongs to the app. The browser package
   holds no token, interprets no message and opens no device (the app grants the
   microphone in its `Permissions-Policy`); its frames are untrusted and bounded.
