@@ -8,11 +8,15 @@ import subprocess
 import sys
 from contextlib import suppress
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from speech_qwen import __main__ as launcher
 from support.process_state import await_pid_file, group_has_ended, process_state
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _FAKE_SERVER = Path(__file__).parent / "support" / "fake_vllm_omni.py"
 
@@ -20,6 +24,12 @@ _FAKE_SERVER = Path(__file__).parent / "support" / "fake_vllm_omni.py"
 _UNNAMED_REAL_TIME_SIGNAL = 40
 
 _SERVER_STATUS_AFTER_SIGTERM = 7
+
+_USAGE_ERROR_STATUS = 2
+
+_SERVER_STATUS_OF_THE_PINNED_COMMAND = 5
+
+_HANDLED_SIGNALS = (signal.SIGUSR1, signal.SIGUSR2, signal.SIGTERM)
 
 _LAUNCHER = """
 import sys
@@ -63,13 +73,19 @@ def _killed_by(killing_signal: int) -> str:
     return f"import os; os.kill(os.getpid(), {killing_signal})"
 
 
-def _run_launcher(
-    tmp_path: Path, *server: str, leads_its_group: bool = True
-) -> subprocess.CompletedProcess[bytes]:
+@pytest.fixture
+def restored_signal_handlers() -> Iterator[None]:
+    saved = {number: signal.getsignal(number) for number in _HANDLED_SIGNALS}
+    yield
+    for number, handler in saved.items():
+        signal.signal(number, handler)
+
+
+def _run_launcher(tmp_path: Path, *server: str) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(  # noqa: S603 - the launcher is the program of this test
         [sys.executable, "-c", _LAUNCHER, str(os.getpid()), *server],
         cwd=tmp_path,
-        start_new_session=leads_its_group,
+        start_new_session=True,
         timeout=60,
         check=False,
     )
@@ -103,27 +119,46 @@ def test_the_launcher_ties_itself_to_the_service_then_cleans_up_and_starts_the_s
     ]
 
 
-def test_the_launcher_hands_its_server_command_absolute_paths(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("option", ["--cache", "--socket"])
+@pytest.mark.parametrize("value", ["-option-like", ""])
+def test_the_launcher_refuses_a_path_the_server_command_could_read_as_an_option(
+    tmp_path: Path, option: str, value: str
 ) -> None:
-    monkeypatch.chdir(tmp_path)
-    handed: list[tuple[Path, Path]] = []
+    started: list[str] = []
+    arguments = [*_arguments(tmp_path, parent=1), f"{option}={value}"]
 
-    def served(cache: Path, socket_path: Path) -> list[str]:
-        handed.append((cache, socket_path))
-        return [sys.executable, "-c", "pass"]
-
-    arguments = ["--expected-parent-pid", "1", "--cache=-cache", "--socket=-s"]
-
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as ended:
         launcher.main(
             arguments,
-            tie_to_parent=lambda _pid: None,
-            remove_leftovers=lambda: None,
-            server_command=served,
+            tie_to_parent=lambda _pid: started.append("tie"),
+            remove_leftovers=lambda: started.append("clean"),
+            server_command=lambda *_: started.append("command") or [],
         )
 
-    assert handed == [(tmp_path / "-cache", tmp_path / "-s")]
+    assert ended.value.code == _USAGE_ERROR_STATUS
+    assert started == []
+
+
+def test_the_launcher_asks_the_pinned_server_for_its_command_unless_given_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "speech_qwen.model.pinned_server_command",
+        lambda _cache, _socket: [
+            sys.executable,
+            "-c",
+            f"raise SystemExit({_SERVER_STATUS_OF_THE_PINNED_COMMAND})",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as ended:
+        launcher.main(
+            _arguments(tmp_path, parent=1),
+            tie_to_parent=lambda _pid: None,
+            remove_leftovers=lambda: None,
+        )
+
+    assert ended.value.code == _SERVER_STATUS_OF_THE_PINNED_COMMAND
 
 
 def test_a_launcher_whose_service_is_already_gone_ends_without_starting_a_server(
@@ -149,15 +184,83 @@ def test_a_launcher_whose_service_is_already_gone_ends_without_starting_a_server
 
 
 def test_a_launcher_that_does_not_lead_its_group_ends_without_starting_a_server(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    started = tmp_path / "started"
-    server = f"open({str(started)!r}, 'w')"
+    started: list[str] = []
+    monkeypatch.setattr(os, "getpgrp", lambda: os.getpid() + 1)
 
-    ended = _run_launcher(tmp_path, sys.executable, "-c", server, leads_its_group=False)
+    with pytest.raises(SystemExit) as ended:
+        launcher.main(
+            _arguments(tmp_path, parent=os.getppid()),
+            remove_leftovers=lambda: started.append("clean"),
+            server_command=lambda *_: started.append("command") or [],
+        )
 
-    assert ended.returncode == 1
-    assert not started.exists()
+    assert ended.value.code == 1
+    assert started == []
+
+
+@pytest.mark.usefixtures("restored_signal_handlers")
+def test_a_tied_launcher_ends_its_group_on_the_parent_death_signal_not_on_sigterm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armed: list[tuple[int, signal.Signals, object]] = []
+    group_kills: list[tuple[int, int]] = []
+    monkeypatch.setattr(os, "getpgrp", os.getpid)
+    monkeypatch.setattr(os, "killpg", lambda *kill: group_kills.append(kill))
+    monkeypatch.setattr(
+        launcher,
+        "install_parent_death_signal",
+        lambda pid, number: armed.append((pid, number, signal.getsignal(number))),
+    )
+
+    with pytest.raises(SystemExit):
+        launcher.main(
+            _arguments(tmp_path, parent=4321),
+            remove_leftovers=lambda: None,
+            server_command=lambda *_: [sys.executable, "-c", "pass"],
+        )
+
+    (pid, number, handler_at_arming) = armed[0]
+    assert (pid, number) == (4321, signal.SIGUSR1)
+    assert callable(handler_at_arming)
+    handler_at_arming(number, None)
+    assert group_kills == [(os.getpid(), signal.SIGKILL)]
+    sigterm_handler = signal.getsignal(signal.SIGTERM)
+    assert callable(sigterm_handler)
+    sigterm_handler(signal.SIGTERM, None)
+    assert group_kills == [(os.getpid(), signal.SIGKILL)]
+
+
+@pytest.mark.usefixtures("restored_signal_handlers")
+@pytest.mark.parametrize(
+    ("killing_signal", "disposition_reset"),
+    [(signal.SIGUSR2, True), (signal.SIGKILL, False)],
+)
+def test_the_launcher_raises_its_servers_killing_signal_at_itself(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    killing_signal: signal.Signals,
+    disposition_reset: bool,  # noqa: FBT001 - a parametrized case, not an API
+) -> None:
+    raised: list[tuple[int, int]] = []
+    monkeypatch.setattr(os, "kill", lambda *kill: raised.append(kill))
+    signal.signal(signal.SIGUSR2, lambda *_: None)
+
+    with pytest.raises(SystemExit):
+        launcher.main(
+            _arguments(tmp_path, parent=1),
+            tie_to_parent=lambda _pid: None,
+            remove_leftovers=lambda: None,
+            server_command=lambda *_: [
+                sys.executable,
+                "-c",
+                _killed_by(killing_signal),
+            ],
+        )
+
+    assert raised == [(os.getpid(), killing_signal)]
+    assert (signal.getsignal(signal.SIGUSR2) is signal.SIG_DFL) is disposition_reset
 
 
 @pytest.mark.parametrize(

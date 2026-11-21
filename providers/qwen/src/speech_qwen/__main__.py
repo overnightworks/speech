@@ -14,6 +14,7 @@ alone.
 
 import argparse
 import os
+import re
 import signal
 import subprocess
 from collections.abc import Callable, Sequence
@@ -22,6 +23,8 @@ from types import FrameType
 
 from speech_qwen.parent_death import install_parent_death_signal
 from speech_qwen.server import remove_leftover_shared_memory
+
+_PATH_PATTERN = r"[^-\x00][^\x00]*"
 
 
 def main(
@@ -86,14 +89,17 @@ def _end_as(server_status: int) -> None:
 def _arguments(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-parent-pid", type=int, required=True)
-    parser.add_argument("--cache", type=_absolute_path, required=True)
-    parser.add_argument("--socket", type=_absolute_path, required=True)
+    parser.add_argument("--cache", type=_path_argument, required=True)
+    parser.add_argument("--socket", type=_path_argument, required=True)
     return parser.parse_args(argv)
 
 
-def _absolute_path(value: str) -> Path:
-    """Anchor the path at the working directory, so no option can look like it."""
-    return Path(value).resolve()
+def _path_argument(value: str) -> Path:
+    """Accept a path the server command cannot read as an option or cut short."""
+    if re.fullmatch(_PATH_PATTERN, value) is None:
+        message = "a path is not empty, starts with no dash and holds no NUL"
+        raise argparse.ArgumentTypeError(message)
+    return Path(value)
 
 
 if __name__ == "__main__":
