@@ -1,0 +1,8 @@
+claim_id = "10fb958de3eb41d9a408a1491303e6ab"
+agent = "Claude 55f7ebfb-40f9-4237-94b5-767bcb68bb45"
+role = "builder"
+base = "a17325fcf6f32feef8dca822c3b513ce8a27eb0f"
+branch = "claude/issue-554-launcher-reaps-its-group"
+scope = ["docs/ARCHITECTURE.md", "providers/qwen/src/speech_qwen/__main__.py", "providers/qwen/src/speech_qwen/parent_death.py", "providers/qwen/src/speech_qwen/server.py", "providers/qwen/tests/support/fake_vllm_omni.py", "providers/qwen/tests/test_main.py", "src/speech_service/provider_process.py"]
+opened_commit = "273c86fb91efb21ccbb8c83778d3b66e682ac255"
+whole_reason = "One process boundary: the launcher's reaper role, the death-signal parameter, the fake that proves it and the documents that state it."
