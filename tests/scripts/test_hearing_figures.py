@@ -506,5 +506,7 @@ def test_the_live_final_runs_from_speech_stopped_to_the_completed_transcript() -
 
 
 def test_a_turn_without_speech_stopped_has_no_live_final() -> None:
+    without_stop = turn(2.0, (), 6.5)
+
     with pytest.raises(SystemExit):
-        figures.final_after_speech_stopped(turn(2.0, (), 6.5))
+        figures.final_after_speech_stopped(without_stop)
