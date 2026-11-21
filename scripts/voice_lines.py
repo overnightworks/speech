@@ -139,7 +139,7 @@ def host_reading(proc: Path = PROC) -> HostReading:
     """The load and CPU ticks from `proc`'s `loadavg` and `stat`."""
     load = float((proc / "loadavg").read_text().split()[0])
     cpu = [
-        int((proc / "stat").read_text().splitlines()[0].split()[i]) for i in range(1, 9)
+        int(ticks) for ticks in (proc / "stat").read_text().splitlines()[0].split()[1:9]
     ]
     idle = cpu[3] + cpu[4]
     return HostReading(load, sum(cpu) - idle, sum(cpu))
@@ -278,7 +278,7 @@ def measure(  # noqa: PLR0913 - each port is one boundary the tests replace
         {
             "first_audio_seconds": arguments.first_audio_max,
             "real_time_factor": arguments.rtf_max,
-            **dict.fromkeys(set(FINAL_ROUTES) & set(last), arguments.final_max),
+            **{name: arguments.final_max for name in FINAL_ROUTES if name in last},
         },
     )
     return {

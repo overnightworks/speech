@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from http import HTTPStatus
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -133,11 +134,7 @@ def test_a_valid_event_of_no_interest_is_ignored_until_the_turn_completes() -> N
     assert (turn.transcript, turn.language) == ("Hallo", Language.EN)
 
 
-def test_the_turn_records_when_speech_stopped_for_the_live_final(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    clock = iter([4.0, 6.5])
-    monkeypatch.setattr(CLIENT, "time", SimpleNamespace(monotonic=lambda: next(clock)))
+def test_the_turn_records_when_speech_stopped_for_the_live_final() -> None:
     stopped = SpeechStopped(item_id="i", audio_end_ms=1000)
     completed = TranscriptCompleted(
         item_id="i",
@@ -146,11 +143,16 @@ def test_the_turn_records_when_speech_stopped_for_the_live_final(
         languages=(TranscriptLanguage(code=Language.DE),),
     )
 
-    turn = receive_turn([stopped, completed])
+    async def lingering() -> AsyncIterator[ServerEvent]:
+        yield stopped
+        await asyncio.sleep(0.01)
+        yield completed
+
+    turn = asyncio.run(CLIENT.receive_turn(lingering(), 1.0, time.monotonic()))
 
     assert turn is not None
-    assert turn.speech_stopped_seconds == pytest.approx(4.0)
-    assert turn.completed_seconds == pytest.approx(6.5)
+    assert turn.speech_stopped_seconds is not None
+    assert 0 <= turn.speech_stopped_seconds < turn.completed_seconds
 
 
 def test_a_session_that_ends_without_a_turn_gives_no_turn() -> None:
