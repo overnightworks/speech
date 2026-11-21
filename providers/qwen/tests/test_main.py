@@ -12,14 +12,14 @@ from pathlib import Path
 import pytest
 
 from speech_qwen import __main__ as launcher
-from support.process_state import await_pid_file, group_has_ended, has_ended
+from support.process_state import await_pid_file, group_has_ended, process_state
 
 _FAKE_SERVER = Path(__file__).parent / "support" / "fake_vllm_omni.py"
 
-_SERVER_STATUS_AFTER_SIGTERM = 7
-
 # Between SIGRTMIN and SIGRTMAX, where `signal.Signals` has no member.
 _UNNAMED_REAL_TIME_SIGNAL = 40
+
+_SERVER_STATUS_AFTER_SIGTERM = 7
 
 _LAUNCHER = """
 import sys
@@ -41,6 +41,7 @@ import threading
 launcher = subprocess.Popen(
     [sys.executable, "-c", {_LAUNCHER!r}, str(os.getpid()), *sys.argv[1:]],
     start_new_session=True,
+    stdout=subprocess.DEVNULL,
 )
 print(launcher.pid, flush=True)
 threading.Event().wait()
@@ -204,17 +205,26 @@ def test_the_whole_group_ends_with_the_service_even_before_a_stage_arms_its_own_
         "--stage-gate-file",
         str(stage_gate_file),
     ]
+    group = None
     with subprocess.Popen(  # noqa: S603 - the service is the program of this test
         [sys.executable, "-c", _SERVICE, *server],
         stdout=subprocess.PIPE,
         text=True,
     ) as service:
-        group = int(service.stdout.readline())
-        stage = await_pid_file(stage_pid_file)
-        assert not has_ended(stage, within=0)
-        assert not stage_gate_file.exists()
+        try:
+            group = int(service.stdout.readline())
+            stage = await_pid_file(stage_pid_file)
+            state = process_state(stage)
+            assert state is not None
+            assert "zombie" not in state
+            assert not stage_gate_file.exists()
 
-        service.kill()
-        service.wait()
+            service.kill()
+            service.wait(timeout=60)
 
-        assert group_has_ended(group)
+            assert group_has_ended(group)
+        finally:
+            service.kill()
+            if group is not None:
+                with suppress(ProcessLookupError):
+                    os.killpg(group, signal.SIGKILL)

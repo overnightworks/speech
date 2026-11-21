@@ -28,9 +28,10 @@ if arguments.mode == "unhealthy":
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
 _STAGE = """
-import ctypes, signal, sys, time
+import ctypes, os, signal, sys, time
 from pathlib import Path
 
+Path(sys.argv[2]).write_text(str(os.getpid()), encoding="ascii")
 while not Path(sys.argv[1]).exists():
     time.sleep(0.01)
 ctypes.CDLL(None).prctl(1, signal.SIGTERM)
@@ -41,8 +42,15 @@ time.sleep(3600)
 def start_stage() -> None:
     """Start as vLLM does: a resource tracker, then a stage arming its signal late."""
     multiprocessing.get_context("spawn").Semaphore()
-    stage = subprocess.Popen([sys.executable, "-c", _STAGE, arguments.stage_gate_file])  # noqa: S603 - the stage is the program of this stand-in
-    Path(arguments.stage_pid_file).write_text(str(stage.pid), encoding="ascii")
+    subprocess.Popen(  # noqa: S603 - the stage is the program of this stand-in
+        [
+            sys.executable,
+            "-c",
+            _STAGE,
+            arguments.stage_gate_file,
+            arguments.stage_pid_file,
+        ]
+    )
 
 
 if arguments.mode == "stages":
