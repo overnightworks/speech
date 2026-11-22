@@ -67,3 +67,6 @@ banned-module-level-imports = [
     "speech_qwen.model",
     "torch",
 ]
+
+[tool.coverage.report]
+exclude_also = ["assert_never\\(", 'if __name__ == "__main__":']

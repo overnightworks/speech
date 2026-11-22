@@ -46,7 +46,7 @@ jobs:
         run: uv run --locked ruff format --check
 
       - name: Test
-        run: uv run --locked pytest -q -n auto --cov --cov-report=xml:coverage-root.xml
+        run: uv run --locked pytest -q -n auto --cov --cov-report=xml:coverage-root.xml --cov-report=term:skip-covered
 
       - name: Upload the coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -93,7 +93,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: >-
           uv run --locked --project providers/qwen pytest -q -n auto providers/qwen/tests
-          --cov --cov-report=xml:coverage-qwen.xml
+          --cov --cov-report=xml:coverage-qwen.xml --cov-report=term:skip-covered
 
       - name: Upload the coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
