@@ -1,0 +1,7 @@
+claim_id = "431dc3cc17ab498ebab948d10c8666f7"
+agent = "Claude 3b76e1eb-fd84-4487-96b9-4ea20864a4cf"
+role = "builder"
+base = "e7c1d296889b521a0f61d011f2153a69aa7b8f85"
+branch = "claude/issue-588-speak-wav-width-from-wire-owner"
+scope = ["packages/browser/src/wav-stream.ts", "packages/client/src/speech_client/speak.py"]
+opened_commit = "a1d60a62e4585c6d9676e5afa41f1112c07589ee"
