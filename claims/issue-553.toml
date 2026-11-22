@@ -1,0 +1,8 @@
+claim_id = "c4725a7e4c8b4b57ba81cad4e2acde0a"
+agent = "Claude 3b76e1eb-fd84-4487-96b9-4ea20864a4cf"
+role = "builder"
+base = "ea8f28f2aee99b9b4a40ebe26e974f7defc91edb"
+branch = "claude/issue-553-onnxruntime-telemetry-off-scripts-tests"
+scope = ["docs/ARCHITECTURE.md", "scripts/prove_hearing.py", "tests/conftest.py", "tests/scripts/test_prove_hearing.py"]
+opened_commit = "12bb419af2f1edba36a975ae692c998f3ae1f13f"
+whole_reason = "One switch set where each kind of repository process could first import onnxruntime: the proof scripts' Piper load and the test suite's conftest, with its test and the Trust line."
