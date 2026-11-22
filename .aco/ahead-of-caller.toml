@@ -1,0 +1,9 @@
+[[code]]
+path = "src/speech_service/espeak_marks.py"
+item = "#347"
+reason = "Word marks stay frozen until figure#69 calls them."
+
+[[code]]
+path = "scripts/speaking_marks.py"
+item = "#347"
+reason = "Word marks stay frozen until figure#69 calls them."
