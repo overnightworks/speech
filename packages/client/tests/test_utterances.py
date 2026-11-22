@@ -14,8 +14,10 @@ import pytest
 import speech_client.hearing
 from packages.client.tests.support.hearing_support import (
     HEARD_TEXT,
+    LOOPBACK,
     PERSON_TOKEN,
     WORKLOAD_TOKEN,
+    fixed_tokens,
 )
 from packages.client.tests.support.scripted_hearing_support import (
     Refusal,
@@ -81,9 +83,11 @@ from speech_client.relay import (
 )
 from speech_client.utterances import (
     HeardSound,
+    HearingCallbacks,
     Partial,
     ServiceFailed,
     Utterance,
+    hear_utterances,
 )
 from speech_client.wire import DRAIN_CLOSE_CODE, Language, RefusalCode, token_headers
 
@@ -139,6 +143,35 @@ def test_the_session_asks_for_sounds_only_when_the_app_passes_on_sound(
     assert (asked_for is not None) is asked
     if not asked:
         assert first == session_update((Language.DE,))
+
+
+def test_the_texts_of_the_browser_reach_on_text_in_order() -> None:
+    texts: list[str] = []
+    second = {"type": "websocket.receive", "bytes": None, "text": "second"}
+
+    async def no_utterance(_: Utterance) -> None:
+        raise AssertionError
+
+    async def scenario() -> UtteranceOutcome:
+        async with hearing(stays_open=True)() as port:
+            return await asyncio.wait_for(
+                hear_utterances(
+                    Browser((text_message(), second, DISCONNECT)),
+                    f"http://{LOOPBACK}:{port}",
+                    token_source=fixed_tokens,
+                    languages=(Language.DE,),
+                    deadline_seconds=5,
+                    held_limit_bytes=HOP_FRAME_BYTES,
+                    ended=asyncio.Event(),
+                    callbacks=HearingCallbacks(
+                        on_utterance=no_utterance, on_text=texts.append
+                    ),
+                ),
+                10,
+            )
+
+    assert asyncio.run(scenario()) == BrowserLeft()
+    assert texts == ["hello", "second"]
 
 
 def test_a_sound_reaches_on_sound_in_event_order_with_its_positions() -> None:

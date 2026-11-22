@@ -152,6 +152,7 @@ async def _hop(
     *,
     app_ended: asyncio.Event | None = None,
     on_event: object = _no_events,
+    on_text: Callable[[str], None] | None = None,
 ) -> RelayOutcome:
     return await asyncio.wait_for(
         relay(
@@ -159,6 +160,7 @@ async def _hop(
             session,
             app_ended=app_ended or asyncio.Event(),
             on_event=on_event,
+            on_text=on_text,
             frame_limit_bytes=FRAME_LIMIT,
         ),
         5,
@@ -211,6 +213,103 @@ def test_a_frame_exactly_the_limit_is_forwarded_unread_in_order() -> None:
     asyncio.run(_hop(browser, session))
 
     assert session.sent == [b"\0" * FRAME_LIMIT, b""]
+
+
+def test_with_on_text_the_texts_reach_it_unread_and_in_order_with_the_frames() -> None:
+    browser = _Browser([_text("é"), _binary(1), _text(""), _binary(2), DISCONNECT])
+    session = _Session()
+    taken: list[str] = []
+
+    ended = asyncio.run(_hop(browser, session, on_text=taken.append))
+
+    assert ended == BrowserLeft()
+    assert taken == ["é", ""]
+    assert session.sent == [b"\0", b"\0\0"]
+
+
+@pytest.mark.parametrize(
+    ("text", "outcome"),
+    [
+        pytest.param("a" * FRAME_LIMIT, BrowserLeft(), id="exactly-the-limit"),
+        pytest.param(
+            "é" * (FRAME_LIMIT // 2) + "a",
+            RuleBroken(HopClose.FRAME_TOO_LARGE),
+            id="one-utf8-byte-over-the-limit-but-under-it-in-characters",
+        ),
+    ],
+)
+def test_a_text_is_bounded_by_the_frame_limit_in_utf8_bytes(
+    text: str, outcome: RelayOutcome
+) -> None:
+    browser = _Browser([_text(text), DISCONNECT])
+    taken: list[str] = []
+
+    ended = asyncio.run(_hop(browser, _Session(), on_text=taken.append))
+
+    assert ended == outcome
+    assert taken == ([text] if outcome == BrowserLeft() else [])
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        pytest.param(
+            {"type": "websocket.receive", "bytes": None, "text": None},
+            id="neither-bytes-nor-text",
+        ),
+        pytest.param({"type": "websocket.receive"}, id="no-payload-key"),
+    ],
+)
+def test_a_message_without_bytes_or_a_text_ends_the_hop_even_with_on_text(
+    message: Mapping[str, object],
+) -> None:
+    browser = _Browser([message])
+    taken: list[str] = []
+
+    ended = asyncio.run(_hop(browser, _Session(), on_text=taken.append))
+
+    assert ended == RuleBroken(HopClose.TEXT_FRAME)
+    assert taken == []
+
+
+@pytest.mark.parametrize(
+    "before_the_call",
+    [
+        pytest.param(True, id="set-before-the-call"),
+        pytest.param(False, id="set-as-the-text-arrives"),
+    ],
+)
+def test_a_text_received_after_the_apps_end_reaches_no_one(
+    *, before_the_call: bool
+) -> None:
+    app_ended = _app_ended(before_the_call=before_the_call)
+    browser = _Browser([_text()], None if before_the_call else app_ended)
+    taken: list[str] = []
+
+    ended = asyncio.run(
+        _hop(browser, _Session(), app_ended=app_ended, on_text=taken.append)
+    )
+
+    assert ended == AppEnded()
+    assert taken == []
+
+
+def test_a_failure_of_on_text_is_raised_and_leaves_nothing_behind() -> None:
+    browser = _Browser([_text()])
+    session = _Session()
+
+    def refuse(_: str) -> None:
+        message = "the app refused the text"
+        raise RuntimeError(message)
+
+    async def scenario() -> set[asyncio.Task[object]]:
+        with pytest.raises(RuntimeError, match="the app refused the text"):
+            await _hop(browser, session, on_text=refuse)
+        return asyncio.all_tasks() - {asyncio.current_task()}
+
+    assert not asyncio.run(scenario())
+    assert session.left
+    assert browser.closed_with == []
 
 
 def test_a_rule_broken_frame_is_not_forwarded() -> None:

@@ -38,6 +38,10 @@ after `ended` is set no callback is called again.
   Passing it is what asks the service for sounds; without it the hearing asks for
   none and sends the bytes it always sent, and a `sound_detected` that arrives
   anyway raises `ServerEventError`.
+- `on_text`, if given, gets each text frame the browser's page sends, unread and
+  in order with its audio frames, bounded like every frame (`relay`): the app
+  validates it. It is a plain function, not an `async def`. Without it a text
+  frame ends the hop with `HopClose.TEXT_FRAME`.
 - A failed item or an `error` event ends the hearing: the browser is closed
   with `HopClose.SERVICE_FAILED` and the outcome is `ServiceFailed`, which names
   the event's code and nothing else of it.
@@ -176,6 +180,7 @@ class HearingCallbacks:
     on_turn_ended: Callable[[TurnEnd], Awaitable[None]] | None = None
     on_sound: Callable[[HeardSound], Awaitable[None]] | None = None
     on_reconnected: Callable[[Reconnected], Awaitable[None]] | None = None
+    on_text: Callable[[str], None] | None = None
 
 
 @dataclass(slots=True)
@@ -278,6 +283,7 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
             session,
             app_ended=ended,
             on_event=_Mapping(callbacks, ended).on_event,
+            on_text=callbacks.on_text,
             frame_limit_bytes=HOP_FRAME_BYTES,
         )
     except _ServiceFailedError as failure:
