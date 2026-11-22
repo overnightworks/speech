@@ -142,7 +142,9 @@ revisions, and the service has no route to a registry or hub.
   in `/dev/shm`, never following a link.
 - The browser hop of the client's relay belongs to the app. The browser package
   holds no token, interprets no message and opens no device (the app grants the
-  microphone in its `Permissions-Policy`); its frames are untrusted and bounded.
+  microphone in its `Permissions-Policy`); its frames are untrusted and bounded. A
+  text frame the page sends reaches the app's server only through `on_text`,
+  bounded like every frame, and the app validates it.
   The app serves the capture worklet and hands the player its URL, same-origin;
   webauth's `script-src 'self'` and `connect-src 'self'` admit both.
 

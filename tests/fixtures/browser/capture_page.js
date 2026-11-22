@@ -2,7 +2,9 @@
 // The query names the scenario: `source` (device, wav, tone, two-tones, none), `hop` (the relay
 // route), `worklet` (file, blob, held), `start` (click, load) and the message knobs: `messages`
 // (set: pass `onMessage`), `stopAt` (call stop() at that message) and `throwFirst` (set: the first
-// call throws). `window.capturePage` holds what the page saw, for the test to read.
+// call throws) and `sendWhileConnecting` (set: send a text right after `startCapture` returns).
+// `window.capturePage` holds what the page saw, for the test to read, and `window.sendFromPage`
+// sends a message of the app's own through the capture.
 import { startCapture } from "/dist/index.js";
 
 const query = new URLSearchParams(location.search);
@@ -18,6 +20,8 @@ const seen = {
   socketsOpened: 0,
   contextsOpened: 0,
   sentBytes: [],
+  sentTexts: [],
+  sendWhileConnecting: null,
   messagesReceived: 0,
   messages: [],
   startedAtFirstMessage: null,
@@ -54,7 +58,8 @@ window.WebSocket = class extends PageWebSocket {
 
   send(data) {
     seen.firstSendAt ??= performance.now();
-    seen.sentBytes.push(data.byteLength);
+    if (typeof data === "string") seen.sentTexts.push(data);
+    else seen.sentBytes.push(data.byteLength);
     super.send(data);
   }
 };
@@ -143,6 +148,7 @@ async function switchOn() {
     workletUrl: await workletUrl(),
     ...(query.has("messages") ? { onMessage } : {}),
   });
+  if (query.has("sendWhileConnecting")) seen.sendWhileConnecting = capture.send("too early");
   capture.started.then((started) => {
     seen.started = started;
     seen.startedAt = performance.now();
@@ -163,6 +169,15 @@ function switchOff() {
   stoppedAt = performance.now();
   capture.stop();
 }
+
+// What the capture's `send` answered, or the name of the error it threw.
+window.sendFromPage = (message) => {
+  try {
+    return { sent: capture.send(message) };
+  } catch (error) {
+    return { error: error.name };
+  }
+};
 
 window.endTrack = () => {
   seen.sentBeforeEnd = seen.sentBytes.length;
