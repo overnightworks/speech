@@ -74,7 +74,11 @@ testpaths = ["tests", "packages/client/tests"]
 branch = true
 relative_files = true
 patch = ["subprocess"]
-include = ["src/*", "packages/*/src/*", "providers/*/src/*"]
+include = ["src/*", "packages/*/src/*", "providers/*/src/*", "scripts/*"]
+
+[tool.coverage.report]
+exclude_also = ["assert_never\\(", 'if __name__ == "__main__":']
+fail_under = 89
 
 [tool.ruff]
 target-version = "py314"
@@ -107,3 +111,30 @@ convention = "google"
 # The tests start the service and the servers as subprocesses with fixed argv.
 "tests/**" = ["S101", "S603", "D103"]
 "packages/client/tests/**" = ["S101", "D103"]
+
+[tool.importlinter]
+root_packages = ["speech_service", "speech_client", "speech_provider_contract", "speech_qwen"]
+
+[[tool.importlinter.contracts]]
+name = "The client imports no other speech package"
+type = "forbidden"
+source_modules = ["speech_client"]
+forbidden_modules = ["speech_service", "speech_provider_contract", "speech_qwen"]
+
+[[tool.importlinter.contracts]]
+name = "The service never imports the Qwen provider"
+type = "forbidden"
+source_modules = ["speech_service"]
+forbidden_modules = ["speech_qwen"]
+
+[[tool.importlinter.contracts]]
+name = "The provider contract imports no other speech package"
+type = "forbidden"
+source_modules = ["speech_provider_contract"]
+forbidden_modules = ["speech_service", "speech_client", "speech_qwen"]
+
+[[tool.importlinter.contracts]]
+name = "The Qwen provider imports neither the service nor the client"
+type = "forbidden"
+source_modules = ["speech_qwen"]
+forbidden_modules = ["speech_service", "speech_client"]
