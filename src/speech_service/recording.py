@@ -4,19 +4,20 @@ from __future__ import annotations
 
 import io
 from itertools import chain
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
 import av
 from av.error import FFmpegError
 
-from speech_service.hearing import HEARING_SAMPLE_RATE
-from speech_service.pcm import BYTES_PER_SAMPLE
+from speech_service.pcm import (
+    AV_LAYOUT,
+    AV_SAMPLE_FORMAT,
+    BYTES_PER_SAMPLE,
+    HEARING_SAMPLE_RATE,
+)
 
 if TYPE_CHECKING:
     from av.container import InputContainer
-
-_PCM_FORMAT: Final = "s16"
-_MONO: Final = "mono"
 
 
 class RecordingTooLongError(Exception):
@@ -46,7 +47,7 @@ def decode_recording(recording: bytes, max_seconds: float) -> bytes:
 
 def _decode_within(container: InputContainer, limit: int) -> bytearray:
     resampler = av.AudioResampler(
-        format=_PCM_FORMAT, layout=_MONO, rate=HEARING_SAMPLE_RATE
+        format=AV_SAMPLE_FORMAT, layout=AV_LAYOUT, rate=HEARING_SAMPLE_RATE
     )
     pcm = bytearray()
     for frame in chain(container.decode(container.streams.audio[0]), [None]):

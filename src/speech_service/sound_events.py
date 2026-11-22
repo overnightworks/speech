@@ -15,7 +15,8 @@ from typing import TYPE_CHECKING, Final
 import numpy as np
 
 from speech_client.realtime_wire import SoundName
-from speech_service.voice_activity import SAMPLE_RATE, one_thread_session
+from speech_service.pcm import HEARING_SAMPLE_RATE, INT16_SCALE
+from speech_service.voice_activity import one_thread_session
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -26,8 +27,8 @@ if TYPE_CHECKING:
 
 type Scores = npt.NDArray[np.float32]
 
-WINDOW_SAMPLES: Final = 2 * SAMPLE_RATE
-HOP_SAMPLES: Final = SAMPLE_RATE // 2
+WINDOW_SAMPLES: Final = 2 * HEARING_SAMPLE_RATE
+HOP_SAMPLES: Final = HEARING_SAMPLE_RATE // 2
 # The sounds' measured hit-rates are those at this threshold.
 THRESHOLD: Final = 0.1
 QUIET_HOPS_TO_END: Final = 2
@@ -42,7 +43,6 @@ BUILD_COMMAND: Final = (
 DIRECTORY_SETTING: Final = "SPEECH_SOUND_MODEL_DIRECTORY"
 SWITCH: Final = "SPEECH_SOUND_EVENTS"
 _INPUT: Final = "waveform"
-_INT16_SCALE: Final = 32768.0
 _KEPT_SAMPLES: Final = WINDOW_SAMPLES + HOP_SAMPLES
 # The model's labels are AudioSet's; Applause is its own class there, not a child of
 # Clapping, so folding it into Clapping is this service's mapping. The order is the
@@ -130,9 +130,9 @@ class SoundStream:
         offset = start - (self._total - len(self._tail))
         window = self._tail[offset : offset + WINDOW_SAMPLES]
         return SoundWindow(
-            (window.astype(np.float32) / _INT16_SCALE)[None],
-            start * 1000 // SAMPLE_RATE,
-            (start + WINDOW_SAMPLES) * 1000 // SAMPLE_RATE,
+            (window.astype(np.float32) / INT16_SCALE)[None],
+            start * 1000 // HEARING_SAMPLE_RATE,
+            (start + WINDOW_SAMPLES) * 1000 // HEARING_SAMPLE_RATE,
         )
 
     def scored(self, window: SoundWindow, scores: Scores) -> list[DetectedSound]:

@@ -11,16 +11,17 @@ from speech_service.hearing_session import (
     SpeechStart,
     TurnEnd,
 )
+from speech_service.pcm import BYTES_PER_SAMPLE
+from speech_service.pcm import HEARING_SAMPLE_RATE as SAMPLE_RATE
 from speech_service.voice_activity import (
     PRE_ROLL_SECONDS,
-    SAMPLE_RATE,
     START_WINDOWS,
     WINDOW_SAMPLES,
     WINDOW_SECONDS,
 )
 from tests.support.detector_support import LOUD_LEVEL, LevelDetector, ScriptedDetector
 
-BYTES_PER_SECOND = SAMPLE_RATE * 2
+BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE
 SILENT_WINDOWS = round(DEFAULT_LIVE_SILENCE_SECONDS / WINDOW_SECONDS + 0.5)
 PRE_ROLL_MS = int(PRE_ROLL_SECONDS * 1000)
 

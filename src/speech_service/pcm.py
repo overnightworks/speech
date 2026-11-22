@@ -9,14 +9,18 @@ from typing import Final
 import av
 import numpy as np
 
-BITS_PER_SAMPLE: Final = 16
-BYTES_PER_SAMPLE: Final = BITS_PER_SAMPLE // 8
-CHANNELS: Final = 1
+from speech_client.realtime_wire import PcmFormat, SessionInput
+
+BYTES_PER_SAMPLE: Final = PcmFormat.sample_bytes
+BITS_PER_SAMPLE: Final = 8 * BYTES_PER_SAMPLE
+CHANNELS: Final = PcmFormat.channels
+AV_SAMPLE_FORMAT: Final = "s16"
+AV_LAYOUT: Final = "mono"
 PCM_FORMAT: Final = 1
 WAV_HEADER_BYTES: Final = 44
 # Streaming WAV: the length is not known when the first byte leaves.
 STREAMING_DATA_SIZE: Final = 0xFFFFFFFF
-_INT16_SCALE: Final = 32768.0
+INT16_SCALE: Final = 32768.0
 # The IPTC term id for synthetic audio; never fetched (AI Act Art. 50(2)).
 AI_MARK: Final = (
     "DigitalSourceType=http://cv.iptc.org/newscodes/"  # NOSONAR(S5332) id, not fetched
@@ -88,9 +92,7 @@ def pcm_from_wav(data: bytes) -> tuple[int, bytes]:
 def _scaled_samples(pcm: bytes) -> np.ndarray:
     """The whole samples of `pcm` as float64 in -1..1; an odd last byte is dropped."""
     count = len(pcm) // BYTES_PER_SAMPLE
-    return (
-        np.frombuffer(pcm, dtype="<i2", count=count).astype(np.float64) / _INT16_SCALE
-    )
+    return np.frombuffer(pcm, dtype="<i2", count=count).astype(np.float64) / INT16_SCALE
 
 
 def rms(pcm: bytes) -> float:
@@ -101,8 +103,9 @@ def rms(pcm: bytes) -> float:
     return math.sqrt(float(np.mean(samples**2)))
 
 
-LIVE_INPUT_RATE: Final = 24_000
-LIVE_OUTPUT_RATE: Final = 16_000
+LIVE_INPUT_RATE: Final = SessionInput().format.rate
+# The rate Whisper, Silero and the sound model take.
+HEARING_SAMPLE_RATE: Final = 16_000
 
 
 class Resampler:
@@ -115,7 +118,7 @@ class Resampler:
     def __init__(self) -> None:
         """Start before the first sample."""
         self._resampler = av.AudioResampler(
-            format="s16", layout="mono", rate=LIVE_OUTPUT_RATE
+            format=AV_SAMPLE_FORMAT, layout=AV_LAYOUT, rate=HEARING_SAMPLE_RATE
         )
 
     def feed(self, pcm: bytes) -> bytes:
@@ -123,7 +126,9 @@ class Resampler:
         if not pcm:
             return b""
         samples = np.frombuffer(pcm, dtype="<i2").reshape(1, -1)
-        frame = av.AudioFrame.from_ndarray(samples, format="s16", layout="mono")
+        frame = av.AudioFrame.from_ndarray(
+            samples, format=AV_SAMPLE_FORMAT, layout=AV_LAYOUT
+        )
         frame.sample_rate = LIVE_INPUT_RATE
         return b"".join(
             resampled.to_ndarray().tobytes()
