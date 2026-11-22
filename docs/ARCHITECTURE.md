@@ -174,6 +174,10 @@ launcher; the image's speaking and hearing on the card by a GPU run.
   container needs no egress.
 - **A replica holds connections only**: a live session stays on the process that
   serves its socket and is drained on a stop, so replicas need no sticky routing.
+  speech holds no truth and no state shared across pods: speaking and hearing
+  are requests, a live hearing session lives in one process and a drained pod
+  ends it with `1012` for the client to reopen, and the models are baked into the
+  image. That is why it runs neither Postgres nor Redis.
 - **Speaking and hearing are separate admission resources**, each with its own
   gate, so a busy synthesis never refuses a recording nor a busy decode a speak
   request. A lease is given back only when the native call returns, because
