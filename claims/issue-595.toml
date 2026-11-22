@@ -1,0 +1,8 @@
+claim_id = "ef94131499204a3786796df0f6bc9745"
+agent = "Claude 3b76e1eb-fd84-4487-96b9-4ea20864a4cf"
+role = "builder"
+base = "3553bfe9ba0e1a640d139253d62cf5a14063a7e8"
+branch = "claude/issue-595-gpu-voice-warms-before-ready"
+scope = ["README.md", "docs/ARCHITECTURE.md", "src/speech_service/speaking.py", "tests/support/fake_launcher.py", "tests/support/launcher_support.py", "tests/test_provider_process.py", "tests/test_provider_process_start.py", "tests/test_speaking_qwen.py", "tests/test_voice_slot_warm_up.py", "tests/test_voices_configured.py"]
+opened_commit = "81b6a7c7e701aca88dac4501d29be1e2a900aa3d"
+whole_reason = "One production change (the Qwen adapter's load) with the fake modes, tests and two document sentences that prove and describe it; the followed tests break without it."
