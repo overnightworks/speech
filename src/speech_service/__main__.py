@@ -22,6 +22,7 @@ from webauth.https_client import fetch_key_set_over_https
 from speech_service.callers import SpeechCallers
 from speech_service.config import Settings, load_caller_config, load_settings
 from speech_service.control import create_control_app
+from speech_service.onnxruntime_telemetry import disable_onnxruntime_telemetry
 from speech_service.service import Runtime
 
 if TYPE_CHECKING:
@@ -30,7 +31,6 @@ if TYPE_CHECKING:
 
 _CLOSE_GRACE_SECONDS: Final = 5.0
 _SERVICE_NAME: Final = "speech"
-_ONNXRUNTIME_TELEMETRY_SWITCH: Final = "ORT_DISABLE_TELEMETRY"
 _LOGGER = logging.getLogger(__name__)
 _USAGE_DESCRIPTION = "Serve the speech wire over TCP."
 _USAGE_EPILOG = (
@@ -56,8 +56,7 @@ class StopPolicy:
 def main() -> None:
     """Read one configuration and exit nonzero after a fatal lifecycle error."""
     _argument_parser().parse_args()
-    # onnxruntime reads the switch at import, so it is set before any engine loads.
-    os.environ.setdefault(_ONNXRUNTIME_TELEMETRY_SWITCH, "1")
+    disable_onnxruntime_telemetry()
     settings = load_settings()
     configure(_SERVICE_NAME)
     _LOGGER.info("process.started")
