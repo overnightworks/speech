@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import json
 import logging
+from collections import deque
 from functools import partial
 from http import HTTPStatus
 from types import MappingProxyType
@@ -201,8 +202,7 @@ class QwenSpeaking:
         """
         self._process.load()
         for language in self._languages:
-            for _discarded in self.pcm_chunks(_WARM_UP_SENTENCES[language], language):
-                pass
+            deque(self.pcm_chunks(_WARM_UP_SENTENCES[language], language), maxlen=0)
         self._warmed = True
 
     def set_fatal_callback(self, callback: Callable[[], None]) -> None:
