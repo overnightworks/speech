@@ -77,6 +77,7 @@ from speech_client.outcomes import (
     Unreachable,
     busy_wait,
 )
+from speech_client.realtime_wire import PcmFormat
 from speech_client.wire import (
     EVENT_END,
     SPEECH_PATH,
@@ -124,8 +125,6 @@ __all__ = [
 _REFUSAL_BODY_LIMIT: Final = 64 * 1024
 # The longest container signature: `RIFF`, a size and `WAVE`.
 _SIGNATURE_BYTES: Final = 12
-# WIRE-88: 16-bit mono PCM.
-_BYTES_PER_SAMPLE: Final = 2
 _CHUNK_HEADER_BYTES: Final = 8
 _RIFF_HEADER_BYTES: Final = 12
 _SAMPLE_RATE_AT: Final = slice(24, 28)
@@ -362,7 +361,7 @@ class _WavLength:
         """The exact seconds fed, or `None` if the body holds no usable `data`."""
         if not self._in_data or self._sample_rate == 0:
             return None
-        return self._pcm_bytes // _BYTES_PER_SAMPLE / self._sample_rate
+        return self._pcm_bytes // PcmFormat.sample_bytes / self._sample_rate
 
 
 def _chunks(  # noqa: PLR0913 - each wire option is its own argument
