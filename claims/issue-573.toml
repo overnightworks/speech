@@ -1,8 +1,0 @@
-claim_id = "8b8dfb185d5a4b86a5dfce8a0bbadfe8"
-agent = "Claude 6721bb1e-84a1-4fcb-9239-504c71d70ec0"
-role = "builder"
-base = "d4b3e2a63ad6aa112b1718f4dfeab0525f407773"
-branch = "claude/issue-573-audit-guards"
-scope = [".aco/ahead-of-caller.toml", ".github/workflows/ci.yml", "providers/qwen/pyproject.toml", "pyproject.toml", "sonar-project.properties"]
-opened_commit = "a59f4a6e65356aa2c24b1a304f9cb32c710287c2"
-whole_reason = "One guard set: the import contract, the coverage scope, total and floor, and the ahead-of-caller listing are config lines that are only measured together in one CI run."
