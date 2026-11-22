@@ -1,7 +1,0 @@
-claim_id = "c48cdcec122e4ef6a391b7db60618e7e"
-agent = "Claude 6721bb1e-84a1-4fcb-9239-504c71d70ec0"
-role = "builder"
-base = "d4b3e2a63ad6aa112b1718f4dfeab0525f407773"
-branch = "claude/issue-575-architecture-no-postgres-no-redis"
-scope = ["docs/ARCHITECTURE.md"]
-opened_commit = "7dc2f08191bf4cfbc703c30992fbda1bca19df8f"
