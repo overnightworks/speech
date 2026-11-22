@@ -57,6 +57,8 @@ def test_build_script_sets_telemetry_off_before_importing_onnxruntime(
 def test_build_script_windows_match_the_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ORT_DISABLE_TELEMETRY", "restored")
+    monkeypatch.delenv("ORT_DISABLE_TELEMETRY")
     monkeypatch.setitem(sys.modules, "onnxruntime", types.ModuleType("onnxruntime"))
     script = script_module("build_sound_model")
     assert script.SAMPLE_RATE == pcm.HEARING_SAMPLE_RATE
