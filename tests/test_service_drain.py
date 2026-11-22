@@ -274,6 +274,23 @@ def _transcribe(pair: _Pair, port: int) -> tuple[int, dict[str, object]]:
     return response.status, json.loads(response.read())
 
 
+@pytest.mark.parametrize("port_name", ["first_port", "second_port"])
+def test_each_of_two_service_processes_serves_speaking_and_hearing(
+    pair: _Pair, port_name: str
+) -> None:
+    port = getattr(pair, port_name)
+    pair.release_file.touch()
+
+    response, first_byte = _stream_speech(pair, port)
+    speech = first_byte + response.read()
+    status, answer = _transcribe(pair, port)
+
+    assert response.status == http.HTTPStatus.OK
+    assert speech.startswith(b"RIFF")
+    assert status == http.HTTPStatus.OK
+    assert answer["text"] == HEARD_TEXT
+
+
 def test_a_stopped_process_finishes_a_recording_already_being_heard(
     pair: _Pair,
 ) -> None:
