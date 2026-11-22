@@ -29,10 +29,11 @@ from speech_client.wire import (
     VoiceId,
 )
 from speech_service.hearing_models import HearingModel, voiced_floor
-from speech_service.pcm import AI_MARK, pcm_from_wav
+from speech_service.pcm import AI_MARK
+from wav_audio import pcm_from_wav, riff_chunks
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Mapping
+    from collections.abc import Callable, Iterable, Mapping
 
     from image_stack import LiveOutcome, Reply
     from speech_client.utterances import HeardSound
@@ -138,19 +139,9 @@ def minting_for(config: CallerConfig, baked: BakedCaller, signing: Minting) -> M
     )
 
 
-def _chunks(wav: bytes) -> Iterator[tuple[bytes, int, int]]:
-    """The id, start and end of each RIFF chunk after the header."""
-    position = 12
-    while position + 8 <= len(wav):
-        size = int.from_bytes(wav[position + 4 : position + 8], "little")
-        end = position + 8 + size + size % 2
-        yield wav[position : position + 4], position, end
-        position = end
-
-
 def ai_mark_of(wav: bytes) -> str | None:
     """The RIFF INFO comment before the `data` chunk, or None."""
-    for chunk_id, start, end in _chunks(wav):
+    for chunk_id, start, end in riff_chunks(wav):
         if chunk_id == b"data":
             return None
         if chunk_id == MARK_CHUNK and wav[start + 8 : start + 12] == b"INFO":
@@ -160,7 +151,7 @@ def ai_mark_of(wav: bytes) -> str | None:
 
 def without_mark(wav: bytes) -> bytes:
     """The same WAV with its INFO chunk cut out."""
-    for chunk_id, start, end in _chunks(wav):
+    for chunk_id, start, end in riff_chunks(wav):
         if chunk_id == MARK_CHUNK:
             return wav[:start] + wav[end:]
     return wav
@@ -186,7 +177,7 @@ def require_marked_wav(wav: bytes) -> None:
         raise SystemExit(message)
     if not any(
         chunk_id == b"data" and _audio_bytes(wav, start) > 0
-        for chunk_id, start, _ in _chunks(wav)
+        for chunk_id, start, _ in riff_chunks(wav)
     ):
         message = "the WAV holds no audio"
         raise SystemExit(message)

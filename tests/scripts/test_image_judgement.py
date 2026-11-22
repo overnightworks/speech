@@ -25,7 +25,8 @@ from speech_client.wire import (
 )
 from speech_service.config import CallerConfig, load_caller_config
 from speech_service.hearing_models import HearingModel
-from speech_service.pcm import pcm_from_wav, wav_header
+from speech_service.pcm import wav_header
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from proof_identity import Minting

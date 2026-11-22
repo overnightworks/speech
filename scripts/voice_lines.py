@@ -40,7 +40,8 @@ from prove_speech import (
 from shipped_catalogue import ON_DEMAND_VOICES, first_language
 from speech_client.wire import Language, VoiceId
 from speech_service.hearing_models import HearingModel
-from speech_service.pcm import BYTES_PER_SAMPLE, pcm_from_wav
+from speech_service.pcm import BYTES_PER_SAMPLE
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence

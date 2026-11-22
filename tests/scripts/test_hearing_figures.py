@@ -12,8 +12,8 @@ import pytest
 import hearing_figures as figures
 from speech_client.wire import Language, RefusalCode
 from speech_service.config import DEFAULT_LIVE_SILENCE_SECONDS
-from speech_service.pcm import pcm_from_wav
 from speech_service.voice_activity import PRE_ROLL_SECONDS, START_WINDOWS
+from wav_audio import pcm_from_wav
 
 RATE = 24000
 LOUD = 8000

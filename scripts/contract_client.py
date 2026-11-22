@@ -12,13 +12,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from array import array
 from pathlib import Path
 
 from proof_identity import Minting, load_minting, mint_pair
 from speech_client import speak as speaking_call
 from speech_client.health import fetch_health
 from speech_client.wire import Health, Language, ResponseFormat, VoiceId
+from wav_audio import SILENCE_RMS, pcm_from_wav, rms
 
 SENTENCE = (
     "Die Kamera zeigt den Vortragenden, während im Hintergrund "
@@ -28,31 +28,12 @@ HEALTH_DEADLINE_SECONDS = 30
 HEALTH_CAP_BYTES = 64 * 1024
 SPEAK_DEADLINE_SECONDS = 60
 WAV_CAP_BYTES = 64 * 1024 * 1024
-BYTES_PER_SAMPLE = 2
-SILENCE_RMS = 0.01
 
 
 def _must_not_have_imported_speech() -> None:
     if "speech_service" in sys.modules:
         message = "contract client imported speech_service"
         raise SystemExit(message)
-
-
-def _pcm_from_wav(data: bytes) -> tuple[int, bytes]:
-    if data[:4] != b"RIFF" or data[8:12] != b"WAVE":
-        message = "speak did not return a WAV"
-        raise SystemExit(message)
-    rate = int.from_bytes(data[24:28], "little")
-    position = 12
-    while position + 8 <= len(data):
-        chunk_id = data[position : position + 4]
-        size = int.from_bytes(data[position + 4 : position + 8], "little")
-        payload = position + 8
-        if chunk_id == b"data":
-            return rate, data[payload:]
-        position = payload + size
-    message = "WAV has no data chunk"
-    raise SystemExit(message)
 
 
 def speak(
@@ -83,15 +64,6 @@ def speak(
     return outcome.audio
 
 
-def _rms(pcm: bytes) -> float:
-    if len(pcm) < BYTES_PER_SAMPLE:
-        return 0.0
-    samples = array("h")
-    samples.frombytes(pcm[: len(pcm) - (len(pcm) % BYTES_PER_SAMPLE)])
-    total = sum(sample * sample for sample in samples)
-    return (total / len(samples)) ** 0.5 / 32768.0
-
-
 def _run(base_url: str, voice: VoiceId, minting: Minting) -> None:
     health = fetch_health(
         base_url,
@@ -108,12 +80,16 @@ def _run(base_url: str, voice: VoiceId, minting: Minting) -> None:
 
     language = health.speaking.voices[voice].languages[0]
     wav = speak(base_url, SENTENCE, voice, language, minting)
-    rate, pcm = _pcm_from_wav(wav)
+    try:
+        rate, pcm = pcm_from_wav(wav)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    level = rms(pcm)
     print(
         "contract_speak",
-        f"bytes={len(wav)} pcm={len(pcm)} rate={rate} rms={_rms(pcm):.4f}",
+        f"bytes={len(wav)} pcm={len(pcm)} rate={rate} rms={level:.4f}",
     )
-    if _rms(pcm) < SILENCE_RMS:
+    if level < SILENCE_RMS:
         message = "speak returned silence"
         raise SystemExit(message)
 
