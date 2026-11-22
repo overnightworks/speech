@@ -1,0 +1,8 @@
+claim_id = "80c50da532984fd891c65917eab97793"
+agent = "Claude 3b76e1eb-fd84-4487-96b9-4ea20864a4cf"
+role = "builder"
+base = "e7c1d296889b521a0f61d011f2153a69aa7b8f85"
+branch = "claude/issue-587-service-pcm-figures-one-owner"
+scope = ["docs/ARCHITECTURE.md", "scripts/hearing_figures.py", "scripts/speaking_marks.py", "src/speech_service/hearing.py", "src/speech_service/hearing_session.py", "src/speech_service/live_session.py", "src/speech_service/ogg_opus.py", "src/speech_service/pcm.py", "src/speech_service/recording.py", "src/speech_service/sound_events.py", "src/speech_service/speaking.py", "src/speech_service/voice_activity.py", "tests/scripts/test_build_sound_model.py", "tests/test_hearing_language.py", "tests/test_hearing_session.py", "tests/test_recording.py", "tests/test_voice_activity.py"]
+opened_commit = "02f588d018fca3860018cb94b18f66e575922663"
+whole_reason = "One owner move inside the service: pcm.py becomes the leaf that holds the service's PCM figures, and each other path only swaps a local constant or literal for its import."
