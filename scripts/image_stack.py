@@ -7,7 +7,7 @@ import json
 import os
 import subprocess
 import uuid
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -98,6 +98,10 @@ class Compose:
     files: tuple[Path, ...]
     environment: Mapping[str, str]
     project: str
+
+    def with_files(self, files: tuple[Path, ...]) -> Compose:
+        """The same project over `files`."""
+        return Compose(files, self.environment, self.project)
 
     def command(self, *arguments: str) -> list[str]:
         """The full argv of one compose subcommand."""
@@ -206,7 +210,7 @@ def recording_form(wav: bytes, language: str) -> RecordingForm:
     fields = TranscriptionRequest(model=MODEL).model_dump(mode="json")
     request = httpx2.Request(
         "POST",
-        "http://form.invalid",
+        "http://form.invalid",  # NOSONAR(S5332) never sent
         data={**fields, "language": language},
         files={"file": ("recording.wav", wav, "audio/wav")},
     )
@@ -257,7 +261,27 @@ class Session:
 
     def as_app(self, app: str) -> Session:
         """The session speaking as another baked app."""
-        return replace(self, baked=baked_caller(self.config, app))
+        return Session(
+            self.compose,
+            self.config,
+            baked_caller(self.config, app),
+            self.signing,
+            self.tokens,
+            self.heard,
+            self.logs,
+        )
+
+    def with_compose(self, compose: Compose) -> Session:
+        """The session over another stack of the same project."""
+        return Session(
+            compose,
+            self.config,
+            self.baked,
+            self.signing,
+            self.tokens,
+            self.heard,
+            self.logs,
+        )
 
     @property
     def caller(self) -> str:
@@ -267,7 +291,8 @@ class Session:
     @property
     def service_url(self) -> str:
         """The service as the caller container reaches it."""
-        return f"http://{SERVICE}:{Settings.model_fields['port'].default}"
+        port = Settings.model_fields["port"].default
+        return f"http://{SERVICE}:{port}"  # NOSONAR(S5332) internal compose network
 
     def pair(self, minting: Minting | None = None) -> TokenPair:
         """Fresh tokens, remembered for the log check."""
@@ -416,7 +441,8 @@ class Session:
 
 def oom_kills(events: str) -> int:
     """The `oom_kill` count of a cgroup's `memory.events` file."""
-    return int(dict(line.split() for line in events.splitlines())["oom_kill"])
+    counts = dict(map(str.split, events.splitlines()))
+    return int(counts["oom_kill"])
 
 
 def service_config(compose: Compose) -> dict[str, Any]:
@@ -438,7 +464,7 @@ def speak_marked(session: Session, voice: VoiceId | None = None) -> bytes:
 def start_with(session: Session, override: Path) -> Compose:
     """Recreate the service with `override` over the proof's files, without waiting."""
     session.collect_log()
-    stack = replace(session.compose, files=(*session.compose.files, override))
+    stack = session.compose.with_files((*session.compose.files, override))
     stack.run("up", "--detach", "--no-build", "--no-deps", "--force-recreate", SERVICE)
     return stack
 

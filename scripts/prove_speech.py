@@ -672,7 +672,7 @@ def _prove() -> None:
     print("gpu_before", nvidia_memory())
     work_directory = Path(tempfile.mkdtemp(prefix="speech-"))
     port = free_local_port()
-    base_url = f"http://{LOOPBACK_HOST}:{port}"
+    base_url = f"http://{LOOPBACK_HOST}:{port}"  # NOSONAR(S5332) loopback
     settings = load_settings()
     voice = proof_voice(settings.voices or frozenset())
     try:

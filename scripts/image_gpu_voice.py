@@ -10,7 +10,6 @@ will, and the service then finds the voice not installed.
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 from typing import TYPE_CHECKING, Final
 
 from image_judgement import (
@@ -80,7 +79,7 @@ def cell_gpu_voice_offered(session: Session, wav: bytes) -> None:
     """Cell 23: offered but not carried, the service stays healthy without it."""
     stack = start_with(session, GPU_VOICE_OVERRIDE)
     stack.up(SERVICE)
-    offered = replace(session, compose=stack)
+    offered = session.with_compose(stack)
     voice = first_gpu_voice()
     health = health_of(offered)
     require_offer(health, [*PIPER_VOICES, voice])

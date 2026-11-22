@@ -127,3 +127,68 @@ def test_the_kills_for_memory_are_read_from_a_cgroups_events() -> None:
     events = f"low 0\nmax 9\noom 3\noom_kill {kills}\noom_group_kill 0\n"
 
     assert image_stack.oom_kills(events) == kills
+
+
+def test_a_session_over_another_stack_or_app_changes_only_that_part(
+    minting: Minting,
+) -> None:
+    config = load_caller_config(REPOSITORY / "deploy" / "speech.toml")
+    app = next(iter(config.apps))
+    session = image_stack.Session(
+        image_stack.Compose((), {}, "run"),
+        config,
+        baked_caller(config, app),
+        minting,
+        tokens=["token"],
+        heard=["heard"],
+        logs=["log"],
+    )
+    override = REPOSITORY / "compose.yaml"
+
+    stacked = session.with_compose(session.compose.with_files((override,)))
+    spoken_as = session.as_app(app)
+
+    assert stacked.compose.files == (override,)
+    assert stacked.compose.project == session.compose.project
+    assert (stacked.baked, stacked.signing, stacked.tokens) == (
+        session.baked,
+        session.signing,
+        session.tokens,
+    )
+    assert spoken_as.baked == baked_caller(config, app)
+    assert (spoken_as.compose, spoken_as.heard, spoken_as.logs) == (
+        session.compose,
+        session.heard,
+        session.logs,
+    )
+
+
+def test_a_service_started_with_an_override_keeps_the_log_and_the_proofs_files(
+    monkeypatch: pytest.MonkeyPatch, minting: Minting
+) -> None:
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, "the log", "")
+
+    monkeypatch.setattr(image_stack.subprocess, "run", run)
+    config = load_caller_config(REPOSITORY / "deploy" / "speech.toml")
+    app = next(iter(config.apps))
+    session = image_stack.Session(
+        image_stack.Compose((REPOSITORY / "compose.yaml",), {}, "run"),
+        config,
+        baked_caller(config, app),
+        minting,
+        tokens=[],
+        heard=[],
+        logs=[],
+    )
+    override = REPOSITORY / "override.yaml"
+
+    stack = image_stack.start_with(session, override)
+
+    assert stack.files == (*session.compose.files, override)
+    assert session.logs == ["the log"]
+    assert "--force-recreate" in commands[-1]
+    assert commands[-1][-1] == image_stack.SERVICE

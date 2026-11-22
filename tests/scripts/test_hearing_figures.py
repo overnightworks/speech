@@ -410,7 +410,7 @@ def test_a_long_turn_without_growing_deltas_or_timing_is_not_measured() -> None:
     timed = figures.timing_record(figures.Timing(1.0, 0.5, 4.0, 3.5))
     untimed = figures.timing_record(figures.Timing(None, None, 4.0, 3.5))
 
-    def model(growing: int, timing: dict[str, float | None]) -> dict[str, object]:
+    def model(growing: float, timing: dict[str, float | None]) -> dict[str, object]:
         live = {"growing_deltas": growing, "timing": timing}
         return {
             "status": figures.StageStatus.MEASURED,
@@ -420,12 +420,14 @@ def test_a_long_turn_without_growing_deltas_or_timing_is_not_measured() -> None:
     models = {
         "small": model(3, timed),
         "base": model(1, timed),
+        "even_runs": model(1.5, timed),
         "edge": model(figures.MIN_GROWING_DELTAS, timed),
         "tiny": model(0, untimed),
     }
 
     assert figures.not_measured(list(models), models, {}) == [
         "base languages de long_turn live growing_deltas",
+        "even_runs languages de long_turn live growing_deltas",
         "tiny languages de long_turn live growing_deltas",
         "tiny languages de long_turn live first_partial_from_start",
         "tiny languages de long_turn live first_partial_after_end",

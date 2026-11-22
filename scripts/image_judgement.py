@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 from packaging.markers import Marker
 
 from hearing_figures import voiced_seconds, words
+from proof_identity import Minting
 from prove_speech import spoken_in_log
 from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, PIPER_VOICES
 from speech_client.outcomes import RetryAfterError, busy_wait
@@ -34,7 +35,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
 
     from image_stack import LiveOutcome, Reply
-    from proof_identity import Minting
     from speech_client.utterances import HeardSound
     from speech_service.config import CallerConfig
 
@@ -123,8 +123,9 @@ def first_english_voice() -> VoiceId:
 def minting_for(config: CallerConfig, baked: BakedCaller, signing: Minting) -> Minting:
     """The proof's signing key, speaking as the baked table's caller and issuer."""
     identity = config.identity
-    return replace(
-        signing,
+    return Minting(
+        private_key_pem=signing.private_key_pem,
+        key_identifier=signing.key_identifier,
         issuer=identity.issuer,
         audience=identity.audience,
         client_id=config.apps[baked.app].workload_client,
@@ -132,6 +133,8 @@ def minting_for(config: CallerConfig, baked: BakedCaller, signing: Minting) -> M
         group_claim=identity.group_claim,
         app_group=f"/apps/{baked.app}",
         service_group=identity.service_group,
+        workload_subject=signing.workload_subject,
+        person_subject=signing.person_subject,
     )
 
 
