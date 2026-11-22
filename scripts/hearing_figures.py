@@ -416,7 +416,7 @@ def _null_figures(
 def _measures_nothing(key: str, value: object) -> bool:
     """Whether a `growing_deltas` count or a `heard` text proves nothing."""
     if key == "growing_deltas":
-        return isinstance(value, int) and value < MIN_GROWING_DELTAS
+        return isinstance(value, (int, float)) and value < MIN_GROWING_DELTAS
     return _heard_nothing(value)
 
 
