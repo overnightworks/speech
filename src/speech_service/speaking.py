@@ -7,6 +7,7 @@ import json
 import logging
 from functools import partial
 from http import HTTPStatus
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Protocol, assert_never, runtime_checkable
 
 from speech_provider_contract import (
@@ -36,7 +37,7 @@ from speech_service.provider_process import (
 from speech_service.voices import piper_voice_paths
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Iterator
+    from collections.abc import Callable, Generator, Iterator, Mapping
     from pathlib import Path
 
     from piper import AudioChunk, PiperVoice
@@ -165,10 +166,9 @@ _RESPONSE_SECONDS = 120.0
 _PCM_READ_BYTES = 64 * 1024
 _SAMPLE_RATE_HEADER = "x-audio-sample-rate"
 _SPEECH_PATH = "/v1/audio/speech"
-_WARM_UP_SENTENCES: dict[Language, str] = {
-    Language.DE: "Guten Tag.",
-    Language.EN: "Good day.",
-}
+_WARM_UP_SENTENCES: Mapping[Language, str] = MappingProxyType(
+    {Language.DE: "Guten Tag.", Language.EN: "Good day."}
+)
 """One short sentence per language a GPU voice speaks before it reports ready."""
 
 

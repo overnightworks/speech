@@ -161,9 +161,10 @@ the load's failure. Nothing is written per chunk.
 A failed load, missing files or a crashed Qwen server make that voice refuse 503
 `unavailable` and report not ready while the others keep serving; the next
 request loads it again. A GPU voice's load includes one short synthesis per
-language it offers, so a voice that has not warmed is not loaded. A server that cannot be reaped ends the process. A
-hearing load that fails for want of a resource leaves the process up with
-hearing not ready; a misconfiguration stops the start naming the setting.
+language it offers, so a voice that has not warmed is not loaded. A server that
+cannot be reaped ends the process. A hearing load that fails for want of a
+resource leaves the process up with hearing not ready; a misconfiguration stops
+the start naming the setting.
 
 ### Proof strategy
 

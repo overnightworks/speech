@@ -9,12 +9,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
+from speech_provider_contract import QwenSpeaker
 
 from speech_client.wire import VOICES, Health, Language, VoiceId
+from speech_service.provider_process import ProviderLaunch, ProviderProcess
+from speech_service.speaking import QwenSpeaking
 from tests.support.gpu_voice_support import StageSetup, gpu_voice_stage
 from tests.support.launcher_support import (
     SERVER_WAIT_SECONDS,
     assert_reaped,
+    closed_provider,
+    provider_launcher,
     received_requests,
     release_speech,
     wait_for_held_speech,
@@ -58,6 +63,36 @@ def test_a_voice_is_not_ready_until_it_spoke_one_request_per_language_in_order(
     assert ready_after is True
     warmed = [r["language"] for r in received_requests(stage.cache)][: len(languages)]
     assert warmed == [_LANGUAGE_NAMES[language] for language in languages]
+
+
+def test_a_voice_reports_not_ready_while_its_warm_up_request_is_held(
+    tmp_path: Path,
+) -> None:
+    """WIRE-126: ready holds only once the warm-up finished."""
+    root, cache = closed_provider(tmp_path, "hold-first-speech")
+    voice = QwenSpeaking(
+        ProviderProcess(
+            ProviderLaunch(
+                executable=provider_launcher(root), arguments=("--cache", str(cache))
+            )
+        ),
+        QwenSpeaker.RYAN,
+        (Language.DE,),
+    )
+    try:
+        with ThreadPoolExecutor() as pool:
+            loading = pool.submit(voice.load)
+            wait_for_held_speech(cache)
+            ready_while_held = voice.ready
+            release_speech(cache)
+            loading.result(timeout=SERVER_WAIT_SECONDS)
+        ready_after = voice.ready
+    finally:
+        release_speech(cache)
+        voice.close()
+
+    assert ready_while_held is False
+    assert ready_after is True
 
 
 def test_a_refused_warm_up_fails_the_load_reaps_the_server_and_logs_no_text(
