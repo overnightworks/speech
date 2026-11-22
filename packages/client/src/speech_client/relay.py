@@ -151,6 +151,28 @@ def _close_for(outcome: RelayOutcome) -> HopClose | None:  # noqa: PLR0911 - one
             assert_never(outcome)
 
 
+def _pass_on(
+    message: Mapping[str, object],
+    session: HearingSession,
+    frame_limit_bytes: int,
+    on_text: Callable[[str], None] | None,
+) -> RuleBroken | None:
+    """Pass the browser's frame on, or return the rule it breaks."""
+    frame = message.get("bytes")
+    text = message.get("text")
+    if isinstance(frame, bytes):
+        if len(frame) > frame_limit_bytes:
+            return RuleBroken(HopClose.FRAME_TOO_LARGE)
+        session.send(frame)
+    elif on_text is not None and isinstance(text, str):
+        if len(text.encode()) > frame_limit_bytes:
+            return RuleBroken(HopClose.FRAME_TOO_LARGE)
+        on_text(text)
+    else:
+        return RuleBroken(HopClose.TEXT_FRAME)
+    return None
+
+
 async def _forward(
     browser: BrowserSocket,
     session: HearingSession,
@@ -164,18 +186,9 @@ async def _forward(
             return BrowserLeft()
         if app_ended.is_set():
             return AppEnded()
-        frame = message.get("bytes")
-        text = message.get("text")
-        if isinstance(frame, bytes):
-            if len(frame) > frame_limit_bytes:
-                return RuleBroken(HopClose.FRAME_TOO_LARGE)
-            session.send(frame)
-        elif on_text is not None and isinstance(text, str):
-            if len(text.encode()) > frame_limit_bytes:
-                return RuleBroken(HopClose.FRAME_TOO_LARGE)
-            on_text(text)
-        else:
-            return RuleBroken(HopClose.TEXT_FRAME)
+        broken = _pass_on(message, session, frame_limit_bytes, on_text)
+        if broken is not None:
+            return broken
 
 
 async def _deliver(
