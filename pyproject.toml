@@ -73,6 +73,7 @@ testpaths = ["tests", "packages/client/tests"]
 [tool.coverage.run]
 branch = true
 relative_files = true
+patch = ["subprocess"]
 include = ["src/*", "packages/*/src/*", "providers/*/src/*"]
 
 [tool.ruff]
