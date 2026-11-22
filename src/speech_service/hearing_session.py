@@ -12,9 +12,9 @@ from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
+from speech_service.pcm import BYTES_PER_SAMPLE, HEARING_SAMPLE_RATE
 from speech_service.voice_activity import (
     PRE_ROLL_SECONDS,
-    SAMPLE_RATE,
     START_THRESHOLD,
     START_WINDOWS,
     WINDOW_SAMPLES,
@@ -31,11 +31,10 @@ PARTIAL_PERIOD_SECONDS: Final = 0.4
 MIN_AUDIO_SECONDS: Final = 0.4
 POLL_WAIT_SECONDS: Final = 0.3
 MAX_TURN_SECONDS: Final = 30.0
-_BYTES_PER_SAMPLE: Final = 2
-_SAMPLES_PER_MILLISECOND: Final = SAMPLE_RATE // 1000
-_MAX_TURN_SAMPLES: Final = int(MAX_TURN_SECONDS * SAMPLE_RATE)
-_MIN_PARTIAL_SAMPLES: Final = int(MIN_AUDIO_SECONDS * SAMPLE_RATE)
-_PRE_ROLL_SAMPLES: Final = int(PRE_ROLL_SECONDS * SAMPLE_RATE)
+_SAMPLES_PER_MILLISECOND: Final = HEARING_SAMPLE_RATE // 1000
+_MAX_TURN_SAMPLES: Final = int(MAX_TURN_SECONDS * HEARING_SAMPLE_RATE)
+_MIN_PARTIAL_SAMPLES: Final = int(MIN_AUDIO_SECONDS * HEARING_SAMPLE_RATE)
+_PRE_ROLL_SAMPLES: Final = int(PRE_ROLL_SECONDS * HEARING_SAMPLE_RATE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +91,7 @@ class HearingSession:
         self._clock = clock
         self._detector = detector
         self._silent_windows_to_end = math.ceil(
-            silence_seconds * SAMPLE_RATE / WINDOW_SAMPLES
+            silence_seconds * HEARING_SAMPLE_RATE / WINDOW_SAMPLES
         )
         self._pcm = bytearray()
         self._held_from = 0
@@ -149,7 +148,7 @@ class HearingSession:
 
     def partial_due(self) -> OpenTurn | None:
         """The open turn's audio when a partial is due, else `None`."""
-        samples = len(self._pcm) // _BYTES_PER_SAMPLE
+        samples = len(self._pcm) // BYTES_PER_SAMPLE
         if not self._speaking or samples < _MIN_PARTIAL_SAMPLES:
             return None
         if samples == self._last_partial_samples:
@@ -162,11 +161,11 @@ class HearingSession:
     def partial_started(self) -> None:
         """Note that the caller decoded the audio `partial_due` gave."""
         self._last_partial_at = self._clock()
-        self._last_partial_samples = len(self._pcm) // _BYTES_PER_SAMPLE
+        self._last_partial_samples = len(self._pcm) // BYTES_PER_SAMPLE
 
     @property
     def _held_end(self) -> int:
-        return self._held_from + len(self._pcm) // _BYTES_PER_SAMPLE
+        return self._held_from + len(self._pcm) // BYTES_PER_SAMPLE
 
     def _take_window(self, probability: float) -> list[SpeechStart | TurnEnd]:
         start = self._windows * WINDOW_SAMPLES
@@ -226,7 +225,7 @@ class HearingSession:
     def _drop_before(self, sample: int) -> None:
         dropped = min(sample, self._held_end) - self._held_from
         if dropped > 0:
-            del self._pcm[: dropped * _BYTES_PER_SAMPLE]
+            del self._pcm[: dropped * BYTES_PER_SAMPLE]
             self._held_from += dropped
         while self._waiting_voiced and self._waiting_voiced[0] < self._held_from:
             self._waiting_voiced.popleft()
@@ -240,7 +239,7 @@ class HearingSession:
         silence_ms: int = 0,
     ) -> list[TurnEnd]:
         start = self._held_from
-        size = (end - start) * _BYTES_PER_SAMPLE
+        size = (end - start) * BYTES_PER_SAMPLE
         pcm = bytes(self._pcm[:size])
         voiced_seconds = (
             self._voiced_windows + len(self._waiting_voiced)

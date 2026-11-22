@@ -15,6 +15,7 @@ import numpy as np
 from speech_service.admission_gate import AdmissionGate, Lease
 from speech_service.cuda_libs import cuda_library_dirs, prepare_cuda_libraries
 from speech_service.hearing_models import model_directory, voiced_floor
+from speech_service.pcm import INT16_SCALE
 from speech_service.sound_events import (
     DIRECTORY_SETTING,
     SWITCH,
@@ -22,7 +23,6 @@ from speech_service.sound_events import (
     check_model_directory,
 )
 from speech_service.voice_activity import (
-    SAMPLE_RATE,
     SileroDetectors,
     open_shipped_model,
 )
@@ -42,7 +42,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-HEARING_SAMPLE_RATE: Final = SAMPLE_RATE
 CPU_THREADS: Final = 4
 DRAIN_TURN_SECONDS: Final = 30.0
 _SETTING: Final = "SPEECH_HEARING_MODEL"
@@ -335,7 +334,7 @@ class WhisperHearing:
         if model is None:
             message = "hearing model is not loaded"
             raise RuntimeError(message)
-        audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+        audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / INT16_SCALE
         features = model.feature_extractor(audio)
         encoder_output = None
         language = languages[0]

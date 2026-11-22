@@ -51,7 +51,7 @@ from speech_service.hearing_session import (
     SpeechStart,
     TurnEnd,
 )
-from speech_service.pcm import BYTES_PER_SAMPLE, Resampler
+from speech_service.pcm import BYTES_PER_SAMPLE, HEARING_SAMPLE_RATE, Resampler
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine, Sequence
@@ -67,7 +67,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["POLL_WAIT_SECONDS", "LiveSession", "poll_forever"]
 
-_PCM_BYTES_PER_SECOND: Final = 16_000 * BYTES_PER_SAMPLE
+_PCM_BYTES_PER_SECOND: Final = HEARING_SAMPLE_RATE * BYTES_PER_SAMPLE
 _MAX_ENDED_TURNS: Final = 2
 
 
