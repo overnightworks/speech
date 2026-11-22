@@ -1,0 +1,7 @@
+claim_id = "fd51e0344ff247dcb6aafbdbe5e48b90"
+agent = "Claude 6721bb1e-84a1-4fcb-9239-504c71d70ec0"
+role = "builder"
+base = "f9bea1944f663081c5a67da3dd6b0723265c4ff4"
+branch = "claude/issue-574-two-processes-serve"
+scope = ["tests/test_service_drain.py"]
+opened_commit = "b8aca478b2a33c4fe19c88fcf78f5604c2f1ad8c"
