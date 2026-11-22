@@ -112,7 +112,7 @@ from speech_client.wire import (
 from speech_service.catalogue import PiperEntry
 from speech_service.config import Settings, load_caller_config
 from speech_service.hearing_models import HearingModel
-from speech_service.pcm import pcm_from_wav
+from wav_audio import pcm_from_wav
 
 THIS_SCRIPT: Final = Path(__file__).resolve()
 COMPOSE_FILE: Final = REPOSITORY / "compose.yaml"

@@ -85,8 +85,8 @@ from speech_service.hearing_models import (
     HearingModelMissingError,
     model_directory,
 )
-from speech_service.pcm import pcm_from_wav
 from speech_service.piper_voices import fetch_voice_files
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import (

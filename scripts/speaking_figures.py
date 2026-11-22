@@ -19,7 +19,8 @@ from typing import TYPE_CHECKING, Final
 import hearing_figures as figures
 from shipped_catalogue import first_language
 from speech_client.wire import Language
-from speech_service.pcm import BYTES_PER_SAMPLE, pcm_from_wav, rms
+from speech_service.pcm import BYTES_PER_SAMPLE
+from wav_audio import SILENCE_RMS, pcm_from_wav, rms
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -29,7 +30,6 @@ if TYPE_CHECKING:
 type Speak = Callable[[str, VoiceId], tuple[bytes, float, float]]
 
 MEASURE_REPETITIONS: Final = 5
-SILENCE_RMS: Final = 0.01
 MIN_SPEECH_SECONDS: Final = 0.4
 MIN_SENTENCE_SECONDS: Final = 1.0
 COMPLETE_FRACTION: Final = 0.8

@@ -23,7 +23,6 @@ from shipped_catalogue import CATALOGUE
 from speech_client.wire import RETRY_AFTER_HEADER, RefusalCode, VoiceId
 from speech_service.admission_gate import AdmissionGate, Lease
 from speech_service.clock import LoopClock
-from speech_service.pcm import pcm_from_wav
 from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.clock_support import FakeClock
 from tests.support.fakes_support import (
@@ -46,6 +45,7 @@ from tests.support.speak_support import (
     status_of,
     synthesis_gate,
 )
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import Callable

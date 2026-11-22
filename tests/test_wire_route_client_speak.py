@@ -46,7 +46,6 @@ from speech_client.wire import (
     speech_request_body,
 )
 from speech_service.config import Settings
-from speech_service.pcm import WAV_HEADER_BYTES
 from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import (
     GATE_TIMEOUT_SECONDS,
@@ -57,6 +56,7 @@ from tests.support.fakes_support import (
 from tests.support.identity_support import valid_headers, valid_pair
 from tests.support.speak_support import FailingSpeaking
 from tests.support.tcp_server_support import TcpServer, serving_over_tcp
+from wav_audio import WAV_HEADER_BYTES
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator

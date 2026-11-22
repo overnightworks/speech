@@ -34,12 +34,7 @@ from speech_client.wire import (
     ResponseFormat,
     VoiceId,
 )
-from speech_service.pcm import (
-    AI_MARK,
-    BYTES_PER_SAMPLE,
-    WAV_HEADER_BYTES,
-    pcm_from_wav,
-)
+from speech_service.pcm import AI_MARK, BYTES_PER_SAMPLE
 from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import (
     GATE_TIMEOUT_SECONDS,
@@ -58,6 +53,7 @@ from tests.support.speak_support import (
     synthesis_gate,
 )
 from tests.support.tcp_server_support import TcpServer, serving_over_tcp
+from wav_audio import WAV_HEADER_BYTES, pcm_from_wav
 
 if TYPE_CHECKING:
     import threading

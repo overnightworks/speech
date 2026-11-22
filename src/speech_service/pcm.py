@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import struct
 from typing import Final
 
@@ -17,7 +16,6 @@ CHANNELS: Final = PcmFormat.channels
 AV_SAMPLE_FORMAT: Final = "s16"
 AV_LAYOUT: Final = "mono"
 PCM_FORMAT: Final = 1
-WAV_HEADER_BYTES: Final = 44
 # Streaming WAV: the length is not known when the first byte leaves.
 STREAMING_DATA_SIZE: Final = 0xFFFFFFFF
 INT16_SCALE: Final = 32768.0
@@ -66,41 +64,6 @@ def _ai_mark_chunk() -> bytes:
     return (
         struct.pack("<4sI4s", b"LIST", 4 + len(comment_chunk), b"INFO") + comment_chunk
     )
-
-
-def pcm_from_wav(data: bytes) -> tuple[int, bytes]:
-    """Sample rate and PCM payload of a 16-bit mono WAV, ignoring a streaming size."""
-    if len(data) < WAV_HEADER_BYTES or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
-        message = "not a WAV body"
-        raise ValueError(message)
-    rate = int.from_bytes(data[24:28], "little")
-    position = 12
-    while position + 8 <= len(data):
-        chunk_id = data[position : position + 4]
-        chunk_size = int.from_bytes(data[position + 4 : position + 8], "little")
-        payload_at = position + 8
-        if chunk_id == b"data":
-            return rate, data[payload_at:]
-        if chunk_size == STREAMING_DATA_SIZE:
-            message = "WAV chunk before data has no length"
-            raise ValueError(message)
-        position = payload_at + chunk_size
-    message = "WAV has no data chunk"
-    raise ValueError(message)
-
-
-def _scaled_samples(pcm: bytes) -> np.ndarray:
-    """The whole samples of `pcm` as float64 in -1..1; an odd last byte is dropped."""
-    count = len(pcm) // BYTES_PER_SAMPLE
-    return np.frombuffer(pcm, dtype="<i2", count=count).astype(np.float64) / INT16_SCALE
-
-
-def rms(pcm: bytes) -> float:
-    """Root-mean-square of 16-bit samples, scaled to 0..1."""
-    samples = _scaled_samples(pcm)
-    if not samples.size:
-        return 0.0
-    return math.sqrt(float(np.mean(samples**2)))
 
 
 LIVE_INPUT_RATE: Final = SessionInput().format.rate

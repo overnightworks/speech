@@ -18,10 +18,10 @@ from speech_client.hearing import Refused
 from speech_client.outcomes import Unreachable
 from speech_client.wire import Health, RefusalCode, refusal
 from speech_service.hearing_models import HearingModel
-from speech_service.pcm import pcm_from_wav
 from tests.support.clock_support import FakeClock
 from tests.support.nvidia_support import FakeNvidiaSmi
 from tests.support.script_support import script_module
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     import argparse
