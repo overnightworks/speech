@@ -18,6 +18,7 @@ from shipped_catalogue import ON_DEMAND_VOICES, PIPER_VOICES, first_language
 from speech_client.outcomes import Unreachable
 from speech_client.wire import Health
 from speech_service.config import Settings
+from speech_service.onnxruntime_telemetry import ONNXRUNTIME_TELEMETRY_SWITCH
 from tests.support.clock_support import FakeClock
 from tests.support.script_support import script_module
 
@@ -220,6 +221,28 @@ def test_term_during_the_proof_under_probe_run_runs_its_teardown() -> None:
         PROVE.prove_under_probe_run(proof_body)
 
     assert torn_down == [True]
+
+
+@pytest.mark.usefixtures("restored_terminate_handler")
+@pytest.mark.parametrize(
+    ("before", "expected"),
+    [(None, "1"), ("0", "0")],
+    ids=["unset_is_switched_off", "operator_value_stays"],
+)
+def test_the_proof_body_runs_with_onnxruntime_telemetry_off_unless_named(
+    monkeypatch: pytest.MonkeyPatch, before: str | None, expected: str
+) -> None:
+    if before is None:
+        monkeypatch.delenv(ONNXRUNTIME_TELEMETRY_SWITCH, raising=False)
+    else:
+        monkeypatch.setenv(ONNXRUNTIME_TELEMETRY_SWITCH, before)
+    seen: list[str | None] = []
+
+    PROVE.prove_under_probe_run(
+        lambda: seen.append(os.environ.get(ONNXRUNTIME_TELEMETRY_SWITCH))
+    )
+
+    assert seen == [expected]
 
 
 def test_an_entry_outside_probe_run_exits_with_the_status_of_its_reexec(

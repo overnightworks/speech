@@ -58,6 +58,7 @@ from speech_client.wire import (
     speech_request_headers,
 )
 from speech_service.config import load_settings
+from speech_service.onnxruntime_telemetry import disable_onnxruntime_telemetry
 from wav_audio import SILENCE_RMS, pcm_from_wav
 
 if TYPE_CHECKING:
@@ -149,6 +150,7 @@ def run_under_probe_run(
 def prove_under_probe_run(prove: Callable[[], None]) -> None:
     """Turn TERM into an exit and run the proof body `probe-run` started."""
     exit_on_terminate()
+    disable_onnxruntime_telemetry()
     prove()
 
 

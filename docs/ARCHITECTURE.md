@@ -128,7 +128,8 @@ revisions, and the service has no route to a registry or hub.
   as itself is refused. Issuer, group and apps are configuration
   (`SPEECH_CONFIG_FILE`); a refusal never names the failed token or claim.
 - The process sets `ORT_DISABLE_TELEMETRY=1` unless the environment names a value,
-  so onnxruntime's built-in telemetry opens no connection.
+  so onnxruntime's built-in telemetry opens no connection. The proof scripts and the
+  test suite set it too.
 - No token, subject or key-set address reaches a log, an error or a repr, and
   no spoken or heard text reaches a log.
 - Qwen's server is reachable only through a Unix socket in a private 0700
