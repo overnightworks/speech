@@ -244,3 +244,27 @@ def test_two_runs_never_share_a_project_name() -> None:
     second = PROVE.new_project()
 
     assert first != second
+
+
+def test_the_wait_for_speaking_alone_retries_a_health_that_is_not_up_yet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Session:
+        def __init__(self) -> None:
+            self.answers = [
+                SystemExit("down"),
+                {"speaking": {"ready": True}, "hearing": {"ready": False}},
+            ]
+
+        def health(self) -> dict[str, dict[str, bool]]:
+            answer = self.answers.pop(0)
+            if isinstance(answer, SystemExit):
+                raise answer
+            return answer
+
+    monkeypatch.setattr(PROVE.time, "sleep", lambda _: None)
+    session = Session()
+
+    PROVE.wait_until_speaking_alone(session)
+
+    assert session.answers == []

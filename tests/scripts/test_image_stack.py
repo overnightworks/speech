@@ -161,3 +161,34 @@ def test_a_session_over_another_stack_or_app_changes_only_that_part(
         session.heard,
         session.logs,
     )
+
+
+def test_a_service_started_with_an_override_keeps_the_log_and_the_proofs_files(
+    monkeypatch: pytest.MonkeyPatch, minting: Minting
+) -> None:
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, "the log", "")
+
+    monkeypatch.setattr(image_stack.subprocess, "run", run)
+    config = load_caller_config(REPOSITORY / "deploy" / "speech.toml")
+    app = next(iter(config.apps))
+    session = image_stack.Session(
+        image_stack.Compose((REPOSITORY / "compose.yaml",), {}, "run"),
+        config,
+        baked_caller(config, app),
+        minting,
+        tokens=[],
+        heard=[],
+        logs=[],
+    )
+    override = REPOSITORY / "override.yaml"
+
+    stack = image_stack.start_with(session, override)
+
+    assert stack.files == (*session.compose.files, override)
+    assert session.logs == ["the log"]
+    assert "--force-recreate" in commands[-1]
+    assert commands[-1][-1] == image_stack.SERVICE
