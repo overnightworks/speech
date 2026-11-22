@@ -240,7 +240,7 @@ def hearing_service(
     """Run the service on `device` with the model, speaking `voice`, on its own."""
     directory = Path(tempfile.mkdtemp(prefix="speech-"))
     port = free_local_port()
-    base_url = f"http://{LOOPBACK_HOST}:{port}"
+    base_url = f"http://{LOOPBACK_HOST}:{port}"  # NOSONAR(S5332) loopback
     try:
         with proof_identity(directory) as identity:
             minting = load_minting(identity.minting_path)

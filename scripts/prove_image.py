@@ -126,7 +126,10 @@ MISSING_MODEL_OVERRIDE: Final = FIXTURES / "compose.missing-model.yaml"
 # hal builds with a cap of 1800 s; a build past half of it is a finding.
 BUILD_LIMIT_SECONDS: Final = 900
 PROJECT_ENV: Final = "SPEECH_PROOF_PROJECT"
-PUBLIC_ADDRESSES: Final = ("1.1.1.1:443", "huggingface.co:443")
+PUBLIC_ADDRESSES: Final = (
+    "1.1.1.1:443",  # NOSONAR(S1313) dialled to show egress is refused
+    "huggingface.co:443",
+)
 FORBIDDEN_EXECUTABLES: Final = ("git", "uv", "gcc", "cc")
 # What caller.py reports for a connection nothing listens on.
 REFUSED_CONNECTION: Final = "ConnectionRefusedError"
@@ -546,7 +549,7 @@ def wait_until_speaking_alone(session: Session) -> None:
         try:
             if is_speaking_alone(session.health()):
                 return
-        except SystemExit:
+        except SystemExit:  # NOSONAR(S5754) retried until up
             pass
         time.sleep(1)
     message = "the service never showed speaking ready with hearing not ready"
@@ -600,7 +603,7 @@ def cell_hearing_negatives(session: Session, wav: bytes) -> None:
 
 def require_hearing_model_negatives(session: Session) -> None:
     """A compose file without the model and an image without it each fail."""
-    plain = replace(session.compose, files=session.compose.files[:1])
+    plain = session.compose.with_files(session.compose.files[:1])
     model = service_config(plain)["environment"][HEARING_MODEL_SETTING]
     without = start_with(session, NO_MODEL_OVERRIDE)
     wait_until_speaking_alone(session)
@@ -634,12 +637,10 @@ def cell_negatives(session: Session, wav: bytes) -> None:
         naming="AI mark",
     )
     session.collect_log()
-    loopback = replace(
-        session.compose, files=(*session.compose.files, LOOPBACK_OVERRIDE)
-    )
+    loopback = session.compose.with_files((*session.compose.files, LOOPBACK_OVERRIDE))
     loopback.up(SERVICE, recreate=True)
     require_fails(
-        lambda: speak_marked(replace(session, compose=loopback)),
+        lambda: speak_marked(session.with_compose(loopback)),
         "a loopback-only bind",
         naming=REFUSED_CONNECTION,
     )
