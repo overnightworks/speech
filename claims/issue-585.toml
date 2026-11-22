@@ -1,8 +1,0 @@
-claim_id = "6a0dddc05a37454684157834c90c9908"
-agent = "Claude 3b76e1eb-fd84-4487-96b9-4ea20864a4cf"
-role = "builder"
-base = "e7c1d296889b521a0f61d011f2153a69aa7b8f85"
-branch = "claude/issue-585-main-sonar-green"
-scope = ["scripts/hearing_figures.py", "scripts/image_gpu_voice.py", "scripts/image_judgement.py", "scripts/image_stack.py", "scripts/proof_identity.py", "scripts/prove_hearing.py", "scripts/prove_image.py", "scripts/prove_speech.py", "tests/scripts/test_hearing_figures.py", "tests/scripts/test_image_stack.py", "tests/scripts/test_prove_image.py"]
-opened_commit = "6c9703f6871b2e839ace897a23c117823c1bfa63"
-whole_reason = "One scanner run's findings across the proof scripts it newly measures; each fix is a few lines and they share one proof, main's next push run."
