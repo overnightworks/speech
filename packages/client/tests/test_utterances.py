@@ -141,6 +141,22 @@ def test_the_session_asks_for_sounds_only_when_the_app_passes_on_sound(
         assert first == session_update((Language.DE,))
 
 
+def test_the_texts_of_the_browser_reach_on_text_in_order() -> None:
+    texts: list[str] = []
+    second = {"type": "websocket.receive", "bytes": None, "text": "second"}
+
+    outcome = asyncio.run(
+        hear(
+            hearing(stays_open=True),
+            Browser((text_message(), second, DISCONNECT)),
+            on_text=texts.append,
+        )
+    )
+
+    assert outcome == BrowserLeft()
+    assert texts == ["hello", "second"]
+
+
 def test_a_sound_reaches_on_sound_in_event_order_with_its_positions() -> None:
     recorder = Recorder()
 

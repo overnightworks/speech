@@ -88,6 +88,8 @@ class AppSide:
 
     tokens: tuple[str, str]
     frames: list[bytes | str] = field(default_factory=list)
+    # The texts the messaging hop's `on_text` took from the page, in order.
+    texts: list[str] = field(default_factory=list)
     events: list[ServerEvent] = field(default_factory=list)
     app_ended: asyncio.Event = field(default_factory=asyncio.Event)
     completed: asyncio.Event = field(default_factory=asyncio.Event)
@@ -139,7 +141,8 @@ class RecordingSocket:
         """The next message, its frame recorded."""
         message = await self._socket.receive()
         if message["type"] == "websocket.receive":
-            self._frames.append(message.get("bytes") or message.get("text") or b"")
+            frame = message.get("bytes")
+            self._frames.append(frame if frame is not None else message["text"])
         return message
 
     async def close(self, code: int) -> None:
@@ -317,6 +320,7 @@ def _install_messaging(
                 session_of(),
                 app_ended=side.app_ended,
                 on_event=forward_transcript,
+                on_text=side.texts.append,
                 frame_limit_bytes=HOP_FRAME_BYTES,
             )
         finally:

@@ -249,6 +249,7 @@ async def hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
     bounds: Bounds = Bounds(),
     token_source: TokenSource = fixed_tokens,
     traceparent: str | None = None,
+    on_text: Callable[[str], None] | None = None,
 ) -> UtteranceOutcome:
     recorder = recorder or Recorder()
     async with peer() as port:
@@ -269,6 +270,7 @@ async def hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
                     on_turn_ended=recorder.on_turn_ended,
                     on_sound=recorder.on_sound if sounds else None,
                     on_reconnected=recorder.on_reconnected,
+                    on_text=on_text,
                 ),
             ),
             WAIT_SECONDS,

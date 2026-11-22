@@ -75,7 +75,9 @@ first position. The new session's items start afresh.
 app's server and hands the app the typed events, never the browser; it ends the hop
 when the browser leaves, breaks a frame rule or the app ends it, and closes the
 browser with a code of its own (`NoToken` closes it in order, `ReconnectFailed` as a
-service failure). `speech_client.utterances` builds the session on top
+service failure). A text frame of the page's own reaches the app's `on_text` unread,
+bounded like every frame; without `on_text` it breaks the frame rule as `TEXT_FRAME`.
+`speech_client.utterances` builds the session on top
 of the relay and hands the app finished utterances (text, language, audio
 positions, the item's id and the turn's `traceparent`, WIRE-150), optionally the text so far, a `Reconnected` (it forgets the old session's
 unfinished items), or the code of a failed item or of an `error` event
