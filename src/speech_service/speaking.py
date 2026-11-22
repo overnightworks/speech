@@ -24,6 +24,7 @@ from speech_service.espeak_marks import (
     WordMarker,
     load_espeak_events,
 )
+from speech_service.pcm import BYTES_PER_SAMPLE
 from speech_service.provider_process import (
     ProviderId,
     ProviderLaunch,
@@ -162,7 +163,6 @@ def _spoken(chunk: AudioChunk) -> Sentence:
 _RESPONSE_SECONDS = 120.0
 """How long the server may stay silent in the middle of a response."""
 _PCM_READ_BYTES = 64 * 1024
-_SAMPLE_BYTES = 2
 _SAMPLE_RATE_HEADER = "x-audio-sample-rate"
 _SPEECH_PATH = "/v1/audio/speech"
 
@@ -244,7 +244,7 @@ class QwenSpeaking:
         carried = b""
         while arrived := response.read1(_PCM_READ_BYTES):
             available = carried + arrived
-            whole = len(available) - len(available) % _SAMPLE_BYTES
+            whole = len(available) - len(available) % BYTES_PER_SAMPLE
             carried = available[whole:]
             if whole:
                 yield available[:whole]

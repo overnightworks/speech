@@ -26,10 +26,14 @@ from speech_service.hearing_session import (
     HearingSession,
     TurnEnd,
 )
-from speech_service.pcm import BYTES_PER_SAMPLE, LIVE_INPUT_RATE, Resampler
+from speech_service.pcm import (
+    BYTES_PER_SAMPLE,
+    HEARING_SAMPLE_RATE,
+    LIVE_INPUT_RATE,
+    Resampler,
+)
 from speech_service.voice_activity import (
     PRE_ROLL_SECONDS,
-    SAMPLE_RATE,
     WINDOW_SAMPLES,
     SileroDetectors,
     is_voiced,
@@ -280,7 +284,9 @@ def speech_only(pcm: bytes) -> bytes:
     if not voiced:
         message = "the clip holds no speech"
         raise ClipError(message)
-    window_bytes = WINDOW_SAMPLES * LIVE_INPUT_RATE // SAMPLE_RATE * BYTES_PER_SAMPLE
+    window_bytes = (
+        WINDOW_SAMPLES * LIVE_INPUT_RATE // HEARING_SAMPLE_RATE * BYTES_PER_SAMPLE
+    )
     pre_roll = int(PRE_ROLL_SECONDS * LIVE_INPUT_RATE) * BYTES_PER_SAMPLE
     return pcm[
         max(voiced[0] * window_bytes - pre_roll, 0) : (voiced[-1] + 1) * window_bytes

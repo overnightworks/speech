@@ -8,6 +8,7 @@ import types
 
 import pytest
 
+from speech_service import pcm, sound_events
 from tests.support.script_support import script_module
 
 
@@ -51,3 +52,13 @@ def test_build_script_sets_telemetry_off_before_importing_onnxruntime(
     monkeypatch.setattr(sys, "meta_path", [finder, *sys.meta_path])
     script_module("build_sound_model")
     assert finder.seen == expected
+
+
+def test_build_script_windows_match_the_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(sys.modules, "onnxruntime", types.ModuleType("onnxruntime"))
+    script = script_module("build_sound_model")
+    assert script.SAMPLE_RATE == pcm.HEARING_SAMPLE_RATE
+    assert script.WINDOW_SAMPLES == sound_events.WINDOW_SAMPLES
+    assert script.HOP_SAMPLES == sound_events.HOP_SAMPLES

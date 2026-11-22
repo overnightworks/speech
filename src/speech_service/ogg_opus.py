@@ -8,7 +8,7 @@ import av
 import numpy as np
 
 from speech_client.wire import SentenceMarks
-from speech_service.pcm import AI_MARK
+from speech_service.pcm import AI_MARK, AV_LAYOUT, AV_SAMPLE_FORMAT
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -24,8 +24,6 @@ _PAGE_DURATION_MICROSECONDS: Final = "100000"
 # pages of audio are unsent; at 40 ms that stays under the 100 ms a sentence's
 # marks may lead its audio.
 _MARKED_PAGE_DURATION_MICROSECONDS: Final = "40000"
-_PCM_FORMAT: Final = "s16"
-_MONO: Final = "mono"
 
 
 class _Sink:
@@ -69,9 +67,11 @@ def ogg_opus_chunks(
     )
     complete = False
     try:
-        stream = container.add_stream("libopus", rate=_OPUS_RATE, layout=_MONO)
+        stream = container.add_stream("libopus", rate=_OPUS_RATE, layout=AV_LAYOUT)
         stream.metadata["comment"] = AI_MARK
-        resampler = av.AudioResampler(format=_PCM_FORMAT, layout=_MONO, rate=_OPUS_RATE)
+        resampler = av.AudioResampler(
+            format=AV_SAMPLE_FORMAT, layout=AV_LAYOUT, rate=_OPUS_RATE
+        )
         for pcm in pcm_chunks:
             if isinstance(pcm, SentenceMarks):
                 yield pcm
@@ -91,7 +91,9 @@ def ogg_opus_chunks(
 
 def _frame(pcm: bytes, sample_rate: int) -> AudioFrame:
     samples = np.frombuffer(pcm, dtype="<i2").reshape(1, -1)
-    frame = av.AudioFrame.from_ndarray(samples, format=_PCM_FORMAT, layout=_MONO)
+    frame = av.AudioFrame.from_ndarray(
+        samples, format=AV_SAMPLE_FORMAT, layout=AV_LAYOUT
+    )
     frame.sample_rate = sample_rate
     return frame
 
