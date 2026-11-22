@@ -44,12 +44,14 @@ from speech_client.wire import (
     VoiceId,
     speech_request_headers,
 )
+from speech_service.pcm import pcm_from_wav
 from tests.support.balancer_support import balancing, is_ready
 from tests.support.drain_server_support import (
     HEARING_ENTERED_SUFFIX,
     HEARING_HOLD_FILE_VARIABLE,
     RELEASE_FILE_VARIABLE,
 )
+from tests.support.fakes_support import SPEAK_SAMPLE_RATE, sine_pcm
 from tests.support.hear_support import HEARD_TEXT, MULTIPART, multipart_body, recording
 from tests.support.live_support import (
     COMPLETED,
@@ -286,7 +288,7 @@ def test_each_of_two_service_processes_serves_speaking_and_hearing(
     status, answer = _transcribe(pair, port)
 
     assert response.status == http.HTTPStatus.OK
-    assert speech.startswith(b"RIFF")
+    assert pcm_from_wav(speech) == (SPEAK_SAMPLE_RATE, sine_pcm(0.3, SPEAK_SAMPLE_RATE))
     assert status == http.HTTPStatus.OK
     assert answer["text"] == HEARD_TEXT
 
