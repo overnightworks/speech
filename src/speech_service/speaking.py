@@ -181,7 +181,7 @@ class QwenSpeaking:
         speaker: QwenSpeaker,
         languages: tuple[Language, ...],
     ) -> None:
-        """Remember the server's owner, the voice every request names and its languages."""
+        """Remember the server's owner, the voice every request names, its languages."""
         self.model_name = QWEN_MODEL_ID
         self.sample_rate = QWEN_SAMPLE_RATE
         self._process = process
