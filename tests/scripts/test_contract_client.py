@@ -25,13 +25,14 @@ from speech_client.wire import (
     VoiceId,
 )
 from speech_service.config import Settings
-from speech_service.pcm import pcm_from_wav, wav_header
+from speech_service.pcm import wav_header
 from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE, FakeSpeaking
 from tests.support.identity_support import callers_trusting
 from tests.support.script_support import script_module
 from tests.support.speak_support import FailingSpeaking
 from tests.support.tcp_server_support import serving_over_tcp
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator

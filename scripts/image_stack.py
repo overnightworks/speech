@@ -40,7 +40,8 @@ from speech_client.wire import (
     speech_request_headers,
 )
 from speech_service.config import Settings
-from speech_service.pcm import LIVE_INPUT_RATE, pcm_from_wav, wav_header
+from speech_service.pcm import LIVE_INPUT_RATE, wav_header
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

@@ -58,7 +58,7 @@ from speech_client.wire import (
     speech_request_headers,
 )
 from speech_service.config import load_settings
-from speech_service.pcm import pcm_from_wav
+from wav_audio import SILENCE_RMS, pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
@@ -491,7 +491,7 @@ def _prove_concurrent_speak(base_url: str, voice: VoiceId, minting: Minting) -> 
             f"rms={spoken.level:.4f}",
             f"rate={spoken.rate}",
         )
-        if spoken.level < figures.SILENCE_RMS:
+        if spoken.level < SILENCE_RMS:
             message = f"concurrent {key} produced silence"
             raise SystemExit(message)
         if spoken.audio_seconds < figures.MIN_SPEECH_SECONDS:

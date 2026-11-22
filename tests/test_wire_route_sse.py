@@ -18,7 +18,6 @@ from speech_client.wire import (
     StreamFormat,
 )
 from speech_service.failures import SpeakingFailedError
-from speech_service.pcm import pcm_from_wav
 from speech_service.service import audio_chunks
 from tests.support.fakes_support import (
     MARKED_SENTENCES,
@@ -37,6 +36,7 @@ from tests.support.speak_support import (
     sse_body,
     sse_events,
 )
+from wav_audio import pcm_from_wav
 
 AUDIO_TYPE = "speech.audio.delta"
 MARKS_TYPE = "speech.audio.marks"

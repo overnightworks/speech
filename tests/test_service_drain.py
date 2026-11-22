@@ -44,7 +44,6 @@ from speech_client.wire import (
     VoiceId,
     speech_request_headers,
 )
-from speech_service.pcm import pcm_from_wav
 from tests.support.balancer_support import balancing, is_ready
 from tests.support.drain_server_support import (
     HEARING_ENTERED_SUFFIX,
@@ -63,6 +62,7 @@ from tests.support.live_support import (
 )
 from tests.support.speak_support import speak_body
 from tests.support.tcp_server_support import free_loopback_port, wait_until_listening
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Iterator

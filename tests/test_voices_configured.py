@@ -14,7 +14,6 @@ from shipped_catalogue import PIPER_VOICES
 from speech_client.wire import VOICES, Health, Language, VoiceId
 from speech_service.config import Settings
 from speech_service.control import create_control_app
-from speech_service.pcm import pcm_from_wav
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.gpu_voice_support import (
     PIPER_PCM,
@@ -39,6 +38,7 @@ from tests.support.speak_support import (
     speak_body,
     wav_body,
 )
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from pathlib import Path
