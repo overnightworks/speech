@@ -19,6 +19,7 @@ from urllib.parse import urlencode
 
 from shipped_catalogue import CATALOGUE
 from speech_client.wire import VoiceId
+from speech_service.pcm import BYTES_PER_SAMPLE
 from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.browser_support import (
     CUT_LATE_PATH,
@@ -35,7 +36,12 @@ from tests.support.browser_support import (
     write_marker_sound,
     write_sound,
 )
-from tests.support.fakes_support import PCM_FULL_SCALE, TONE_AMPLITUDE, FakeSpeaking
+from tests.support.fakes_support import (
+    PCM_FULL_SCALE,
+    SPEAK_SAMPLE_RATE,
+    TONE_AMPLITUDE,
+    FakeSpeaking,
+)
 from tests.support.tcp_server_support import serving_asgi, serving_over_tcp
 
 if TYPE_CHECKING:
@@ -109,9 +115,13 @@ def bytes_of(key: str) -> dict[str, str]:
     return {"bytes": key}
 
 
-def fed(key: str) -> dict[str, str | int]:
-    """A streamed sound the page feeds: the bytes under `key`, headed at once."""
-    return {"fed": key, "lead": HEADED_LEAD_BYTES}
+def fed(key: str, *, lead_seconds: float = 0) -> dict[str, str | int]:
+    """A streamed sound the page feeds: the bytes under `key`, headed at once.
+
+    The first `lead_seconds` of its samples come with the header.
+    """
+    lead_samples = int(lead_seconds * SPEAK_SAMPLE_RATE)
+    return {"fed": key, "lead": HEADED_LEAD_BYTES + lead_samples * BYTES_PER_SAMPLE}
 
 
 JUNK = {"junk": "bytes no decoder reads"}
