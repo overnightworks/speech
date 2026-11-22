@@ -79,6 +79,19 @@ def release_load(cache: Path, pid: int, outcome: LoadOutcome) -> None:
     _write_atomically(cache / f"release-{pid}", outcome.value)
 
 
+def wait_for_held_speech(cache: Path) -> None:
+    """Return once a `hold-first-speech` server holds its first request."""
+    deadline = time.monotonic() + SERVER_WAIT_SECONDS
+    while not (cache / "speech-held").exists():
+        assert time.monotonic() < deadline, "no speech request was held"
+        time.sleep(0.01)
+
+
+def release_speech(cache: Path) -> None:
+    """Let a `hold-first-speech` server answer the request it holds."""
+    _write_atomically(cache / "release-speech", "")
+
+
 def hold_exits(cache: Path) -> None:
     """Make every server started from now on wait on SIGTERM for its exit release."""
     cache.mkdir(parents=True, exist_ok=True)
