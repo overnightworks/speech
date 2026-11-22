@@ -1,5 +1,5 @@
 claim_id = "faa5ecf674b740b28689b5f91061f89b"
-agent = "Claude 6721bb1e-84a1-4fcb-9239-504c71d70ec0"
+agent = "Claude 3b76e1eb-fd84-4487-96b9-4ea20864a4cf"
 role = "builder"
 base = "d4b3e2a63ad6aa112b1718f4dfeab0525f407773"
 branch = "claude/issue-579-page-sends-text"
