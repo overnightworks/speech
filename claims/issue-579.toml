@@ -1,0 +1,8 @@
+claim_id = "faa5ecf674b740b28689b5f91061f89b"
+agent = "Claude 6721bb1e-84a1-4fcb-9239-504c71d70ec0"
+role = "builder"
+base = "d4b3e2a63ad6aa112b1718f4dfeab0525f407773"
+branch = "claude/issue-579-page-sends-text"
+scope = ["docs/ARCHITECTURE.md", "docs/wire.md", "packages/browser/src/capture.ts", "packages/client/src/speech_client/relay.py", "packages/client/src/speech_client/utterances.py", "packages/client/tests/test_relay.py", "packages/client/tests/test_utterances.py", "tests/fixtures/browser/capture_page.js", "tests/support/browser_support.py", "tests/test_wire_route_browser_capture.py"]
+opened_commit = "27a14f518a39e2bd1544b3fda7796b3a98b11183"
+whole_reason = "One hop direction: the page's send and the relay's on_text are the two ends of the same frame and ship and prove together through the browser flow."
