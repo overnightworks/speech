@@ -25,6 +25,14 @@ export interface Capture {
   readonly ended: Promise<CaptureEnd>;
   /** The app's switch. Idempotent; never throws. */
   stop(): void;
+  /**
+   * Sends a text message of the app's own up the hop, in order with the audio frames, and returns whether it was
+   * sent. It returns false, sends nothing and queues nothing before the socket is open and after the capture ended;
+   * the message is not resent. A message that is not a string throws a `TypeError`, and the capture goes on. The
+   * package does not read the message, and the app's relay route bounds it like every frame (a longer one ends the
+   * hop as `HopClose.FRAME_TOO_LARGE`). It is the page's counterpart of `onMessage`.
+   */
+  send(message: string): boolean;
 }
 
 export type LocalFailure = "no-audio-track" | "worklet-refused" | "context-failed" | "context-stopped";
@@ -49,13 +57,18 @@ function endOfSocket(code: number): CaptureEnd {
  * Streams the first audio track of the app's stream to the app's relay route as PCM16 frames at the wire's rate.
  *
  * The package opens no device, never stops the app's track and interprets no message of the hop; it hands each one to
- * `onMessage` as it came. Audio is taken only once the hop is open, and everything is sent: there is no loudness
- * gate.
+ * `onMessage` as it came and sends the app's own text through `send`. Audio is taken only once the hop is open, and
+ * everything is sent: there is no loudness gate.
  */
 export function startCapture(options: CaptureOptions): Capture {
   const run = new CaptureRun(options);
   run.start();
-  return { started: run.started, ended: run.ended, stop: () => run.finish() };
+  return {
+    started: run.started,
+    ended: run.ended,
+    stop: () => run.finish(),
+    send: (message) => run.sendText(message),
+  };
 }
 
 class CaptureRun {
@@ -170,6 +183,17 @@ class CaptureRun {
     this.#source.connect(this.#node);
     context.addEventListener("statechange", this.#onContextStateChange);
     this.#startedGate.resolve("streaming");
+  }
+
+  sendText(message: string): boolean {
+    if (typeof message !== "string") {
+      throw new TypeError("send takes a string");
+    }
+    if (this.#cause !== undefined || this.#socket?.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    this.#socket.send(message);
+    return true;
   }
 
   #send(samples: Float32Array, last = false): void {
