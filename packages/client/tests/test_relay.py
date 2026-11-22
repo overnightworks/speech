@@ -215,16 +215,21 @@ def test_a_frame_exactly_the_limit_is_forwarded_unread_in_order() -> None:
     assert session.sent == [b"\0" * FRAME_LIMIT, b""]
 
 
-def test_with_on_text_the_texts_reach_it_unread_and_in_order_with_the_frames() -> None:
+def test_with_on_text_each_text_reaches_it_between_the_frames_around_it() -> None:
     browser = _Browser([_text("é"), _binary(1), _text(""), _binary(2), DISCONNECT])
     session = _Session()
-    taken: list[str] = []
+    taken: list[tuple[str, int]] = []
 
-    ended = asyncio.run(_hop(browser, session, on_text=taken.append))
+    ended = asyncio.run(
+        _hop(
+            browser,
+            session,
+            on_text=lambda text: taken.append((text, len(session.sent))),
+        )
+    )
 
     assert ended == BrowserLeft()
-    assert taken == ["é", ""]
-    assert session.sent == [b"\0", b"\0\0"]
+    assert taken == [("é", 0), ("", 1)]
 
 
 @pytest.mark.parametrize(
