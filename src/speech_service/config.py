@@ -6,6 +6,7 @@ from typing import Annotated, Final, Self
 
 from huggingface_hub import constants as huggingface_hub_constants
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -20,13 +21,9 @@ from speech_service.catalogue import Catalogue, CatalogueError, Engine, load_cat
 from speech_service.hearing_models import HearingModel
 
 DEFAULT_LIVE_SILENCE_SECONDS: Final = 0.5
-_PROVIDER_ROOT_ERROR = "provider root must be absolute"
 _VOICES_ERROR = (
     "SPEECH_VOICES must list catalogue voice ids separated by commas, each at most once"
 )
-_SOUND_MODEL_DIRECTORY_ERROR = "sound model directory must be absolute"
-_CONFIG_FILE_ERROR = "config file must be absolute"
-_CATALOGUE_FILE_ERROR = "catalogue file must be absolute"
 _CATALOGUE_FILE_UNSET_ERROR = "SPEECH_CATALOGUE_FILE must name the voice catalogue"
 _KEY_SET_URL_ERROR = "jwks_url must be an https URL"
 _SERVICE_GROUP_ERROR = "service_group must be a group path such as /services/name"
@@ -35,19 +32,38 @@ _SHARED_CLIENT_ERROR = "workload_client must belong to one app"
 _CONFIG_FILE_UNREADABLE_ERROR = "SPEECH_CONFIG_FILE must name a readable file"
 
 
+def _absolute(error: str) -> AfterValidator:
+    """Refuse a relative path with `error`."""
+
+    def check(path: Path) -> Path:
+        if not path.is_absolute():
+            raise ValueError(error)
+        return path
+
+    return AfterValidator(check)
+
+
+_CatalogueFile = Annotated[Path, _absolute("catalogue file must be absolute")]
+_ConfigFile = Annotated[Path, _absolute("config file must be absolute")]
+_SoundModelDirectory = Annotated[
+    Path, _absolute("sound model directory must be absolute")
+]
+_ProviderRoot = Annotated[Path, _absolute("provider root must be absolute")]
+
+
 class Settings(BaseSettings):
     """Read from `SPEECH_*` in the environment."""
 
     model_config = SettingsConfigDict(env_prefix="SPEECH_", hide_input_in_errors=True)
 
     device: str = "cuda"
-    catalogue_file: Path | None = None
+    catalogue_file: _CatalogueFile | None = None
     voices: Annotated[frozenset[VoiceId] | None, NoDecode] = None
     voice_cache: Path = Field(default_factory=lambda: Path.home() / ".cache" / "piper")
     huggingface_cache: Path = Field(
         default_factory=lambda: Path(huggingface_hub_constants.HF_HUB_CACHE)
     )
-    provider_root: Path | None = None
+    provider_root: _ProviderRoot | None = None
     load_gpu_voices_at_start: bool = False
     host: str = "127.0.0.1"
     port: int = Field(default=8080, ge=1, le=65535)
@@ -57,7 +73,7 @@ class Settings(BaseSettings):
     max_input_characters: int = Field(default=4096, ge=1)
     hearing_model: HearingModel | None = None
     sound_events: bool = True
-    sound_model_directory: Path = Field(
+    sound_model_directory: _SoundModelDirectory = Field(
         default_factory=lambda: Path.home() / ".cache" / "frame-mn10"
     )
     hearing_busy_wait_seconds: float = Field(default=30.0, ge=0, allow_inf_nan=False)
@@ -69,7 +85,7 @@ class Settings(BaseSettings):
     )
     max_recording_bytes: int = Field(default=25 * 1024 * 1024, ge=1)
     max_recording_seconds: float = Field(default=300.0, gt=0, allow_inf_nan=False)
-    config_file: Path | None = None
+    config_file: _ConfigFile | None = None
 
     @property
     def carried_engines(self) -> frozenset[Engine]:
@@ -77,34 +93,6 @@ class Settings(BaseSettings):
         if self.provider_root is None:
             return frozenset({Engine.PIPER})
         return frozenset(Engine)
-
-    @field_validator("catalogue_file")
-    @classmethod
-    def _catalogue_file_is_absolute(cls, path: Path | None) -> Path | None:
-        if path is not None and not path.is_absolute():
-            raise ValueError(_CATALOGUE_FILE_ERROR)
-        return path
-
-    @field_validator("config_file")
-    @classmethod
-    def _config_file_is_absolute(cls, path: Path | None) -> Path | None:
-        if path is not None and not path.is_absolute():
-            raise ValueError(_CONFIG_FILE_ERROR)
-        return path
-
-    @field_validator("sound_model_directory")
-    @classmethod
-    def _sound_model_directory_is_absolute(cls, directory: Path) -> Path:
-        if not directory.is_absolute():
-            raise ValueError(_SOUND_MODEL_DIRECTORY_ERROR)
-        return directory
-
-    @field_validator("provider_root")
-    @classmethod
-    def _provider_root_is_absolute(cls, directory: Path | None) -> Path | None:
-        if directory is not None and not directory.is_absolute():
-            raise ValueError(_PROVIDER_ROOT_ERROR)
-        return directory
 
     @field_validator("voices", mode="before")
     @classmethod

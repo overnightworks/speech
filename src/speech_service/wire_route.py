@@ -110,6 +110,12 @@ def _refused(
     )
 
 
+def _busy(wait_seconds: float) -> _Refusal:
+    """The BUSY refusal that asks the caller to retry after `wait_seconds`."""
+    wait = max(1, math.ceil(wait_seconds))
+    return _refused(RefusalCode.BUSY, headers={RETRY_AFTER_HEADER: str(wait)})
+
+
 def _ended_refused(step: StepTimer, refused: _Refusal) -> _Refusal:
     """Write the step's line as refused for the code of `refused`, and hand it on."""
     with step:
@@ -307,7 +313,7 @@ class _SpeechRoute:
                 lease.close()
             return _ended_refused(step, self._unavailable())
         if lease is None:
-            return _ended_refused(step, self._busy())
+            return _ended_refused(step, _busy(self._settings.busy_wait_seconds))
         chunks = audio_chunks(speaking, request, step)
         return ClosingAudioResponse(chunks, lease, request.media_type)
 
@@ -341,10 +347,6 @@ class _SpeechRoute:
             "voice",
             background=BackgroundTask(self._runtime.reconcile_failed_active),
         )
-
-    def _busy(self) -> _Refusal:
-        wait = max(1, math.ceil(self._settings.busy_wait_seconds))
-        return _refused(RefusalCode.BUSY, headers={RETRY_AFTER_HEADER: str(wait)})
 
 
 def _replayed(request: Request, body: bytes) -> Request:
@@ -434,10 +436,10 @@ class _TranscriptionRoute:
         if read is _Unkept.TOO_LARGE:
             return _refused(RefusalCode.TOO_LARGE)
         if isinstance(read, _Unkept):
-            return self._busy()
+            return _busy(self._settings.hearing_busy_wait_seconds)
         lease = await self._admitted(request, read.place, deadline)
         if lease is None:
-            return self._busy()
+            return _busy(self._settings.hearing_busy_wait_seconds)
         parsed = await self._parsed_within(lease, _replayed(request, read.body))
         if isinstance(parsed, JSONResponse):
             return parsed
@@ -543,10 +545,6 @@ class _TranscriptionRoute:
             return _refused(RefusalCode.UNAVAILABLE)
         return JSONResponse(Transcription(text=text).model_dump())
 
-    def _busy(self) -> JSONResponse:
-        wait = max(1, math.ceil(self._settings.hearing_busy_wait_seconds))
-        return _refused(RefusalCode.BUSY, headers={RETRY_AFTER_HEADER: str(wait)})
-
 
 def _fields(form: FormData) -> TranscriptionRequest | JSONResponse:
     text_fields = {name: value for name, value in form.items() if name != "file"}
@@ -625,8 +623,7 @@ class _RealtimeRoute:
             return _refused(RefusalCode.UNAVAILABLE)
         place = hearing.open_session(self._settings.max_hearing_sessions)
         if place is None:
-            wait = max(1, math.ceil(self._settings.hearing_busy_wait_seconds))
-            return _refused(RefusalCode.BUSY, headers={RETRY_AFTER_HEADER: str(wait)})
+            return _busy(self._settings.hearing_busy_wait_seconds)
         return place
 
 
