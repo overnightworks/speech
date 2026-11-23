@@ -38,6 +38,10 @@ LEAD_SECONDS = 1.0
 GROWTH_SECONDS = 0.3
 # How far past a stop's edge the clock reads when the cut comes.
 PAST_THE_EDGE_SECONDS = 0.5
+# Where the page's task is blocked around the player's start call.
+AROUND_THE_START_CALL = pytest.mark.parametrize(
+    "stall", ["before", "after"], ids=["before_the_call", "after_the_call"]
+)
 
 
 def test_a_sound_played_through_reports_its_full_length_as_played_seconds(
@@ -135,9 +139,7 @@ def test_the_start_a_sound_hands_over_is_the_context_time_its_first_sample_is_he
     )
 
 
-@pytest.mark.parametrize(
-    "stall", ["before", "after"], ids=["before_the_call", "after_the_call"]
-)
+@AROUND_THE_START_CALL
 def test_a_sound_is_heard_at_its_start_or_later_by_the_stall_around_the_start_call(
     tmp_path: Path, stall: str
 ) -> None:
@@ -167,6 +169,35 @@ def test_a_sound_is_heard_at_its_start_or_later_by_the_stall_around_the_start_ca
     assert start - quantum <= heard <= start + blocked + quantum
     played_ahead = seen["playedNow"][0] - (seen["contextNow"] - heard)
     assert played_ahead <= blocked + quantum + seen["clockStep"]
+
+
+@AROUND_THE_START_CALL
+def test_a_streamed_sounds_next_chunk_is_chained_from_its_first_chunks_asked_start(
+    tmp_path: Path, stall: str
+) -> None:
+    """The next chunk is chained from the start the first chunk was asked for.
+
+    Under a stall past the output's lead, before or after the start call, the next
+    chunk starts at the first chunk's asked start plus its length, not at where the
+    first chunk was heard. How far the first chunk is heard late is the sibling cell's
+    bound.
+    """
+
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.prepare_bytes("long", LONG)
+            await stage.act("stallNextStart", stall)
+            await stage.hand_over(fed("long", lead_seconds=LEAD_SECONDS))
+            await stage.until("s.sounds[0].startedValue === 'playing'")
+            await stage.act("feed", "long")
+            await stage.until("s.scheduledChunks.length >= 2")
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    assert len(seen["stalls"]) == 1
+    first, second = seen["scheduledChunks"][:2]
+    assert second["start"] == pytest.approx(first["start"] + first["seconds"])
 
 
 @pytest.mark.parametrize("sound", [SHORT, STREAMED], ids=["whole", "streamed"])

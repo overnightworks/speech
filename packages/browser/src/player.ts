@@ -481,7 +481,12 @@ class PlayerRun {
     return this.#flow === "running";
   }
 
-  /** Back to back on the context's clock: each chunk starts where the one before ends. */
+  /**
+   * Back to back on the context's clock: each chunk starts where the one before ends, counted from the start the
+   * player asked for. A stall before the start call that moves the first chunk later makes the next overlap it by up
+   * to the blocked time. The page cannot tell that stall from one after the call, which leaves the first chunk on
+   * time, so counting from a later clock read would turn this overlap into a gap there.
+   */
   async #playStream(scheduled: Scheduled, stream: PcmStream, generation: number): Promise<void> {
     try {
       await this.#scheduleChunks(scheduled, stream, generation, 0);
