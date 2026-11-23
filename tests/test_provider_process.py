@@ -450,7 +450,7 @@ def test_a_term_resistant_server_is_reaped_inside_the_stops_grace(
 
 
 def test_the_close_bound_is_below_the_stops_grace() -> None:
-    assert CLOSE_SECONDS < StopPolicy().grace_seconds
+    assert StopPolicy().grace_seconds > CLOSE_SECONDS
 
 
 def test_a_stage_process_that_outlives_its_server_ends_with_the_service_stop(
