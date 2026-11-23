@@ -3,5 +3,6 @@ agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
 role = "builder"
 base = "2c046a03c6be44d5c0b206d46af33b03c46b4ad1"
 branch = "claude/issue-635-relay-test-both-sides-close-abort"
-scope = ["packages/client/src/speech_client/hearing.py", "packages/client/tests/test_hearing.py", "packages/client/tests/test_relay.py"]
+scope = ["packages/client/src/speech_client/hearing.py", "packages/client/tests/support/hearing_support.py", "packages/client/tests/test_hearing.py", "packages/client/tests/test_relay.py"]
 opened_commit = "fc787502c9c051bd165da4ff5afdfc57b1468a4d"
+whole_reason = "One relay assertion and one close path with its test and the fake peer that test drives; split, the close test would land without its peer."
