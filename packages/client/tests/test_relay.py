@@ -15,6 +15,7 @@ from websockets.asyncio.server import serve
 
 from packages.client.tests.support.elapsed_support import (
     CLOSE_TIMEOUT_SECONDS,
+    seconds_to_cancel_after_yields,
     well_before,
 )
 from packages.client.tests.support.hearing_support import fixed_tokens
@@ -636,13 +637,7 @@ def test_a_cancel_at_any_moment_after_the_apps_end_signal_returns_at_once(
             hop = asyncio.create_task(_stalled_hop(service_url, app_ended))
             await opened.wait()
             app_ended.set()
-            for _ in range(yields_before_cancel):
-                await asyncio.sleep(0)
-            started = time.monotonic()
-            hop.cancel()
-            await asyncio.wait({hop}, timeout=CLOSE_TIMEOUT_SECONDS)
-            elapsed = time.monotonic() - started
-            assert hop.cancelled()
+            elapsed = await seconds_to_cancel_after_yields(hop, yields_before_cancel)
         assert asyncio.all_tasks() == {asyncio.current_task()}
         return elapsed
 
