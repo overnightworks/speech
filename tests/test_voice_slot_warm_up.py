@@ -12,14 +12,12 @@ from fastapi.testclient import TestClient
 from speech_provider_contract import QwenSpeaker
 
 from speech_client.wire import VOICES, Health, Language, VoiceId
-from speech_service.provider_process import ProviderLaunch, ProviderProcess
-from speech_service.speaking import QwenSpeaking
 from tests.support.gpu_voice_support import StageSetup, gpu_voice_stage
 from tests.support.launcher_support import (
     SERVER_WAIT_SECONDS,
     assert_reaped,
     closed_provider,
-    provider_launcher,
+    qwen_voice,
     received_requests,
     release_speech,
     wait_for_held_speech,
@@ -53,8 +51,10 @@ def test_a_voice_is_not_ready_until_it_spoke_one_request_per_language_in_order(
         spoken = pool.submit(post_speech, client, speak_body(VoiceId.RYAN))
         wait_for_held_speech(stage.cache)
 
-        ready_while_held = _ryan_ready(client)
-        release_speech(stage.cache)
+        try:
+            ready_while_held = _ryan_ready(client)
+        finally:
+            release_speech(stage.cache)
         response = spoken.result(timeout=SERVER_WAIT_SECONDS)
         ready_after = _ryan_ready(client)
 
@@ -70,25 +70,18 @@ def test_a_voice_reports_not_ready_while_its_warm_up_request_is_held(
 ) -> None:
     """WIRE-126: ready holds only once the warm-up finished."""
     root, cache = closed_provider(tmp_path, "hold-first-speech")
-    voice = QwenSpeaking(
-        ProviderProcess(
-            ProviderLaunch(
-                executable=provider_launcher(root), arguments=("--cache", str(cache))
-            )
-        ),
-        QwenSpeaker.RYAN,
-        (Language.DE,),
-    )
+    voice = qwen_voice(root, cache, QwenSpeaker.RYAN, (Language.DE,))
     try:
         with ThreadPoolExecutor() as pool:
             loading = pool.submit(voice.load)
-            wait_for_held_speech(cache)
-            ready_while_held = voice.ready
-            release_speech(cache)
+            try:
+                wait_for_held_speech(cache)
+                ready_while_held = voice.ready
+            finally:
+                release_speech(cache)
             loading.result(timeout=SERVER_WAIT_SECONDS)
         ready_after = voice.ready
     finally:
-        release_speech(cache)
         voice.close()
 
     assert ready_while_held is False

@@ -13,25 +13,24 @@ from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE, QwenSpeake
 from speech_client.wire import Language
 from speech_service.failures import log_failure
 from speech_service.provider_process import (
-    ProviderLaunch,
     ProviderNotReadyError,
-    ProviderProcess,
     ProviderSynthesisFailedError,
     UnsupportedLanguageError,
 )
-from speech_service.speaking import QwenSpeaking
 from tests.support.launcher_support import (
     SERVER_WAIT_SECONDS,
     assert_reaped,
     closed_provider,
     observed,
-    provider_launcher,
+    qwen_voice,
     received_requests,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
+
+    from speech_service.speaking import QwenSpeaking
 
 
 @pytest.fixture
@@ -41,16 +40,7 @@ def speaking(tmp_path: Path) -> Iterator[Callable[[str], QwenSpeaking]]:
 
     def build(behavior: str = "normal") -> QwenSpeaking:
         root, cache = closed_provider(tmp_path, behavior)
-        voice = QwenSpeaking(
-            ProviderProcess(
-                ProviderLaunch(
-                    executable=provider_launcher(root),
-                    arguments=("--cache", str(cache)),
-                )
-            ),
-            QwenSpeaker.SOHEE,
-            (Language.DE,),
-        )
+        voice = qwen_voice(root, cache, QwenSpeaker.SOHEE, (Language.DE,))
         started.append(voice)
         voice.load()
         return voice
@@ -211,15 +201,7 @@ def test_a_voice_that_is_not_loaded_refuses_its_request_as_not_ready(
     tmp_path: Path,
 ) -> None:
     root, cache = closed_provider(tmp_path)
-    voice = QwenSpeaking(
-        ProviderProcess(
-            ProviderLaunch(
-                executable=provider_launcher(root), arguments=("--cache", str(cache))
-            )
-        ),
-        QwenSpeaker.RYAN,
-        (Language.DE,),
-    )
+    voice = qwen_voice(root, cache, QwenSpeaker.RYAN, (Language.DE,))
 
     with pytest.raises(ProviderNotReadyError):
         list(voice.pcm_chunks("hello", "de"))

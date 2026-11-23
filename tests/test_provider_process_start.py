@@ -8,6 +8,7 @@ import sys
 import threading
 import tomllib
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from speech_provider_contract import QwenSpeaker
@@ -22,12 +23,15 @@ from speech_service.provider_process import (
     ProviderSynthesisFailedError,
     provider_entrypoint,
 )
-from speech_service.speaking import QwenSpeaking
 from tests.support.launcher_support import (
     closed_provider,
     provider_launcher,
+    qwen_voice,
     wait_for_starts,
 )
+
+if TYPE_CHECKING:
+    from speech_service.speaking import QwenSpeaking
 
 _SENTENCE = "Ein Satz, den nur der Aufrufer kennt"
 
@@ -44,15 +48,7 @@ def _launching(tmp_path: Path, body: str) -> ProviderProcess:
 
 def _serving(tmp_path: Path) -> QwenSpeaking:
     root, cache = closed_provider(tmp_path)
-    return QwenSpeaking(
-        ProviderProcess(
-            ProviderLaunch(
-                executable=provider_launcher(root), arguments=("--cache", str(cache))
-            )
-        ),
-        QwenSpeaker.RYAN,
-        (Language.DE,),
-    )
+    return qwen_voice(root, cache, QwenSpeaker.RYAN, (Language.DE,))
 
 
 def _ended_records(
