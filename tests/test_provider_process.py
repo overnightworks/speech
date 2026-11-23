@@ -87,6 +87,22 @@ def _finishes_within_timeout(target: Callable[[], object]) -> bool:
     return not thread.is_alive()
 
 
+def _load_in_thread(
+    server: ProviderProcess,
+) -> tuple[threading.Thread, list[ProviderFailedError]]:
+    failures: list[ProviderFailedError] = []
+
+    def load() -> None:
+        try:
+            server.load()
+        except ProviderFailedError as failure:
+            failures.append(failure)
+
+    loading = threading.Thread(target=load, daemon=True)
+    loading.start()
+    return loading, failures
+
+
 def _load_quietly(server: ProviderProcess) -> None:
     with contextlib.suppress(ProviderFailedError):
         server.load()
@@ -204,23 +220,16 @@ def test_the_health_deadline_fails_the_load_and_reaps_a_term_resistant_server(
     server = _server(tmp_path, "stale-socket term-resistant")
     health_deadline_from_scenario(monkeypatch, _OWNER, tmp_path / "cache")
 
-    failures: list[ProviderFailedError] = []
+    loading, failures = _load_in_thread(server)
+    try:
+        loading.join(timeout=StopPolicy().grace_seconds)
 
-    def load() -> None:
-        try:
-            server.load()
-        except ProviderFailedError as failure:
-            failures.append(failure)
-
-    loading = threading.Thread(target=load, daemon=True)
-    loading.start()
-    loading.join(timeout=StopPolicy().grace_seconds)
-
-    assert not loading.is_alive(), "the load did not fail inside the stop's grace"
-    assert len(failures) == 1
-    _, _, pid, _ = observed(tmp_path / "cache")
-    assert_reaped(pid, StopPolicy().grace_seconds)
-    server.close()
+        assert not loading.is_alive(), "the load did not fail inside the stop's grace"
+        assert len(failures) == 1
+        _, _, pid, _ = observed(tmp_path / "cache")
+        assert_reaped(pid, StopPolicy().grace_seconds)
+    finally:
+        server.close()
 
 
 def test_a_stop_during_the_health_wait_does_not_wait_out_the_health_deadline(
@@ -228,16 +237,7 @@ def test_a_stop_during_the_health_wait_does_not_wait_out_the_health_deadline(
 ) -> None:
     root, cache = closed_provider(tmp_path, "held-ready")
     server = _process(root, cache)
-    refused: list[ProviderFailedError] = []
-
-    def load() -> None:
-        try:
-            server.load()
-        except ProviderFailedError as error:
-            refused.append(error)
-
-    loading = threading.Thread(target=load)
-    loading.start()
+    loading, refused = _load_in_thread(server)
     (pid,) = wait_for_starts(cache, 1)
 
     started = time.monotonic()
@@ -315,16 +315,7 @@ def test_a_server_without_a_private_directory_is_refused_and_closes_cleanly(
     server = _server(tmp_path)
     server.set_fatal_callback(fatal.set)
     monkeypatch.setattr("tempfile.tempdir", str(tmp_path / "no-temporary-root"))
-    refused: list[ProviderFailedError] = []
-
-    def load() -> None:
-        try:
-            server.load()
-        except ProviderFailedError as error:
-            refused.append(error)
-
-    loader = threading.Thread(target=load, daemon=True)
-    loader.start()
+    loader, refused = _load_in_thread(server)
     loader.join(timeout=5)
 
     assert refused
