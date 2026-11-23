@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 
 WAV_HEADER_BYTES: Final = 44
 SILENCE_RMS: Final = 0.01
-_SAMPLE_BYTES: Final = 2
 _CHUNK_HEADER_BYTES: Final = 8
 
 
@@ -49,7 +48,7 @@ def rms(pcm: bytes) -> float:
     An odd last byte is dropped.
     """
     samples = array("h")
-    samples.frombytes(pcm[: len(pcm) - len(pcm) % _SAMPLE_BYTES])
+    samples.frombytes(pcm[: len(pcm) - len(pcm) % PcmFormat.sample_bytes])
     if not samples:
         return 0.0
     total = sum(sample * sample for sample in samples)
