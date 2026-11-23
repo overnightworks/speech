@@ -466,7 +466,8 @@ def test_a_cancel_during_the_close_of_a_service_ignoring_it_ends_the_connection(
                 async with asyncio.timeout(well_before(CLOSE_TIMEOUT_SECONDS)):
                     await reaches_the_end_of_the_stream(peers[0])
             finally:
-                peers[0].close()
+                for peer in peers:
+                    peer.close()
 
     asyncio.run(scenario())
 
