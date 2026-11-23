@@ -74,7 +74,9 @@ def test_one_byte_over_the_held_limit_ends_the_hearing_while_the_source_runs() -
     async def scenario() -> tuple[HearingOutcome | None, float]:
         tokens = Tokens(2)
         async with scripted(drains, ends_in_order) as (port, _):
-            session = session_to(port, SESSION_DEADLINE_SECONDS, 3, 5, tokens)
+            session = session_to(
+                port, SESSION_DEADLINE_SECONDS, 3, SESSION_DEADLINE_SECONDS, tokens
+            )
             async with session:
                 await tokens.reached(2)
                 started = time.monotonic()
