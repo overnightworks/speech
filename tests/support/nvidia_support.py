@@ -25,9 +25,13 @@ class FakeNvidiaSmi:
         monkeypatch.setenv("PATH", f"{directory}{os.pathsep}{os.environ['PATH']}")
 
     def use(self, used_mib: int) -> None:
-        """Report `used_mib` from the next call on; a call never sees half a reading."""
+        """Report `used_mib` from the next call on."""
+        self.print_raw(f"{used_mib}, {TOTAL_MIB}\n")
+
+    def print_raw(self, output: str) -> None:
+        """Print `output` verbatim from the next call on, never half of it."""
         partial = self._reading.with_name("reading.partial")
-        partial.write_text(f"{used_mib}, {TOTAL_MIB}\n")
+        partial.write_text(output)
         partial.replace(self._reading)
 
     def fail(self) -> None:
