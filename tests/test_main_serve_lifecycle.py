@@ -147,13 +147,13 @@ def test_python_dash_m_starts_the_service_listening_on_the_configured_port(
             (qwen_server,) = wait_for_starts(cache, 1)
             server.terminate()
             assert server.wait(timeout=30) == 0
+            assert_reaped(qwen_server, SERVER_WAIT_SECONDS)
         finally:
             server.kill()
             for started in server_starts(cache):
                 with contextlib.suppress(ProcessLookupError):
                     os.kill(started, signal.SIGKILL)
 
-    assert_reaped(qwen_server, SERVER_WAIT_SECONDS)
     assert list(tmp_path.glob("*.sock")) == []
 
 
