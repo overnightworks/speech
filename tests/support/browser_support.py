@@ -10,6 +10,7 @@ holds until released.
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -421,6 +422,15 @@ def write_marker_sound(
     path.write_bytes(wav_header(SPEAK_SAMPLE_RATE, len(pcm)) + pcm)
 
 
+def _cpu_throttle_factor() -> float:
+    """The factor the environment slows the page's CPU by; 1 when it names none."""
+    factor = float(os.environ.get(CPU_THROTTLE_VARIABLE, "1"))
+    if not math.isfinite(factor) or factor < 1:
+        message = f"{CPU_THROTTLE_VARIABLE} must be a finite number of at least 1"
+        raise ValueError(message)
+    return factor
+
+
 @asynccontextmanager
 async def chromium_page() -> AsyncIterator[tuple[Page, PageCoverage]]:
     """A Chromium page under the autoplay policy, with its coverage if asked for.
@@ -432,7 +442,7 @@ async def chromium_page() -> AsyncIterator[tuple[Page, PageCoverage]]:
         browser = await playwright.chromium.launch(args=CHROMIUM_FLAGS)
         try:
             page = await browser.new_page()
-            if (rate := float(os.environ.get(CPU_THROTTLE_VARIABLE, "1"))) > 1:
+            if (rate := _cpu_throttle_factor()) > 1:
                 session = await page.context.new_cdp_session(page)
                 await session.send("Emulation.setCPUThrottlingRate", {"rate": rate})
             coverage = PageCoverage.from_environment()
