@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from speech_provider_contract import QwenSpeaker
 
+from speech_client.wire import Language
 from speech_service.provider_process import (
     ProviderFailedError,
     ProviderId,
@@ -50,6 +51,7 @@ def _serving(tmp_path: Path) -> QwenSpeaking:
             )
         ),
         QwenSpeaker.RYAN,
+        (Language.DE,),
     )
 
 

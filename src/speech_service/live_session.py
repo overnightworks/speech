@@ -28,6 +28,7 @@ from speech_client.realtime_wire import (
     SessionCreated,
     SessionUpdate,
     SessionUpdated,
+    SoundDetected,
     SpeechStarted,
     SpeechStopped,
     TranscriptCompleted,
@@ -50,7 +51,7 @@ from speech_service.hearing_session import (
     SpeechStart,
     TurnEnd,
 )
-from speech_service.pcm import BYTES_PER_SAMPLE, Resampler
+from speech_service.pcm import BYTES_PER_SAMPLE, HEARING_SAMPLE_RATE, Resampler
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine, Sequence
@@ -60,12 +61,13 @@ if TYPE_CHECKING:
 
     from speech_service.admission_gate import Lease
     from speech_service.hearing import Heard, Hearing, HearingEngine
+    from speech_service.sound_events import Scores, SoundStream, SoundWindow
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["POLL_WAIT_SECONDS", "LiveSession", "poll_forever"]
 
-_PCM_BYTES_PER_SECOND: Final = 16_000 * BYTES_PER_SAMPLE
+_PCM_BYTES_PER_SECOND: Final = HEARING_SAMPLE_RATE * BYTES_PER_SAMPLE
 _MAX_ENDED_TURNS: Final = 2
 
 
@@ -141,6 +143,7 @@ class LiveSession:
             self._clock.now, hearing.open_detector(), silence_seconds
         )
         self._resampler = Resampler()
+        self._sounds: SoundStream | None = None
         self._lock = asyncio.Lock()
         self._tasks: set[asyncio.Task[None]] = set()
         self._languages = (Language.DE,)
@@ -242,6 +245,51 @@ class LiveSession:
         task = self._spawn(self._run_partial(future, self._turn_number))
         task.add_done_callback(lambda _done: future.cancel())
 
+    async def _start_sound_hop(self) -> None:
+        """Score the latest due hop, unless one is in flight or the session ended."""
+        window = (
+            None if self._sounds is None or self._ended else self._sounds.next_window()
+        )
+        if window is None:
+            return
+        try:
+            future = self._hearing.submit_sound(window)
+        except RuntimeError:
+            await self._end_locked(RefusalCode.UNAVAILABLE)
+            return
+        task = self._spawn(self._run_sound_hop(future, window))
+        task.add_done_callback(lambda _done: future.cancel())
+
+    async def _run_sound_hop(self, future: Future[Scores], window: SoundWindow) -> None:
+        try:
+            scores = await asyncio.wrap_future(future)
+        except Exception as error:  # noqa: BLE001 - logged by type and never by message
+            log_failure(logger, "sound.failed", error)
+            await self._end(RefusalCode.UNAVAILABLE)
+            return
+        async with self._lock:
+            if self._ended or self._sounds is None:
+                return
+            for sound in self._sounds.scored(window, scores):
+                logger.info(
+                    "sound.detected",
+                    extra={
+                        "sound": sound.name.value,
+                        "score": sound.score,
+                        "audio_start_ms": sound.audio_start_ms,
+                    },
+                )
+                await self._emit(
+                    SoundDetected(
+                        sound=sound.name,
+                        audio_start_ms=sound.audio_start_ms,
+                        audio_end_ms=sound.audio_end_ms,
+                    )
+                )
+                if self._ended:
+                    return
+            await self._start_sound_hop()
+
     async def _on_update(self, event: SessionUpdate) -> None:
         if self._configured or self._audio_seen:
             await self._end_locked(
@@ -250,7 +298,12 @@ class LiveSession:
             return
         self._configured = True
         self._languages = event.session.audio.input.transcription.allowed
-        await self._emit(SessionUpdated(session=event.session))
+        session = event.session
+        if session.audio.input.sound_detection is not None:
+            self._sounds = self._hearing.open_sound_stream()
+            if self._sounds is None:
+                session = session.without_sound_detection()
+        await self._emit(SessionUpdated(session=session))
 
     async def _on_append(self, event: AudioAppend) -> None:
         raw = _samples_of(event.audio)
@@ -260,9 +313,13 @@ class LiveSession:
         self._audio_seen = True
         if self._hearing.draining:
             self._scheduler.stop_opening_turns()
-        events = self._scheduler.add(self._resampler.feed(raw))
+        pcm = self._resampler.feed(raw)
+        events = self._scheduler.add(pcm)
         self._watch_silence(events)
         await self._apply(events)
+        if self._sounds is not None:
+            self._sounds.add(pcm)
+            await self._start_sound_hop()
 
     def _watch_silence(self, events: Sequence[SpeechStart | TurnEnd]) -> None:
         """Time the wait for the open turn's end from the first silent audio on."""

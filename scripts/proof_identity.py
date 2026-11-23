@@ -77,7 +77,7 @@ class TokenPair:
     workload: str = field(repr=False)
     person: str = field(repr=False)
 
-    async def tokens(self) -> SessionTokens:
+    async def tokens(self) -> SessionTokens:  # NOSONAR(S7503) async by contract
         """This pair as the token source of a hearing session."""
         return SessionTokens(self.workload, self.person)
 

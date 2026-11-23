@@ -22,6 +22,7 @@ from webauth.https_client import fetch_key_set_over_https
 from speech_service.callers import SpeechCallers
 from speech_service.config import Settings, load_caller_config, load_settings
 from speech_service.control import create_control_app
+from speech_service.onnxruntime_telemetry import disable_onnxruntime_telemetry
 from speech_service.service import Runtime
 
 if TYPE_CHECKING:
@@ -55,6 +56,7 @@ class StopPolicy:
 def main() -> None:
     """Read one configuration and exit nonzero after a fatal lifecycle error."""
     _argument_parser().parse_args()
+    disable_onnxruntime_telemetry()
     settings = load_settings()
     configure(_SERVICE_NAME)
     _LOGGER.info("process.started")

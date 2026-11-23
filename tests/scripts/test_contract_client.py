@@ -25,19 +25,21 @@ from speech_client.wire import (
     VoiceId,
 )
 from speech_service.config import Settings
-from speech_service.pcm import pcm_from_wav, wav_header
+from speech_service.pcm import wav_header
 from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE, FakeSpeaking
 from tests.support.identity_support import callers_trusting
 from tests.support.script_support import script_module
 from tests.support.speak_support import FailingSpeaking
 from tests.support.tcp_server_support import serving_over_tcp
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from proof_identity import Minting, ProofIdentity
 
+ARGUMENT_ERROR_EXIT_CODE = 2
 CLIENT = script_module("contract_client")
 PROVE = script_module("prove_speech")
 
@@ -142,6 +144,38 @@ def test_prove_keeps_a_provider_root_the_caller_set(
     environment = PROVE.speech_environment(8080, PIPER_VOICES[0], identity)
 
     assert environment["SPEECH_PROVIDER_ROOT"] == "/elsewhere"
+
+
+@pytest.mark.parametrize(
+    ("exported", "started_with"),
+    [(None, "false"), ("true", "true")],
+    ids=["unset", "exported"],
+)
+def test_prove_starts_a_hearing_service_with_sounds_off_unless_exported(
+    monkeypatch: pytest.MonkeyPatch,
+    identity: ProofIdentity,
+    exported: str | None,
+    started_with: str,
+) -> None:
+    monkeypatch.delenv("SPEECH_SOUND_EVENTS", raising=False)
+    if exported is not None:
+        monkeypatch.setenv("SPEECH_SOUND_EVENTS", exported)
+
+    environment = PROVE.speech_environment(
+        8080, PIPER_VOICES[0], identity, hearing_model="small"
+    )
+
+    assert environment["SPEECH_SOUND_EVENTS"] == started_with
+
+
+def test_prove_leaves_the_sound_switch_alone_without_a_hearing_model(
+    monkeypatch: pytest.MonkeyPatch, identity: ProofIdentity
+) -> None:
+    monkeypatch.delenv("SPEECH_SOUND_EVENTS", raising=False)
+
+    environment = PROVE.speech_environment(8080, PIPER_VOICES[0], identity)
+
+    assert "SPEECH_SOUND_EVENTS" not in environment
 
 
 def test_prove_defaults_to_the_card_proof(
@@ -330,6 +364,50 @@ def test_the_contract_client_speaks_the_language_health_names_first_for_the_voic
 
     (request,) = requests
     assert SpeechRequest.model_validate_json(request.body).language == offered[0]
+
+
+@pytest.mark.parametrize("voice", list(CATALOGUE))
+def test_the_contract_client_speaks_the_voice_named_on_its_command_line(
+    minting: Minting, identity: ProofIdentity, voice: VoiceId
+) -> None:
+    health = Health(
+        speaking=SpeakingHealth(
+            ready=True,
+            voices={
+                voice: VoiceHealth(
+                    model=CATALOGUE[voice].engine.wire_model,
+                    name=CATALOGUE[voice].name,
+                    languages=CATALOGUE[voice].languages,
+                    takes_instructions=False,
+                    ready=True,
+                    sample_rate=SPEAK_SAMPLE_RATE,
+                )
+            },
+        ),
+        hearing=HearingHealth(model="any", ready=True),
+        card_memory_mb=0,
+    )
+
+    with _recording_speech_service(health) as (base_url, requests):
+        options = CLIENT.parse_arguments(
+            ["--minting-file", str(identity.minting_path), base_url, str(voice)]
+        )
+        CLIENT._run(base_url, options.voice, minting)  # noqa: SLF001 - the script's run step is the unit under test
+
+    (request,) = requests
+    assert SpeechRequest.model_validate_json(request.body).voice == voice
+
+
+def test_the_contract_client_refuses_a_voice_the_catalogue_does_not_name(
+    identity: ProofIdentity, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        CLIENT.parse_arguments(
+            ["--minting-file", str(identity.minting_path), "http://unused", "nobody"]
+        )
+
+    assert exit_info.value.code == ARGUMENT_ERROR_EXIT_CODE
+    assert "invalid choice" in capsys.readouterr().err
 
 
 def test_the_contract_client_command_passes_the_minting_file_path_and_no_secret(

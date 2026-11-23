@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
@@ -13,9 +13,11 @@ from urllib.parse import urlsplit
 from packaging.markers import Marker
 
 from hearing_figures import voiced_seconds, words
+from proof_identity import Minting
 from prove_speech import spoken_in_log
 from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, PIPER_VOICES
 from speech_client.outcomes import RetryAfterError, busy_wait
+from speech_client.realtime_wire import SoundName
 from speech_client.wire import (
     REFUSAL_STATUS,
     Health,
@@ -27,13 +29,14 @@ from speech_client.wire import (
     VoiceId,
 )
 from speech_service.hearing_models import HearingModel, voiced_floor
-from speech_service.pcm import AI_MARK, pcm_from_wav
+from speech_service.pcm import AI_MARK
+from wav_audio import pcm_from_wav, riff_chunks
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Mapping
+    from collections.abc import Callable, Iterable, Mapping
 
     from image_stack import LiveOutcome, Reply
-    from proof_identity import Minting
+    from speech_client.utterances import HeardSound
     from speech_service.config import CallerConfig
 
 FORBIDDEN_PATH_PARTS: Final = frozenset({".git", "tests", "providers"})
@@ -121,8 +124,9 @@ def first_english_voice() -> VoiceId:
 def minting_for(config: CallerConfig, baked: BakedCaller, signing: Minting) -> Minting:
     """The proof's signing key, speaking as the baked table's caller and issuer."""
     identity = config.identity
-    return replace(
-        signing,
+    return Minting(
+        private_key_pem=signing.private_key_pem,
+        key_identifier=signing.key_identifier,
         issuer=identity.issuer,
         audience=identity.audience,
         client_id=config.apps[baked.app].workload_client,
@@ -130,22 +134,14 @@ def minting_for(config: CallerConfig, baked: BakedCaller, signing: Minting) -> M
         group_claim=identity.group_claim,
         app_group=f"/apps/{baked.app}",
         service_group=identity.service_group,
+        workload_subject=signing.workload_subject,
+        person_subject=signing.person_subject,
     )
-
-
-def _chunks(wav: bytes) -> Iterator[tuple[bytes, int, int]]:
-    """The id, start and end of each RIFF chunk after the header."""
-    position = 12
-    while position + 8 <= len(wav):
-        size = int.from_bytes(wav[position + 4 : position + 8], "little")
-        end = position + 8 + size + size % 2
-        yield wav[position : position + 4], position, end
-        position = end
 
 
 def ai_mark_of(wav: bytes) -> str | None:
     """The RIFF INFO comment before the `data` chunk, or None."""
-    for chunk_id, start, end in _chunks(wav):
+    for chunk_id, start, end in riff_chunks(wav):
         if chunk_id == b"data":
             return None
         if chunk_id == MARK_CHUNK and wav[start + 8 : start + 12] == b"INFO":
@@ -155,7 +151,7 @@ def ai_mark_of(wav: bytes) -> str | None:
 
 def without_mark(wav: bytes) -> bytes:
     """The same WAV with its INFO chunk cut out."""
-    for chunk_id, start, end in _chunks(wav):
+    for chunk_id, start, end in riff_chunks(wav):
         if chunk_id == MARK_CHUNK:
             return wav[:start] + wav[end:]
     return wav
@@ -181,7 +177,7 @@ def require_marked_wav(wav: bytes) -> None:
         raise SystemExit(message)
     if not any(
         chunk_id == b"data" and _audio_bytes(wav, start) > 0
-        for chunk_id, start, _ in _chunks(wav)
+        for chunk_id, start, _ in riff_chunks(wav)
     ):
         message = "the WAV holds no audio"
         raise SystemExit(message)
@@ -422,6 +418,30 @@ def require_final(outcome: LiveOutcome, sentence: str) -> None:
         message = f"the live turn ended without a final: {outcome.error}"
         raise SystemExit(message)
     require_heard(outcome.final, sentence)
+
+
+def require_one_laughter(sounds: Iterable[HeardSound], clip_ms: int) -> None:
+    """Fail unless `sounds` is one laughter that began inside a clip of `clip_ms`."""
+    heard = list(sounds)
+    if [one.sound for one in heard] != [SoundName.LAUGHTER]:
+        names = [one.sound.value for one in heard]
+        message = f"expected exactly one Laughter, heard {names}"
+        raise SystemExit(message)
+    (laughter,) = heard
+    if not 0 <= laughter.audio_start_ms < min(laughter.audio_end_ms, clip_ms):
+        message = (
+            f"the laughter spans {laughter.audio_start_ms} to {laughter.audio_end_ms}"
+            f" ms, not from inside the {clip_ms} ms clip"
+        )
+        raise SystemExit(message)
+
+
+def require_no_sounds(sounds: Iterable[HeardSound]) -> None:
+    """Fail when a session that did not ask for sounds heard any."""
+    names = [one.sound.value for one in sounds]
+    if names:
+        message = f"a session that did not ask for sounds heard {names}"
+        raise SystemExit(message)
 
 
 def require_language(outcome: LiveOutcome, expected: Language) -> None:

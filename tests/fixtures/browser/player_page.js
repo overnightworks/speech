@@ -48,6 +48,8 @@ const seen = {
   lastActionAt: null,
   endedAtAction: null,
   peakRms: 0,
+  playedSeries: [],
+  playedBeforeStop: null,
   heardOnsets: [],
   heardPeaks: [],
   contextAtAction: null,
@@ -64,6 +66,7 @@ const heldNow = [];
 const byteStore = new Map();
 const fedBodies = new Map();
 const feeders = new Map();
+const playbacks = [];
 let nextNodeId = 0;
 let stopOnSourceEnd = false;
 let rejectNextResume = false;
@@ -216,6 +219,18 @@ function tapRms() {
   return Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
 }
 
+// As often as the page's tasks allow, so a read that steps back between two of the sound's events shows. A task that
+// reads nothing new adds nothing, so the series stays as long as the read's own changes.
+const sampling = new MessageChannel();
+sampling.port1.onmessage = () => {
+  if (playbacks.length > 0) {
+    const played = playbacks[0].playedSeconds();
+    if (played !== seen.playedSeries.at(-1)) seen.playedSeries.push(played);
+  }
+  sampling.port2.postMessage(null);
+};
+sampling.port2.postMessage(null);
+
 setInterval(() => {
   const level = rms();
   const tapLevel = tapRms();
@@ -267,6 +282,7 @@ function handOver(spec) {
   const sound = { id: seen.sounds.length, startedValue: null, startedCount: 0, endedValue: null, endedCount: 0, endedAt: null, peakRms: 0, peakTapRms: 0, playedSeconds: null, start: null, contextAtEnd: null };
   seen.sounds.push(sound);
   const playback = player.play(argumentOf(spec));
+  playbacks.push(playback);
   playback.started.then((value) => {
     sound.startedValue = value.kind;
     sound.start = value.kind === "playing" ? { contextTime: value.contextTime, onThePlayersContext: value.context === contexts[0] } : null;
@@ -330,6 +346,8 @@ window.playerPage = {
   resume: () => act("resume", () => player.resume()),
   // The switches of one task: each runs after the one before, with no render quantum of its own between them.
   inOneTask: (...names) => act(names.join("+"), () => names.forEach((name) => player[name]())),
+  // The rest of the fed body `key`, in one task.
+  feed: (key) => act("feed", () => feeders.get(key)()),
   // The switch `name` and the rest of the fed body `key`, in one task.
   feedWhile: (key, name) => act(`${name}+feed`, () => { player[name](); feeders.get(key)(); }),
   // The switch `first`, then `second` as soon as the volume it set moves: the second reverses the ramp of the first.
@@ -343,6 +361,20 @@ window.playerPage = {
   thawClock: () => frozenClocks.clear(),
   mute: (muted) => act("mute", () => player.setMuted(muted)),
   close: () => act("close", () => player.close()),
+  // A stop, then `cut` once the context clock reads `secondsLater` on: the cut comes after the stop's edge, before the
+  // player's own end of the sound. `playedBeforeStop` is what the sound had played when the stop was asked for.
+  stopThenCutPastItsEdge: (cut, secondsLater) =>
+    act("stop+cut", () => {
+      seen.playedBeforeStop = playbacks[0].playedSeconds();
+      player.stop();
+      frozenClocks.set(contexts[0], contexts[0].currentTime + secondsLater);
+      try {
+        if (cut === "mute") player.setMuted(true);
+        else player.close();
+      } finally {
+        frozenClocks.clear();
+      }
+    }),
   listening: () => Promise.all(earsReady),
   // The app's reader: one analyser of the player's context, connected to `player.tap` from the outside.
   readTap: () => {
@@ -357,6 +389,8 @@ window.playerPage = {
     ...seen,
     contextStates: contexts.map((context) => context.state),
     sampleRate: contexts[0].sampleRate,
+    contextNow: contexts[0].currentTime,
+    playedNow: playbacks.map((playback) => playback.playedSeconds()),
     clockStep: Math.max(128 / contexts[0].sampleRate, contexts[0].baseLatency),
     gainValue: outputGain?.gain.value ?? null,
     tapRms: tapRms(),

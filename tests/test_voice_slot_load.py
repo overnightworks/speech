@@ -19,7 +19,6 @@ from speech_provider_contract import (
 )
 
 from speech_client.wire import REALTIME_PATH, Health, RefusalCode, VoiceId
-from speech_service.pcm import pcm_from_wav
 from tests.support.gpu_voice_support import (
     PIPER_SAMPLE_RATE,
     LoadWaits,
@@ -57,6 +56,7 @@ from tests.support.speak_support import (
     post_speech,
     speak_body,
 )
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import Callable

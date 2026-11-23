@@ -10,7 +10,6 @@ from faster_whisper import WhisperModel
 
 from speech_client.wire import Language
 from speech_service.hearing import (
-    HEARING_SAMPLE_RATE,
     LanguageIdentifier,
     LanguageScores,
     ScoreIdentifier,
@@ -18,6 +17,7 @@ from speech_service.hearing import (
     WhisperHearing,
 )
 from speech_service.hearing_models import HearingModel, voiced_floor
+from speech_service.pcm import HEARING_SAMPLE_RATE
 from speech_service.voice_activity import WINDOW_SECONDS
 from tests.support.whisper_support import StandInWhisper
 

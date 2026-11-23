@@ -85,8 +85,8 @@ from speech_service.hearing_models import (
     HearingModelMissingError,
     model_directory,
 )
-from speech_service.pcm import pcm_from_wav
 from speech_service.piper_voices import fetch_voice_files
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -240,7 +240,7 @@ def hearing_service(
     """Run the service on `device` with the model, speaking `voice`, on its own."""
     directory = Path(tempfile.mkdtemp(prefix="speech-"))
     port = free_local_port()
-    base_url = f"http://{LOOPBACK_HOST}:{port}"
+    base_url = f"http://{LOOPBACK_HOST}:{port}"  # NOSONAR(S5332) loopback
     try:
         with proof_identity(directory) as identity:
             minting = load_minting(identity.minting_path)

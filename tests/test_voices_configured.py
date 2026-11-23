@@ -14,7 +14,6 @@ from shipped_catalogue import PIPER_VOICES
 from speech_client.wire import VOICES, Health, Language, VoiceId
 from speech_service.config import Settings
 from speech_service.control import create_control_app
-from speech_service.pcm import pcm_from_wav
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.gpu_voice_support import (
     PIPER_PCM,
@@ -39,6 +38,7 @@ from tests.support.speak_support import (
     speak_body,
     wav_body,
 )
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -140,7 +140,7 @@ def test_ryan_is_spoken_by_the_server_in_the_language_asked_for(
         )
 
     assert spoken.status_code == HTTP_200_OK
-    assert [r["language"] for r in received_requests(stage.cache)] == [language_name]
+    assert [r["language"] for r in received_requests(stage.cache)][-1] == language_name
 
 
 @pytest.mark.parametrize("instructions", [None, "Lass mich ausreden, zornig und laut"])
@@ -155,9 +155,9 @@ def test_ryan_is_spoken_by_the_server_with_the_instructions_asked_for(
         )
 
     assert spoken.status_code == HTTP_200_OK
-    assert [r.get("instructions") for r in received_requests(stage.cache)] == [
-        instructions
-    ]
+    assert [r.get("instructions") for r in received_requests(stage.cache)][
+        -1
+    ] == instructions
 
 
 @pytest.mark.parametrize("voice", [v for v in VoiceId if v is not VoiceId.THORSTEN])

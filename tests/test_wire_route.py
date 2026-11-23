@@ -24,7 +24,7 @@ from speech_client.wire import (
 )
 from speech_service.config import Settings
 from speech_service.failures import SpeakingFailedError
-from speech_service.pcm import AI_MARK, pcm_from_wav, rms
+from speech_service.pcm import AI_MARK
 from tests.support.fakes_support import (
     SPEAK_SAMPLE_RATE,
     FakeSpeaking,
@@ -51,6 +51,7 @@ from tests.support.speak_support import (
     status_of,
     wav_body,
 )
+from wav_audio import pcm_from_wav, rms
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator

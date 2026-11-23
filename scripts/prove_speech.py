@@ -58,7 +58,8 @@ from speech_client.wire import (
     speech_request_headers,
 )
 from speech_service.config import load_settings
-from speech_service.pcm import pcm_from_wav
+from speech_service.onnxruntime_telemetry import disable_onnxruntime_telemetry
+from wav_audio import SILENCE_RMS, pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
@@ -149,6 +150,7 @@ def run_under_probe_run(
 def prove_under_probe_run(prove: Callable[[], None]) -> None:
     """Turn TERM into an exit and run the proof body `probe-run` started."""
     exit_on_terminate()
+    disable_onnxruntime_telemetry()
     prove()
 
 
@@ -491,7 +493,7 @@ def _prove_concurrent_speak(base_url: str, voice: VoiceId, minting: Minting) -> 
             f"rms={spoken.level:.4f}",
             f"rate={spoken.rate}",
         )
-        if spoken.level < figures.SILENCE_RMS:
+        if spoken.level < SILENCE_RMS:
             message = f"concurrent {key} produced silence"
             raise SystemExit(message)
         if spoken.audio_seconds < figures.MIN_SPEECH_SECONDS:
@@ -634,7 +636,8 @@ def speech_environment(
     """Return the process environment binding the loopback port, offering `voice`.
 
     `device` defaults to `SPEECH_DEVICE` from the caller's environment, else
-    `cuda`; `hearing_model` is left unset when absent.
+    `cuda`; `hearing_model` is left unset when absent. With a hearing model, sound
+    events start off unless the caller exported `SPEECH_SOUND_EVENTS`.
     """
     env = os.environ.copy()
     env["SPEECH_CONFIG_FILE"] = str(identity.configuration_path)
@@ -649,6 +652,7 @@ def speech_environment(
     env["SPEECH_VOICES"] = offer_setting({PIPER_PROOF_VOICE, voice})
     if hearing_model is not None:
         env["SPEECH_HEARING_MODEL"] = hearing_model
+        env.setdefault("SPEECH_SOUND_EVENTS", "false")
     env["SPEECH_BUSY_WAIT_SECONDS"] = str(
         PIPER_FIRST_BYTE_LIMIT_S + CONCURRENT_EXTRA_WAIT_SECONDS
     )
@@ -670,7 +674,7 @@ def _prove() -> None:
     print("gpu_before", nvidia_memory())
     work_directory = Path(tempfile.mkdtemp(prefix="speech-"))
     port = free_local_port()
-    base_url = f"http://{LOOPBACK_HOST}:{port}"
+    base_url = f"http://{LOOPBACK_HOST}:{port}"  # NOSONAR(S5332) loopback
     settings = load_settings()
     voice = proof_voice(settings.voices or frozenset())
     try:

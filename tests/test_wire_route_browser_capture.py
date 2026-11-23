@@ -13,11 +13,9 @@ import wave
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-from urllib.parse import urlencode
 
 import numpy as np
 import pytest
-from playwright.async_api import async_playwright
 
 from speech_client.hearing import HearingSession
 from speech_client.realtime_wire import (
@@ -30,32 +28,27 @@ from speech_client.relay import HOP_FRAME_BYTES, HopClose
 from speech_client.wire import Language
 from speech_service.config import DEFAULT_LIVE_SILENCE_SECONDS
 from speech_service.voice_activity import PRE_ROLL_SECONDS
+from tests.support.browser_capture_support import (
+    FRAMES_BEFORE_STOP,
+    MESSAGING,
+    Stage,
+    capture_stage,
+)
 from tests.support.browser_support import (
     HELD_WORKLET_PATH,
     MESSAGING_HOP_PATH,
     RECORDING,
     REFUSING_HOP_PATH,
     AppSide,
-    stand_in_app,
 )
-from tests.support.hear_support import FakeHearing, hear_runtime
-from tests.support.page_coverage_support import PageCoverage
-from tests.support.tcp_server_support import serving_asgi, serving_over_tcp
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from pathlib import Path
 
-    from playwright.async_api import Page
 
 pytestmark = pytest.mark.browser
 
-CHROMIUM_FLAGS = (
-    "--use-fake-device-for-media-stream",
-    "--use-fake-ui-for-media-stream",
-    "--autoplay-policy=document-user-activation-required",
-)
-WAIT_MS = 20_000
 WAIT_SECONDS = 20
 WIRE_RATE = SessionInput().format.rate
 FRAME_SECONDS = 0.1
@@ -70,88 +63,9 @@ LAYOUTS = [(2.0, 1.0), (1.0, 2.5)]
 # silence that ends it, give or take a frame and a window.
 TURN_EXTRA_SECONDS = PRE_ROLL_SECONDS + DEFAULT_LIVE_SILENCE_SECONDS
 TURN_TOLERANCE_SECONDS = 0.15
-FRAMES_BEFORE_STOP = 3
 STOP_BOUND_MS = 1000
 CLOSED = 3
-# The page passes `onMessage`, and the app's route writes messages of its own.
-MESSAGING = {"hop": MESSAGING_HOP_PATH, "messages": "1"}
 BURST = 100
-
-
-@dataclass(frozen=True)
-class Stage:
-    """One test's service, app side and page."""
-
-    side: AppSide
-    page: Page
-    base_url: str
-    service_url: str
-    coverage: PageCoverage
-
-    async def open(self, **query: str) -> None:
-        """Load the app's page for the scenario `query` names."""
-        await self.page.goto(f"{self.base_url}/capture.html?{urlencode(query)}")
-
-    async def switch(self) -> None:
-        """Click the app's hearing switch."""
-        await self.page.click("#switch")
-
-    async def until(self, condition: str) -> None:
-        """Wait until `condition` holds on `seen`, what the page saw."""
-        await self.page.wait_for_function(
-            f"() => (seen => {condition})(window.capturePage)", timeout=WAIT_MS
-        )
-
-    async def seen(self) -> dict[str, object]:
-        """What the page saw."""
-        return await self.page.evaluate("window.capturePage")
-
-    async def switch_on_until_streaming(self, **query: str) -> None:
-        """Open the page, switch hearing on and wait until frames leave."""
-        await self.open(**query)
-        await self.switch()
-        await self.until(f"seen.sentBytes.length >= {FRAMES_BEFORE_STOP}")
-
-    def send(self, *messages: str | bytes | None) -> None:
-        """Have the messaging route write `messages`; `None` ends the hop."""
-        for message in messages:
-            self.side.outbox.put_nowait(message)
-
-    async def held(self) -> str:
-        """Every value the page holds, the messages the app was handed included."""
-        held = await self.page.evaluate(
-            "() => [document.documentElement.outerHTML, location.href,"
-            " JSON.stringify(localStorage), JSON.stringify(sessionStorage),"
-            " document.cookie, JSON.stringify(window.capturePage)].join('\\n')"
-        )
-        return held + repr(await self.page.context.cookies())
-
-    async def switch_off(self) -> dict[str, object]:
-        """Switch hearing off and return what the page saw once the capture ended."""
-        await self.coverage.take_worklets()
-        await self.switch()
-        await self.until("seen.ended !== null")
-        return await self.seen()
-
-
-@asynccontextmanager
-async def _stage(
-    tmp_path: Path, *, hearing_available: bool = True
-) -> AsyncIterator[Stage]:
-    engine = FakeHearing() if hearing_available else None
-    async with serving_over_tcp(hear_runtime(engine)) as service:
-        side = AppSide.new()
-        app = stand_in_app(service.base_url, side, tmp_path)
-        async with serving_asgi(app) as base_url, async_playwright() as playwright:
-            browser = await playwright.chromium.launch(args=CHROMIUM_FLAGS)
-            try:
-                page = await browser.new_page()
-                coverage = PageCoverage.from_environment()
-                await coverage.watch(page)
-                yield Stage(side, page, base_url, service.base_url, coverage)
-                await coverage.write()
-            finally:
-                await browser.close()
 
 
 def _tone(seconds: float, rms: float) -> np.ndarray:
@@ -209,7 +123,7 @@ def _longest_quiet_seconds(frames: list[bytes | str]) -> float:
 async def _play(tmp_path: Path, quiet: float, speech: float) -> tuple[AppSide, float]:
     """Play one layout through the page; the app's side and the turn's seconds."""
     _write_layout(tmp_path / RECORDING, quiet, speech)
-    async with _stage(tmp_path) as stage:
+    async with capture_stage(tmp_path) as stage:
         await stage.open(source="wav")
         await stage.switch()
         await asyncio.wait_for(stage.side.completed.wait(), WAIT_SECONDS)
@@ -250,7 +164,7 @@ class Streamed:
 
 
 async def _stream_and_stop(tmp_path: Path, source: str) -> Streamed:
-    async with _stage(tmp_path) as stage:
+    async with capture_stage(tmp_path) as stage:
         page = await stage.page.request.get(f"{stage.base_url}/capture.html")
         await stage.switch_on_until_streaming(source=source)
         seen = await stage.switch_off()
@@ -297,7 +211,7 @@ def test_the_tracks_ended_event_stops_capture_after_the_last_partial_frame(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> tuple[dict[str, object], list[bytes | str]]:
-        async with _stage(tmp_path) as stage:
+        async with capture_stage(tmp_path) as stage:
             await stage.switch_on_until_streaming(source="device")
             await stage.coverage.take_worklets()
             await stage.page.evaluate("window.endTrack()")
@@ -320,7 +234,7 @@ def test_a_context_that_stops_running_after_it_streamed_ends_the_capture_once(
     tmp_path: Path, how: str
 ) -> None:
     async def scenario() -> tuple[dict[str, object], list[bytes | str]]:
-        async with _stage(tmp_path) as stage:
+        async with capture_stage(tmp_path) as stage:
             await stage.switch_on_until_streaming(source="tone")
             await stage.page.evaluate(f"window.stopContext({how!r})")
             await stage.until("seen.ended !== null")
@@ -371,7 +285,7 @@ def test_the_apps_end_signal_reaches_ended_as_the_hops_normal_close(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with _stage(tmp_path) as stage:
+        async with capture_stage(tmp_path) as stage:
             await stage.switch_on_until_streaming(source="tone")
             await stage.coverage.take_worklets()
             stage.side.app_ended.set()
@@ -385,7 +299,7 @@ def test_the_apps_end_signal_reaches_ended_as_the_hops_normal_close(
 
 def test_a_busy_service_reaches_ended_as_the_hops_busy_close(tmp_path: Path) -> None:
     async def scenario() -> dict[str, object]:
-        async with _stage(tmp_path) as stage, _service_taken(stage):
+        async with capture_stage(tmp_path) as stage, _service_taken(stage):
             await stage.open(source="tone")
             await stage.switch()
             await stage.until("seen.ended !== null")
@@ -430,7 +344,7 @@ def test_a_local_failure_ends_as_its_value_and_leaves_nothing_open(
     tmp_path: Path, query: dict[str, str], failure: str
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with _stage(tmp_path) as stage:
+        async with capture_stage(tmp_path) as stage:
             await stage.open(**query)
             if query.get("start") != "load":
                 await stage.switch()
@@ -450,7 +364,7 @@ def test_an_app_route_that_refuses_the_upgrade_ends_as_socket_1006(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with _stage(tmp_path) as stage:
+        async with capture_stage(tmp_path) as stage:
             await stage.open(source="tone", hop=REFUSING_HOP_PATH)
             await stage.switch()
             await stage.until("seen.ended !== null")
@@ -491,7 +405,7 @@ def _numbered(count: int) -> list[str]:
 async def _transcribed_turn(tmp_path: Path) -> tuple[Streamed, list[str]]:
     """A recorded turn on the messaging route, ended after its transcripts arrived."""
     _write_layout(tmp_path / RECORDING, 1.0, 1.0)
-    async with _stage(tmp_path) as stage:
+    async with capture_stage(tmp_path) as stage:
         page = await stage.page.request.get(f"{stage.base_url}/capture.html")
         await stage.open(source="wav", **MESSAGING)
         await stage.switch()
@@ -535,7 +449,7 @@ def test_text_and_binary_messages_interleave_as_strings_and_exact_array_buffers(
     sent: list[str | bytes] = ["one", bytes(range(256)), "two", b"\x00\xff", "three"]
 
     async def scenario() -> dict[str, object]:
-        async with _stage(tmp_path) as stage:
+        async with capture_stage(tmp_path) as stage:
             stage.send(*sent)
             await stage.switch_on_until_streaming(source="tone", **MESSAGING)
             await stage.until(f"seen.messages.length >= {len(sent)}")
@@ -555,7 +469,7 @@ def test_a_message_sent_at_accept_arrives_while_the_worklet_is_held_and_before_s
     tmp_path: Path,
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
-        async with _stage(tmp_path) as stage:
+        async with capture_stage(tmp_path) as stage:
             stage.send("at accept")
             await stage.open(source="tone", worklet="held", **MESSAGING)
             await stage.switch()
@@ -578,7 +492,7 @@ def test_a_last_message_before_the_apps_end_signal_arrives_before_ended(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with _stage(tmp_path) as stage:
+        async with capture_stage(tmp_path) as stage:
             await stage.switch_on_until_streaming(source="tone", **MESSAGING)
             await stage.coverage.take_worklets()
             stage.send("last", None)
@@ -601,7 +515,9 @@ def test_the_message_sent_at_accept_arrives_before_a_failing_hop_ends(
     tmp_path: Path, failure: HopClose, *, hearing_available: bool, taken: bool
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with _stage(tmp_path, hearing_available=hearing_available) as stage:
+        async with capture_stage(
+            tmp_path, hearing_available=hearing_available
+        ) as stage:
             stage.send("at accept")
             async with AsyncExitStack() as arrangement:
                 if taken:
@@ -622,7 +538,7 @@ def test_a_stop_from_inside_the_callback_ends_delivery_at_once(tmp_path: Path) -
     stop_at = 5
 
     async def scenario() -> dict[str, object]:
-        async with _stage(tmp_path) as stage:
+        async with capture_stage(tmp_path) as stage:
             stage.send(*_numbered(BURST))
             await stage.open(source="tone", stopAt=str(stop_at), **MESSAGING)
             await stage.switch()
@@ -640,7 +556,7 @@ def test_a_throwing_callback_surfaces_one_page_error_and_the_capture_goes_on(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with _stage(tmp_path) as stage:
+        async with capture_stage(tmp_path) as stage:
             stage.send("first", "second", "third")
             await stage.switch_on_until_streaming(
                 source="tone", throwFirst="1", **MESSAGING
@@ -661,7 +577,7 @@ def test_without_on_message_a_route_that_sends_changes_nothing_for_the_capture(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with _stage(tmp_path) as stage:
+        async with capture_stage(tmp_path) as stage:
             stage.send("dropped", b"also dropped")
             await stage.switch_on_until_streaming(source="tone", hop=MESSAGING_HOP_PATH)
             await stage.until("seen.messagesReceived >= 2")
@@ -679,7 +595,7 @@ def test_no_callback_follows_a_local_failure_on_a_route_that_sends(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with _stage(tmp_path) as stage:
+        async with capture_stage(tmp_path) as stage:
             stage.send(*_numbered(BURST))
             await stage.open(source="tone", worklet="blob", **MESSAGING)
             await stage.switch()
@@ -695,7 +611,7 @@ def test_no_callback_follows_a_local_failure_on_a_route_that_sends(
 
 def test_a_burst_of_small_messages_arrives_in_order(tmp_path: Path) -> None:
     async def scenario() -> dict[str, object]:
-        async with _stage(tmp_path) as stage:
+        async with capture_stage(tmp_path) as stage:
             stage.send(*_numbered(BURST))
             await stage.switch_on_until_streaming(source="tone", **MESSAGING)
             await stage.until(f"seen.messages.length >= {BURST}")

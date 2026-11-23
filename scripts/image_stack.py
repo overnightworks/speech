@@ -7,7 +7,7 @@ import json
 import os
 import subprocess
 import uuid
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -26,6 +26,8 @@ from image_judgement import (
 from proof_identity import TokenPair, mint_pair
 from prove_speech import SENTENCES
 from shipped_catalogue import first_language
+from speech_client.realtime_wire import SoundName
+from speech_client.utterances import HeardSound
 from speech_client.wire import (
     CONTENT_TYPE_HEADER,
     MODEL,
@@ -38,7 +40,8 @@ from speech_client.wire import (
     speech_request_headers,
 )
 from speech_service.config import Settings
-from speech_service.pcm import LIVE_INPUT_RATE, pcm_from_wav, wav_header
+from speech_service.pcm import LIVE_INPUT_RATE, wav_header
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -57,6 +60,9 @@ SERVICE: Final = "speech"
 KEY_SERVER: Final = "key-server"
 LIVE_PACE_SECONDS: Final = 0.05
 LIVE_WAIT_SECONDS: Final = 120
+# The tagger's windows are scored after the audio reaches the service; a CPU image
+# needs this long to have scored the last one.
+SOUND_SETTLE_SECONDS: Final = 15
 MEMORY_PEAK_FILE: Final = "/sys/fs/cgroup/memory.peak"
 MEMORY_CURRENT_FILE: Final = "/sys/fs/cgroup/memory.current"
 MEMORY_EVENTS_FILE: Final = "/sys/fs/cgroup/memory.events"
@@ -93,6 +99,10 @@ class Compose:
     files: tuple[Path, ...]
     environment: Mapping[str, str]
     project: str
+
+    def with_files(self, files: tuple[Path, ...]) -> Compose:
+        """The same project over `files`."""
+        return Compose(files, self.environment, self.project)
 
     def command(self, *arguments: str) -> list[str]:
         """The full argv of one compose subcommand."""
@@ -201,7 +211,7 @@ def recording_form(wav: bytes, language: str) -> RecordingForm:
     fields = TranscriptionRequest(model=MODEL).model_dump(mode="json")
     request = httpx2.Request(
         "POST",
-        "http://form.invalid",
+        "http://form.invalid",  # NOSONAR(S5332) never sent
         data={**fields, "language": language},
         files={"file": ("recording.wav", wav, "audio/wav")},
     )
@@ -252,7 +262,27 @@ class Session:
 
     def as_app(self, app: str) -> Session:
         """The session speaking as another baked app."""
-        return replace(self, baked=baked_caller(self.config, app))
+        return Session(
+            self.compose,
+            self.config,
+            baked_caller(self.config, app),
+            self.signing,
+            self.tokens,
+            self.heard,
+            self.logs,
+        )
+
+    def with_compose(self, compose: Compose) -> Session:
+        """The session over another stack of the same project."""
+        return Session(
+            compose,
+            self.config,
+            self.baked,
+            self.signing,
+            self.tokens,
+            self.heard,
+            self.logs,
+        )
 
     @property
     def caller(self) -> str:
@@ -262,7 +292,8 @@ class Session:
     @property
     def service_url(self) -> str:
         """The service as the caller container reaches it."""
-        return f"http://{SERVICE}:{Settings.model_fields['port'].default}"
+        port = Settings.model_fields["port"].default
+        return f"http://{SERVICE}:{port}"  # NOSONAR(S5332) internal compose network
 
     def pair(self, minting: Minting | None = None) -> TokenPair:
         """Fresh tokens, remembered for the log check."""
@@ -320,6 +351,46 @@ class Session:
 
         Without `tokens` the session offers empty ones, as a caller with none would.
         """
+        answer = self._live(tokens, wav, languages)
+        return LiveOutcome(
+            answer.get("final"),
+            tuple(answer.get("partials", ())),
+            answer.get("error"),
+            answer.get("language"),
+        )
+
+    def hear_sounds(
+        self, tokens: TokenPair, wav: bytes, *, asking: bool
+    ) -> tuple[HeardSound, ...]:
+        """The sounds a session hears in `wav`, with or without asking for them."""
+        answer = self._live(
+            tokens,
+            wav,
+            (Language.DE,),
+            sound_detection=asking,
+            settle_seconds=SOUND_SETTLE_SECONDS,
+        )
+        if "error" in answer:
+            message = f"the sound turn ended in {answer['error']}"
+            raise SystemExit(message)
+        return tuple(
+            HeardSound(
+                SoundName(heard["sound"]),
+                heard["audio_start_ms"],
+                heard["audio_end_ms"],
+            )
+            for heard in answer["sounds"]
+        )
+
+    def _live(
+        self,
+        tokens: TokenPair | None,
+        wav: bytes,
+        languages: tuple[Language, ...],
+        *,
+        sound_detection: bool = False,
+        settle_seconds: float | None = None,
+    ) -> dict[str, Any]:
         offered = tokens or TokenPair(workload="", person="")
         specification = {
             "base_url": self.service_url,
@@ -329,14 +400,10 @@ class Session:
             "frames": live_frames(wav),
             "pace_seconds": LIVE_PACE_SECONDS,
             "wait_seconds": LIVE_WAIT_SECONDS,
+            "sound_detection": sound_detection,
+            "settle_seconds": settle_seconds,
         }
-        answer = json.loads(run_in(self.compose, self.caller, "live.py", specification))
-        return LiveOutcome(
-            answer.get("final"),
-            tuple(answer.get("partials", ())),
-            answer.get("error"),
-            answer.get("language"),
-        )
+        return json.loads(run_in(self.compose, self.caller, "live.py", specification))
 
     def tmp_usage(self) -> TmpUsage:
         """The filesystem's own count of the service's /tmp now."""
@@ -375,7 +442,8 @@ class Session:
 
 def oom_kills(events: str) -> int:
     """The `oom_kill` count of a cgroup's `memory.events` file."""
-    return int(dict(line.split() for line in events.splitlines())["oom_kill"])
+    counts = dict(map(str.split, events.splitlines()))
+    return int(counts["oom_kill"])
 
 
 def service_config(compose: Compose) -> dict[str, Any]:
@@ -397,7 +465,7 @@ def speak_marked(session: Session, voice: VoiceId | None = None) -> bytes:
 def start_with(session: Session, override: Path) -> Compose:
     """Recreate the service with `override` over the proof's files, without waiting."""
     session.collect_log()
-    stack = replace(session.compose, files=(*session.compose.files, override))
+    stack = session.compose.with_files((*session.compose.files, override))
     stack.run("up", "--detach", "--no-build", "--no-deps", "--force-recreate", SERVICE)
     return stack
 

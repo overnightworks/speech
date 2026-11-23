@@ -1,3 +1,5 @@
+import { SAMPLE_BYTES } from "./hop.js";
+
 const UNKNOWN_SIZE = 0xffffffff;
 const RIFF_HEADER_BYTES = 12;
 const CHUNK_HEADER_BYTES = 8;
@@ -5,7 +7,6 @@ const FORMAT_FIELDS_BYTES = 16;
 const PCM_TAG = 1;
 const MONO = 1;
 const SAMPLE_BITS = 16;
-const SAMPLE_BYTES = 2;
 const FULL_SCALE = 32768;
 const WAV_MEDIA_TYPE = /^audio\/(x-)?wav\b/i;
 

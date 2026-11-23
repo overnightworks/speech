@@ -1,4 +1,4 @@
-"""The service's own child: Qwen's launcher, which becomes the vLLM-Omni server."""
+"""The service's own child: Qwen's launcher, which runs the vLLM-Omni server."""
 
 from __future__ import annotations
 
@@ -403,7 +403,7 @@ class ProviderProcess:
     def _terminate_and_reap(self, child: subprocess.Popen[bytes] | None) -> None:
         if child is None:
             return
-        # The launcher leads its process group, and the server it becomes keeps
+        # The launcher leads its process group, and the server it runs keeps
         # its stage processes in that group: they outlive a server that died
         # first, so the group is signalled whether or not the server is alive.
         _signal_group(child.pid, signal.SIGTERM)

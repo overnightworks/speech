@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "overnightworks-speech-service"
-version = "0.22.3"
+version = "0.23.0"
 description = "Local speech synthesis, one process on the card."
 requires-python = ">=3.14"
 dependencies = [
@@ -13,7 +13,7 @@ dependencies = [
     "faster-whisper==1.2.1",
     "huggingface-hub==2.4.0",
     "overnightworks-webauth @ git+https://github.com/overnightworks/webauth@v0.42.0",
-    "overnightworks-logline @ git+https://github.com/overnightworks/logline@v1.6.0",
+    "overnightworks-logline @ git+https://github.com/overnightworks/logline@v1.8.0",
     "numpy==2.5.4",
     "piper-tts[alignment]==1.8.0",
     "python-multipart==0.0.33",
@@ -73,7 +73,12 @@ testpaths = ["tests", "packages/client/tests"]
 [tool.coverage.run]
 branch = true
 relative_files = true
-include = ["src/*", "packages/*/src/*", "providers/*/src/*"]
+patch = ["subprocess"]
+include = ["src/*", "packages/*/src/*", "providers/*/src/*", "scripts/*"]
+
+[tool.coverage.report]
+exclude_also = ["assert_never\\(", 'if __name__ == "__main__":']
+fail_under = 89
 
 [tool.ruff]
 target-version = "py314"
@@ -106,3 +111,30 @@ convention = "google"
 # The tests start the service and the servers as subprocesses with fixed argv.
 "tests/**" = ["S101", "S603", "D103"]
 "packages/client/tests/**" = ["S101", "D103"]
+
+[tool.importlinter]
+root_packages = ["speech_service", "speech_client", "speech_provider_contract", "speech_qwen"]
+
+[[tool.importlinter.contracts]]
+name = "The client imports no other speech package"
+type = "forbidden"
+source_modules = ["speech_client"]
+forbidden_modules = ["speech_service", "speech_provider_contract", "speech_qwen"]
+
+[[tool.importlinter.contracts]]
+name = "The service never imports the Qwen provider"
+type = "forbidden"
+source_modules = ["speech_service"]
+forbidden_modules = ["speech_qwen"]
+
+[[tool.importlinter.contracts]]
+name = "The provider contract imports no other speech package"
+type = "forbidden"
+source_modules = ["speech_provider_contract"]
+forbidden_modules = ["speech_service", "speech_client", "speech_qwen"]
+
+[[tool.importlinter.contracts]]
+name = "The Qwen provider imports neither the service nor the client"
+type = "forbidden"
+source_modules = ["speech_qwen"]
+forbidden_modules = ["speech_service", "speech_client"]

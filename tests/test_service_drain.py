@@ -50,6 +50,7 @@ from tests.support.drain_server_support import (
     HEARING_HOLD_FILE_VARIABLE,
     RELEASE_FILE_VARIABLE,
 )
+from tests.support.fakes_support import SPEAK_SAMPLE_RATE, sine_pcm
 from tests.support.hear_support import HEARD_TEXT, MULTIPART, multipart_body, recording
 from tests.support.live_support import (
     COMPLETED,
@@ -61,6 +62,7 @@ from tests.support.live_support import (
 )
 from tests.support.speak_support import speak_body
 from tests.support.tcp_server_support import free_loopback_port, wait_until_listening
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Iterator
@@ -272,6 +274,23 @@ def _transcribe(pair: _Pair, port: int) -> tuple[int, dict[str, object]]:
     )
     response = connection.getresponse()
     return response.status, json.loads(response.read())
+
+
+@pytest.mark.parametrize("port_name", ["first_port", "second_port"])
+def test_each_of_two_service_processes_serves_speaking_and_hearing(
+    pair: _Pair, port_name: str
+) -> None:
+    port = getattr(pair, port_name)
+    pair.release_file.touch()
+
+    response, first_byte = _stream_speech(pair, port)
+    speech = first_byte + response.read()
+    status, answer = _transcribe(pair, port)
+
+    assert response.status == http.HTTPStatus.OK
+    assert pcm_from_wav(speech) == (SPEAK_SAMPLE_RATE, sine_pcm(0.3, SPEAK_SAMPLE_RATE))
+    assert status == http.HTTPStatus.OK
+    assert answer["text"] == HEARD_TEXT
 
 
 def test_a_stopped_process_finishes_a_recording_already_being_heard(

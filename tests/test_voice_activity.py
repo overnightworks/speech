@@ -8,15 +8,15 @@ from faster_whisper.vad import get_vad_model
 
 from speech_service.config import DEFAULT_LIVE_SILENCE_SECONDS
 from speech_service.hearing_session import HearingSession, SpeechStart, TurnEnd
-from speech_service.pcm import pcm_from_wav
+from speech_service.pcm import HEARING_SAMPLE_RATE as SAMPLE_RATE
 from speech_service.voice_activity import (
-    SAMPLE_RATE,
     START_THRESHOLD,
     WINDOW_SAMPLES,
     ModelShapeError,
     SileroDetectors,
     open_shipped_model,
 )
+from wav_audio import pcm_from_wav
 
 MIN_VOICED_SECONDS = 0.5
 LEAD_MS = 900

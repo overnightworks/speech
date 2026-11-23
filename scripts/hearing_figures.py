@@ -26,10 +26,14 @@ from speech_service.hearing_session import (
     HearingSession,
     TurnEnd,
 )
-from speech_service.pcm import BYTES_PER_SAMPLE, LIVE_INPUT_RATE, Resampler
+from speech_service.pcm import (
+    BYTES_PER_SAMPLE,
+    HEARING_SAMPLE_RATE,
+    LIVE_INPUT_RATE,
+    Resampler,
+)
 from speech_service.voice_activity import (
     PRE_ROLL_SECONDS,
-    SAMPLE_RATE,
     WINDOW_SAMPLES,
     SileroDetectors,
     is_voiced,
@@ -289,7 +293,9 @@ def speech_only(pcm: bytes) -> bytes:
     if not voiced:
         message = "the clip holds no speech"
         raise ClipError(message)
-    window_bytes = WINDOW_SAMPLES * LIVE_INPUT_RATE // SAMPLE_RATE * BYTES_PER_SAMPLE
+    window_bytes = (
+        WINDOW_SAMPLES * LIVE_INPUT_RATE // HEARING_SAMPLE_RATE * BYTES_PER_SAMPLE
+    )
     pre_roll = int(PRE_ROLL_SECONDS * LIVE_INPUT_RATE) * BYTES_PER_SAMPLE
     return pcm[
         max(voiced[0] * window_bytes - pre_roll, 0) : (voiced[-1] + 1) * window_bytes
@@ -422,6 +428,13 @@ def _null_figures(
     )
 
 
+def _measures_nothing(key: str, value: object) -> bool:
+    """Whether a `growing_deltas` count or a `heard` text proves nothing."""
+    if key == "growing_deltas":
+        return isinstance(value, (int, float)) and value < MIN_GROWING_DELTAS
+    return _heard_nothing(value)
+
+
 def _unmeasured_figures(entry: object, path: tuple[str, ...] = ()) -> Iterator[str]:
     """The paths of the figures of the record that measure nothing.
 
@@ -437,11 +450,8 @@ def _unmeasured_figures(entry: object, path: tuple[str, ...] = ()) -> Iterator[s
         if key in ("median", "timing") and isinstance(value, dict):
             optional = PARTIAL_FIGURES if key == "median" else frozenset()
             yield from _null_figures(value, path, optional)
-        elif key == "growing_deltas":
-            if value < MIN_GROWING_DELTAS:
-                yield " ".join((*path, key))
-        elif key == "heard":
-            if _heard_nothing(value):
+        elif key in ("growing_deltas", "heard"):
+            if _measures_nothing(key, value):
                 yield " ".join((*path, key))
         else:
             yield from _unmeasured_figures(value, (*path, str(key)))

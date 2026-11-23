@@ -53,6 +53,8 @@ from image_judgement import (
     require_log_clean,
     require_marked_wav,
     require_no_oom,
+    require_no_sounds,
+    require_one_laughter,
     require_ready_within,
     require_refusal,
     require_tmp_clean,
@@ -100,6 +102,7 @@ from prove_speech import (
 )
 from shipped_catalogue import CATALOGUE
 from speech_client.hearing import Refused
+from speech_client.realtime_wire import PcmFormat
 from speech_client.wire import (
     Language,
     RefusalCode,
@@ -109,10 +112,12 @@ from speech_client.wire import (
 from speech_service.catalogue import PiperEntry
 from speech_service.config import Settings, load_caller_config
 from speech_service.hearing_models import HearingModel
+from wav_audio import pcm_from_wav
 
 THIS_SCRIPT: Final = Path(__file__).resolve()
 COMPOSE_FILE: Final = REPOSITORY / "compose.yaml"
 BAKED_CONFIG: Final = REPOSITORY / "deploy" / "speech.toml"
+SOUND_REFERENCE: Final = REPOSITORY / "scripts" / "sound_reference" / "laughter.wav"
 PROOF_OVERRIDE: Final = FIXTURES / "compose.proof.yaml"
 LOOPBACK_OVERRIDE: Final = FIXTURES / "compose.loopback.yaml"
 NO_MODEL_OVERRIDE: Final = FIXTURES / "compose.no-model.yaml"
@@ -121,7 +126,10 @@ MISSING_MODEL_OVERRIDE: Final = FIXTURES / "compose.missing-model.yaml"
 # hal builds with a cap of 1800 s; a build past half of it is a finding.
 BUILD_LIMIT_SECONDS: Final = 900
 PROJECT_ENV: Final = "SPEECH_PROOF_PROJECT"
-PUBLIC_ADDRESSES: Final = ("1.1.1.1:443", "huggingface.co:443")
+PUBLIC_ADDRESSES: Final = (
+    "1.1.1.1:443",  # NOSONAR(S1313) dialled to show egress is refused
+    "huggingface.co:443",
+)
 FORBIDDEN_EXECUTABLES: Final = ("git", "uv", "gcc", "cc")
 # What caller.py reports for a connection nothing listens on.
 REFUSED_CONNECTION: Final = "ConnectionRefusedError"
@@ -445,6 +453,25 @@ def cell_english_voice(session: Session, model: HearingModel) -> None:
     )
 
 
+def cell_live_sounds(session: Session) -> None:
+    """Cell 24: the reference laughter is one Laughter to a session that asks, no more.
+
+    The sound is delivered only to a session that asks (`on_sound` of the client).
+    """
+    wav = SOUND_REFERENCE.read_bytes()
+    rate, pcm = pcm_from_wav(wav)
+    clip_ms = len(pcm) * 1000 // (PcmFormat.sample_bytes * rate)
+    pair = session.pair()
+    asked = session.hear_sounds(pair, wav, asking=True)
+    require_one_laughter(asked, clip_ms)
+    require_no_sounds(session.hear_sounds(pair, wav, asking=False))
+    print(
+        f"cell 24: held; the {clip_ms} ms reference clip gave one Laughter from"
+        f" {asked[0].audio_start_ms} ms to {asked[0].audio_end_ms} ms to a session"
+        " that asked, and no sound to one that did not"
+    )
+
+
 def cell_recording_limit(session: Session, wav: bytes) -> None:
     """Cell 18: recordings at the size limit never become a 500 or a spool left over."""
     limit = Settings.model_fields["max_recording_bytes"].default
@@ -522,7 +549,7 @@ def wait_until_speaking_alone(session: Session) -> None:
         try:
             if is_speaking_alone(session.health()):
                 return
-        except SystemExit:
+        except SystemExit:  # NOSONAR(S5754) retried until up
             pass
         time.sleep(1)
     message = "the service never showed speaking ready with hearing not ready"
@@ -576,7 +603,7 @@ def cell_hearing_negatives(session: Session, wav: bytes) -> None:
 
 def require_hearing_model_negatives(session: Session) -> None:
     """A compose file without the model and an image without it each fail."""
-    plain = replace(session.compose, files=session.compose.files[:1])
+    plain = session.compose.with_files(session.compose.files[:1])
     model = service_config(plain)["environment"][HEARING_MODEL_SETTING]
     without = start_with(session, NO_MODEL_OVERRIDE)
     wait_until_speaking_alone(session)
@@ -610,12 +637,10 @@ def cell_negatives(session: Session, wav: bytes) -> None:
         naming="AI mark",
     )
     session.collect_log()
-    loopback = replace(
-        session.compose, files=(*session.compose.files, LOOPBACK_OVERRIDE)
-    )
+    loopback = session.compose.with_files((*session.compose.files, LOOPBACK_OVERRIDE))
     loopback.up(SERVICE, recreate=True)
     require_fails(
-        lambda: speak_marked(replace(session, compose=loopback)),
+        lambda: speak_marked(session.with_compose(loopback)),
         "a loopback-only bind",
         naming=REFUSED_CONNECTION,
     )
@@ -674,13 +699,14 @@ def print_teardown(outcome: Teardown, project: str) -> None:
 def hearing_cells(
     session: Session, plain: Compose, wav: bytes, started_after: float
 ) -> None:
-    """Cells 13 to 19: hearing in the image, after a start `started_after` long."""
+    """Cells 13 to 19 and 24: hearing in the image, after a start of `started_after`."""
     model = HearingModel(service_config(plain)["environment"][HEARING_MODEL_SETTING])
     cell_hearing_ready(session, plain, started_after)
     cell_recording(session, wav)
     cell_english_voice(session, model)
     cell_hearing_refusals(session, wav)
     cell_live_turn(session, wav, model)
+    cell_live_sounds(session)
     cell_recording_limit(session, wav)
     cell_hearing_restart(session, wav, plain)
 

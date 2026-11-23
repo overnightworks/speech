@@ -15,8 +15,14 @@ import numpy as np
 from speech_service.admission_gate import AdmissionGate, Lease
 from speech_service.cuda_libs import cuda_library_dirs, prepare_cuda_libraries
 from speech_service.hearing_models import model_directory, voiced_floor
+from speech_service.pcm import INT16_SCALE
+from speech_service.sound_events import (
+    DIRECTORY_SETTING,
+    SWITCH,
+    SoundTaggers,
+    check_model_directory,
+)
 from speech_service.voice_activity import (
-    SAMPLE_RATE,
     SileroDetectors,
     open_shipped_model,
 )
@@ -31,11 +37,11 @@ if TYPE_CHECKING:
     from speech_service.clock import Clock
     from speech_service.config import Settings
     from speech_service.hearing_models import HearingModel
+    from speech_service.sound_events import Scores, SoundStream, SoundWindow
     from speech_service.voice_activity import DetectorSource, SpeechDetector
 
 logger = logging.getLogger(__name__)
 
-HEARING_SAMPLE_RATE: Final = SAMPLE_RATE
 CPU_THREADS: Final = 4
 DRAIN_TURN_SECONDS: Final = 30.0
 _SETTING: Final = "SPEECH_HEARING_MODEL"
@@ -328,7 +334,7 @@ class WhisperHearing:
         if model is None:
             message = "hearing model is not loaded"
             raise RuntimeError(message)
-        audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+        audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / INT16_SCALE
         features = model.feature_extractor(audio)
         encoder_output = None
         language = languages[0]
@@ -375,14 +381,18 @@ class Hearing:
         engine: HearingEngine | None,
         clock: Clock,
         *,
+        sounds: SoundTaggers | None = None,
         drain_turn_seconds: float = DRAIN_TURN_SECONDS,
     ) -> None:
         """Hold `engine`, or none when no hearing model is configured.
 
         The gate's deadlines, and so the live sessions', are on `clock`. A drain
-        lets an open turn run `drain_turn_seconds` before it is cut.
+        lets an open turn run `drain_turn_seconds` before it is cut. `sounds` is the
+        sound model that loads once the engine is ready, or none when sound events
+        are off.
         """
         self._engine = engine
+        self._sounds = sounds
         self._drain_turn_seconds = drain_turn_seconds
         self._ready: HearingEngine | None = None
         self.gate = AdmissionGate(clock)
@@ -395,15 +405,17 @@ class Hearing:
         self._drain_began_at: float | None = None
 
     def load(self) -> None:
-        """Load the engine.
+        """Load the engine, then the sound model.
 
         A load that fails for want of the resource leaves hearing unavailable and
-        frees what it allocated; any other failure raises, naming the setting.
+        frees what it allocated; the sound model then does not load. Any other
+        failure, a sound model's included, raises naming the setting, and frees the
+        engine.
         """
         engine = self._engine
         if engine is None:
             return
-        misconfigured = False
+        failure: str | None = None
         try:
             engine.load()
         except ResourceUnavailableError:
@@ -412,15 +424,31 @@ class Hearing:
             )
         except Exception:
             logger.exception("hearing_model.failed", extra={"model": engine.model_name})
-            misconfigured = True
+            failure = f"{_SETTING}={engine.model_name} failed to load"
         else:
-            self._ready = engine
-            logger.info("hearing_model.ready", extra={"model": engine.model_name})
-            return
+            failure = self._load_sounds()
+            if failure is None:
+                self._ready = engine
+                logger.info("hearing_model.ready", extra={"model": engine.model_name})
+                return
         engine.close()
-        if misconfigured:
-            message = f"{_SETTING}={engine.model_name} failed to load"
-            raise RuntimeError(message)
+        if failure is not None:
+            raise RuntimeError(failure)
+
+    def _load_sounds(self) -> str | None:
+        """Load the sound model; the message of its failure, or `None`."""
+        sounds = self._sounds
+        if sounds is None:
+            return None
+        try:
+            sounds.load()
+        except Exception:
+            logger.exception("sound_model.failed")
+            sounds.close()
+            setting = f"{DIRECTORY_SETTING}={sounds.directory}"
+            return f"{setting} failed to load; {SWITCH}=false starts without sounds"
+        logger.info("sound_model.ready")
+        return None
 
     def capture(self) -> HearingEngine | None:
         """The loaded engine, or `None` while hearing is unavailable or draining.
@@ -467,6 +495,25 @@ class Hearing:
             message = "hearing is unavailable"
             raise RuntimeError(message)
         return engine.open_detector()
+
+    def open_sound_stream(self) -> SoundStream | None:
+        """A sound stream at the start of one live session's audio, or `None`.
+
+        There is none while hearing is unavailable or sound events are off.
+        """
+        if self._ready is None or self._sounds is None:
+            return None
+        return self._sounds.open_stream()
+
+    def submit_sound(self, window: SoundWindow) -> Future[Scores]:
+        """Score `window` on the sound worker, apart from the decode worker.
+
+        Raises `RuntimeError` while sound events are unavailable or after the close.
+        """
+        if self._sounds is None:
+            message = "sound events are unavailable"
+            raise RuntimeError(message)
+        return self._sounds.submit(window)
 
     def open_session(self, limit: int) -> Lease | None:
         """A place for one live session, or `None` while `limit` sessions are open.
@@ -535,6 +582,8 @@ class Hearing:
         """Take no new decode, wait for the running one, then free the engine."""
         self._ready = None
         self._worker.shutdown(wait=True, cancel_futures=True)
+        if self._sounds is not None:
+            self._sounds.close()
         if self._engine is not None:
             self._engine.close()
 
@@ -547,12 +596,19 @@ class Hearing:
 
 
 def hearing_from_settings(settings: Settings, clock: Clock) -> Hearing:
-    """Hearing for the configured model, or none; a missing model raises at once."""
+    """Hearing for the configured model, or none; a missing model raises at once.
+
+    The sound model is checked after the hearing model, and only with sound events on.
+    """
     if settings.hearing_model is None:
         return Hearing(None, clock)
     directory = model_directory(settings.hearing_model, settings.huggingface_cache)
+    sounds = None
+    if settings.sound_events:
+        check_model_directory(settings.sound_model_directory)
+        sounds = SoundTaggers(settings.sound_model_directory)
     identifier = ScoreIdentifier(voiced_floor(settings.hearing_model))
     whisper = WhisperHearing(
         settings.hearing_model, directory, settings.device, identifier
     )
-    return Hearing(whisper, clock)
+    return Hearing(whisper, clock, sounds=sounds)

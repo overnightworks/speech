@@ -1,4 +1,9 @@
 [[code]]
-path = "scripts/build_sound_model.py"
-item = "#537"
-reason = "The images bake the converted model before the service's slice 2 loads it."
+path = "src/speech_service/espeak_marks.py"
+item = "#347"
+reason = "Word marks stay frozen until figure#69 calls them."
+
+[[code]]
+path = "scripts/speaking_marks.py"
+item = "#347"
+reason = "Word marks stay frozen until figure#69 calls them."

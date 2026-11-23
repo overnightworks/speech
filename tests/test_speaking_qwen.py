@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE, QwenSpeaker
 
+from speech_client.wire import Language
 from speech_service.failures import log_failure
 from speech_service.provider_process import (
     ProviderLaunch,
@@ -48,6 +49,7 @@ def speaking(tmp_path: Path) -> Iterator[Callable[[str], QwenSpeaking]]:
                 )
             ),
             QwenSpeaker.SOHEE,
+            (Language.DE,),
         )
         started.append(voice)
         voice.load()
@@ -82,7 +84,7 @@ def test_the_request_names_the_voice_and_the_language_of_the_server(
 
     assert list(voice.pcm_chunks("Hallo", language)) == [b"\x00\x01"]
 
-    (request,) = received_requests(tmp_path / "cache")
+    *_, request = received_requests(tmp_path / "cache")
     assert request["input"] == "Hallo"
     assert request["voice"] == "Sohee"
     assert request["language"] == language_name
@@ -99,7 +101,7 @@ def test_named_instructions_reach_the_server_for_that_utterance_only(
     assert list(voice.pcm_chunks("Hallo", "de", "Sprich zornig"))
     assert list(voice.pcm_chunks("Hallo", "de"))
 
-    with_tone, without_tone = received_requests(tmp_path / "cache")
+    *_, with_tone, without_tone = received_requests(tmp_path / "cache")
     assert with_tone["instructions"] == "Sprich zornig"
     assert "instructions" not in without_tone
 
@@ -141,21 +143,11 @@ def test_a_refusal_fails_the_synthesis_and_the_server_and_logs_only_its_status(
     assert_reaped(pid)
 
 
-@pytest.mark.parametrize(
-    ("behavior", "failing"), [("other-rate", True), ("normal", False)]
-)
-def test_a_sample_rate_other_than_qwens_fails_the_synthesis(
-    speaking: Callable[[str], QwenSpeaking], behavior: str, *, failing: bool
+def test_a_sample_rate_other_than_qwens_fails_the_load(
+    speaking: Callable[[str], QwenSpeaking],
 ) -> None:
-    voice = speaking(behavior)
-
-    if failing:
-        with pytest.raises(ProviderSynthesisFailedError):
-            list(voice.pcm_chunks("Hallo", "de"))
-        assert voice.ready is False
-    else:
-        assert list(voice.pcm_chunks("Hallo", "de")) == [b"\x00\x01"]
-        assert voice.ready is True
+    with pytest.raises(ProviderSynthesisFailedError):
+        speaking("other-rate")
 
 
 def test_a_server_that_ends_mid_stream_fails_the_synthesis_and_logs_no_server_text(
@@ -197,11 +189,12 @@ def test_an_unsupported_language_is_refused_before_any_request(
     tmp_path: Path, speaking: Callable[[str], QwenSpeaking]
 ) -> None:
     voice = speaking("normal")
+    warm_up_requests = received_requests(tmp_path / "cache")
 
     with pytest.raises(UnsupportedLanguageError):
         list(voice.pcm_chunks("hello", "fr"))
 
-    assert received_requests(tmp_path / "cache") == []
+    assert received_requests(tmp_path / "cache") == warm_up_requests
     assert voice.ready is True
 
 
@@ -216,6 +209,7 @@ def test_a_voice_that_is_not_loaded_refuses_its_request_as_not_ready(
             )
         ),
         QwenSpeaker.RYAN,
+        (Language.DE,),
     )
 
     with pytest.raises(ProviderNotReadyError):

@@ -9,8 +9,12 @@ admission (accepting the socket included), its switches, the token choice and
 when a hearing ends: it sets `app_ended` to end it.
 
 Frames from the browser are untrusted. A binary frame is forwarded unread; the
-session holds it up to its own byte limit. A text frame, or a frame over
-`frame_limit_bytes`, ends the hop with its named close code. Nothing here
+session holds it up to its own byte limit. A frame over `frame_limit_bytes` (a
+text measured as UTF-8 bytes) ends the hop with its named close code, and so does
+a text frame when the app passes no `on_text`. With `on_text`, each text frame
+reaches it unread, in order with the audio frames; the relay interprets no text,
+and the app validates it. `on_text` is a plain function: an `async def` returns a
+coroutine the relay never awaits, so its text is lost. Nothing here
 measures loudness or detects speech: everything is streamed, and the service's
 own detector decides what speech is.
 
@@ -38,8 +42,9 @@ timeout, or at the session's deadline when the service no longer reads. A cancel
 of `relay`, a caller's timeout included, aborts the service socket at once,
 without a close handshake, whenever it lands, and leaves no task behind.
 `relay` enters and leaves `session` itself: pass it unentered. A failure of
-`on_event` is raised, and no task the relay started outlives it. The relay logs
-nothing.
+`on_event` or of `on_text` is raised, and no task the relay started outlives it;
+the browser socket is then left to the app, as for the token source's. A text
+received after `app_ended` reaches no `on_text`. The relay logs nothing.
 """
 
 from __future__ import annotations
@@ -146,11 +151,34 @@ def _close_for(outcome: RelayOutcome) -> HopClose | None:  # noqa: PLR0911 - one
             assert_never(outcome)
 
 
+def _pass_on(
+    message: Mapping[str, object],
+    session: HearingSession,
+    frame_limit_bytes: int,
+    on_text: Callable[[str], None] | None,
+) -> RuleBroken | None:
+    """Pass the browser's frame on, or return the rule it breaks."""
+    frame = message.get("bytes")
+    text = message.get("text")
+    if isinstance(frame, bytes):
+        if len(frame) > frame_limit_bytes:
+            return RuleBroken(HopClose.FRAME_TOO_LARGE)
+        session.send(frame)
+    elif on_text is not None and isinstance(text, str):
+        if len(text.encode()) > frame_limit_bytes:
+            return RuleBroken(HopClose.FRAME_TOO_LARGE)
+        on_text(text)
+    else:
+        return RuleBroken(HopClose.TEXT_FRAME)
+    return None
+
+
 async def _forward(
     browser: BrowserSocket,
     session: HearingSession,
     frame_limit_bytes: int,
     app_ended: asyncio.Event,
+    on_text: Callable[[str], None] | None,
 ) -> RelayOutcome:
     while True:
         message = await browser.receive()
@@ -158,12 +186,9 @@ async def _forward(
             return BrowserLeft()
         if app_ended.is_set():
             return AppEnded()
-        frame = message.get("bytes")
-        if not isinstance(frame, bytes):
-            return RuleBroken(HopClose.TEXT_FRAME)
-        if len(frame) > frame_limit_bytes:
-            return RuleBroken(HopClose.FRAME_TOO_LARGE)
-        session.send(frame)
+        broken = _pass_on(message, session, frame_limit_bytes, on_text)
+        if broken is not None:
+            return broken
 
 
 async def _deliver(
@@ -187,19 +212,20 @@ async def _signalled(app_ended: asyncio.Event) -> RelayOutcome:
     return AppEnded()
 
 
-async def relay(
+async def relay(  # noqa: PLR0913 - one keyword per thing the app passes
     browser: BrowserSocket,
     session: HearingSession,
     *,
     app_ended: asyncio.Event,
     on_event: Callable[[ServerEvent | Reconnected], Awaitable[None]],
+    on_text: Callable[[str], None] | None = None,
     frame_limit_bytes: int,
 ) -> RelayOutcome:
     """Relay `browser` to `session` until the first end; see the module."""
     async with session:
         ends = [
             asyncio.create_task(
-                _forward(browser, session, frame_limit_bytes, app_ended)
+                _forward(browser, session, frame_limit_bytes, app_ended, on_text)
             ),
             asyncio.create_task(_deliver(session, on_event, app_ended)),
             asyncio.create_task(_signalled(app_ended)),

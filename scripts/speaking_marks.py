@@ -34,9 +34,9 @@ from speech_client.wire import (
     Word,
     speech_request_headers,
 )
-from speech_service.hearing import HEARING_SAMPLE_RATE
-from speech_service.pcm import BYTES_PER_SAMPLE, pcm_from_wav
+from speech_service.pcm import BYTES_PER_SAMPLE, HEARING_SAMPLE_RATE
 from speech_service.recording import decode_recording
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping

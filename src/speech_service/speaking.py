@@ -5,8 +5,10 @@ from __future__ import annotations
 import http.client
 import json
 import logging
+from collections import deque
 from functools import partial
 from http import HTTPStatus
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Protocol, assert_never, runtime_checkable
 
 from speech_provider_contract import (
@@ -16,7 +18,7 @@ from speech_provider_contract import (
     QwenSpeaker,
 )
 
-from speech_client.wire import GivesMarks, SentenceMarks
+from speech_client.wire import GivesMarks, Language, SentenceMarks
 from speech_service.catalogue import PiperEntry, QwenEntry
 from speech_service.espeak_marks import (
     EspeakEvents,
@@ -24,6 +26,7 @@ from speech_service.espeak_marks import (
     WordMarker,
     load_espeak_events,
 )
+from speech_service.pcm import BYTES_PER_SAMPLE
 from speech_service.provider_process import (
     ProviderId,
     ProviderLaunch,
@@ -35,7 +38,7 @@ from speech_service.provider_process import (
 from speech_service.voices import piper_voice_paths
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Iterator
+    from collections.abc import Callable, Generator, Iterator, Mapping
     from pathlib import Path
 
     from piper import AudioChunk, PiperVoice
@@ -162,29 +165,45 @@ def _spoken(chunk: AudioChunk) -> Sentence:
 _RESPONSE_SECONDS = 120.0
 """How long the server may stay silent in the middle of a response."""
 _PCM_READ_BYTES = 64 * 1024
-_SAMPLE_BYTES = 2
 _SAMPLE_RATE_HEADER = "x-audio-sample-rate"
 _SPEECH_PATH = "/v1/audio/speech"
+_WARM_UP_SENTENCES: Mapping[Language, str] = MappingProxyType(
+    {Language.DE: "Guten Tag.", Language.EN: "Good day."}
+)
+"""One short sentence per language a GPU voice speaks before it reports ready."""
 
 
 class QwenSpeaking:
     """One Qwen voice, spoken through the vLLM-Omni server its process owns."""
 
-    def __init__(self, process: ProviderProcess, speaker: QwenSpeaker) -> None:
-        """Remember the server's owner and the voice every request names."""
+    def __init__(
+        self,
+        process: ProviderProcess,
+        speaker: QwenSpeaker,
+        languages: tuple[Language, ...],
+    ) -> None:
+        """Remember the server's owner, the voice every request names, its languages."""
         self.model_name = QWEN_MODEL_ID
         self.sample_rate = QWEN_SAMPLE_RATE
         self._process = process
         self._speaker = speaker
+        self._languages = languages
+        self._warmed = False
 
     @property
     def ready(self) -> bool:
-        """Whether the server is up, healthy and not failed."""
-        return self._process.ready
+        """Whether the voice is warmed and its server is up, healthy and not failed."""
+        return self._warmed and self._process.ready
 
     def load(self) -> None:
-        """Start the server and return once it answers its health check."""
+        """Start the server, then speak and discard one sentence per language.
+
+        A refused warm-up fails the server and the load like any failed synthesis.
+        """
         self._process.load()
+        for language in self._languages:
+            deque(self.pcm_chunks(_WARM_UP_SENTENCES[language], language), maxlen=0)
+        self._warmed = True
 
     def set_fatal_callback(self, callback: Callable[[], None]) -> None:
         """Give the server's owner the runtime's lifecycle failure seam."""
@@ -244,7 +263,7 @@ class QwenSpeaking:
         carried = b""
         while arrived := response.read1(_PCM_READ_BYTES):
             available = carried + arrived
-            whole = len(available) - len(available) % _SAMPLE_BYTES
+            whole = len(available) - len(available) % BYTES_PER_SAMPLE
             carried = available[whole:]
             if whole:
                 yield available[:whole]
@@ -285,6 +304,7 @@ def speaking_for_voice(settings: Settings, voice: CatalogueEntry) -> LocalSpeaki
                     )
                 ),
                 voice.pin.speaker,
+                voice.languages,
             )
         case unreachable:
             assert_never(unreachable)

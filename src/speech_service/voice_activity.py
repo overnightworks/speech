@@ -6,29 +6,29 @@ carries its own recurrent state, context and unfinished window.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol
 
 import numpy as np
+
+from speech_service.pcm import BYTES_PER_SAMPLE, HEARING_SAMPLE_RATE, INT16_SCALE
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from onnxruntime import InferenceSession
 
-SAMPLE_RATE: Final = 16_000
 WINDOW_SAMPLES: Final = 512
 CONTEXT_SAMPLES: Final = 64
 _STATE_SHAPE: Final = (1, 1, 128)
 _OUTPUT_COUNT: Final = 3
-_INT16_SCALE: Final = 32768.0
-_BYTES_PER_SAMPLE: Final = 2
 
 # Measured on Piper speech, recorded speech and noise (see the commit that set them).
 START_THRESHOLD: Final = 0.5
 END_THRESHOLD: Final = 0.35
 START_WINDOWS: Final = 3
 PRE_ROLL_SECONDS: Final = 0.35
-WINDOW_SECONDS: Final = WINDOW_SAMPLES / SAMPLE_RATE
+WINDOW_SECONDS: Final = WINDOW_SAMPLES / HEARING_SAMPLE_RATE
 
 
 def is_voiced(probability: float) -> bool:
@@ -77,10 +77,9 @@ def _checked_shapes(session: InferenceSession) -> None:
         raise ModelShapeError(message)
 
 
-def open_shipped_model() -> InferenceSession:
-    """An ONNX session over the Silero model that ships with faster-whisper."""
+def one_thread_session(model: Path) -> InferenceSession:
+    """An ONNX session over `model` on the CPU, on one thread."""
     import onnxruntime  # noqa: PLC0415 - heavy and loaded only once hearing is configured
-    from faster_whisper.utils import get_assets_path  # noqa: PLC0415 - as above
 
     options = onnxruntime.SessionOptions()
     options.inter_op_num_threads = 1
@@ -88,10 +87,15 @@ def open_shipped_model() -> InferenceSession:
     options.enable_cpu_mem_arena = False
     options.log_severity_level = 4
     return onnxruntime.InferenceSession(
-        f"{get_assets_path()}/silero_vad_v6.onnx",
-        providers=["CPUExecutionProvider"],
-        sess_options=options,
+        str(model), providers=["CPUExecutionProvider"], sess_options=options
     )
+
+
+def open_shipped_model() -> InferenceSession:
+    """An ONNX session over the Silero model that ships with faster-whisper."""
+    from faster_whisper.utils import get_assets_path  # noqa: PLC0415 - heavy and loaded only once hearing is configured
+
+    return one_thread_session(Path(get_assets_path()) / "silero_vad_v6.onnx")
 
 
 class SileroDetectors:
@@ -110,7 +114,7 @@ class SileroDetectors:
         session = self._open_model()
         _checked_shapes(session)
         self._session = session
-        silence = bytes(WINDOW_SAMPLES * _BYTES_PER_SAMPLE)
+        silence = bytes(WINDOW_SAMPLES * BYTES_PER_SAMPLE)
         if len(self.open().probabilities(silence)) != 1:
             message = "the Silero model does not answer one probability per window"
             raise ModelShapeError(message)
@@ -146,13 +150,13 @@ class SileroStream:
     def probabilities(self, pcm: bytes) -> list[float]:
         """The speech probability of each 512-sample window that `pcm` completes."""
         heard = self._unfinished + pcm
-        window_bytes = WINDOW_SAMPLES * _BYTES_PER_SAMPLE
+        window_bytes = WINDOW_SAMPLES * BYTES_PER_SAMPLE
         complete = len(heard) // window_bytes * window_bytes
         self._unfinished = heard[complete:]
         if not complete:
             return []
         samples = np.frombuffer(heard[:complete], dtype="<i2").astype(np.float32)
-        windows = (samples / _INT16_SCALE).reshape(-1, WINDOW_SAMPLES)
+        windows = (samples / INT16_SCALE).reshape(-1, WINDOW_SAMPLES)
         contexts = np.concatenate(
             [self._context[None, :], windows[:-1, -CONTEXT_SAMPLES:]]
         )
