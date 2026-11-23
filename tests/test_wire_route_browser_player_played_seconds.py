@@ -18,6 +18,7 @@ from tests.support.browser_player_support import (
     ONSET_BOUND_FRAMES,
     SHORT,
     SOUND_SECONDS,
+    STALLED_ONSET_BOUND_FRAMES,
     STREAMED,
     activated,
     bytes_of,
@@ -122,6 +123,28 @@ def test_the_start_a_sound_hands_over_is_the_context_time_its_first_sample_is_he
     # tone's first sample is silent: the onset heard is a sample later.
     assert seen["heardOnsets"][0] == pytest.approx(
         start["contextTime"], abs=ONSET_BOUND_FRAMES / seen["sampleRate"]
+    )
+
+
+@pytest.mark.parametrize("stall", ["before", "after"])
+def test_the_start_is_where_it_is_heard_when_the_page_stalls_around_the_start_call(
+    tmp_path: Path, stall: str
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.act("stallNextStart", stall)
+            await stage.hand_over(url(SHORT))
+            await stage.until("s.heardOnsets.length > 0")
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    # Before the call the render thread passes the start asked for and plays the sound
+    # from the quantum it is on; after it the sound plays at the start asked for, and
+    # the clock reads later by the stall.
+    assert seen["heardOnsets"][0] == pytest.approx(
+        seen["sounds"][0]["start"]["contextTime"],
+        abs=STALLED_ONSET_BOUND_FRAMES / seen["sampleRate"],
     )
 
 

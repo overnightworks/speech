@@ -83,6 +83,9 @@ SILENT_RMS = 0.001
 AUDIBLE_RMS = 0.05
 # One render quantum plus the detection sample and the tone's silent first sample.
 ONSET_BOUND_FRAMES = 128 + 2
+# A stalled page leaves the render thread to pick the start up a quantum or two
+# after the clock read; the stall the cells use is several quanta past that.
+STALLED_ONSET_BOUND_FRAMES = 2 * RENDER_QUANTUM_FRAMES + 2
 CLOSED = "closed"
 RESUMES_REJECTED_THEN_PASSED = 2
 # The context resume that starts the first sound, and the one after a pause.

@@ -450,7 +450,9 @@ class PlayerRun {
    * later; returns the context time its first sample is heard at.
    *
    * A page task that stalls between the clock read and `start()` leaves the render thread past the start asked for, and
-   * the source then plays from the quantum the render thread is on, which the clock reads once `start()` returned.
+   * the source then plays from the quantum the render thread is on, which the clock reads once `start()` returned. A
+   * stall after `start()` returned leaves the start asked for in place, though the clock then reads later: the clock is
+   * taken back by the time the page took to read it.
    */
   #schedule(scheduled: Scheduled, buffer: AudioBuffer, when: number): number {
     const source = this.#context.createBufferSource();
@@ -462,7 +464,9 @@ class PlayerRun {
     };
     const asked = Math.max(when, this.#earliestKnownStart(), this.#restoredAt);
     source.start(asked);
-    const start = Math.max(asked, this.#context.currentTime);
+    const returnedAt = performance.now();
+    const clock = this.#context.currentTime;
+    const start = Math.max(asked, clock - (performance.now() - returnedAt) / MILLISECONDS_PER_SECOND);
     scheduled.sources.set(source, start);
     scheduled.chunks.push({ start, seconds: buffer.duration });
     this.#announceStart(scheduled);
