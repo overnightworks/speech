@@ -710,7 +710,8 @@ def hearing_cells(
     cell_hearing_restart(session, wav, plain)
 
 
-def _prove() -> None:
+def prove() -> None:
+    """Run the image proof inside its own temporary directory."""
     config = load_caller_config(BAKED_CONFIG)
     baked = baked_caller(config, min(config.apps))
     directory = Path(tempfile.mkdtemp(prefix="speech-image-"))
@@ -785,7 +786,7 @@ def build_then_drive(
 
 def main() -> None:
     """Run the image proof, driving it through the fleet's `probe-run` form."""
-    enter_proof(build_then_drive, _prove)
+    enter_proof(build_then_drive, prove)
 
 
 if __name__ == "__main__":

@@ -320,7 +320,7 @@ def test_each_speaking_script_sends_the_workload_token_and_the_persons_bearer(
             id="contract client",
         ),
         pytest.param(
-            lambda url, voice, minting: HEARING._speaks(url, minting, voice),  # noqa: SLF001 - the probe's speaking step is the unit under test
+            lambda url, voice, minting: HEARING.speaks(url, minting, voice),
             id="hearing probe",
         ),
     ],
@@ -384,7 +384,7 @@ def test_the_contract_client_speaks_the_language_health_names_first_for_the_voic
     )
 
     with _recording_speech_service(health) as (base_url, requests):
-        CLIENT._run(base_url, voice, minting)  # noqa: SLF001 - the script's run step is the unit under test
+        CLIENT.run(base_url, voice, minting)
 
     (request,) = requests
     assert SpeechRequest.model_validate_json(request.body).language == offered[0]
@@ -416,7 +416,7 @@ def test_the_contract_client_speaks_the_voice_named_on_its_command_line(
         options = CLIENT.parse_arguments(
             ["--minting-file", str(identity.minting_path), base_url, str(voice)]
         )
-        CLIENT._run(base_url, options.voice, minting)  # noqa: SLF001 - the script's run step is the unit under test
+        CLIENT.run(base_url, options.voice, minting)
 
     (request,) = requests
     assert SpeechRequest.model_validate_json(request.body).voice == voice

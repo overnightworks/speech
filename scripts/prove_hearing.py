@@ -172,7 +172,7 @@ def spoken_texts() -> list[str]:
 # -- waiting for the service --------------------------------------------------
 
 
-def _speaks(base_url: str, minting: Minting, voice: VoiceId) -> bool:
+def speaks(base_url: str, minting: Minting, voice: VoiceId) -> bool:
     """True once the speak route answers, which it does only after loading ends."""
     pair = mint_pair(minting)
     try:
@@ -191,15 +191,15 @@ def _speaks(base_url: str, minting: Minting, voice: VoiceId) -> bool:
     return response.status_code == HTTPStatus.OK
 
 
-def _loaded(health: Health, speaks: Callable[[], bool]) -> bool:
-    return health.hearing.ready or (health.speaking.ready and speaks())
+def _loaded(health: Health, can_speak: Callable[[], bool]) -> bool:
+    return health.hearing.ready or (health.speaking.ready and can_speak())
 
 
 @dataclass(frozen=True)
 class LoadWait:
     """What a wait for the service's load asks and how it tells the time."""
 
-    speaks: Callable[[], bool]
+    can_speak: Callable[[], bool]
     health_of: Callable[[str], HealthOutcome] = read_health
     sleep: Callable[[float], None] = time.sleep
     monotonic: Callable[[], float] = time.monotonic
@@ -221,7 +221,7 @@ def wait_loaded(
         answer = wait.health_of(base_url)
         if isinstance(answer, Health):
             last = answer
-            if _loaded(answer, wait.speaks):
+            if _loaded(answer, wait.can_speak):
                 fresh = wait.health_of(base_url)
                 if isinstance(fresh, Health):
                     return fresh
@@ -250,7 +250,7 @@ def hearing_service(
             wait_ready = functools.partial(
                 wait_loaded,
                 wait=LoadWait(
-                    speaks=functools.partial(_speaks, base_url, minting, voice)
+                    can_speak=functools.partial(speaks, base_url, minting, voice)
                 ),
             )
             with speech_server(
