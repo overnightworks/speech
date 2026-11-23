@@ -1,0 +1,7 @@
+claim_id = "879cfe20ce0947b4b8aaf28afc246e24"
+agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
+role = "builder"
+base = "324f96b4b719e142a2cd2644f21684043bb308e1"
+branch = "claude/issue-517-the-player-s-hold-cells-resume-while-ram"
+scope = ["packages/browser/src/player.ts", "tests/fixtures/browser/player_page.js", "tests/test_wire_route_browser_player_hold.py"]
+opened_commit = "5eb5212e0d44885e892e9d66c7a555c76dc2ea65"
