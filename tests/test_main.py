@@ -151,6 +151,13 @@ class _StoppedOnceReady(_ShutdownOnlyServer):
         await super().serve(sockets=sockets)
 
 
+def _serve_until_it_ends(settings: Settings, runtime: Runtime) -> int:
+    """Serve `runtime` with no signal installed: only the server ends it."""
+    return asyncio.run(
+        serve_runtime(settings, runtime, StopPolicy(install_signals=RecordedStops()))
+    )
+
+
 def _events(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [record.getMessage() for record in caplog.records]
 
@@ -202,9 +209,7 @@ def test_failed_loader_stops_the_server_and_closes_the_listener(
 
     settings = _serving_settings(tmp_path)
 
-    outcome = asyncio.run(
-        serve_runtime(settings, runtime, StopPolicy(install_signals=RecordedStops()))
-    )
+    outcome = _serve_until_it_ends(settings, runtime)
 
     assert outcome == 1
     assert not listens_on(settings.port)
@@ -351,9 +356,7 @@ def test_owned_speaking_failure_stops_the_server_and_returns_failure(
 
     settings = _serving_settings(tmp_path)
 
-    outcome = asyncio.run(
-        serve_runtime(settings, runtime, StopPolicy(install_signals=RecordedStops()))
-    )
+    outcome = _serve_until_it_ends(settings, runtime)
 
     assert outcome == 1
     assert server.should_exit
@@ -388,9 +391,7 @@ def test_orchestrator_serves_health_from_its_loading_runtime(
 
     settings = _serving_settings(tmp_path)
 
-    outcome = asyncio.run(
-        serve_runtime(settings, runtime, StopPolicy(install_signals=RecordedStops()))
-    )
+    outcome = _serve_until_it_ends(settings, runtime)
 
     assert outcome == 1
     assert observed["speaking"] == {
@@ -579,9 +580,7 @@ def test_server_ending_on_its_own_returns_failure_and_closes_the_listener(
 
     settings = _serving_settings(tmp_path)
 
-    outcome = asyncio.run(
-        serve_runtime(settings, runtime, StopPolicy(install_signals=RecordedStops()))
-    )
+    outcome = _serve_until_it_ends(settings, runtime)
 
     assert outcome == 1
     assert not listens_on(settings.port)
