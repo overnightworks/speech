@@ -38,6 +38,7 @@ from tests.support.launcher_support import (
     closed_provider,
     debug_log,
     fail_every_reap,
+    health_deadline_from_scenario,
     numba_cache,
     observed,
     provider_launcher,
@@ -183,6 +184,7 @@ def test_a_socket_nothing_listens_on_never_counts_as_ready(
 ) -> None:
     monkeypatch.setattr(f"{_OWNER}.HEALTH_DEADLINE_SECONDS", 0.5)
     server = _server(tmp_path, "stale-socket")
+    health_deadline_from_scenario(monkeypatch, _OWNER, tmp_path / "cache")
 
     with pytest.raises(ProviderFailedError):
         server.load()
@@ -199,6 +201,7 @@ def test_the_health_deadline_fails_the_load_and_reaps_a_term_resistant_server(
     monkeypatch.setattr(f"{_OWNER}.HEALTH_DEADLINE_SECONDS", 0.3)
     monkeypatch.setattr(f"{_OWNER}.TERMINATE_GRACE_SECONDS", 0.05)
     server = _server(tmp_path, "stale-socket term-resistant")
+    health_deadline_from_scenario(monkeypatch, _OWNER, tmp_path / "cache")
 
     with pytest.raises(ProviderFailedError):
         server.load()

@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import time
+import types
 from enum import StrEnum
 from pathlib import Path
 
@@ -115,6 +116,30 @@ def _write_atomically(path: Path, text: str) -> None:
     staged = path.with_name(f"{path.name}.staged")
     staged.write_text(text, encoding="utf-8")
     staged.replace(path)
+
+
+def health_deadline_from_scenario(
+    monkeypatch: pytest.MonkeyPatch, owner: str, cache: Path
+) -> None:
+    """Make the `owner` module's health deadline count only from the scenario's start.
+
+    A `stale-socket` server has begun once it holds its socket, with every other
+    word of its behaviour in force. Until then the module's clock stands still,
+    so a slow start cannot end the wait; from then on it runs on.
+    """
+    begun = cache / "scenario-begun"
+    real_monotonic = time.monotonic
+    standing = real_monotonic()
+    lost_to_start: list[float] = []
+
+    def monotonic() -> float:
+        if not lost_to_start and begun.exists():
+            lost_to_start.append(real_monotonic() - standing)
+        return real_monotonic() - lost_to_start[0] if lost_to_start else standing
+
+    monkeypatch.setattr(
+        f"{owner}.time", types.SimpleNamespace(monotonic=monotonic), raising=True
+    )
 
 
 def observed(cache: Path) -> tuple[str, dict[str, str], int, dict[str, str]]:
