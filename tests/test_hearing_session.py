@@ -10,6 +10,7 @@ from speech_service.hearing_session import (
     HearingSession,
     SpeechStart,
     TurnEnd,
+    TurnEndedBy,
 )
 from speech_service.pcm import BYTES_PER_SAMPLE
 from speech_service.pcm import HEARING_SAMPLE_RATE as SAMPLE_RATE
@@ -93,7 +94,7 @@ def test_a_turn_ends_once_the_silence_is_complete_and_not_a_window_before() -> N
 
     assert one_window_short == []
     (ended,) = _ends(complete)
-    assert not ended.by_client
+    assert ended.ended_by is TurnEndedBy.SILENCE
 
 
 def test_a_turn_ended_by_silence_names_that_silence_and_the_others_name_none() -> None:
@@ -224,6 +225,7 @@ def test_audio_that_crosses_the_cap_ends_the_turn_at_the_cap_and_opens_the_next(
     (ended,) = _ends(events)
     assert len(ended.pcm) == round(MAX_TURN_SECONDS * BYTES_PER_SECOND)
     assert ended.end_ms - ended.start_ms == round(MAX_TURN_SECONDS * 1000)
+    assert ended.ended_by is TurnEndedBy.CAP
     rest = session.commit()
     assert isinstance(rest, TurnEnd)
     assert rest.start_ms == ended.end_ms
@@ -307,7 +309,7 @@ def test_a_commit_ends_the_open_turn_at_once_for_the_client() -> None:
         start_ms=0,
         end_ms=round(20 * WINDOW_SECONDS * 1000),
         voiced_seconds=pytest.approx(20 * WINDOW_SECONDS),
-        by_client=True,
+        ended_by=TurnEndedBy.CLIENT,
     )
 
 
