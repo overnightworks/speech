@@ -1,0 +1,7 @@
+claim_id = "1abb89bdb03844389913f6a10b4998d4"
+agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
+role = "builder"
+base = "577d5242b9532da0d8da84d701eb8c22840f72ac"
+branch = "claude/issue-644-free-loopback-port-reserved"
+scope = ["tests/support/tcp_server_support.py"]
+opened_commit = "47985327870693fd96860d352f1a0cfff9b22ced"
