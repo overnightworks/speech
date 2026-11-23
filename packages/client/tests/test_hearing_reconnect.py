@@ -246,6 +246,29 @@ def test_a_deadline_falling_due_with_the_last_opening_bound_ends_reconnect_faile
     assert (visits, outcome) == (1 + BOUND.attempts, ReconnectFailed())
 
 
+def test_a_deadline_due_after_the_reconnect_bound_ran_out_ends_reconnect_failed() -> (
+    None
+):
+    deadline_seconds = 1.5
+
+    async def scenario() -> tuple[int, HearingOutcome | None]:
+        jump = jumpable_clock()
+
+        async def stalls_past_both(connection: ServerConnection, visit: Visit) -> None:
+            visit.update = str(await connection.recv())
+            # The bound ran out and the deadline is due when the attempt is ended.
+            jump(BOUND.within_seconds + deadline_seconds)
+            await connection.wait_closed()
+
+        async with scripted(answers_then_drains, stalls_past_both) as (port, visits):
+            outcome = (
+                await hear(port, opening_seconds=0.2, deadline_seconds=deadline_seconds)
+            )[1]
+            return len(visits), outcome
+
+    assert asyncio.run(scenario()) == (2, ReconnectFailed())
+
+
 def test_the_last_failed_attempt_ends_the_hearing_without_a_pause() -> None:
     one_attempt = ReconnectBound(attempts=1, pause_seconds=30, within_seconds=30)
 
