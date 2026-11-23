@@ -3,6 +3,6 @@ agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
 role = "builder"
 base = "3041704341022a0723b5c874ec71eb9b36cb7e90"
 branch = "claude/issue-613-the-serve-loop-takes-its-runtime-and-sig"
-scope = ["src/speech_service/__main__.py", "tests/support/drain_server_support.py", "tests/support/gpu_voice_support.py", "tests/test_main.py", "tests/test_main_serve_lifecycle.py"]
+scope = ["src/speech_service/__main__.py", "tests/scripts/test_prove_image.py", "tests/support/drain_server_support.py", "tests/support/gpu_voice_support.py", "tests/support/serve_support.py", "tests/test_main.py", "tests/test_main_serve_lifecycle.py", "tests/test_voice_slot_stop.py"]
 opened_commit = "2531568c11dce6c264e783fa211b74d519860e8f"
 whole_reason = "One seam in the composition root and the three test owners that reach past it today; changing the seam without its callers leaves them broken."
