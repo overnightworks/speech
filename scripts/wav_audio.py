@@ -1,7 +1,7 @@
 """The scripts' one reader of a WAV body: its chunks, its PCM and its level.
 
-Standard library only: `contract_client` is an outside caller of the wire and
-may not import `speech_service`.
+Standard library and `speech_client` only: `contract_client` is an outside
+caller of the wire and may not import `speech_service`.
 """
 
 from __future__ import annotations
@@ -9,14 +9,13 @@ from __future__ import annotations
 from array import array
 from typing import TYPE_CHECKING, Final
 
+from speech_client.realtime_wire import PcmFormat
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
 WAV_HEADER_BYTES: Final = 44
 SILENCE_RMS: Final = 0.01
-# The full scale of int16 samples; the service's `pcm.INT16_SCALE` is the same
-# number, which this module may not import.
-_INT16_SCALE: Final = 32768.0
 _SAMPLE_BYTES: Final = 2
 _CHUNK_HEADER_BYTES: Final = 8
 
@@ -54,4 +53,4 @@ def rms(pcm: bytes) -> float:
     if not samples:
         return 0.0
     total = sum(sample * sample for sample in samples)
-    return (total / len(samples)) ** 0.5 / _INT16_SCALE
+    return (total / len(samples)) ** 0.5 / PcmFormat.full_scale
