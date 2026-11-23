@@ -81,7 +81,7 @@ def test_sigterm_during_a_load_refuses_its_waiters_reaps_the_server_and_exits_ze
             return outcome, await asyncio.gather(*waiters)
 
     with gpu_voice_stage(tmp_path, monkeypatch, _LOADING) as stage:
-        serving = Serving(stage, monkeypatch)
+        serving = Serving(stage)
         with serving.listener:
             outcome, responses = asyncio.run(scenario(serving, stage))
 
@@ -128,7 +128,7 @@ def test_sigterm_during_a_failed_loads_cleanup_waits_for_it_and_exits_by_its_rea
     )
     with gpu_voice_stage(tmp_path, monkeypatch, setup) as stage:
         hold_exits(stage.cache)
-        serving = Serving(stage, monkeypatch)
+        serving = Serving(stage)
         with serving.listener:
             waited, outcome = asyncio.run(scenario(serving, stage))
 
@@ -155,7 +155,7 @@ def test_a_failed_load_whose_server_cannot_be_reaped_ends_the_service_nonzero(
 
     setup = StageSetup(started=False, reaps_fail=True)
     with gpu_voice_stage(tmp_path, monkeypatch, setup) as stage:
-        serving = Serving(stage, monkeypatch)
+        serving = Serving(stage)
         with serving.listener:
             outcome = asyncio.run(scenario(serving, stage))
 
@@ -197,7 +197,7 @@ def test_sigterm_mid_stream_lets_the_stream_run_to_the_drain_bound_then_aborts_i
     with gpu_voice_stage(
         tmp_path, monkeypatch, _SHORT_DRAIN, **_SHORT_DRAIN_WAIT
     ) as stage:
-        serving = Serving(stage, monkeypatch)
+        serving = Serving(stage)
         with serving.listener:
             aborted, outcome, waited_seconds = asyncio.run(scenario(serving))
 
@@ -272,7 +272,7 @@ def test_a_request_the_stop_meets_on_a_kept_alive_connection_is_unavailable_not_
     with gpu_voice_stage(
         tmp_path, monkeypatch, _SHORT_DRAIN, **_SHORT_DRAIN_WAIT
     ) as stage:
-        serving = Serving(stage, monkeypatch)
+        serving = Serving(stage)
         with serving.listener:
             status, body, outcome = asyncio.run(scenario(serving, stage))
 

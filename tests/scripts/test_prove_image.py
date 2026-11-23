@@ -134,7 +134,9 @@ def test_a_private_key_in_a_python_file_of_the_packages_is_reported(
     voices = tmp_path / "voices"
     voices.mkdir()
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("sysconfig.get_paths", lambda: {"purelib": str(site_packages)})
+    monkeypatch.setattr(
+        "sysconfig.get_paths", lambda *_args, **_kwargs: {"purelib": str(site_packages)}
+    )
     monkeypatch.setattr(
         sys, "argv", [str(INSPECT_IMAGE), str(voices), str(tmp_path / "hub"), "small"]
     )

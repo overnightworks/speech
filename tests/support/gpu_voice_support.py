@@ -21,7 +21,6 @@ from speech_provider_contract import (
 
 from shipped_catalogue import PIPER_VOICES
 from speech_client.wire import HEALTH_PATH, Health, VoiceId
-from speech_service import __main__
 from speech_service.__main__ import StopPolicy
 from speech_service.config import Settings
 from speech_service.control import create_control_app
@@ -37,6 +36,7 @@ from tests.support.launcher_support import (
     release_exit,
     server_starts,
 )
+from tests.support.serve_support import RecordedStops, serve_runtime
 from tests.support.speak_support import ASGI_TIMEOUT_SECONDS, wav_body
 from tests.support.tcp_server_support import answers_http
 
@@ -246,10 +246,10 @@ class Serving:
     It stops as its SIGTERM handler stops it; `fatal` notes the fatal callback.
     """
 
-    def __init__(self, stage: GpuVoiceStage, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Route `__main__` to the stage's runtime; nothing serves until `start`."""
+    def __init__(self, stage: GpuVoiceStage) -> None:
+        """Hold the stage's runtime; nothing serves until `start`."""
         self._stage = stage
-        self._stopping: list[asyncio.Event] = []
+        self._stops = RecordedStops()
         self.fatal = threading.Event()
         runtime = stage.runtime
         set_fatal_callback = runtime.set_fatal_callback
@@ -262,8 +262,6 @@ class Serving:
             set_fatal_callback(both)
 
         runtime.set_fatal_callback = noting_fatal
-        monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
-        monkeypatch.setattr(__main__, "_install_signal_handlers", self._stopping.append)
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.listener.bind((LOOPBACK, 0))
         self.listener.listen()
@@ -273,11 +271,13 @@ class Serving:
     async def start(self) -> httpx2.AsyncClient:
         """Serve; once the start load ended, a client whose tokens are valid."""
         self._task = asyncio.create_task(
-            __main__._serve_on(  # noqa: SLF001 - the serve loop behind the TCP listener
+            serve_runtime(
                 self._stage.settings,
-                valid_callers(),
-                self.listener,
-                StopPolicy(grace_seconds=STOP_GRACE_SECONDS),
+                self._stage.runtime,
+                StopPolicy(
+                    install_signals=self._stops, grace_seconds=STOP_GRACE_SECONDS
+                ),
+                listener=self.listener,
             )
         )
         deadline = time.monotonic() + SERVER_WAIT_SECONDS
@@ -294,7 +294,7 @@ class Serving:
 
     def sigterm(self) -> None:
         """Stop the serve loop as its SIGTERM handler does."""
-        self._stopping[0].set()
+        self._stops.stop()
 
     @property
     def task(self) -> asyncio.Task[int]:
