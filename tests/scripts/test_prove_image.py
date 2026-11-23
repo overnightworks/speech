@@ -174,7 +174,7 @@ def test_a_failed_removal_of_the_temporary_files_fails_the_proof_loudly(
     )
     try:
         with pytest.raises(PermissionError):
-            PROVE._prove()  # noqa: SLF001 - the whole run is the entry point under test
+            PROVE.prove()
     finally:
         stuck.chmod(0o700)
 
