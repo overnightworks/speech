@@ -266,9 +266,9 @@ def waited_seconds(seen: dict[str, object], until: float) -> float:
         max(min(following["start"], until) - (chunk["start"] + chunk["seconds"]), 0)
         for chunk, following in pairwise(chunks)
     )
-    if not chunks:
-        return gaps
-    return gaps + max(until - (chunks[-1]["start"] + chunks[-1]["seconds"]), 0)
+    ends = (chunk["start"] + chunk["seconds"] for chunk in chunks)
+    last_end = max(ends, default=until)
+    return gaps + max(until - last_end, 0)
 
 
 def audible_seconds(seen: dict[str, object], since: float, until: float) -> float:
