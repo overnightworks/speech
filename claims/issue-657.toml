@@ -1,0 +1,8 @@
+claim_id = "451a73056771408a9eb515a5cb836c13"
+agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
+role = "builder"
+base = "a1ee297369e9cc70aaa5cf73a55f620d6a6b2f2d"
+branch = "claude/issue-657-quality-v0-26-0"
+scope = [".github/workflows/ci.yml", ".github/workflows/code-scanning.yml", ".github/workflows/release-distributions.yml", ".github/workflows/release.yml", "docs", "packages", "quality/baseline.toml", "quality/config.toml", "tests"]
+opened_commit = "a0d1ce6a7c183d46968ae33bc857c7a07c6eb76c"
+whole_reason = "the pin does not move before the list is recorded, so the pin, the conversion of documents and citations and the recorded list move in one pull request."
