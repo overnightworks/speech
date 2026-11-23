@@ -340,6 +340,11 @@ client was told sounds are on, so losing them silently would read as "no sound".
 `error` or the close no sound event follows. During a drain (WIRE-146) sounds are sent until
 the `1012` close, which they never delay.
 
+**WIRE-170** `completed.transcript` carries no leading or trailing whitespace, and a turn
+with no words is `""`. The service trims every transcript it sends, and the client refuses
+a `completed` event that breaks the rule as a malformed server event. Deltas are provisional
+and follow no such rule (WIRE-71).
+
 **WIRE-136** `completed.languages` is `[{"code": "<code>"}]` with exactly one element, the
 language the turn was decoded in: also for a session of one language, for a turn heard in
 the main language because the identifier did not know, and for an empty transcript. It is

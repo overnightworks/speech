@@ -61,7 +61,6 @@ if TYPE_CHECKING:
     from speech_service.service import Runtime
 
 SHORT_WAIT_SECONDS = 0.2
-SLACK_SECONDS = 0.5
 ALIEN_SAMPLE_RATE = 24_000
 
 

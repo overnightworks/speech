@@ -110,7 +110,7 @@ from speech_client.wire import (
     speech_request_headers,
 )
 from speech_service.catalogue import PiperEntry
-from speech_service.config import Settings, load_caller_config
+from speech_service.config import Settings, load_caller_config, setting_variable
 from speech_service.hearing_models import HearingModel
 from wav_audio import pcm_from_wav
 
@@ -137,9 +137,7 @@ REFUSED_CONNECTION: Final = "ConnectionRefusedError"
 REFUSED_UPGRADE: Final = Refused.__name__
 FOREIGN_LANGUAGE: Final = "fr"
 # The setting a missing model is reported under, in the environment and the log.
-HEARING_MODEL_SETTING: Final = (
-    Settings.model_config["env_prefix"] + "hearing_model"
-).upper()
+HEARING_MODEL_SETTING: Final = setting_variable("hearing_model")
 # Recordings at the byte limit sent at once: one decodes, the waiting places fill,
 # and the rest are told busy. Without the kept-recording places the burst would
 # hold BURST_SIZE recordings, twice the cap's room; with them the service holds a
@@ -193,8 +191,9 @@ def cell_contents(plain: Compose) -> None:
     script = (FIXTURES / "inspect_image.py").read_text()
     output = docker(
         "run", "--rm", "--interactive", "--network", "none", "--entrypoint", "python",
-        plain.project, "-", environment["SPEECH_VOICE_CACHE"],
-        environment["SPEECH_HUGGINGFACE_CACHE"], environment[HEARING_MODEL_SETTING],
+        plain.project, "-", environment[setting_variable("voice_cache")],
+        environment[setting_variable("huggingface_cache")],
+        environment[HEARING_MODEL_SETTING],
         *FORBIDDEN_EXECUTABLES,
         stdin=script,
     )  # fmt: skip

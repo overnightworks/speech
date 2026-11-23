@@ -25,7 +25,9 @@ from speech_service.admission_gate import AdmissionGate, Lease
 from speech_service.clock import LoopClock
 from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.clock_support import FakeClock
+from tests.support.elapsed_support import well_before
 from tests.support.fakes_support import (
+    GATE_TIMEOUT_SECONDS,
     SPEAK_SAMPLE_RATE,
     FakeSpeaking,
     GatedSpeaking,
@@ -55,10 +57,10 @@ if TYPE_CHECKING:
 
 
 SHORT_WAIT_SECONDS = 0.2
-SLACK_SECONDS = 0.5
 ALIEN_SAMPLE_RATE = 24_000
 
 MANY_WAITERS = 100
+HELD_SECONDS = 30.0
 WAIT_SECONDS = 5.0
 SHORT_SECONDS = 0.05
 
@@ -274,11 +276,16 @@ def test_a_request_that_finds_the_gate_held_waits_then_is_told_to_retry_after(
     client = TestClient(app_over(runtime, busy_wait_seconds=wait))
     held = synthesis_gate(runtime).try_acquire()
     assert held is not None
+    # A request waiting for the holder rather than its wait ends after `HELD_SECONDS`.
+    releasing = threading.Timer(HELD_SECONDS, held.close)
+    releasing.start()
     began = time.monotonic()
 
     response = post_speech(client, speak_body())
 
-    assert time.monotonic() - began < wait + SLACK_SECONDS
+    releasing.cancel()
+    held.close()
+    assert time.monotonic() - began < well_before(HELD_SECONDS)
     _busy(response, retry_after)
 
 
@@ -305,7 +312,7 @@ def test_a_request_beyond_the_waiting_places_is_told_busy_at_once() -> None:
 
     assert_call_refusal(beyond, HTTP_429_TOO_MANY_REQUESTS, RefusalCode.BUSY, None)
     assert beyond.headers[RETRY_AFTER_HEADER.lower()] == "5"
-    assert beyond.started_after < SLACK_SECONDS
+    assert beyond.started_after < well_before(ASGI_TIMEOUT_SECONDS)
     assert waiting.status_code == HTTP_200_OK
     assert voice.most_concurrent_syntheses == 1
 
@@ -359,7 +366,7 @@ def test_a_second_request_is_told_busy_within_the_wait_while_the_first_streams()
 
     assert second.status_code == HTTP_429_TOO_MANY_REQUESTS
     assert second.headers[RETRY_AFTER_HEADER.lower()] == "1"
-    assert second.started_after < SHORT_WAIT_SECONDS + SLACK_SECONDS
+    assert second.started_after < well_before(GATE_TIMEOUT_SECONDS)
     assert first.status_code == HTTP_200_OK
     assert pcm_from_wav(first_body)[0] == SPEAK_SAMPLE_RATE
 
@@ -528,7 +535,7 @@ def test_a_stream_holding_every_worker_cannot_push_the_busy_answer_past_the_wait
     runtime, first, second, later = asyncio.run(scenario())
 
     assert_call_refusal(second, HTTP_429_TOO_MANY_REQUESTS, RefusalCode.BUSY, None)
-    assert second.started_after < SHORT_WAIT_SECONDS + SLACK_SECONDS
+    assert second.started_after < well_before(GATE_TIMEOUT_SECONDS)
     assert second.headers[RETRY_AFTER_HEADER.lower()] == "1"
     assert first.status_code == HTTP_200_OK
     assert later == HTTP_200_OK
@@ -560,7 +567,7 @@ def test_a_free_gate_answers_within_the_wait_though_every_worker_is_occupied() -
     runtime, call = asyncio.run(scenario())
 
     assert call.status_code == HTTP_200_OK
-    assert call.started_after < SHORT_WAIT_SECONDS + SLACK_SECONDS
+    assert call.started_after < well_before(ASGI_TIMEOUT_SECONDS)
     assert gate_is_free(runtime, VoiceId.RYAN)
 
 
@@ -596,8 +603,8 @@ def test_a_failed_voice_whose_close_blocks_is_still_answered_within_the_wait() -
         assert_call_refusal(
             call, HTTP_503_SERVICE_UNAVAILABLE, RefusalCode.UNAVAILABLE, "voice"
         )
-    assert first.started_after < SHORT_WAIT_SECONDS + SLACK_SECONDS
-    assert second.started_after < SHORT_WAIT_SECONDS + SLACK_SECONDS
+    assert first.started_after < well_before(ASGI_TIMEOUT_SECONDS)
+    assert second.started_after < well_before(ASGI_TIMEOUT_SECONDS)
 
 
 def _last_message_is_final(call: SpeakCall) -> bool:

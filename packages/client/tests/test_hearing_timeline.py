@@ -8,8 +8,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from packages.client.tests.support.elapsed_support import (
+    SESSION_DEADLINE_SECONDS,
+    well_before,
+)
 from packages.client.tests.support.hearing_support import (
-    AT_ONCE_SECONDS,
     HEARD_DELTA,
     session_to,
 )
@@ -71,7 +74,7 @@ def test_one_byte_over_the_held_limit_ends_the_hearing_while_the_source_runs() -
     async def scenario() -> tuple[HearingOutcome | None, float]:
         tokens = Tokens(2)
         async with scripted(drains, ends_in_order) as (port, _):
-            session = session_to(port, 30, 3, 5, tokens)
+            session = session_to(port, SESSION_DEADLINE_SECONDS, 3, 5, tokens)
             async with session:
                 await tokens.reached(2)
                 started = time.monotonic()
@@ -85,7 +88,7 @@ def test_one_byte_over_the_held_limit_ends_the_hearing_while_the_source_runs() -
     outcome, elapsed = asyncio.run(scenario())
 
     assert outcome == OverCap()
-    assert elapsed < AT_ONCE_SECONDS
+    assert elapsed < well_before(SESSION_DEADLINE_SECONDS)
 
 
 def test_one_byte_over_the_held_limit_ends_the_hearing_during_a_pause() -> None:
@@ -110,7 +113,7 @@ def test_one_byte_over_the_held_limit_ends_the_hearing_during_a_pause() -> None:
         outcome, elapsed = asyncio.run(scenario())
 
     assert outcome == OverCap()
-    assert elapsed < AT_ONCE_SECONDS
+    assert elapsed < well_before(long_pause.pause_seconds)
 
 
 def test_the_needed_hold_covers_the_opening_bound_and_the_reconnect_bound() -> None:

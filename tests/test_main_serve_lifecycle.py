@@ -116,7 +116,6 @@ def test_python_dash_m_starts_the_service_listening_on_the_configured_port(
     environment = {
         **os.environ,
         "SPEECH_PORT": str(port),
-        "SPEECH_STATE_DIRECTORY": str(tmp_path / "state"),
         "HF_HUB_OFFLINE": "1",
         "HF_HOME": str(tmp_path / "hf"),
         "SPEECH_CONFIG_FILE": str(write_caller_configuration(tmp_path)),
@@ -262,7 +261,6 @@ def test_a_bad_app_table_stops_the_start(tmp_path: Path, apps: str, named: str) 
     environment = {
         **os.environ,
         "SPEECH_PORT": str(free_loopback_port()),
-        "SPEECH_STATE_DIRECTORY": str(tmp_path / "state"),
         "SPEECH_CONFIG_FILE": str(
             write_caller_configuration(
                 tmp_path, caller_configuration_text(apps=f"[apps.quiz]\n{apps}\n")

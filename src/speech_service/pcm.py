@@ -18,7 +18,7 @@ AV_LAYOUT: Final = "mono"
 PCM_FORMAT: Final = 1
 # Streaming WAV: the length is not known when the first byte leaves.
 STREAMING_DATA_SIZE: Final = 0xFFFFFFFF
-INT16_SCALE: Final = 32768.0
+INT16_SCALE: Final = PcmFormat.full_scale
 # The IPTC term id for synthetic audio; never fetched (AI Act Art. 50(2)).
 AI_MARK: Final = (
     "DigitalSourceType=http://cv.iptc.org/newscodes/"  # NOSONAR(S5332) id, not fetched

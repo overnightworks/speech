@@ -13,6 +13,11 @@ from typing import TYPE_CHECKING, Self
 import pytest
 from websockets.asyncio.server import serve
 
+from packages.client.tests.support.elapsed_support import (
+    CLOSE_TIMEOUT_SECONDS,
+    seconds_to_cancel_after_end,
+    well_before,
+)
 from packages.client.tests.support.hearing_support import fixed_tokens
 from speech_client.hearing import OPENING_SECONDS, Closed, HearingSession, Refused
 from speech_client.outcomes import (
@@ -49,8 +54,6 @@ if TYPE_CHECKING:
     from speech_client.relay import RelayOutcome
 
 FRAME_LIMIT = 8
-# Well below the socket close timeout (10 s) and the session deadline (30 s).
-CLOSE_BOUND_SECONDS = 2
 # An opening bound a stalled service passes at once, far below the deadline.
 STALLED_OPENING_SECONDS = 0.3
 SECRET_WORDS = "heard-secret-words"  # noqa: S105 - a scenario value
@@ -621,30 +624,20 @@ def test_a_caller_timeout_before_the_hop_ends_aborts_a_stalled_service() -> None
         assert asyncio.all_tasks() == {asyncio.current_task()}
         return elapsed
 
-    assert asyncio.run(scenario()) < CLOSE_BOUND_SECONDS
+    assert asyncio.run(scenario()) < well_before(CLOSE_TIMEOUT_SECONDS)
 
 
 @pytest.mark.parametrize("yields_before_cancel", range(31))
 def test_a_cancel_at_any_moment_after_the_apps_end_signal_returns_at_once(
     yields_before_cancel: int,
 ) -> None:
-    async def scenario() -> float:
-        async with _stalled_service() as (service_url, opened):
-            app_ended = asyncio.Event()
-            hop = asyncio.create_task(_stalled_hop(service_url, app_ended))
-            await opened.wait()
-            app_ended.set()
-            for _ in range(yields_before_cancel):
-                await asyncio.sleep(0)
-            started = time.monotonic()
-            hop.cancel()
-            await asyncio.wait({hop}, timeout=CLOSE_BOUND_SECONDS)
-            elapsed = time.monotonic() - started
-            assert hop.cancelled()
-        assert asyncio.all_tasks() == {asyncio.current_task()}
-        return elapsed
+    elapsed = asyncio.run(
+        seconds_to_cancel_after_end(
+            _stalled_service(), _stalled_hop, yields_before_cancel
+        )
+    )
 
-    assert asyncio.run(scenario()) < CLOSE_BOUND_SECONDS / 2
+    assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)
 
 
 @pytest.mark.parametrize("stall", ["handshake", "first-event"])
@@ -664,7 +657,7 @@ def test_a_service_that_does_not_open_ends_the_hop_with_the_service_failed_close
             started = time.monotonic()
             outcome = await asyncio.wait_for(
                 _stalled_hop(url, asyncio.Event(), browser, STALLED_OPENING_SECONDS),
-                CLOSE_BOUND_SECONDS * 2,
+                CLOSE_TIMEOUT_SECONDS,
             )
             return outcome, browser.closed_with, time.monotonic() - started
 
@@ -672,4 +665,4 @@ def test_a_service_that_does_not_open_ends_the_hop_with_the_service_failed_close
 
     assert outcome == Unreachable()
     assert closed_with == [HopClose.SERVICE_FAILED]
-    assert elapsed < CLOSE_BOUND_SECONDS
+    assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)

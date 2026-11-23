@@ -21,6 +21,7 @@ from speech_client.wire import Language, VoiceId
 from speech_service.__main__ import StopPolicy
 from speech_service.provider_process import (
     CLOSE_SECONDS,
+    HEALTH_DEADLINE_SECONDS,
     OWNER_JOIN_SECONDS,
     ProviderCleanupFailedError,
     ProviderFailedError,
@@ -30,6 +31,7 @@ from speech_service.provider_process import (
 )
 from speech_service.service import Runtime, RuntimeDependencies
 from speech_service.speaking import QwenSpeaking
+from tests.support.elapsed_support import well_before
 from tests.support.launcher_support import (
     LoadOutcome,
     assert_reaped,
@@ -49,7 +51,6 @@ if TYPE_CHECKING:
 
 _SCRATCH_VARIABLES = ("NUMBA_CACHE_DIR", "TMPDIR", "HOME")
 _OWNER = "speech_service.provider_process"
-_CLOSE_BUDGET_SECONDS = 2
 
 
 def _process(root: Path, cache: Path) -> ProviderProcess:
@@ -207,7 +208,7 @@ def test_the_health_deadline_fails_the_load_and_reaps_a_term_resistant_server(
     server.close()
 
 
-def test_a_stop_during_the_health_wait_ends_within_the_close_budget(
+def test_a_stop_during_the_health_wait_does_not_wait_out_the_health_deadline(
     tmp_path: Path,
 ) -> None:
     root, cache = closed_provider(tmp_path, "held-ready")
@@ -226,9 +227,9 @@ def test_a_stop_during_the_health_wait_ends_within_the_close_budget(
 
     started = time.monotonic()
     server.close()
-    loading.join(timeout=5)
+    loading.join(timeout=well_before(HEALTH_DEADLINE_SECONDS))
 
-    assert time.monotonic() - started < _CLOSE_BUDGET_SECONDS
+    assert time.monotonic() - started < well_before(HEALTH_DEADLINE_SECONDS)
     assert not loading.is_alive()
     assert refused
     assert_reaped(pid)

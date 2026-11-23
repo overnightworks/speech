@@ -13,6 +13,7 @@ from speech_provider_contract import (
 )
 
 from speech_service.catalogue import PiperEntry, QwenEntry
+from speech_service.config import setting_variable
 from speech_service.provider_process import (
     ProviderId,
     is_executable_file,
@@ -53,7 +54,9 @@ def _missing_qwen_artifacts(settings: Settings) -> tuple[str, ...]:
     entrypoint = provider_entrypoint(settings.provider_root, ProviderId.QWEN)
     if not is_executable_file(entrypoint):
         missing.append(
-            entrypoint.name if entrypoint is not None else "SPEECH_PROVIDER_ROOT"
+            entrypoint.name
+            if entrypoint is not None
+            else setting_variable("provider_root")
         )
     return tuple(missing)
 
