@@ -1,0 +1,8 @@
+claim_id = "e3ff34a27209481391f914cc7299243b"
+agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
+role = "builder"
+base = "9242089270d62b4b3f20dba4c8dd39f11219bc42"
+branch = "claude/issue-599-quality-v0-24-0"
+scope = [".github/workflows/ci.yml", ".github/workflows/code-scanning.yml", ".github/workflows/release-distributions.yml", ".github/workflows/release.yml", "providers/qwen/pyproject.toml", "providers/qwen/uv.lock", "pyproject.toml", "uv.lock"]
+opened_commit = "1aa1b922159b07dcb9553234438bdd3b9e5b6f47"
+whole_reason = "One release pin moved in every workflow that names it, with the dependency and the pytest calls that release enforces; the pins must move together for the gate to judge one version."
