@@ -1,15 +1,22 @@
-"""The sound-model build switches onnxruntime telemetry off before it loads."""
+"""The sound-model build switches telemetry off, refuses bad inputs and builds."""
+
+from __future__ import annotations
 
 import importlib.abc
 import importlib.machinery
 import os
 import sys
 import types
+import wave
+from typing import TYPE_CHECKING
 
 import pytest
 
 from speech_service import pcm, sound_events
 from tests.support.script_support import script_module
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class _EnvironmentAtImport(importlib.abc.MetaPathFinder, importlib.abc.Loader):
@@ -64,3 +71,86 @@ def test_build_script_windows_match_the_service(
     assert script.SAMPLE_RATE == pcm.HEARING_SAMPLE_RATE
     assert script.WINDOW_SAMPLES == sound_events.WINDOW_SAMPLES
     assert script.HOP_SAMPLES == sound_events.HOP_SAMPLES
+
+
+@pytest.fixture
+def script(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
+    monkeypatch.setitem(sys.modules, "onnxruntime", types.ModuleType("onnxruntime"))
+    return script_module("build_sound_model")
+
+
+@pytest.fixture
+def faked_build(
+    script: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> types.ModuleType:
+    """The script with its download and conversion faked, parity left open."""
+
+    def fetch_source(source: Path) -> None:
+        source.mkdir()
+        (source / "LICENSE").write_bytes(b"licence")
+
+    monkeypatch.setattr(script, "fetch_source", fetch_source)
+    monkeypatch.setattr(script, "class_names", lambda _source: ["laughter"])
+    monkeypatch.setattr(script, "pytorch_model", lambda _source: object())
+    monkeypatch.setattr(script, "convert", lambda _model, _onnx: None)
+    monkeypatch.setattr(script, "worst_difference", lambda _model, _onnx, _labels: 0.0)
+    return script
+
+
+def test_build_writes_the_model_directory_when_the_parity_holds(
+    faked_build: types.ModuleType, tmp_path: Path
+) -> None:
+    destination = tmp_path / "model"
+    faked_build.build(destination)
+    assert (destination / "labels.json").is_file()
+
+
+def test_build_refuses_an_onnx_that_differs_from_pytorch(
+    faked_build: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        faked_build,
+        "worst_difference",
+        lambda _model, _onnx, _labels: faked_build.TOLERANCE * 2,
+    )
+    destination = tmp_path / "model"
+    with pytest.raises(RuntimeError, match="differs from PyTorch"):
+        faked_build.build(destination)
+    assert not destination.exists()
+
+
+def test_build_refuses_an_existing_destination(
+    faked_build: types.ModuleType, tmp_path: Path
+) -> None:
+    destination = tmp_path / "model"
+    destination.mkdir()
+    with pytest.raises(RuntimeError, match="exists"):
+        faked_build.build(destination)
+    assert list(destination.iterdir()) == []
+
+
+def test_download_refuses_bytes_that_differ_from_the_pin(
+    script: types.ModuleType, tmp_path: Path
+) -> None:
+    tampered = tmp_path / "source.bin"
+    tampered.write_bytes(b"tampered")
+    pin = next(iter(script.SOURCE_SHA256.values()))
+    url = tampered.as_uri()
+    with pytest.raises(RuntimeError, match="is not the pinned"):
+        script.download_pinned(url, pin)
+
+
+def test_reference_windows_refuse_a_clip_that_is_not_the_pinned_format(
+    script: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    clip = tmp_path / "clip.wav"
+    with wave.open(str(clip), "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(script.SAMPLE_RATE // 2)
+        writer.writeframes(b"\0\0" * 8)
+    monkeypatch.setattr(script, "REFERENCE_CLIP", clip)
+    with pytest.raises(RuntimeError, match="is not 16 kHz mono PCM16"):
+        script.reference_windows()

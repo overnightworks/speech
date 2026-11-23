@@ -21,6 +21,7 @@ from speech_client.wire import Language, VoiceId
 from speech_service.__main__ import StopPolicy
 from speech_service.provider_process import (
     CLOSE_SECONDS,
+    OWNER_JOIN_SECONDS,
     ProviderCleanupFailedError,
     ProviderFailedError,
     ProviderLaunch,
@@ -449,8 +450,8 @@ def test_a_term_resistant_server_is_reaped_inside_the_stops_grace(
     assert_reaped(pid)
 
 
-def test_the_close_bound_is_below_the_stops_grace() -> None:
-    assert StopPolicy().grace_seconds > CLOSE_SECONDS
+def test_the_whole_close_bound_is_below_the_stops_grace() -> None:
+    assert StopPolicy().grace_seconds > CLOSE_SECONDS + OWNER_JOIN_SECONDS
 
 
 def test_a_stage_process_that_outlives_its_server_ends_with_the_service_stop(

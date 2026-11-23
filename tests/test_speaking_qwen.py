@@ -119,6 +119,15 @@ def test_an_odd_remainder_at_the_end_fails_after_its_whole_samples_and_the_serve
     assert voice.ready is False
 
 
+def test_a_sample_split_across_two_chunks_comes_out_whole(
+    speaking: Callable[[str], QwenSpeaking],
+) -> None:
+    voice = speaking("normal")
+
+    assert list(voice.pcm_chunks("split-sample", "de")) == [b"\x00\x01"]
+    assert voice.ready is True
+
+
 def test_a_refusal_fails_the_synthesis_and_the_server_and_logs_only_its_status(
     tmp_path: Path,
     speaking: Callable[[str], QwenSpeaking],
