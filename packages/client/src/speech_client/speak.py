@@ -198,14 +198,10 @@ def _frames(
     for piece in body_pieces(response):
         pending += piece
         while (end := pending.find(_EVENT_END_BYTES)) >= 0:
-            if end > limit_bytes:
-                yield OverCap()
-                return
-            yield bytes(pending[:end])
+            yield OverCap() if end > limit_bytes else bytes(pending[:end])
             del pending[: end + len(_EVENT_END_BYTES)]
         if len(pending) > limit_bytes:
             yield OverCap()
-            return
     if pending:
         yield Malformed()
 
@@ -216,19 +212,18 @@ def _events(frames: Iterable[bytes | OverCap | Malformed]) -> Generator[_Content
     for frame in frames:
         if not isinstance(frame, bytes):
             yield frame
-            return
-        if done:
+        elif done:
             yield Malformed()
-            return
-        try:
-            content = read_audio_event(frame)
-        except ValueError:
-            yield Malformed()
-            return
-        if content is None:
-            done = True
         else:
-            yield content
+            try:
+                content = read_audio_event(frame)
+            except ValueError:
+                yield Malformed()
+            else:
+                if content is None:
+                    done = True
+                else:
+                    yield content
     if not done:
         yield Cut()
 
@@ -238,10 +233,7 @@ def _within_cap(items: Iterable[_Content], cap_bytes: int) -> Generator[_Content
     for item in items:
         if isinstance(item, bytes):
             received += len(item)
-            if received > cap_bytes:
-                yield OverCap()
-                return
-        yield item
+        yield OverCap() if received > cap_bytes else item
 
 
 def _signed(
@@ -255,18 +247,14 @@ def _signed(
     remaining = iter(items)
     head = bytearray()
     for item in remaining:
-        if isinstance(item, OverCap | Malformed | Cut):
-            yield item
-            return
         if isinstance(item, bytes):
             head += item
-            if len(head) < _SIGNATURE_BYTES:
-                continue
-        judged = _judged_head(head, response_format)
-        yield judged
-        if not isinstance(judged, Malformed):
+        if isinstance(item, OverCap | Malformed | Cut):
+            yield item
+        elif not isinstance(item, bytes) or len(head) >= _SIGNATURE_BYTES:
+            yield _judged_head(head, response_format)
             yield from remaining
-        return
+            return
     yield _judged_head(head, response_format)
 
 
@@ -276,17 +264,18 @@ def _delivered(
     response_format: ResponseFormat,
     stream_format: StreamFormat,
 ) -> Generator[_Content]:
+    """The answer's content; a failure is the last item taken, and the caller closes."""
     marked = stream_format is StreamFormat.SSE
     media_type = answer_media_type(response_format, stream_format)
     if response.headers.get_content_type() != media_type or not response.chunked:
         yield Malformed()
-        return
-    items = (
-        _events(_frames(response, _event_limit(cap_bytes)))
-        if marked
-        else body_pieces(response)
-    )
-    yield from _signed(_within_cap(items, cap_bytes), response_format)
+    else:
+        items = (
+            _events(_frames(response, _event_limit(cap_bytes)))
+            if marked
+            else body_pieces(response)
+        )
+        yield from _signed(_within_cap(items, cap_bytes), response_format)
 
 
 def _refusal(response: HTTPResponse) -> SpeakOutcome:

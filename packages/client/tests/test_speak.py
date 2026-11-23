@@ -23,6 +23,7 @@ from speech_client.speak import (
     Finished,
     Malformed,
     PastDeadline,
+    Refused,
     Spoken,
     Unreachable,
     speak,
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
     from http.client import HTTPConnection
 
     from speech_client.speak import SpeakOutcome, SpeakStreamItem
+    from speech_client.wire import RequestField
     from support.listener_support import Answer, RawListener
 
 VOICE = VoiceId.THORSTEN
@@ -134,9 +136,13 @@ _OGG_BODY = b"OggS\0\0\0\0"
 
 
 def _refusal_response(
-    status: str, code: RefusalCode, *headers: str, padding: int = 0
+    status: str,
+    code: RefusalCode,
+    *headers: str,
+    padding: int = 0,
+    param: RequestField | None = None,
 ) -> bytes:
-    body = refusal(code).model_dump_json().encode() + b" " * padding
+    body = refusal(code, param).model_dump_json().encode() + b" " * padding
     return head(status, f"Content-Length: {len(body)}", *headers) + body
 
 
@@ -324,6 +330,37 @@ def test_an_answer_that_breaks_the_wire_is_malformed(
         outcome = _speak(base_url)
 
     assert outcome == Malformed()
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "param"),
+    [
+        pytest.param(
+            "422 Unprocessable Entity",
+            RefusalCode.INVALID_REQUEST,
+            "voice",
+            id="refusal-naming-the-field-at-fault",
+        ),
+        pytest.param(
+            "401 Unauthorized", RefusalCode.UNAUTHORIZED, None, id="refusal-of-no-field"
+        ),
+    ],
+)
+def test_a_refusal_of_the_wire_tells_its_status_code_and_field(
+    status: str,
+    code: RefusalCode,
+    param: RequestField | None,
+    raw_listener: RawListener,
+) -> None:
+    with raw_listener(_refusal_response(status, code, param=param)) as (base_url, _):
+        outcome = _speak(base_url)
+
+    assert isinstance(outcome, Refused)
+    assert (outcome.status, outcome.code, outcome.param) == (
+        refusal(code).status,
+        code,
+        param,
+    )
 
 
 def test_a_chunked_wav_with_a_trailer_is_spoken(raw_listener: RawListener) -> None:
