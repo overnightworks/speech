@@ -275,11 +275,18 @@ def test_a_body_the_service_aborted_is_cut(chunks_before_failing: int) -> None:
 def test_a_voice_that_stalls_leaves_the_call_past_the_deadline() -> None:
     voice = GatedSpeaking()
 
-    began = time.monotonic()
-    outcome = _over_the_service(voice, deadline_seconds=DEADLINE_SECONDS)
+    async def scenario() -> tuple[SpeakOutcome, float]:
+        async with _serving(voice) as server:
+            began = time.monotonic()
+            outcome = await asyncio.to_thread(
+                _speak, server.base_url, deadline_seconds=DEADLINE_SECONDS
+            )
+            return outcome, time.monotonic() - began
+
+    outcome, elapsed = asyncio.run(scenario())
 
     assert outcome == PastDeadline()
-    assert time.monotonic() - began < well_before(GATE_TIMEOUT_SECONDS)
+    assert elapsed < well_before(GATE_TIMEOUT_SECONDS)
 
 
 def test_a_request_beyond_the_waiting_places_is_told_busy_with_the_wait() -> None:
