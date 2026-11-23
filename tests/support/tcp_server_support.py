@@ -29,13 +29,22 @@ if TYPE_CHECKING:
 
 _LOOPBACK = "127.0.0.1"
 CLOSE_WAIT_SECONDS = 10
+_RESERVATIONS: list[socket.socket] = []
 
 
 def free_loopback_port() -> int:
-    """A port nothing listens on right now."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind((_LOOPBACK, 0))
-        return probe.getsockname()[1]
+    """A loopback port no other bind or outgoing connection is handed.
+
+    The reservation lasts for the worker's life; a service that sets
+    `SO_REUSEADDR` can still bind and listen on the port.
+    """
+    reservation = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # The kernel treats a non-listening socket that shares SO_REUSEADDR as no
+    # conflict for a listener, yet bind(0) and connect() still skip its port.
+    reservation.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    reservation.bind((_LOOPBACK, 0))
+    _RESERVATIONS.append(reservation)
+    return reservation.getsockname()[1]
 
 
 def listens_on(port: int) -> bool:
