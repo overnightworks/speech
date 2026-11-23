@@ -234,7 +234,7 @@ def test_an_offered_piper_voice_without_its_files_ends_the_start_naming_the_voic
 
 class _ObservedSpeaking(QwenSpeaking):
     def __init__(self, process: ProviderProcess, closed: threading.Event) -> None:
-        super().__init__(process, QwenSpeaker.RYAN)
+        super().__init__(process, QwenSpeaker.RYAN, (Language.DE,))
         self._observed_close = closed
 
     def close(self) -> None:

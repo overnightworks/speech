@@ -58,6 +58,7 @@ and large-v3 at start. It is configured like the small image; what differs:
   the server's stages pass data through it. **`/tmp`** writable for its compile
   caches.
 - **Startup probe.** `/health` answers while models load, with `ready` false.
+  A GPU voice's warm-up (one short synthesis per language) follows the health phase.
   Probe until `speaking.ready` and `hearing.ready` are true; allow 10 minutes,
   the server's 600 seconds, after which the process ends.
 

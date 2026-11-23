@@ -17,7 +17,7 @@ import pytest
 from speech_provider_contract import QwenSpeaker
 
 from shipped_catalogue import CATALOGUE
-from speech_client.wire import VoiceId
+from speech_client.wire import Language, VoiceId
 from speech_service.provider_process import (
     ProviderCleanupFailedError,
     ProviderFailedError,
@@ -330,7 +330,9 @@ def test_shutdown_during_the_health_wait_closes_pending_without_publication(
 ) -> None:
     root, cache = closed_provider(tmp_path, "held-ready")
     runtime = _runtime(
-        lambda _voice: QwenSpeaking(_process(root, cache), QwenSpeaker.RYAN)
+        lambda _voice: QwenSpeaking(
+            _process(root, cache), QwenSpeaker.RYAN, (Language.DE,)
+        )
     )
 
     def start() -> None:
@@ -358,6 +360,7 @@ def test_a_missing_launcher_leaves_no_retained_engine(tmp_path: Path) -> None:
                 ProviderLaunch(executable=tmp_path / "missing", arguments=())
             ),
             QwenSpeaker.RYAN,
+            (Language.DE,),
         )
     )
     runtime.set_fatal_callback(fatal.set)

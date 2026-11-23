@@ -160,9 +160,11 @@ the load's failure. Nothing is written per chunk.
 
 A failed load, missing files or a crashed Qwen server make that voice refuse 503
 `unavailable` and report not ready while the others keep serving; the next
-request loads it again. A server that cannot be reaped ends the process. A
-hearing load that fails for want of a resource leaves the process up with
-hearing not ready; a misconfiguration stops the start naming the setting.
+request loads it again. A GPU voice's load includes one short synthesis per
+language it offers, so a voice that has not warmed is not loaded. A server that
+cannot be reaped ends the process. A hearing load that fails for want of a
+resource leaves the process up with hearing not ready; a misconfiguration stops
+the start naming the setting.
 
 ### Proof strategy
 
@@ -221,7 +223,7 @@ launcher; the image's speaking and hearing on the card by a GPU run.
 
 - The platform moves to k3s and Flux, which replace Compose and hal. Until then
   `compose.yaml` runs the service, naming no GPU voice and reserving no card.
-- Qwen's first audio can outlast `SPEECH_BUSY_WAIT_SECONDS`, so a second request
+- A long Qwen synthesis can outlast `SPEECH_BUSY_WAIT_SECONDS`, so a second request
   may answer `busy` meanwhile. Without the start setting the first request also
   waits about five minutes for the server to load.
 - The service imports `piper-tts`, which is `GPL-3.0-or-later`, in an MIT

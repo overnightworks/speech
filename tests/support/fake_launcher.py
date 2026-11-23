@@ -133,7 +133,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if text == "chatty":
             sys.stderr.write("x" * 1024 * 1024)
             sys.stderr.flush()
-        if text == "refused":
+        if "hold-first-speech" in behaviors and not (cache / "speech-held").exists():
+            (cache / "speech-held").touch()
+            wait_for(cache / "release-speech")
+        if text == "refused" or "refuse-speech" in behaviors:
             self.send_response(500)
             self.send_header("Content-Length", str(len(text)))
             self.end_headers()
