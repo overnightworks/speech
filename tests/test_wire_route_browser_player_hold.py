@@ -276,6 +276,7 @@ def test_stop_ramps_down_without_a_click_then_ends_and_the_next_sound_is_at_full
     silence = peaks_between(seen, edge_end, next_heard - margin)
     assert seen["sounds"][0]["endedAt"] - seen["lastActionAt"] < STOP_BOUND_MS
     assert largest_step(edge) < CLICK_STEP
+    assert edge[-1] < SILENT_PEAK
     assert max(silence, default=0) < SILENT_PEAK
     heard = peaks_between(
         seen, next_heard + margin, next_heard + SOUND_SECONDS["short.wav"] - margin
