@@ -3,6 +3,6 @@ agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
 role = "builder"
 base = "2d3e18d998d711487fb4e8eb92f4aaa73cae3eb4"
 branch = "claude/issue-648-service-process-tests-one-behaviour"
-scope = ["tests/support/launcher_support.py", "tests/test_main.py", "tests/test_main_serve_lifecycle.py", "tests/test_service_drain.py"]
+scope = ["tests/support/gpu_voice_support.py", "tests/support/launcher_support.py", "tests/test_main.py", "tests/test_main_serve_lifecycle.py", "tests/test_service_drain.py"]
 opened_commit = "322c71e6558ecced122544838511c26ec423699c"
 whole_reason = "Three small proofs in the service process tests that share the fake launcher and the started service; split, each lane would rebuild the same started-service arrangement."
