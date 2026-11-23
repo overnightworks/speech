@@ -1,7 +1,7 @@
 """One speech server process over fake engines, started by the two-process drain tests.
 
 Run as `python -m tests.support.drain_server_support`; it serves `SPEECH_PORT` through
-the real entry point, which fetches the key set over HTTPS as configured.
+the serve loop over the configured callers, whose key set is fetched over HTTPS.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from speech_service.hearing import Heard, Hearing
 from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.hear_support import FakeHearing
+from tests.support.serve_support import serve_runtime
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -101,10 +102,18 @@ def _runtime() -> Runtime:
     )
 
 
+async def _serve() -> int:
+    settings = Settings()
+    return await serve_runtime(
+        settings,
+        _runtime(),
+        callers=__main__.load_callers(settings),
+    )
+
+
 def main() -> None:
     """Serve over the fake engines until a stop signal."""
-    Runtime.from_settings = lambda _settings: _runtime()
-    raise SystemExit(asyncio.run(__main__.serve(Settings())))
+    raise SystemExit(asyncio.run(_serve()))
 
 
 if __name__ == "__main__":
