@@ -1,8 +1,0 @@
-claim_id = "e4ab9298eb444c4682dec52c8a2c5903"
-agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
-role = "builder"
-base = "104d59df6b242fe859d9df83c0895b7c93024640"
-branch = "claude/issue-651-client-failure-outcomes-at-the-wire"
-scope = ["packages/client/src/speech_client/hearing.py", "packages/client/src/speech_client/speak.py", "packages/client/tests/support/http_support.py", "packages/client/tests/support/scripted_hearing_support.py", "packages/client/tests/test_hearing.py", "packages/client/tests/test_hearing_opening.py", "packages/client/tests/test_hearing_reconnect.py", "packages/client/tests/test_speak.py"]
-opened_commit = "4f38d69cdf0b70a3a97efeacf72337e2c5b5ef17"
-whole_reason = "The client's failure outcomes and the scripted peers that reach them; split by module, each lane would grow the same support peers apart."
