@@ -60,6 +60,9 @@ SOUNDS_PATH = "/sounds"
 HELD_PATH = "/held"
 STREAMED_PATH = "/streamed"
 STREAMED_LEAD_BYTES = 16 * 1024
+MARKER_NAME = "marker.wav"
+# The marker sound's tone, gap and short tone: the gap places its position.
+MARKER_SECONDS = (2.0, 1.0, 0.5)
 HEADED_PATH = "/headed"
 # What the headed route sends before it holds the samples back: the whole WAV header.
 HEADED_LEAD_BYTES = len(wav_header(SPEAK_SAMPLE_RATE))
@@ -250,9 +253,7 @@ def _install_sounds(
     @app.get(f"{STREAMED_PATH}/{{name}}")
     async def streamed(name: str, request: Request) -> Response:
         side.record_request(request.url.path)
-        return HeldResponse(
-            (recordings / name).read_bytes(), side, lead=STREAMED_LEAD_BYTES
-        )
+        return HeldResponse((recordings / name).read_bytes(), side, lead=_lead_of(name))
 
     @app.get(f"{HEADED_PATH}/{{name}}")
     async def headed(name: str, request: Request) -> Response:
@@ -262,6 +263,18 @@ def _install_sounds(
         )
 
     _install_cut_sounds(app, side, recordings)
+
+
+def _lead_of(name: str) -> int:
+    """The bytes a streamed sound sends before its body is held back.
+
+    The marker sound's lead is its whole first tone: a flow that holds it while the
+    tone plays is then not at the mercy of how late the page comes.
+    """
+    if name != MARKER_NAME:
+        return STREAMED_LEAD_BYTES
+    tone_samples = int(MARKER_SECONDS[0] * SPEAK_SAMPLE_RATE)
+    return HEADED_LEAD_BYTES + tone_samples * BYTES_PER_SAMPLE
 
 
 def _install_cut_sounds(app: FastAPI, side: AppSide, recordings: Path) -> None:

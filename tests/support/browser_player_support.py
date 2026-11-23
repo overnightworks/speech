@@ -27,6 +27,8 @@ from tests.support.browser_support import (
     HEADED_LEAD_BYTES,
     HEADED_PATH,
     HELD_PATH,
+    MARKER_NAME,
+    MARKER_SECONDS,
     SOUNDS_PATH,
     STREAMED_PATH,
     VOICE_PATH,
@@ -77,8 +79,6 @@ MIN_QUANTA_CHECKED = 100
 # What a hold may take off a sound's audible length: the context renders on for
 # a moment between the end of the edge and the suspend.
 LOST_AT_EDGES_SECONDS = 0.25
-# The marker sound's tone, gap and short tone: the gap places its position.
-MARKER_SECONDS = (2.0, 1.0, 0.5)
 SILENT_RMS = 0.001
 AUDIBLE_RMS = 0.05
 # One render quantum plus the detection sample and the tone's silent first sample.
@@ -97,7 +97,6 @@ HEADED = f"{HEADED_PATH}/short.wav"
 CUT = f"{CUT_PATH}/short.wav"
 STREAMED = f"{STREAMED_PATH}/long.wav"
 CUT_LATE = f"{CUT_LATE_PATH}/long.wav"
-MARKER_NAME = "marker.wav"
 MARKER = f"{SOUNDS_PATH}/{MARKER_NAME}"
 MARKER_STREAMED = f"{STREAMED_PATH}/{MARKER_NAME}"
 ABSENT = "/absent.wav"
