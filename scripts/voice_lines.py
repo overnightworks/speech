@@ -243,6 +243,38 @@ def live_final(live_turn: Callable[[], LiveTurn]) -> Hear:
     return lambda: final_after_speech_stopped(live_turn())
 
 
+def document(
+    arguments: argparse.Namespace,
+    warmups: list[Run],
+    halves: dict[str, Summary],
+    lines: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    """The command's JSON document for the measured runs and their judged lines."""
+    last = list(halves.values())[-1].figures
+    return {
+        "voice": arguments.voice,
+        "hearing_model": arguments.hearing_model,
+        "device": arguments.device,
+        "language": arguments.language,
+        "runs": arguments.runs,
+        "warmups": [asdict(run) for run in warmups],
+        "route": arguments.route,
+        "final_routes": {
+            name: FINAL_ROUTES[name] for name in FINAL_ROUTES if name in last
+        },
+        "clip_seconds": arguments.clip_seconds,
+        "halves": {
+            half: {
+                **{name: asdict(figure) for name, figure in summary.figures.items()},
+                "host": {name: asdict(figure) for name, figure in summary.host.items()},
+            }
+            for half, summary in halves.items()
+        },
+        "lines": lines,
+        "met": all(line["met"] for line in lines.values()),
+    }
+
+
 def measure(  # noqa: PLR0913 - each port is one boundary the tests replace
     arguments: argparse.Namespace,
     speak: Speak,
@@ -286,28 +318,7 @@ def measure(  # noqa: PLR0913 - each port is one boundary the tests replace
             **{name: arguments.final_max for name in FINAL_ROUTES if name in last},
         },
     )
-    return {
-        "voice": arguments.voice,
-        "hearing_model": arguments.hearing_model,
-        "device": arguments.device,
-        "language": arguments.language,
-        "runs": arguments.runs,
-        "warmups": [asdict(run) for run in warmups],
-        "route": arguments.route,
-        "final_routes": {
-            name: FINAL_ROUTES[name] for name in FINAL_ROUTES if name in last
-        },
-        "clip_seconds": arguments.clip_seconds,
-        "halves": {
-            half: {
-                **{name: asdict(figure) for name, figure in summary.figures.items()},
-                "host": {name: asdict(figure) for name, figure in summary.host.items()},
-            }
-            for half, summary in halves.items()
-        },
-        "lines": lines,
-        "met": all(line["met"] for line in lines.values()),
-    }
+    return document(arguments, warmups, halves, lines)
 
 
 def parse_arguments(arguments: list[str]) -> argparse.Namespace:
