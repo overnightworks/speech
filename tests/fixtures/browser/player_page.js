@@ -17,6 +17,7 @@ const Page = {
   rampTo: AudioParam.prototype.linearRampToValueAtTime,
   createBufferSource: BaseAudioContext.prototype.createBufferSource,
   decodeAudioData: BaseAudioContext.prototype.decodeAudioData,
+  now: performance.now.bind(performance),
   resume: AudioContext.prototype.resume,
   start: AudioBufferSourceNode.prototype.start,
 };
@@ -80,10 +81,12 @@ let nextNodeId = 0;
 let stopOnSourceEnd = false;
 let switchRunning = false;
 let rejectNextResume = false;
-// Where the next source's start stalls the page: "before" the call reaches the render thread, or "after" it, at the
-// player's next read of the clock.
+// Where the next source's start stalls the page: "before" the call reaches the render thread, "after" it, right after
+// the player's next stamp of the page's time, or "beforeAndAfterRead" the start and again right after the player's next
+// read of the clock.
 let stallNextStart = null;
-let stallClockRead = false;
+let stallAfterNextStamp = false;
+let stallAfterNextClockRead = false;
 let outputGain = null;
 let tapMeter = null;
 let player = null;
@@ -157,25 +160,40 @@ function stallPast(context, when) {
 
 // The same for a span of the page's own time, which the render thread's clock follows to within one callback buffer.
 function stallFor(seconds) {
-  const until = performance.now() + seconds * 1000;
-  while (performance.now() < until);
+  const until = Page.now() + seconds * 1000;
+  while (Page.now() < until);
 }
+
+// The page's own time, as the player stamps it: a task preempted right after a stamp holds the time from before it.
+performance.now = () => {
+  const stamp = Page.now();
+  if (stallAfterNextStamp) {
+    stallAfterNextStamp = false;
+    stallFor(STALL_SECONDS);
+  }
+  return stamp;
+};
 
 // The context clock advances on the audio thread, and under load two reads in one task straddle any number of its
 // steps. While the app throws a switch (`act`) the instrument holds the first read of a context, so that the player
 // and the page read the same instant when they act in one task. Every other read is the clock's own: a read the
 // player makes after its work (the start a source is heard at) must see the time that work took.
+function readClock(context) {
+  if (frozenClocks.has(context)) return frozenClocks.get(context);
+  if (!switchRunning) return Page.clock.get.call(context);
+  if (!clockReads.has(context)) clockReads.set(context, Page.clock.get.call(context));
+  return clockReads.get(context);
+}
+
 Object.defineProperty(BaseAudioContext.prototype, "currentTime", {
   configurable: true,
   get() {
-    if (stallClockRead) {
-      stallClockRead = false;
+    const time = readClock(this);
+    if (stallAfterNextClockRead) {
+      stallAfterNextClockRead = false;
       stallFor(STALL_SECONDS);
     }
-    if (frozenClocks.has(this)) return frozenClocks.get(this);
-    if (!switchRunning) return Page.clock.get.call(this);
-    if (!clockReads.has(this)) clockReads.set(this, Page.clock.get.call(this));
-    return clockReads.get(this);
+    return time;
   },
 });
 window.AudioContext = class AudioContext extends Page.AudioContext {
@@ -212,9 +230,10 @@ Page.AudioBufferSourceNode.prototype.start = function (when, ...parameters) {
   seen.sourcesStarted += 1;
   const stall = stallNextStart;
   stallNextStart = null;
-  if (stall === "before") stallPast(this.context, when);
+  if (stall === "before" || stall === "beforeAndAfterRead") stallPast(this.context, when);
   const result = Page.start.call(this, when, ...parameters);
-  if (stall === "after") stallClockRead = true;
+  if (stall === "after") stallAfterNextStamp = true;
+  if (stall === "beforeAndAfterRead") stallAfterNextClockRead = true;
   return result;
 };
 AudioNode.prototype.connect = function (target, ...parameters) {
@@ -434,7 +453,8 @@ window.playerPage = {
   release: () => heldNow.splice(0).forEach((gate) => gate.resolve()),
   rejectNextResume: () => (rejectNextResume = true),
   // The next source's start finds the page stalled: `where` is "before" the start reaches the render thread, which
-  // then plays the source from the quantum it is on, or "after" it, which leaves the start asked for.
+  // then plays the source from the quantum it is on, "after" it, which leaves the start asked for, or
+  // "beforeAndAfterRead", the first and then the page's task stalling again once it has read the clock.
   stallNextStart: (where) => (stallNextStart = where),
   stopOnNextSourceEnd: (next) => (stopOnSourceEnd = next ?? true),
   snapshot: () => ({
