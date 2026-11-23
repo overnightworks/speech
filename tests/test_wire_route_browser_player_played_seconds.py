@@ -23,6 +23,7 @@ from tests.support.browser_player_support import (
     bytes_of,
     fed,
     url,
+    waited_seconds,
 )
 
 if TYPE_CHECKING:
@@ -74,17 +75,24 @@ def test_a_cut_sound_reports_the_seconds_the_context_clock_passed_since_it_start
     seen = asyncio.run(scenario())
 
     cut_sound, waiting = seen["sounds"]
+    # A streamed body's chunk that arrives late leaves the output waiting, and the
+    # played seconds stand still meanwhile.
     start = cut_sound["start"]["contextTime"]
     elapsed = cut_sound["contextAtEnd"] - start
     assert elapsed > 0
     if cut == "mute":
         assert cut_sound["playedSeconds"] == pytest.approx(
-            elapsed, abs=seen["clockStep"]
+            elapsed - waited_seconds(seen, cut_sound["contextAtEnd"]),
+            abs=seen["clockStep"],
         )
     else:
         # A stopped sound plays on through its edge, up to the end it reports.
         step = seen["clockStep"]
-        assert cut_sound["playedSeconds"] >= seen["contextAtAction"] - start - step
+        waited = waited_seconds(seen, seen["contextAtAction"])
+        assert (
+            cut_sound["playedSeconds"]
+            >= seen["contextAtAction"] - start - waited - step
+        )
         assert cut_sound["playedSeconds"] <= elapsed + step
     assert waiting["playedSeconds"] == 0
 

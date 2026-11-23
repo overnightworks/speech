@@ -43,6 +43,7 @@ const seen = {
   analysersCreated: 0,
   sourcesCreated: 0,
   sourcesStarted: 0,
+  scheduledChunks: [],
   sourcesEnded: 0,
   instrumentStops: 0,
   decodesCalled: 0,
@@ -189,6 +190,7 @@ AudioParam.prototype.linearRampToValueAtTime = function (target, endsAt) {
 };
 Page.AudioBufferSourceNode.prototype.start = function (...parameters) {
   seen.sourcesStarted += 1;
+  seen.scheduledChunks.push({ start: parameters[0], seconds: this.buffer.duration });
   return Page.start.apply(this, parameters);
 };
 AudioNode.prototype.connect = function (target, ...parameters) {
