@@ -27,7 +27,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-TERMINATE_GRACE_SECONDS = 5
+TERMINATE_GRACE_SECONDS = 3
+_KILL_REAP_SECONDS = 0.5
+_OWNER_JOIN_SECONDS = 0.5
+_STDERR_DRAIN_JOIN_SECONDS = 0.5
+CLOSE_SECONDS = (
+    TERMINATE_GRACE_SECONDS + _KILL_REAP_SECONDS + _STDERR_DRAIN_JOIN_SECONDS
+)
+"""How long `close` waits for the owner: TERM grace, kill reap and stderr drain.
+
+The service's stop grants each close 5 s; the owner's final join (0.5 s) stays
+inside the remainder.
+"""
 HEALTH_DEADLINE_SECONDS = 600
 """How long a server may take to answer its health check, loading included."""
 _HEALTH_POLL_SECONDS = 0.25
@@ -36,7 +47,6 @@ _COMMAND_WAIT_SECONDS = 0.25
 _READ_SIZE = 64 * 1024
 # A failed vLLM-Omni start prints about 11 KiB: the root cause, then a long traceback.
 _STDERR_TAIL_BYTES = 64 * 1024
-_STDERR_DRAIN_JOIN_SECONDS = 5
 SYNTHESIS_FAILED = "speech provider synthesis failed"
 """The message of a failed synthesis."""
 _SERVER_DIRECTORY_PREFIX = "speech-provider-"
@@ -246,10 +256,10 @@ class ProviderProcess:
         if owner is None:
             return
         self._request_owner_stop(_OwnerExit.ORDINARY_CLOSE)
-        if not self._stopped.wait((2 * TERMINATE_GRACE_SECONDS) + 2):
+        if not self._stopped.wait(CLOSE_SECONDS):
             self._fatal_callback()
             raise ProviderCleanupFailedError
-        owner.join(timeout=1)
+        owner.join(timeout=_OWNER_JOIN_SECONDS)
         if owner.is_alive() or self._cleanup_failed:
             self._fatal_callback()
             raise ProviderCleanupFailedError
@@ -410,7 +420,7 @@ class ProviderProcess:
         with suppress(subprocess.TimeoutExpired):
             child.wait(timeout=TERMINATE_GRACE_SECONDS)
         _signal_group(child.pid, signal.SIGKILL)
-        child.wait(timeout=TERMINATE_GRACE_SECONDS)
+        child.wait(timeout=_KILL_REAP_SECONDS)
 
 
 def _signal_group(group: int, signal_number: signal.Signals) -> None:
