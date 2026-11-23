@@ -436,26 +436,16 @@ class PlayerRun {
     }
   }
 
-  /** The most the page's `currentTime` lags the render thread: one callback buffer, and at least one render quantum. */
-  #clockLag(): number {
-    return Math.max(this.#context.baseLatency, RENDER_QUANTUM_FRAMES / this.#context.sampleRate);
-  }
-
-  /** The earliest context time the player knows to lie ahead of the render thread, so a start before it would play at a time the player cannot tell. */
-  #earliestKnownStart(): number {
-    return this.#context.currentTime + this.#clockLag();
-  }
-
   /**
-   * Schedules the buffer on the one gain at `when` of the context's clock, or at the earliest known start if that is
-   * later; returns the context time its first sample is heard at.
-   *
-   * The render thread plays the source at the start asked for, unless the page took longer between its clock read and
-   * the return of `start()` than the start lay ahead: the render thread has then passed it and plays the source from
-   * the quantum it is on, which the clock reads after `start()`. The page cannot tell where in that span a stall fell,
-   * so one after the start reached the render thread, or between the return and the clock read, reports a start later
-   * than the one heard.
+   * The earliest context time the player knows to lie ahead of the render thread: the page's `currentTime` lags it by
+   * up to one callback buffer (`baseLatency`), so a start before this would play at a time the player cannot tell.
    */
+  #earliestKnownStart(): number {
+    const quantum = RENDER_QUANTUM_FRAMES / this.#context.sampleRate;
+    return this.#context.currentTime + Math.max(this.#context.baseLatency, quantum);
+  }
+
+  /** Schedules the buffer on the one gain at `when` of the context's clock, or at the earliest known start if that is later; returns the start. */
   #schedule(scheduled: Scheduled, buffer: AudioBuffer, when: number): number {
     const source = this.#context.createBufferSource();
     source.buffer = buffer;
@@ -464,12 +454,9 @@ class PlayerRun {
       scheduled.sources.delete(source);
       this.#settle(scheduled);
     };
-    const clockReadAt = performance.now();
-    const asked = Math.max(when, this.#earliestKnownStart(), this.#restoredAt);
-    source.start(asked);
-    const passed = (performance.now() - clockReadAt) / MILLISECONDS_PER_SECOND > this.#clockLag();
-    const start = passed ? Math.max(asked, this.#context.currentTime) : asked;
+    const start = Math.max(when, this.#earliestKnownStart(), this.#restoredAt);
     scheduled.sources.set(source, start);
+    source.start(start);
     scheduled.chunks.push({ start, seconds: buffer.duration });
     this.#announceStart(scheduled);
     return start;
