@@ -1,7 +1,0 @@
-claim_id = "5bc670fb5c4d4b86a785f6e8407d64f1"
-agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
-role = "builder"
-base = "6e00b6150053c68a9b9d3151ee613f066c8e4201"
-branch = "claude/issue-642-streamed-mute-cut-sound-starved-stream"
-scope = ["tests/fixtures/browser/player_page.js", "tests/support/browser_player_support.py", "tests/test_wire_route_browser_player_played_seconds.py"]
-opened_commit = "3d568801ff10c5b534f3ad769558460fffef148c"
