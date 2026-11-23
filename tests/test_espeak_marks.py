@@ -1,4 +1,7 @@
-"""The words of a Piper sentence, from espeak-ng's word events (WIRE-152 to 156)."""
+"""The words of a Piper sentence, from espeak-ng's word events
+
+WIRE-152, WIRE-153, WIRE-154, WIRE-155, WIRE-156.
+"""
 
 from __future__ import annotations
 
