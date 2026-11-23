@@ -533,7 +533,7 @@ def test_leaving_during_a_reconnect_ends_the_session_closed_at_once() -> None:
     outcome, elapsed = asyncio.run(scenario())
 
     assert outcome == Closed()
-    assert elapsed < well_before(SESSION_DEADLINE_SECONDS)
+    assert elapsed < well_before(BOUND.within_seconds)
 
 
 def test_a_cancel_during_a_reconnect_leaves_no_task_behind() -> None:
