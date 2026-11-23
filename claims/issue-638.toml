@@ -1,0 +1,7 @@
+claim_id = "187ec9a4c45c44fe82602a2763b6419c"
+agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
+role = "builder"
+base = "aab4461251ee4ba2d3c49b72a0b33094477bbe2e"
+branch = "claude/issue-638-qwen-launcher-group-kill-public-entry"
+scope = ["providers/qwen/src/speech_qwen/__main__.py", "providers/qwen/tests/test_main.py"]
+opened_commit = "a7ad29b9213f6e1582effa17d2d25e002dc2c31b"
