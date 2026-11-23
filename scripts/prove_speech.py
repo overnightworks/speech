@@ -57,7 +57,7 @@ from speech_client.wire import (
     speech_request_body,
     speech_request_headers,
 )
-from speech_service.config import load_settings
+from speech_service.config import load_settings, setting_variable
 from speech_service.onnxruntime_telemetry import disable_onnxruntime_telemetry
 from wav_audio import SILENCE_RMS, pcm_from_wav
 
@@ -646,20 +646,22 @@ def speech_environment(
     events start off unless the caller exported `SPEECH_SOUND_EVENTS`.
     """
     env = os.environ.copy()
-    env["SPEECH_CONFIG_FILE"] = str(identity.configuration_path)
-    env["SPEECH_CATALOGUE_FILE"] = str(CATALOGUE_FILE)
+    env[setting_variable("config_file")] = str(identity.configuration_path)
+    env[setting_variable("catalogue_file")] = str(CATALOGUE_FILE)
     env["SSL_CERT_FILE"] = str(identity.ca_path)
-    env["SPEECH_HOST"] = LOOPBACK_HOST
-    env["SPEECH_PORT"] = str(port)
-    env.setdefault("SPEECH_PROVIDER_ROOT", str(PROVIDER_ROOT))
-    env["SPEECH_DEVICE"] = device or os.environ.get("SPEECH_DEVICE", "cuda")
-    if env["SPEECH_DEVICE"] == "cpu":
+    env[setting_variable("host")] = LOOPBACK_HOST
+    env[setting_variable("port")] = str(port)
+    env.setdefault(setting_variable("provider_root"), str(PROVIDER_ROOT))
+    env[setting_variable("device")] = device or os.environ.get(
+        setting_variable("device"), "cuda"
+    )
+    if env[setting_variable("device")] == "cpu":
         env["CUDA_VISIBLE_DEVICES"] = ""
-    env["SPEECH_VOICES"] = offer_setting({PIPER_PROOF_VOICE, voice})
+    env[setting_variable("voices")] = offer_setting({PIPER_PROOF_VOICE, voice})
     if hearing_model is not None:
-        env["SPEECH_HEARING_MODEL"] = hearing_model
-        env.setdefault("SPEECH_SOUND_EVENTS", "false")
-    env["SPEECH_BUSY_WAIT_SECONDS"] = str(
+        env[setting_variable("hearing_model")] = hearing_model
+        env.setdefault(setting_variable("sound_events"), "false")
+    env[setting_variable("busy_wait_seconds")] = str(
         PIPER_FIRST_BYTE_LIMIT_S + CONCURRENT_EXTRA_WAIT_SECONDS
     )
     env.setdefault("HF_HUB_OFFLINE", "1")
@@ -687,7 +689,7 @@ def _prove() -> None:
         with proof_identity(work_directory) as identity:
             minting = load_minting(identity.minting_path)
             env = speech_environment(port, voice, identity)
-            env["SPEECH_VOICES"] = offer_setting({*PIPER_VOICES, voice})
+            env[setting_variable("voices")] = offer_setting({*PIPER_VOICES, voice})
             with speech_server(base_url, env, work_directory) as running:
                 print(
                     "health_ready",
@@ -707,7 +709,7 @@ def _prove() -> None:
                     Service(base_url, minting, running),
                     voice,
                     settings.hearing_model,
-                    env["SPEECH_DEVICE"],
+                    env[setting_variable("device")],
                 )
                 _prove_contract(
                     base_url, env, voice, identity.minting_path, work_directory

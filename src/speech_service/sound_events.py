@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Final
 import numpy as np
 
 from speech_client.realtime_wire import SoundName
+from speech_service.config import setting_variable
 from speech_service.pcm import HEARING_SAMPLE_RATE, INT16_SCALE
 from speech_service.voice_activity import one_thread_session
 
@@ -40,8 +41,8 @@ MODEL_FILES: Final = (MODEL_FILE, f"{MODEL_FILE}.data", LABELS_FILE, "LICENSE")
 BUILD_COMMAND: Final = (
     "uv run --locked --no-build --script scripts/build_sound_model.py"
 )
-DIRECTORY_SETTING: Final = "SPEECH_SOUND_MODEL_DIRECTORY"
-SWITCH: Final = "SPEECH_SOUND_EVENTS"
+DIRECTORY_SETTING: Final = setting_variable("sound_model_directory")
+SWITCH: Final = setting_variable("sound_events")
 _INPUT: Final = "waveform"
 _KEPT_SAMPLES: Final = WINDOW_SAMPLES + HOP_SAMPLES
 # The model's labels are AudioSet's; Applause is its own class there, not a child of
