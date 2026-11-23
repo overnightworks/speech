@@ -204,11 +204,22 @@ def test_the_health_deadline_fails_the_load_and_reaps_a_term_resistant_server(
     server = _server(tmp_path, "stale-socket term-resistant")
     health_deadline_from_scenario(monkeypatch, _OWNER, tmp_path / "cache")
 
-    with pytest.raises(ProviderFailedError):
-        server.load()
+    failures: list[ProviderFailedError] = []
 
+    def load() -> None:
+        try:
+            server.load()
+        except ProviderFailedError as failure:
+            failures.append(failure)
+
+    loading = threading.Thread(target=load, daemon=True)
+    loading.start()
+    loading.join(timeout=StopPolicy().grace_seconds)
+
+    assert not loading.is_alive(), "the load did not fail inside the stop's grace"
+    assert len(failures) == 1
     _, _, pid, _ = observed(tmp_path / "cache")
-    assert_reaped(pid)
+    assert_reaped(pid, StopPolicy().grace_seconds)
     server.close()
 
 
