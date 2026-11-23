@@ -1,8 +1,0 @@
-claim_id = "2a840442575d41118888ffda5645f431"
-agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
-role = "builder"
-base = "9906ee9ba141b0eecf9dfded59f5de48222bbb5d"
-branch = "claude/issue-604-prove-the-unproven-failure-paths"
-scope = ["src/speech_service/provider_process.py", "tests/scripts/test_build_sound_model.py", "tests/support/fake_launcher.py", "tests/support/nvidia_support.py", "tests/test_card.py", "tests/test_cuda_libs.py", "tests/test_provider_process.py", "tests/test_speaking_qwen.py"]
-opened_commit = "596dc787b130c4cc4132dee48e73d6e962d3b2e5"
-whole_reason = "Four small proofs of one audit's unproven failure paths, test-only, each with the fake it needs; splitting them would make four lanes of a few tests each."
