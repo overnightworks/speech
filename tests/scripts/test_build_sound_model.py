@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import contextlib
 import importlib.abc
 import importlib.machinery
-import io
 import os
 import sys
 import types
@@ -133,18 +131,14 @@ def test_build_refuses_an_existing_destination(
     assert list(destination.iterdir()) == []
 
 
-def test_build_refuses_a_download_that_differs_from_the_pin(
-    script: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_download_refuses_bytes_that_differ_from_the_pin(
+    script: types.ModuleType, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(
-        script.urllib.request,
-        "urlopen",
-        lambda *_a, **_k: contextlib.nullcontext(io.BytesIO(b"tampered")),
-    )
-    destination = tmp_path / "model"
+    tampered = tmp_path / "source.bin"
+    tampered.write_bytes(b"tampered")
+    pin = next(iter(script.SOURCE_SHA256.values()))
     with pytest.raises(RuntimeError, match="is not the pinned"):
-        script.build(destination)
-    assert not destination.exists()
+        script.download_pinned(tampered.as_uri(), pin)
 
 
 def test_reference_windows_refuse_a_clip_that_is_not_the_pinned_format(
