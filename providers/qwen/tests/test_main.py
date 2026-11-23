@@ -6,7 +6,7 @@ import os
 import signal
 import subprocess
 import sys
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -88,6 +88,39 @@ def _run_launcher(
     )
 
 
+@contextmanager
+def _started_launcher(
+    tmp_path: Path, server_setup: str = ""
+) -> Iterator[subprocess.Popen[bytes]]:
+    """Yield a launcher whose server is ready; the group ends on exit."""
+    ready_file = tmp_path / "server.ready"
+    server = (
+        "import os, signal, sys, time\n"
+        "from pathlib import Path\n"
+        f"{server_setup}"
+        f"Path({str(ready_file)!r}).write_text(str(os.getpid()))\n"
+        "time.sleep(3600)\n"
+    )
+    with subprocess.Popen(  # noqa: S603 - the launcher is the program of this test
+        [
+            sys.executable,
+            "-c",
+            _LAUNCHER,
+            str(os.getpid()),
+            sys.executable,
+            "-c",
+            server,
+        ],
+        start_new_session=True,
+    ) as launcher_process:
+        try:
+            await_pid_file(ready_file)
+            yield launcher_process
+        finally:
+            with suppress(ProcessLookupError):
+                os.killpg(launcher_process.pid, signal.SIGKILL)
+
+
 def test_the_launcher_ties_itself_to_the_service_then_cleans_up_and_starts_the_server(
     tmp_path: Path,
 ) -> None:
@@ -164,34 +197,11 @@ def test_the_parent_death_signal_kills_the_launchers_whole_group(
 ) -> None:
     # A real group kill ends the launcher before coverage writes, so the line
     # that issues it is proven by this outcome and not seen by coverage.
-    ready_file = tmp_path / "server.ready"
-    server = (
-        "import os, time\n"
-        "from pathlib import Path\n"
-        f"Path({str(ready_file)!r}).write_text(str(os.getpid()))\n"
-        "time.sleep(3600)\n"
-    )
-    with subprocess.Popen(  # noqa: S603 - the launcher is the program of this test
-        [
-            sys.executable,
-            "-c",
-            _LAUNCHER,
-            str(os.getpid()),
-            sys.executable,
-            "-c",
-            server,
-        ],
-        start_new_session=True,
-    ) as launcher_process:
-        try:
-            await_pid_file(ready_file)
-            os.kill(launcher_process.pid, signal.SIGUSR1)
+    with _started_launcher(tmp_path) as launcher_process:
+        os.kill(launcher_process.pid, signal.SIGUSR1)
 
-            assert launcher_process.wait(timeout=60) == -signal.SIGKILL
-            assert group_has_ended(launcher_process.pid)
-        finally:
-            with suppress(ProcessLookupError):
-                os.killpg(launcher_process.pid, signal.SIGKILL)
+        assert launcher_process.wait(timeout=60) == -signal.SIGKILL
+        assert group_has_ended(launcher_process.pid)
 
 
 @pytest.mark.usefixtures("restored_sigusr2")
@@ -249,38 +259,17 @@ def test_the_launcher_ends_as_its_server_ended(
 def test_the_launcher_survives_the_group_sigterm_and_leaves_its_server_the_default(
     tmp_path: Path,
 ) -> None:
-    ready_file = tmp_path / "server.ready"
     inherited_file = tmp_path / "server.inherited"
-    server = (
-        "import os, signal, sys, time\n"
-        "from pathlib import Path\n"
+    setup = (
         f"Path({str(inherited_file)!r}).write_text(str(signal.getsignal(signal.SIGTERM)))\n"
         "signal.signal(signal.SIGTERM, lambda *_: "
         f"sys.exit({_SERVER_STATUS_AFTER_SIGTERM}))\n"
-        f"Path({str(ready_file)!r}).write_text(str(os.getpid()))\n"
-        "time.sleep(3600)\n"
     )
-    with subprocess.Popen(  # noqa: S603 - the launcher is the program of this test
-        [
-            sys.executable,
-            "-c",
-            _LAUNCHER,
-            str(os.getpid()),
-            sys.executable,
-            "-c",
-            server,
-        ],
-        start_new_session=True,
-    ) as launcher_process:
-        try:
-            await_pid_file(ready_file)
-            os.killpg(launcher_process.pid, signal.SIGTERM)
+    with _started_launcher(tmp_path, setup) as launcher_process:
+        os.killpg(launcher_process.pid, signal.SIGTERM)
 
-            assert launcher_process.wait(timeout=60) == _SERVER_STATUS_AFTER_SIGTERM
-            assert inherited_file.read_text() == str(signal.SIG_DFL)
-        finally:
-            with suppress(ProcessLookupError):
-                os.killpg(launcher_process.pid, signal.SIGKILL)
+        assert launcher_process.wait(timeout=60) == _SERVER_STATUS_AFTER_SIGTERM
+        assert inherited_file.read_text() == str(signal.SIG_DFL)
 
 
 def test_the_whole_group_ends_with_the_service_even_before_a_stage_arms_its_own_signal(
