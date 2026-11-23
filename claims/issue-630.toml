@@ -1,7 +1,0 @@
-claim_id = "d890c5f74cdc42398dda20337ab5cb35"
-agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
-role = "builder"
-base = "5f4da08efb0cc984bc0f7dd225c37c09544f0b85"
-branch = "claude/issue-630-provider-health-deadline-tests"
-scope = ["tests/support/fake_launcher.py", "tests/support/launcher_support.py", "tests/test_provider_process.py"]
-opened_commit = "365b82ef642daf9cc838158da299c3081a789c52"
