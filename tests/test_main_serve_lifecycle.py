@@ -58,13 +58,6 @@ def loadable_runtime():
     )
 """
 
-_STARTUP_HOOK = (
-    _LOADABLE_RUNTIME
-    + """
-Runtime.from_settings = lambda _settings: loadable_runtime()
-"""
-)
-
 _SIGTERM_SERVER = (
     """
 import asyncio
@@ -119,11 +112,6 @@ def test_python_dash_m_starts_the_service_listening_on_the_configured_port(
     """WIRE-01: python dash m starts the service listening on the configured port."""
     port = free_loopback_port()
     speech_root = Path(__file__).resolve().parents[1]
-    # The interpreter imports this sitecustomize before `-m`, so the real entry
-    # point runs against a model load that succeeds and the server stays up.
-    startup_hook = tmp_path / "startup_hook"
-    startup_hook.mkdir()
-    (startup_hook / "sitecustomize.py").write_text(_STARTUP_HOOK)
     environment = {
         **os.environ,
         "SPEECH_PORT": str(port),
@@ -131,9 +119,10 @@ def test_python_dash_m_starts_the_service_listening_on_the_configured_port(
         "HF_HUB_OFFLINE": "1",
         "HF_HOME": str(tmp_path / "hf"),
         "SPEECH_CONFIG_FILE": str(write_caller_configuration(tmp_path)),
-        "PYTHONPATH": os.pathsep.join(
-            [str(startup_hook), str(speech_root), str(speech_root / "scripts")]
-        ),
+        "SPEECH_DEVICE": "cpu",
+        "SPEECH_VOICES": VoiceId.THORSTEN.value,
+        "SPEECH_VOICE_CACHE": str(tmp_path / "voices"),
+        "PYTHONPATH": os.pathsep.join([str(speech_root), str(speech_root / "scripts")]),
     }
     with subprocess.Popen(
         [sys.executable, "-m", "speech_service"],
