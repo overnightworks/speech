@@ -334,10 +334,11 @@ function nextTurn() {
 // A ramp the first switch set in its own call starts within the lead, and the wait spins in the task until then: a wait
 // that gives up the task queues behind the ear's messages, which a throttled page handles for longer than the ramp
 // lasts. A ramp that waits on the page's tasks (a context's resume) starts only when they run, so the wait then gives
-// up the task.
-async function actWhileFading(name, action, from) {
+// up the task: a spin would hold the resume's own continuation back while the audio thread already runs, and the ramp
+// would then be set after it is over.
+async function actWhileFading(name, action, from, rampWaitsOnThePage) {
   const spinsUntil = performance.now() + (RAMP_LEAD_SECONDS + RAMP_SEARCH_SECONDS) * MILLISECONDS_PER_SECOND;
-  while (outputGain.gain.value === from && performance.now() < spinsUntil);
+  while (!rampWaitsOnThePage && outputGain.gain.value === from && performance.now() < spinsUntil);
   const giveUp = performance.now() + SILENCE_GIVE_UP_MS;
   while (outputGain.gain.value === from && performance.now() < giveUp) await nextTurn();
   frozenClocks.delete(contexts[0]);
@@ -364,10 +365,11 @@ window.playerPage = {
   // The switch `first`, then `second` as soon as the volume it set moves: the second reverses the ramp of the first.
   reverse: async (first, second) => {
     const from = outputGain.gain.value;
+    const rampWaitsOnThePage = contexts[0].state === "suspended";
     frozenClocks.set(contexts[0], contexts[0].currentTime + RAMP_LEAD_SECONDS);
     try {
       await act(first, () => player[first]());
-      return await actWhileFading(second, () => player[second](), from);
+      return await actWhileFading(second, () => player[second](), from, rampWaitsOnThePage);
     } finally {
       frozenClocks.delete(contexts[0]);
     }
