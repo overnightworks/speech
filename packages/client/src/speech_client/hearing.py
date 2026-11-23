@@ -654,9 +654,8 @@ class HearingSession:
                     await socket.close()
                     return wire.ended
                 finally:
-                    # websockets aborts a close only when its close timeout lapses,
-                    # not when the close is cancelled; aborting after a completed
-                    # close is a no-op.
+                    # websockets aborts only on its close timeout, not on a cancelled
+                    # close; aborting after a completed close is a no-op.
                     socket.transport.abort()
         except TimeoutError as timed_out:
             return _timeout_outcome(timed_out, wire.ended, opening)
