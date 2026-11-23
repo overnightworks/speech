@@ -6,7 +6,7 @@ import contextlib
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from hearing_figures import LiveTurn, wav_of
-from shipped_catalogue import ON_DEMAND_VOICES, PIPER_VOICES
+from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, PIPER_VOICES, first_language
 from speech_client.wire import Language
 from tests.support.script_support import script_module
 
@@ -28,6 +28,7 @@ LINES = script_module("voice_lines")
 RATE = 24000
 LOUD = 8000
 VOICE = PIPER_VOICES[0]
+DEVICE_ARGUMENTS = ["--voice", VOICE, "--hearing-model", "small", "--device", "cpu"]
 
 
 def wav(seconds: float, *, silent_seconds: float = 0.0) -> bytes:
@@ -45,9 +46,13 @@ class Speaker:
     total: float = 1.0
     seconds: float = 2.0
     requests: int = 0
+    spoken: list[tuple[str, Language]] = field(default_factory=list)
 
-    def __call__(self, _text: str, _voice: VoiceId) -> tuple[bytes, float, float]:  # noqa: D102
+    def __call__(  # noqa: D102
+        self, text: str, _voice: VoiceId, language: Language
+    ) -> tuple[bytes, float, float]:
         self.requests += 1
+        self.spoken.append((text, language))
         return wav(self.seconds, silent_seconds=0.5), self.firsts.pop(0), self.total
 
 
@@ -56,6 +61,7 @@ def arguments(**changes: object) -> SimpleNamespace:
         "voice": VOICE,
         "hearing_model": "small",
         "device": "cpu",
+        "language": first_language(VOICE),
         "runs": 3,
         "clip_seconds": 5.0,
         "first_audio_max": None,
@@ -129,7 +135,9 @@ def test_a_figure_without_a_threshold_is_reported_and_not_judged() -> None:
 
 
 def test_a_speak_without_an_audible_sample_fails_the_run() -> None:
-    def silent(_text: str, _voice: VoiceId) -> tuple[bytes, float, float]:
+    def silent(
+        _text: str, _voice: VoiceId, _language: Language
+    ) -> tuple[bytes, float, float]:
         return wav_of(bytes(4800)), 0.1, 1.0
 
     parsed = arguments()
@@ -147,7 +155,9 @@ def test_the_loaded_half_starts_only_after_the_signal_and_is_the_one_judged(
     events: list[str] = []
     firsts = iter([0.1, 0.1, 0.1, 0.1, 0.5, 0.5, 0.5])
 
-    def speak(_text: str, _voice: VoiceId) -> tuple[bytes, float, float]:
+    def speak(
+        _text: str, _voice: VoiceId, _language: Language
+    ) -> tuple[bytes, float, float]:
         events.append("speak")
         return wav(2.0), next(firsts), 1.0
 
@@ -336,8 +346,16 @@ class FakeService:
         sys.stdout.write("noise from the service\n")
         yield SimpleNamespace(base_url="", minting=None)
 
-    def speak(self, _url: str, text: str, voice: VoiceId, _minting: object):  # noqa: ANN201, D102
-        return self.speaker(text, voice)
+    def speak(  # noqa: ANN201, D102
+        self,
+        _url: str,
+        text: str,
+        voice: VoiceId,
+        _minting: object,
+        *,
+        language: Language,
+    ):
+        return self.speaker(text, voice, language)
 
     def hear(self, *_: object) -> tuple[float, str]:  # noqa: D102
         return 1.0, "text"
@@ -403,3 +421,33 @@ def test_a_gone_caller_ends_the_command_before_the_loaded_half(
     warm_up_and_idle_run = 1 + 1
     assert fake.speaker.requests == warm_up_and_idle_run
     assert capsys.readouterr().out == ""
+
+
+def test_the_speak_gets_the_named_language_and_its_sentence_and_the_json_names_it() -> (
+    None
+):
+    speaker = Speaker([0.1] * 4)
+
+    result = LINES.measure(arguments(language=Language.EN), speaker, lambda: 1.0)
+
+    assert set(speaker.spoken) == {(LINES.SENTENCES[Language.EN], Language.EN)}
+    assert result["language"] == Language.EN
+
+
+def test_the_language_defaults_to_the_first_the_voice_offers() -> None:
+    parsed = LINES.parse_arguments(DEVICE_ARGUMENTS)
+
+    assert parsed.language == first_language(VOICE)
+
+
+def test_a_language_the_voice_does_not_offer_is_refused_before_a_service_starts(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    offered = CATALOGUE[VOICE].languages
+    unoffered = next(language for language in Language if language not in offered)
+
+    with pytest.raises(SystemExit) as raised:
+        LINES.parse_arguments([*DEVICE_ARGUMENTS, "--language", unoffered])
+
+    assert raised.value.code != 0
+    assert all(language in capsys.readouterr().err for language in offered)
