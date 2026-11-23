@@ -1,8 +1,0 @@
-claim_id = "a2e851085e184464b4175157f220c689"
-agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
-role = "builder"
-base = "324f96b4b719e142a2cd2644f21684043bb308e1"
-branch = "claude/issue-607-the-voice-lines-command-measures-a-voice"
-scope = ["AGENTS.md", "scripts/prove_speech.py", "scripts/voice_lines.py", "tests/scripts/test_contract_client.py", "tests/scripts/test_voice_lines.py"]
-opened_commit = "148d9ba4e39fa29ed7a61b0b9b8c0a50b659bf01"
-whole_reason = "One measurement flag and the shared speak call it needs, with their tests and the command line in AGENTS.md; the flag is useless without the call, so splitting would leave a half."
