@@ -18,7 +18,9 @@ from speech_provider_contract import QwenSpeaker
 
 from shipped_catalogue import CATALOGUE
 from speech_client.wire import Language, VoiceId
+from speech_service.__main__ import StopPolicy
 from speech_service.provider_process import (
+    CLOSE_SECONDS,
     ProviderCleanupFailedError,
     ProviderFailedError,
     ProviderLaunch,
@@ -433,6 +435,22 @@ def test_a_term_resistant_server_reaches_kill_and_reap(
     _, _, pid, _ = observed(tmp_path / "cache")
     server.close()
     assert_reaped(pid)
+
+
+def test_a_term_resistant_server_is_reaped_inside_the_stops_grace(
+    tmp_path: Path,
+) -> None:
+    server = _server(tmp_path, "term-resistant")
+    server.load()
+    _, _, pid, _ = observed(tmp_path / "cache")
+    started = time.monotonic()
+    server.close()
+    assert time.monotonic() - started < StopPolicy().grace_seconds
+    assert_reaped(pid)
+
+
+def test_the_close_bound_is_below_the_stops_grace() -> None:
+    assert CLOSE_SECONDS < StopPolicy().grace_seconds
 
 
 def test_a_stage_process_that_outlives_its_server_ends_with_the_service_stop(
