@@ -1,7 +1,0 @@
-claim_id = "5373b8a940c143aa80b4a426aee4832a"
-agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
-role = "builder"
-base = "9242089270d62b4b3f20dba4c8dd39f11219bc42"
-branch = "claude/issue-600-logline-v1-9-0"
-scope = ["packages/client/pyproject.toml", "pyproject.toml", "uv.lock"]
-opened_commit = "4af6ed3d120204545e50fc37ce419fb737cb9635"
