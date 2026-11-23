@@ -8,6 +8,8 @@ import contextlib
 import gc
 import json
 import logging
+import os
+import socket
 import sys
 import time
 import traceback
@@ -434,6 +436,54 @@ def test_a_cancel_at_any_moment_after_an_orderly_end_returns_at_once(
     )
 
     assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)
+
+
+def test_a_cancel_during_the_close_of_a_service_ignoring_it_ends_the_connection() -> (
+    None
+):
+    async def reaches_the_end_of_the_stream(stream: socket.socket) -> None:
+        loop = asyncio.get_running_loop()
+        while await loop.sock_recv(stream, 4096):
+            pass
+
+    async def scenario() -> None:
+        released = asyncio.Event()
+        peers: list[socket.socket] = []
+        opened = asyncio.Event()
+
+        async def stalls(connection: ServerConnection) -> None:
+            await connection.recv()
+            await connection.send(CREATED_EVENT)
+            stream = connection.transport.get_extra_info("socket")
+            peer = socket.socket(fileno=os.dup(stream.fileno()))
+            peer.settimeout(0)
+            peers.append(peer)
+            connection.transport.pause_reading()
+            opened.set()
+            await released.wait()
+
+        async def hearing(port: int, ended: asyncio.Event) -> None:
+            async with session_to(port, 30):
+                await ended.wait()
+
+        async with serve(stalls, LOOPBACK, 0, close_timeout=0.2) as server:
+            ended = asyncio.Event()
+            call = asyncio.ensure_future(
+                hearing(server.sockets[0].getsockname()[1], ended)
+            )
+            await opened.wait()
+            ended.set()
+            assert await asyncio.get_running_loop().sock_recv(peers[0], 4096)
+            call.cancel()
+            await asyncio.wait({call})
+            try:
+                async with asyncio.timeout(well_before(CLOSE_TIMEOUT_SECONDS)):
+                    await reaches_the_end_of_the_stream(peers[0])
+            finally:
+                released.set()
+                peers[0].close()
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize(

@@ -654,8 +654,9 @@ class HearingSession:
                     await socket.close()
                     return wire.ended
                 finally:
-                    # A stalled peer holds a polite close past the deadline or a
-                    # cancel; aborting after a completed close is a no-op.
+                    # websockets aborts a close only when its close timeout lapses,
+                    # not when the close is cancelled; aborting after a completed
+                    # close is a no-op.
                     socket.transport.abort()
         except TimeoutError as timed_out:
             return _timeout_outcome(timed_out, wire.ended, opening)
