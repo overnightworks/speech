@@ -374,6 +374,14 @@ class TranscriptCompleted(_ServerEvent):
     languages: tuple[TranscriptLanguage]
     traceparent: str | None = None
 
+    @field_validator("transcript")
+    @classmethod
+    def _is_trimmed(cls, value: str) -> str:
+        if value != value.strip():
+            message = "a transcript carries no leading or trailing whitespace"
+            raise ValueError(message)
+        return value
+
 
 class ItemFailure(BaseModel):
     """The closed-list error of a failed item."""
