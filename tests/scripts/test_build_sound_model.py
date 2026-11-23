@@ -1,4 +1,4 @@
-"""The sound-model build switches onnxruntime telemetry off before it loads."""
+"""The sound-model build switches telemetry off, refuses bad inputs and builds."""
 
 from __future__ import annotations
 

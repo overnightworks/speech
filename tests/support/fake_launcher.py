@@ -148,11 +148,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             rate = 48000 if "other-rate" in behaviors else 24000
             self.send_header("X-Audio-Sample-Rate", str(rate))
         self.end_headers()
-        first = {"odd": b"\x00\x01\x02", "split-sample": b"\x00"}.get(text, b"\x00\x01")
-        self.wfile.write(chunked(first))
-        self.wfile.flush()
-        if text == "split-sample":
-            self.wfile.write(chunked(b"\x01"))
+        answer = {"odd": (b"\x00\x01\x02",), "split-sample": (b"\x00", b"\x01")}
+        for chunk in answer.get(text, (b"\x00\x01",)):
+            self.wfile.write(chunked(chunk))
+            self.wfile.flush()
         if text == "midstream-exit":
             os._exit(1)
         if text == "gate":
