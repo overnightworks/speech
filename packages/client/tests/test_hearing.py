@@ -20,7 +20,7 @@ from websockets.frames import CloseCode
 
 from packages.client.tests.support.elapsed_support import (
     CLOSE_TIMEOUT_SECONDS,
-    seconds_to_cancel_after_yields,
+    seconds_to_cancel_after_end,
     well_before,
 )
 from packages.client.tests.support.hearing_support import (
@@ -429,17 +429,11 @@ def test_a_cancel_at_any_moment_after_an_orderly_end_returns_at_once(
             await ended.wait()
             await end(session)
 
-    async def scenario() -> float:
-        async with stalled_service() as (port, opened):
-            ended = asyncio.Event()
-            caller = asyncio.create_task(hearing(port, ended))
-            await opened.wait()
-            ended.set()
-            elapsed = await seconds_to_cancel_after_yields(caller, yields_before_cancel)
-        assert asyncio.all_tasks() == {asyncio.current_task()}
-        return elapsed
+    elapsed = asyncio.run(
+        seconds_to_cancel_after_end(stalled_service(), hearing, yields_before_cancel)
+    )
 
-    assert asyncio.run(scenario()) < well_before(CLOSE_TIMEOUT_SECONDS)
+    assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)
 
 
 @pytest.mark.parametrize(

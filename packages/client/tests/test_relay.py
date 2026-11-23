@@ -15,7 +15,7 @@ from websockets.asyncio.server import serve
 
 from packages.client.tests.support.elapsed_support import (
     CLOSE_TIMEOUT_SECONDS,
-    seconds_to_cancel_after_yields,
+    seconds_to_cancel_after_end,
     well_before,
 )
 from packages.client.tests.support.hearing_support import fixed_tokens
@@ -631,17 +631,13 @@ def test_a_caller_timeout_before_the_hop_ends_aborts_a_stalled_service() -> None
 def test_a_cancel_at_any_moment_after_the_apps_end_signal_returns_at_once(
     yields_before_cancel: int,
 ) -> None:
-    async def scenario() -> float:
-        async with _stalled_service() as (service_url, opened):
-            app_ended = asyncio.Event()
-            hop = asyncio.create_task(_stalled_hop(service_url, app_ended))
-            await opened.wait()
-            app_ended.set()
-            elapsed = await seconds_to_cancel_after_yields(hop, yields_before_cancel)
-        assert asyncio.all_tasks() == {asyncio.current_task()}
-        return elapsed
+    elapsed = asyncio.run(
+        seconds_to_cancel_after_end(
+            _stalled_service(), _stalled_hop, yields_before_cancel
+        )
+    )
 
-    assert asyncio.run(scenario()) < well_before(CLOSE_TIMEOUT_SECONDS)
+    assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)
 
 
 @pytest.mark.parametrize("stall", ["handshake", "first-event"])
