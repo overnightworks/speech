@@ -38,6 +38,10 @@ LEAD_SECONDS = 1.0
 GROWTH_SECONDS = 0.3
 # How far past a stop's edge the clock reads when the cut comes.
 PAST_THE_EDGE_SECONDS = 0.5
+# Where the page's task is blocked around the player's start call.
+AROUND_THE_START_CALL = pytest.mark.parametrize(
+    "stall", ["before", "after"], ids=["before_the_call", "after_the_call"]
+)
 
 
 def test_a_sound_played_through_reports_its_full_length_as_played_seconds(
@@ -135,9 +139,7 @@ def test_the_start_a_sound_hands_over_is_the_context_time_its_first_sample_is_he
     )
 
 
-@pytest.mark.parametrize(
-    "stall", ["before", "after"], ids=["before_the_call", "after_the_call"]
-)
+@AROUND_THE_START_CALL
 def test_a_sound_is_heard_at_its_start_or_later_by_the_stall_around_the_start_call(
     tmp_path: Path, stall: str
 ) -> None:
@@ -167,6 +169,43 @@ def test_a_sound_is_heard_at_its_start_or_later_by_the_stall_around_the_start_ca
     assert start - quantum <= heard <= start + blocked + quantum
     played_ahead = seen["playedNow"][0] - (seen["contextNow"] - heard)
     assert played_ahead <= blocked + quantum + seen["clockStep"]
+
+
+@AROUND_THE_START_CALL
+def test_a_streamed_sounds_next_chunk_overlaps_a_late_first_by_no_more_than_the_stall(
+    tmp_path: Path, stall: str
+) -> None:
+    """The next chunk starts where the first chunk's start asked for ends.
+
+    The player counts the chain from that start. A stall past the output's lead that
+    reaches the render thread after the start call leaves the first chunk on time and
+    the chain gapless. One before the call plays the first chunk later, by up to the
+    blocked time, and the next chunk then overlaps its tail by as much: the output
+    sums the two for that long, to within one render quantum. The page cannot tell the
+    two stalls apart, so a chain counted from a later clock read would turn this
+    overlap into a gap after the other stall.
+    """
+
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.prepare_bytes("long", LONG)
+            await stage.act("stallNextStart", stall)
+            await stage.hand_over(fed("long", lead_seconds=LEAD_SECONDS))
+            await stage.until("s.sounds[0].startedValue === 'playing'")
+            await stage.act("feed", "long")
+            await stage.until("s.scheduledChunks.length >= 2")
+            await stage.until("s.heardOnsets.length > 0")
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    (stalled,) = seen["stalls"]
+    blocked = stalled["to"] - stalled["from"]
+    quantum = ONSET_BOUND_FRAMES / seen["sampleRate"]
+    first, second = seen["scheduledChunks"][:2]
+    assert second["start"] == pytest.approx(first["start"] + first["seconds"])
+    overlap = heard_start_of(seen) + first["seconds"] - second["start"]
+    assert -quantum <= overlap <= blocked + quantum
 
 
 @pytest.mark.parametrize("sound", [SHORT, STREAMED], ids=["whole", "streamed"])
