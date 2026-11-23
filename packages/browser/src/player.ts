@@ -188,6 +188,8 @@ class PlayerRun {
   #closed = false;
   #flow: Flow = "running";
   #ramp: Ramp | undefined;
+  // The latest resume of the context, in flight or done.
+  #resuming: Promise<boolean> = Promise.resolve(true);
   // The context time the volume is back to 1 from: no sound starts under the stop's ramp before it.
   #restoredAt = 0;
   // Every call that sets the volume bumps the fade; a wait that began in an older one is overtaken.
@@ -310,7 +312,16 @@ class PlayerRun {
     return this.#untilContextTime(time, fade);
   }
 
+  /** Ramps the volume up, unless a sound being stopped is to bring it back when it ends. */
+  #fadeIn(): void {
+    if (this.#playing?.stoppingAt === undefined) {
+      this.#rampTo(1);
+    }
+  }
+
   async #suspendOnceFaded(endsAt: number, fade: number): Promise<void> {
+    // A suspend asked of a context that is still to run again is lost: the resume then runs it on, with the volume at 0.
+    await this.#resuming;
     if (await this.#untilContextTime(endsAt, fade)) {
       this.#flow = "paused";
       void this.#context.suspend();
@@ -318,6 +329,9 @@ class PlayerRun {
   }
 
   async #resumeAndFadeIn(fade: number): Promise<void> {
+    // A suspended context's clock stands still, so the ramp set on it starts the moment the context renders again, not
+    // when the page's task that awaits the resume runs: the sounds play on where they paused, whatever the page's timing.
+    this.#fadeIn();
     if (!(await this.#resume())) {
       if (fade === this.#fade) {
         this.#flow = "paused";
@@ -325,10 +339,6 @@ class PlayerRun {
       return;
     }
     if (fade === this.#fade) {
-      // A sound being stopped brings the volume back when it ends.
-      if (this.#playing?.stoppingAt === undefined) {
-        this.#rampTo(1);
-      }
       if (this.#playing !== undefined) {
         this.#announceStart(this.#playing);
       }
@@ -405,7 +415,12 @@ class PlayerRun {
     return generation === this.#generation && this.#queue[0] === item;
   }
 
-  async #resume(): Promise<boolean> {
+  #resume(): Promise<boolean> {
+    this.#resuming = this.#resumeContext();
+    return this.#resuming;
+  }
+
+  async #resumeContext(): Promise<boolean> {
     if (this.#context.state === "running") {
       return true;
     }
