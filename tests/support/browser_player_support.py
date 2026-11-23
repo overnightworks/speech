@@ -252,6 +252,20 @@ def peaks_inside(seen: dict[str, object], sound: int, seconds: float) -> list[fl
     return peaks_between(seen, start + margin, start + seconds - margin)
 
 
+def waited_seconds(seen: dict[str, object], until: float) -> float:
+    """The seconds before `until` of the context clock the output waited for a chunk.
+
+    A streamed sound's chunk that arrives after the one before it has ended starts
+    later: the output plays nothing in between, and the sound's played seconds stand
+    still. The waits are read from the starts the output was handed.
+    """
+    chunks = sorted(seen["scheduledChunks"], key=lambda chunk: chunk["start"])
+    return sum(
+        max(min(following["start"], until) - (chunk["start"] + chunk["seconds"]), 0)
+        for chunk, following in pairwise(chunks)
+    )
+
+
 def audible_seconds(seen: dict[str, object], since: float, until: float) -> float:
     """The seconds of [`since`, `until`) in which the output was not silent."""
     audible = [peak for peak in peaks_between(seen, since, until) if peak > SILENT_PEAK]
