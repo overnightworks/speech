@@ -96,6 +96,7 @@ if "startup-oversized" in behaviors:
 if "stale-socket" in behaviors:
     stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     stale.bind(str(arguments.socket))
+    (cache / "scenario-begun").touch()
     while True:
         time.sleep(1)
 if "with-stage" in behaviors:
