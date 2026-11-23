@@ -1,0 +1,8 @@
+claim_id = "8881bb0cec154bdc8286d2dad7993276"
+agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
+role = "builder"
+base = "577d5242b9532da0d8da84d701eb8c22840f72ac"
+branch = "claude/issue-637-serve-on-takes-its-server"
+scope = ["src/speech_service/__main__.py", "tests/support/serve_support.py", "tests/test_main.py", "tests/test_main_serve_lifecycle.py"]
+opened_commit = "11acaa7399510f0f1139f7af98881547c7bfad5a"
+whole_reason = "One seam and the tests that use it; split, the seam would land without its callers or the tests would patch a name that is gone."
