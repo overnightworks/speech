@@ -12,6 +12,7 @@ import pytest
 from logline import current_traceparent, unit_trace
 from pydantic import ValidationError
 
+from packages.client.tests.support.elapsed_support import well_before
 from packages.client.tests.support.http_support import chunk, head
 from packages.client.tests.support.scripted_service_support import SAMPLE_RATE, wav_of
 from speech_client import speak as speak_module
@@ -53,7 +54,8 @@ VOICE = VoiceId.THORSTEN
 WORKLOAD_TOKEN = "workload-token"  # noqa: S105 - a stand-in the raw listener never checks
 PERSON_TOKEN = "person-token"  # noqa: S105 - a stand-in the raw listener never checks
 DEADLINE_SECONDS = 0.5
-MARGIN_SECONDS = 3.0
+# How long a dripping server holds the call: the long wait a deadline must cut short.
+HOLD_SECONDS = 30.0
 GENEROUS_DEADLINE_SECONDS = 30.0
 CAP_BYTES = 1024 * 1024
 DRIP_SECONDS = 0.02
@@ -141,7 +143,9 @@ def _refusal_response(
 def _sends_then_drips(raw: bytes, drip: bytes) -> Answer:
     def answer(connection: socket.socket, stopped: threading.Event) -> None:
         connection.sendall(raw)
-        while not stopped.wait(DRIP_SECONDS):
+        for _ in range(round(HOLD_SECONDS / DRIP_SECONDS)):
+            if stopped.wait(DRIP_SECONDS):
+                return
             connection.sendall(drip)
 
     return answer
@@ -173,7 +177,7 @@ def test_a_server_that_drips_cannot_hold_the_call_past_the_deadline(
         outcome = _speak(base_url, deadline_seconds=DEADLINE_SECONDS)
 
     assert outcome == PastDeadline()
-    assert time.monotonic() - began < DEADLINE_SECONDS + MARGIN_SECONDS
+    assert time.monotonic() - began < well_before(HOLD_SECONDS)
 
 
 def test_every_outcome_is_exported_from_the_speak_module() -> None:

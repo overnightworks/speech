@@ -12,8 +12,11 @@ from typing import TYPE_CHECKING
 import pytest
 from websockets.asyncio.server import serve
 
+from packages.client.tests.support.elapsed_support import (
+    CLOSE_TIMEOUT_SECONDS,
+    well_before,
+)
 from packages.client.tests.support.hearing_support import (
-    AT_ONCE_SECONDS,
     CREATED_EVENT,
     LOOPBACK,
     OPENING_MARGIN,
@@ -31,6 +34,7 @@ if TYPE_CHECKING:
 
     from speech_client.hearing import HearingOutcome, HearingSession
 
+DEADLINE_SECONDS = 30  # the long wait a stalled opening must not sit through
 OPENING_SHORT = 0.3  # passed at once by a stalled peer, far below the deadline
 
 
@@ -52,13 +56,13 @@ def test_a_stalled_opening_ends_with_unreachable_at_the_bound(stall: str) -> Non
             else:
                 port, _ = await stack.enter_async_context(stalled_service(()))
             started = time.monotonic()
-            ended = await outcome_at(port, 4, OPENING_SHORT)
+            ended = await outcome_at(port, DEADLINE_SECONDS, OPENING_SHORT)
             return ended, time.monotonic() - started
 
     ended, elapsed = asyncio.run(scenario())
 
     assert ended == Unreachable()
-    assert elapsed < AT_ONCE_SECONDS * 2
+    assert elapsed < well_before(DEADLINE_SECONDS)
 
 
 def test_a_deadline_equal_to_the_opening_bound_leaves_the_opening_to_end_it() -> None:
@@ -111,7 +115,7 @@ def test_a_caller_timeout_during_the_wait_for_the_first_event_leaves_no_task() -
         assert asyncio.all_tasks() == {asyncio.current_task()}
         return elapsed
 
-    assert asyncio.run(scenario()) < AT_ONCE_SECONDS
+    assert asyncio.run(scenario()) < well_before(CLOSE_TIMEOUT_SECONDS)
 
 
 def test_audio_held_for_a_stalled_opening_never_reaches_the_peer() -> None:

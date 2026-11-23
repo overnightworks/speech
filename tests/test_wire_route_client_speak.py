@@ -47,6 +47,7 @@ from speech_client.wire import (
 )
 from speech_service.config import Settings
 from speech_service.service import Runtime, RuntimeDependencies
+from tests.support.elapsed_support import well_before
 from tests.support.fakes_support import (
     GATE_TIMEOUT_SECONDS,
     SPEAK_SAMPLE_RATE,
@@ -69,7 +70,6 @@ if TYPE_CHECKING:
     )
 
 DEADLINE_SECONDS = 0.5
-MARGIN_SECONDS = 3.0
 CAP_BYTES = 1024 * 1024
 
 
@@ -279,7 +279,7 @@ def test_a_voice_that_stalls_leaves_the_call_past_the_deadline() -> None:
     outcome = _over_the_service(voice, deadline_seconds=DEADLINE_SECONDS)
 
     assert outcome == PastDeadline()
-    assert time.monotonic() - began < DEADLINE_SECONDS + MARGIN_SECONDS
+    assert time.monotonic() - began < well_before(GATE_TIMEOUT_SECONDS)
 
 
 def test_a_request_beyond_the_waiting_places_is_told_busy_with_the_wait() -> None:

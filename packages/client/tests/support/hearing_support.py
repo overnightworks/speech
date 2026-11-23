@@ -32,8 +32,6 @@ LOOPBACK = "127.0.0.1"
 WORKLOAD_TOKEN = "workload-secret"  # noqa: S105 - a scenario value
 PERSON_TOKEN = "person-secret"  # noqa: S105 - a scenario value
 HEARD_TEXT = "heard-secret-words"
-# Well below the socket close timeout (10 s) and the session deadline (30 s).
-AT_ONCE_SECONDS = 1
 OPENING_MARGIN = 2  # met in time, below the close timeout (10 s)
 
 

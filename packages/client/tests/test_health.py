@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from packages.client.tests.support.elapsed_support import well_before
 from speech_client.health import UnexpectedStatus, fetch_health
 from speech_client.outcomes import (
     Cut,
@@ -35,7 +36,8 @@ if TYPE_CHECKING:
     from support.listener_support import RawListener
 
 DEADLINE_SECONDS = 0.5
-MARGIN_SECONDS = 3.0
+# How long a stalling server holds the call: the long wait a deadline must cut short.
+HOLD_SECONDS = 30.0
 GENEROUS_DEADLINE_SECONDS = 30.0
 CAP_BYTES = 64 * 1024
 # `GET /health` of image v2026.11.14.6 over fake engines, for one Piper voice.
@@ -85,7 +87,7 @@ def _response(status: str, body: bytes) -> bytes:
 
 def _stalls(connection: socket.socket, stopped: threading.Event) -> None:
     del connection
-    stopped.wait()
+    stopped.wait(HOLD_SECONDS)
 
 
 def _ok(document: object) -> bytes:
@@ -151,7 +153,7 @@ def test_a_server_that_stalls_is_past_the_deadline(raw_listener: RawListener) ->
         outcome = _fetch(base_url, deadline_seconds=DEADLINE_SECONDS)
 
     assert outcome == PastDeadline()
-    assert time.monotonic() - began < DEADLINE_SECONDS + MARGIN_SECONDS
+    assert time.monotonic() - began < well_before(HOLD_SECONDS)
 
 
 def test_a_body_above_the_cap_is_over_the_cap(raw_listener: RawListener) -> None:

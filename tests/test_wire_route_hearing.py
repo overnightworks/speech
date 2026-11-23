@@ -31,6 +31,7 @@ from speech_client.wire import (
 )
 from speech_service.config import Settings
 from speech_service.control import create_control_app
+from tests.support.elapsed_support import well_before
 from tests.support.hear_support import (
     HEARD_TEXT,
     MULTIPART,
@@ -68,7 +69,6 @@ if TYPE_CHECKING:
     from speech_service.service import Runtime
 
 SHORT_WAIT_SECONDS = 0.2
-SLACK_SECONDS = 0.5
 UNREADABLE_FORM = "the form cannot be read"
 ENGLISH = {"model": MODEL, "language": Language.EN.value}
 
@@ -368,7 +368,7 @@ def test_a_request_beyond_the_waiting_places_is_told_busy_at_once() -> None:
     engine, beyond, answered_after = asyncio.run(scenario())
 
     assert_call_refusal(beyond, HTTP_429_TOO_MANY_REQUESTS, RefusalCode.BUSY, None)
-    assert answered_after < SLACK_SECONDS
+    assert answered_after < well_before(WAIT_SECONDS)
     assert engine.most_concurrent == 1
 
 

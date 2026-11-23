@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING
 import pytest
 from websockets.asyncio.server import serve
 
+from packages.client.tests.support.elapsed_support import well_before
 from packages.client.tests.support.hearing_support import (
-    AT_ONCE_SECONDS,
     CREATED_EVENT,
     HEARD_DELTA,
     LOOPBACK,
@@ -70,6 +70,10 @@ if TYPE_CHECKING:
     from packages.client.tests.support.scripted_hearing_support import Script
     from speech_client.hearing import HearingOutcome, HearingSession, SessionTokens
 pytestmark = pytest.mark.usefixtures("quick_bound")
+
+BUSY_RETRY_AFTER_SECONDS = 30
+SESSION_DEADLINE_SECONDS = 30
+SILENT_OPENING_SECONDS = 30
 
 
 def test_a_drain_reopens_at_the_same_origin_with_the_same_update() -> None:
@@ -140,7 +144,10 @@ def test_these_ends_do_not_reopen_the_hearing(
     [
         pytest.param(drains_before_opening, id="drain-before-created"),
         pytest.param(UNAVAILABLE, id="unavailable"),
-        pytest.param(Refusal(RefusalCode.BUSY, retry_after="30"), id="busy"),
+        pytest.param(
+            Refusal(RefusalCode.BUSY, retry_after=str(BUSY_RETRY_AFTER_SECONDS)),
+            id="busy",
+        ),
     ],
 )
 def test_a_failed_attempt_is_retried_until_the_hearing_goes_on(
@@ -171,7 +178,10 @@ def test_an_attempt_whose_opening_bound_expires_counts_as_failed() -> None:
     [
         pytest.param(drains_before_opening, id="cut-before-created"),
         pytest.param(UNAVAILABLE, id="unavailable"),
-        pytest.param(Refusal(RefusalCode.BUSY, retry_after="30"), id="busy"),
+        pytest.param(
+            Refusal(RefusalCode.BUSY, retry_after=str(BUSY_RETRY_AFTER_SECONDS)),
+            id="busy",
+        ),
     ],
 )
 def test_attempts_that_all_fail_end_the_hearing_with_reconnect_failed(
@@ -182,7 +192,7 @@ def test_attempts_that_all_fail_end_the_hearing_with_reconnect_failed(
 
     assert (visits, ended) == (1 + BOUND.attempts, ReconnectFailed())
     # A `busy` is not waited out: its Retry-After is 30 s.
-    assert time.monotonic() - started < AT_ONCE_SECONDS * 3
+    assert time.monotonic() - started < well_before(BUSY_RETRY_AFTER_SECONDS)
 
 
 def test_an_unreachable_service_counts_every_attempt_and_ends_reconnect_failed() -> (
@@ -235,7 +245,7 @@ def test_a_deadline_falling_due_with_the_last_opening_bound_ends_reconnect_faile
 
 
 def test_the_last_failed_attempt_ends_the_hearing_without_a_pause() -> None:
-    one_attempt = ReconnectBound(attempts=1, pause_seconds=5, within_seconds=30)
+    one_attempt = ReconnectBound(attempts=1, pause_seconds=30, within_seconds=30)
 
     async def scenario() -> tuple[HearingOutcome | None, float]:
         async with scripted(drains, UNAVAILABLE) as (port, _):
@@ -248,7 +258,7 @@ def test_the_last_failed_attempt_ends_the_hearing_without_a_pause() -> None:
         outcome, elapsed = asyncio.run(scenario())
 
     assert outcome == ReconnectFailed()
-    assert elapsed < AT_ONCE_SECONDS
+    assert elapsed < well_before(one_attempt.pause_seconds)
 
 
 @pytest.mark.parametrize(
@@ -473,7 +483,7 @@ def test_the_reconnect_bound_ends_the_hearing_within_its_time() -> None:
 
         async with scripted(drains, stays_silent) as (port, _):
             started = time.monotonic()
-            outcome = (await hear(port, opening_seconds=30))[1]
+            outcome = (await hear(port, opening_seconds=SILENT_OPENING_SECONDS))[1]
             return outcome, time.monotonic() - started
 
     with pytest.MonkeyPatch.context() as patch:
@@ -481,11 +491,11 @@ def test_the_reconnect_bound_ends_the_hearing_within_its_time() -> None:
         outcome, elapsed = asyncio.run(scenario())
 
     assert outcome == ReconnectFailed()
-    assert long_bound.within_seconds <= elapsed < long_bound.within_seconds + 1
+    assert long_bound.within_seconds <= elapsed < well_before(SILENT_OPENING_SECONDS)
 
 
 def test_a_deadline_below_the_reconnect_bound_wins() -> None:
-    slow_bound = ReconnectBound(attempts=5, pause_seconds=5, within_seconds=30)
+    slow_bound = ReconnectBound(attempts=5, pause_seconds=30, within_seconds=30)
 
     async def scenario() -> tuple[HearingOutcome | None, float]:
         async with scripted(drains, UNAVAILABLE) as (port, _):
@@ -498,7 +508,7 @@ def test_a_deadline_below_the_reconnect_bound_wins() -> None:
         outcome, elapsed = asyncio.run(scenario())
 
     assert outcome == PastDeadline()
-    assert elapsed < AT_ONCE_SECONDS * 2
+    assert elapsed < well_before(slow_bound.pause_seconds)
 
 
 def test_a_deadline_due_with_the_bound_during_a_pause_ends_reconnect_failed() -> None:
@@ -527,7 +537,7 @@ def test_leaving_during_a_reconnect_ends_the_session_closed_at_once() -> None:
     async def scenario() -> tuple[HearingOutcome | None, float]:
         tokens = Tokens(2)
         async with scripted(drains, ends_in_order) as (port, _):
-            session = session_to(port, 30, 1, 5, tokens)
+            session = session_to(port, SESSION_DEADLINE_SECONDS, 1, 5, tokens)
             async with session:
                 await tokens.reached(2)
                 started = time.monotonic()
@@ -536,7 +546,7 @@ def test_leaving_during_a_reconnect_ends_the_session_closed_at_once() -> None:
     outcome, elapsed = asyncio.run(scenario())
 
     assert outcome == Closed()
-    assert elapsed < AT_ONCE_SECONDS
+    assert elapsed < well_before(SESSION_DEADLINE_SECONDS)
 
 
 def test_a_cancel_during_a_reconnect_leaves_no_task_behind() -> None:
