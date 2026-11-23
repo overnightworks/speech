@@ -334,8 +334,9 @@ async function act(name, action) {
 // The second switch of a reversal, thrown once the volume has left the value `from`, so that it reverses a ramp under
 // way. The throw records the volume it found: a ramp that never began, or is over, shows there. The first switch sets its
 // ramp in its own call, and the wait spins in the task until the volume moves: a wait that gives up the task queues
-// behind the ear's messages, which a throttled page handles for longer than the ramp lasts. The first switch's clock is
-// held ahead, so that its ramp starts after the call, and is let go as the second is thrown.
+// behind the ear's messages, which a throttled page handles for longer than the ramp lasts. On a running context the first
+// switch's clock is held ahead, so that its ramp starts after the call; a suspended context's clock stands still, so it
+// is held where it is. The hold is let go as the second switch is thrown.
 async function actWhileFading(name, action, from) {
   const giveUp = performance.now() + SILENCE_GIVE_UP_MS;
   while (outputGain.gain.value === from && performance.now() < giveUp);
