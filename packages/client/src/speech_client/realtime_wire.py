@@ -38,12 +38,14 @@ class _SessionPart(BaseModel):
 class PcmFormat(_SessionPart):
     """PCM16 little-endian mono at 24 kHz, the one input format.
 
-    A sample is `sample_bytes` bytes and a frame has `channels` channels, both
-    class constants, so the session's shape names only `type` and `rate`.
+    A sample is `sample_bytes` bytes, a frame has `channels` channels and a
+    signed sample peaks at `full_scale`, all class constants, so the session's
+    shape names only `type` and `rate`.
     """
 
     sample_bytes: ClassVar[int] = 2
     channels: ClassVar[int] = 1
+    full_scale: ClassVar[float] = 32768.0
 
     type: Literal["audio/pcm"]
     rate: Literal[24000]

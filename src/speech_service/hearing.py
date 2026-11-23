@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Final, Protocol
 import numpy as np
 
 from speech_service.admission_gate import AdmissionGate, Lease
+from speech_service.config import setting_variable
 from speech_service.cuda_libs import cuda_library_dirs, prepare_cuda_libraries
 from speech_service.hearing_models import model_directory, voiced_floor
 from speech_service.pcm import INT16_SCALE
@@ -44,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 CPU_THREADS: Final = 4
 DRAIN_TURN_SECONDS: Final = 30.0
-_SETTING: Final = "SPEECH_HEARING_MODEL"
+_SETTING: Final = setting_variable("hearing_model")
 _DEVICES: Final = frozenset({"cpu", "cuda"})
 # A window is no speech, and adds no words, when its no-speech probability is above
 # the first and its average log probability not above the second: faster-whisper's

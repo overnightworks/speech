@@ -119,6 +119,14 @@ def _voice(name: str) -> VoiceId:
         raise ValueError(_VOICES_ERROR) from None
 
 
+def setting_variable(field: str) -> str:
+    """The environment variable that sets `Settings.<field>`; fails for a non-field."""
+    if field not in Settings.model_fields:
+        message = f"{field} is no setting"
+        raise ValueError(message)
+    return (Settings.model_config["env_prefix"] + field).upper()
+
+
 def load_settings() -> Settings:
     """Read `SPEECH_*` from the environment."""
     return Settings()

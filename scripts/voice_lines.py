@@ -45,6 +45,7 @@ from prove_speech import (
 )
 from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, first_language
 from speech_client.wire import Language, VoiceId
+from speech_service.config import setting_variable
 from speech_service.hearing_models import HearingModel
 from speech_service.pcm import BYTES_PER_SAMPLE
 from wav_audio import pcm_from_wav
@@ -61,7 +62,7 @@ CALLER_WAIT_SECONDS: Final = 900.0
 """How long the command waits for the caller's line before it ends its service."""
 MISSED_EXIT: Final = 3
 AUDIBLE_SAMPLE: Final = 1000
-LOAD_AT_START_SETTING: Final = "SPEECH_LOAD_GPU_VOICES_AT_START"
+LOAD_AT_START_SETTING: Final = setting_variable("load_gpu_voices_at_start")
 FIGURES: Final = (
     "first_audio_seconds",
     "first_audible_seconds",
