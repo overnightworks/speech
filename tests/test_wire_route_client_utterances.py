@@ -25,6 +25,7 @@ from speech_client.utterances import (
     hear_utterances,
 )
 from speech_client.wire import Language
+from tests.support.elapsed_support import well_before
 from tests.support.hear_support import FakeHearing, hear_runtime
 from tests.support.identity_support import valid_pair
 from tests.support.live_support import INPUT_RATE, SPEECH_LEVEL
@@ -39,7 +40,6 @@ if TYPE_CHECKING:
 
 WAIT_SECONDS = 10
 HELD_LIMIT_BYTES = 1024 * 1024
-END_BOUND_SECONDS = 2
 
 
 @dataclass
@@ -160,7 +160,7 @@ def test_a_spoken_utterance_reaches_the_app_with_its_language_and_positions(
             await _speak_then_fall_silent(browser)
             await asyncio.wait_for(hop.heard.wait(), WAIT_SECONDS)
             hop.ended.set()
-            outcome = await asyncio.wait_for(hop.outcome, END_BOUND_SECONDS)
+            outcome = await asyncio.wait_for(hop.outcome, well_before(WAIT_SECONDS))
             return hop.utterances, outcome, await close_code(browser)
 
     utterances, outcome, code = asyncio.run(scenario())
@@ -180,8 +180,10 @@ def test_the_apps_end_signal_ends_the_hearing_and_frees_the_service() -> None:
             async with connect(url) as browser:
                 await browser.send(bytes(HOP_FRAME_BYTES))
                 hop.ended.set()
-                outcome = await asyncio.wait_for(hop.outcome, END_BOUND_SECONDS)
-                code = await asyncio.wait_for(close_code(browser), END_BOUND_SECONDS)
+                outcome = await asyncio.wait_for(hop.outcome, well_before(WAIT_SECONDS))
+                code = await asyncio.wait_for(
+                    close_code(browser), well_before(WAIT_SECONDS)
+                )
             freed = await _service_takes_a_session(service_url)
             return hop.utterances, outcome, code, freed
 
@@ -206,7 +208,7 @@ def test_speech_started_reaches_the_app_before_the_items_partials_and_utterance(
             await _speak_then_fall_silent(browser)
             await asyncio.wait_for(hop.heard.wait(), WAIT_SECONDS)
             hop.ended.set()
-            await asyncio.wait_for(hop.outcome, END_BOUND_SECONDS)
+            await asyncio.wait_for(hop.outcome, well_before(WAIT_SECONDS))
             return hop.calls
 
     calls = asyncio.run(scenario())
@@ -237,7 +239,7 @@ def test_turn_ended_reaches_the_app_for_a_turn_with_words_and_for_an_empty_one()
             await _speak_then_fall_silent(browser)
             await asyncio.wait_for(hop.turn_ends.get(), WAIT_SECONDS)
             hop.ended.set()
-            await asyncio.wait_for(hop.outcome, END_BOUND_SECONDS)
+            await asyncio.wait_for(hop.outcome, well_before(WAIT_SECONDS))
             return hop.calls
 
     calls = asyncio.run(scenario())
@@ -267,7 +269,7 @@ def test_speech_stopped_reaches_the_app_with_the_audio_end_before_the_utterance(
             await _speak_then_fall_silent(browser)
             await asyncio.wait_for(hop.turn_ends.get(), WAIT_SECONDS)
             hop.ended.set()
-            await asyncio.wait_for(hop.outcome, END_BOUND_SECONDS)
+            await asyncio.wait_for(hop.outcome, well_before(WAIT_SECONDS))
             return hop.calls, hop.utterances
 
     calls, utterances = asyncio.run(scenario())

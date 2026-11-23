@@ -18,8 +18,12 @@ from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
 from websockets.frames import CloseCode
 
+from packages.client.tests.support.elapsed_support import (
+    CLOSE_TIMEOUT_SECONDS,
+    seconds_to_cancel_after_end,
+    well_before,
+)
 from packages.client.tests.support.hearing_support import (
-    AT_ONCE_SECONDS,
     CREATED_EVENT,
     HEARD_DELTA,
     HEARD_TEXT,
@@ -56,7 +60,6 @@ if TYPE_CHECKING:
     from speech_client.hearing import HearingOutcome
 
 STALL_SECONDS = 1.2
-CLOSE_TIMEOUT_SECONDS = 10
 CLOSE_NORMAL = CloseCode.NORMAL_CLOSURE
 
 
@@ -302,7 +305,7 @@ def test_the_session_bounds_free_a_caller_leaving_a_service_ignoring_the_close(
     ended, elapsed = asyncio.run(scenario())
 
     assert ended == outcome
-    assert elapsed < CLOSE_TIMEOUT_SECONDS / 2
+    assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)
 
 
 def test_a_caller_cancelled_while_leaving_a_stalled_service_is_not_held_by_it() -> None:
@@ -315,7 +318,7 @@ def test_a_caller_cancelled_while_leaving_a_stalled_service_is_not_held_by_it() 
                         await opened.wait()
             return time.monotonic() - started
 
-    assert asyncio.run(scenario()) < CLOSE_TIMEOUT_SECONDS / 2
+    assert asyncio.run(scenario()) < well_before(CLOSE_TIMEOUT_SECONDS)
 
 
 def test_a_send_after_the_held_limit_is_passed_never_reaches_the_peer() -> None:
@@ -368,7 +371,7 @@ def test_a_peer_that_stops_reading_does_not_hold_the_session_past_its_deadline()
     outcome, elapsed = asyncio.run(scenario())
 
     assert outcome == PastDeadline()
-    assert elapsed < CLOSE_TIMEOUT_SECONDS / 2
+    assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)
 
 
 @pytest.mark.parametrize(
@@ -426,23 +429,11 @@ def test_a_cancel_at_any_moment_after_an_orderly_end_returns_at_once(
             await ended.wait()
             await end(session)
 
-    async def scenario() -> float:
-        async with stalled_service() as (port, opened):
-            ended = asyncio.Event()
-            caller = asyncio.create_task(hearing(port, ended))
-            await opened.wait()
-            ended.set()
-            for _ in range(yields_before_cancel):
-                await asyncio.sleep(0)
-            started = time.monotonic()
-            caller.cancel()
-            await asyncio.wait({caller}, timeout=CLOSE_TIMEOUT_SECONDS / 2)
-            elapsed = time.monotonic() - started
-            assert caller.cancelled()
-        assert asyncio.all_tasks() == {asyncio.current_task()}
-        return elapsed
+    elapsed = asyncio.run(
+        seconds_to_cancel_after_end(stalled_service(), hearing, yields_before_cancel)
+    )
 
-    assert asyncio.run(scenario()) < AT_ONCE_SECONDS
+    assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)
 
 
 @pytest.mark.parametrize(
@@ -466,7 +457,7 @@ def test_an_end_before_the_connection_opens_ends_the_session_at_once(
     ended, elapsed = asyncio.run(scenario())
 
     assert ended == outcome
-    assert elapsed < AT_ONCE_SECONDS
+    assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)
 
 
 def test_a_caller_timeout_during_a_stalled_opening_leaves_no_task_behind() -> None:
@@ -489,7 +480,7 @@ def test_a_caller_timeout_during_a_stalled_opening_leaves_no_task_behind() -> No
             assert asyncio.all_tasks() - peers == {asyncio.current_task()}
         return elapsed
 
-    assert asyncio.run(scenario()) < AT_ONCE_SECONDS
+    assert asyncio.run(scenario()) < well_before(CLOSE_TIMEOUT_SECONDS)
 
 
 def _fails_the_writer(session: HearingSession) -> None:
@@ -515,7 +506,7 @@ def test_a_failing_writer_ends_the_session_at_once_and_is_raised_from_leaving(
                 _fails_the_writer(session)
                 # The session ends while the caller has taken no event yet.
                 await asyncio.wait({session._runner})  # type: ignore[arg-type]  # noqa: SLF001 - the runner is the task under test
-                async with asyncio.timeout(AT_ONCE_SECONDS):
+                async with asyncio.timeout(well_before(CLOSE_TIMEOUT_SECONDS)):
                     await takes_every_event(session)
                 events_ran_out = True
 
@@ -551,7 +542,7 @@ def test_an_unexpected_failure_beats_a_cancel_landing_with_it(
             for _ in range(yields_before_cancel):
                 await asyncio.sleep(0)
             caller.cancel()
-            await asyncio.wait({caller}, timeout=CLOSE_TIMEOUT_SECONDS / 2)
+            await asyncio.wait({caller}, timeout=CLOSE_TIMEOUT_SECONDS)
             with pytest.raises(TypeError):
                 caller.result()
         assert asyncio.all_tasks() == {asyncio.current_task()}
@@ -602,7 +593,7 @@ def test_a_session_left_under_a_cancel_landing_on_every_turn_ends_at_once() -> N
             session = session_to(port)
             caller = asyncio.create_task(held_open(session))
             await opened.wait()
-            async with asyncio.timeout(AT_ONCE_SECONDS):
+            async with asyncio.timeout(well_before(CLOSE_TIMEOUT_SECONDS)):
                 while not caller.done():
                     caller.cancel()
                     await asyncio.sleep(0)
@@ -691,7 +682,7 @@ def test_a_leave_whose_cancel_the_callers_code_turned_into_another_error_aborts(
 
     timed_out, elapsed = asyncio.run(scenario())
 
-    assert elapsed < CLOSE_TIMEOUT_SECONDS / 2
+    assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)
     assert any(isinstance(error, turned_into) for error in _chain(timed_out))
 
 

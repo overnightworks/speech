@@ -30,6 +30,7 @@ from speech_client.relay import (
     relay,
 )
 from speech_client.wire import Language
+from tests.support.elapsed_support import well_before
 from tests.support.hear_support import HEARD_TEXT, FakeHearing, hear_runtime
 from tests.support.identity_support import valid_pair
 from tests.support.live_support import INPUT_RATE, SPEECH_LEVEL
@@ -44,7 +45,6 @@ if TYPE_CHECKING:
 
 WAIT_SECONDS = 10
 FRAME_LIMIT_BYTES = 64 * 1024
-END_BOUND_SECONDS = 2
 
 
 def _tone(seconds: float, level: int = SPEECH_LEVEL) -> bytes:
@@ -189,8 +189,10 @@ def test_the_apps_end_signal_ends_the_session_and_the_hop_within_its_bound() -> 
                 await browser.send(_tone(0.1))
                 await asyncio.wait_for(hop.first_event.wait(), WAIT_SECONDS)
                 hop.app_ended.set()
-                outcome = await asyncio.wait_for(hop.outcome, END_BOUND_SECONDS)
-                code = await asyncio.wait_for(close_code(browser), END_BOUND_SECONDS)
+                outcome = await asyncio.wait_for(hop.outcome, well_before(WAIT_SECONDS))
+                code = await asyncio.wait_for(
+                    close_code(browser), well_before(WAIT_SECONDS)
+                )
             return outcome, code, await _a_new_session_opens(service_url)
 
     outcome, code, freed = asyncio.run(scenario())

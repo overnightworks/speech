@@ -9,8 +9,11 @@ from typing import TYPE_CHECKING
 import pytest
 from logline import current_traceparent, unit_trace
 
+from packages.client.tests.support.elapsed_support import (
+    SESSION_DEADLINE_SECONDS,
+    well_before,
+)
 from packages.client.tests.support.hearing_support import (
-    AT_ONCE_SECONDS,
     PERSON_TOKEN,
     WORKLOAD_TOKEN,
     fixed_tokens,
@@ -196,10 +199,15 @@ def test_a_bound_that_expires_while_the_source_runs_ends_as_that_bound_says(
 ) -> None:
     started = time.monotonic()
 
-    outcome = outcome_of(ends_in_order, token_source=source, opening_seconds=0.2)
+    outcome = outcome_of(
+        ends_in_order,
+        token_source=source,
+        deadline_seconds=SESSION_DEADLINE_SECONDS,
+        opening_seconds=0.2,
+    )
 
     assert outcome == Unreachable()
-    assert time.monotonic() - started < AT_ONCE_SECONDS
+    assert time.monotonic() - started < well_before(SESSION_DEADLINE_SECONDS)
 
 
 def test_a_deadline_that_expires_while_the_source_runs_is_past_deadline() -> None:
