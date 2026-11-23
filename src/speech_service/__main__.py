@@ -47,6 +47,19 @@ def install_stop_signals(stopping: asyncio.Event) -> None:
         loop.add_signal_handler(received, stopping.set)
 
 
+class _ServiceServer(uvicorn.Server):
+    """uvicorn's server without its own signal handling: the service owns the stop."""
+
+    @contextlib.contextmanager
+    def capture_signals(self) -> Iterator[None]:
+        yield
+
+
+def build_server(app: object) -> uvicorn.Server:
+    """Build the uvicorn server for the control application."""
+    return _ServiceServer(uvicorn.Config(app, log_config=None))
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StopPolicy:
     """What the stop allows past the drain, and how it ends a process that is stuck.
@@ -54,12 +67,14 @@ class StopPolicy:
     The sessions get `grace_seconds` past the drain's bound to close, the server
     and the engines each `grace_seconds` to stop; `abort` ends the process when
     the engines will not close or a load will not end, as neither can be interrupted.
-    `install_signals` hands the loop the event a stop signal sets.
+    `install_signals` hands the loop the event a stop signal sets; `make_server`
+    builds the server the loop runs.
     """
 
     install_signals: Callable[[asyncio.Event], None] = install_stop_signals
     grace_seconds: float = _CLOSE_GRACE_SECONDS
     abort: Callable[[int], object] = os._exit
+    make_server: Callable[[object], uvicorn.Server] = build_server
 
 
 def main() -> None:
@@ -134,7 +149,7 @@ async def serve_on(
     loop = asyncio.get_running_loop()
     fatal = asyncio.Event()
     runtime.set_fatal_callback(lambda: loop.call_soon_threadsafe(fatal.set))
-    server = build_server(create_control_app(settings, runtime, callers))
+    server = stop.make_server(create_control_app(settings, runtime, callers))
     stopping = asyncio.Event()
     stop.install_signals(stopping)
     server_task = asyncio.create_task(server.serve(sockets=[listener]))
@@ -257,19 +272,6 @@ async def _finished_within(work: Callable[[], None], seconds: float) -> bool:
     except TimeoutError:
         return False
     return True
-
-
-class _ServiceServer(uvicorn.Server):
-    """uvicorn's server without its own signal handling: the service owns the stop."""
-
-    @contextlib.contextmanager
-    def capture_signals(self) -> Iterator[None]:
-        yield
-
-
-def build_server(app: object) -> uvicorn.Server:
-    """Build the uvicorn server for the control application."""
-    return _ServiceServer(uvicorn.Config(app, log_config=None))
 
 
 def _require_config_file(settings: Settings) -> Path:

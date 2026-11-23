@@ -1,6 +1,7 @@
 """Serving binds the configured address first and ends with the listener closed."""
 
 import asyncio
+import dataclasses
 import logging
 import os
 import signal
@@ -151,11 +152,12 @@ class _StoppedOnceReady(_ShutdownOnlyServer):
         await super().serve(sockets=sockets)
 
 
-def _serve_until_it_ends(settings: Settings, runtime: Runtime) -> int:
-    """Serve `runtime` with no signal installed: only the server ends it."""
-    return asyncio.run(
-        serve_runtime(settings, runtime, StopPolicy(install_signals=RecordedStops()))
-    )
+def _serve_until_it_ends(
+    settings: Settings, runtime: Runtime, make_server: Callable[[object], object]
+) -> int:
+    """Serve `runtime` on `make_server`'s server with no signal installed."""
+    stop = StopPolicy(install_signals=RecordedStops(), make_server=make_server)
+    return asyncio.run(serve_runtime(settings, runtime, stop))
 
 
 def _events(caplog: pytest.LogCaptureFixture) -> list[str]:
@@ -164,7 +166,6 @@ def _events(caplog: pytest.LogCaptureFixture) -> list[str]:
 
 def test_the_process_writes_its_ready_and_stop_lines(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     runtime = Runtime(
@@ -176,14 +177,17 @@ def test_the_process_writes_its_ready_and_stop_lines(
         ),
     )
     ready = _ReadyLine()
-    monkeypatch.setattr(
-        __main__, "build_server", lambda _app: _StoppedOnceReady(ready.written)
-    )
     caplog.set_level(logging.INFO)
     logging.getLogger(__main__.__name__).addHandler(ready)
 
     try:
-        outcome = asyncio.run(serve_runtime(_serving_settings(tmp_path), runtime))
+        outcome = asyncio.run(
+            serve_runtime(
+                _serving_settings(tmp_path),
+                runtime,
+                StopPolicy(make_server=lambda _app: _StoppedOnceReady(ready.written)),
+            )
+        )
     finally:
         logging.getLogger(__main__.__name__).removeHandler(ready)
 
@@ -194,9 +198,7 @@ def test_the_process_writes_its_ready_and_stop_lines(
     assert stopped.exit_code == 0
 
 
-def test_failed_loader_stops_the_server_and_closes_the_listener(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_failed_loader_stops_the_server_and_closes_the_listener(tmp_path: Path) -> None:
     runtime = Runtime(
         {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
@@ -205,11 +207,11 @@ def test_failed_loader_stops_the_server_and_closes_the_listener(
             missing_artifacts=lambda _voice: (),
         ),
     )
-    monkeypatch.setattr(__main__, "build_server", lambda _app: _ShutdownOnlyServer())
-
     settings = _serving_settings(tmp_path)
 
-    outcome = _serve_until_it_ends(settings, runtime)
+    outcome = _serve_until_it_ends(
+        settings, runtime, lambda _app: _ShutdownOnlyServer()
+    )
 
     assert outcome == 1
     assert not listens_on(settings.port)
@@ -217,15 +219,17 @@ def test_failed_loader_stops_the_server_and_closes_the_listener(
 
 def test_an_offered_piper_voice_without_its_files_ends_the_start_naming_the_voice(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    monkeypatch.setattr(__main__, "build_server", lambda _app: _ShutdownOnlyServer())
     settings = _serving_settings(tmp_path).model_copy(
         update={"voices": frozenset({VoiceId.NORMAN}), "voice_cache": tmp_path}
     )
 
-    outcome = asyncio.run(__main__.serve(settings))
+    outcome = asyncio.run(
+        __main__.serve(
+            settings, StopPolicy(make_server=lambda _app: _ShutdownOnlyServer())
+        )
+    )
 
     assert outcome == 1
     (missing,) = [r for r in caplog.records if r.getMessage() == "voice_files.missing"]
@@ -296,14 +300,19 @@ def test_shutdown_closes_a_pending_real_adapter_before_awaiting_its_load(
     # Only a missing close would need it: the load then waits for its release.
     watchdog = threading.Timer(5, release_the_load)
 
-    monkeypatch.setattr(__main__, "build_server", lambda _app: server)
     monkeypatch.setattr(
         "speech_service.provider_process.subprocess.Popen", observed_popen
     )
 
     watchdog.start()
     try:
-        outcome = asyncio.run(serve_runtime(_serving_settings(tmp_path), runtime))
+        outcome = asyncio.run(
+            serve_runtime(
+                _serving_settings(tmp_path),
+                runtime,
+                StopPolicy(make_server=lambda _app: server),
+            )
+        )
     finally:
         watchdog.cancel()
 
@@ -313,7 +322,7 @@ def test_shutdown_closes_a_pending_real_adapter_before_awaiting_its_load(
 
 
 def test_owned_speaking_failure_stops_the_server_and_returns_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     class FatalSpeaking(FakeSpeaking):
         def __init__(self) -> None:
@@ -352,20 +361,17 @@ def test_owned_speaking_failure_stops_the_server_and_returns_failure(
             await self.stopped.wait()
 
     server = Server()
-    monkeypatch.setattr(__main__, "build_server", lambda _app: server)
 
     settings = _serving_settings(tmp_path)
 
-    outcome = _serve_until_it_ends(settings, runtime)
+    outcome = _serve_until_it_ends(settings, runtime, lambda _app: server)
 
     assert outcome == 1
     assert server.should_exit
     assert not listens_on(settings.port)
 
 
-def test_orchestrator_serves_health_from_its_loading_runtime(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_orchestrator_serves_health_from_its_loading_runtime(tmp_path: Path) -> None:
     """WIRE-123: orchestrator serves health from its loading runtime."""
     started = threading.Event()
     release = threading.Event()
@@ -387,11 +393,9 @@ def test_orchestrator_serves_health_from_its_loading_runtime(
         server.use(app)
         return server
 
-    monkeypatch.setattr(__main__, "build_server", healthy_server)
-
     settings = _serving_settings(tmp_path)
 
-    outcome = _serve_until_it_ends(settings, runtime)
+    outcome = _serve_until_it_ends(settings, runtime, healthy_server)
 
     assert outcome == 1
     assert observed["speaking"] == {
@@ -435,9 +439,7 @@ def test_signal_handler_stops_the_async_orchestrator(
     assert stopping.is_set()
 
 
-def test_signal_exit_is_zero_and_closes_the_listener(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_signal_exit_is_zero_and_closes_the_listener(tmp_path: Path) -> None:
     runtime = Runtime(
         {VoiceId.THORSTEN: FakeSpeaking()},
         dependencies=RuntimeDependencies(catalogue=CATALOGUE),
@@ -460,15 +462,16 @@ def test_signal_exit_is_zero_and_closes_the_listener(
             del sockets
             await self._stopped.wait()
 
-    monkeypatch.setattr(__main__, "build_server", lambda _app: Server())
-
     settings = _serving_settings(tmp_path)
 
     outcome = asyncio.run(
         serve_runtime(
             settings,
             runtime,
-            StopPolicy(install_signals=lambda stopping: stopping.set()),
+            StopPolicy(
+                install_signals=lambda stopping: stopping.set(),
+                make_server=lambda _app: Server(),
+            ),
         )
     )
 
@@ -478,7 +481,6 @@ def test_signal_exit_is_zero_and_closes_the_listener(
 
 def _signalled_stop(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     hearing: Hearing,
     policy: StopPolicy,
     after: threading.Event | None = None,
@@ -496,21 +498,21 @@ def _signalled_stop(
         ),
         hearing=hearing,
     )
-    monkeypatch.setattr(__main__, "build_server", lambda _app: _SignalledServer(after))
     settings = _serving_settings(tmp_path, hearing_final_wait_seconds=0.05)
-    return serve_runtime(settings, runtime, policy)
+    served = dataclasses.replace(
+        policy, make_server=lambda _app: _SignalledServer(after)
+    )
+    return serve_runtime(settings, runtime, served)
 
 
 def test_a_session_that_outlasts_the_drain_bound_leaves_the_exit_zero(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """WIRE-147: the drain ends at its bound, whatever still runs."""
     hearing = loaded(FakeHearing(), drain_turn_seconds=0.0)
     place = hearing.open_session(1)
     assert place is not None
-    serving = _signalled_stop(
-        tmp_path, monkeypatch, hearing, StopPolicy(grace_seconds=0.05)
-    )
+    serving = _signalled_stop(tmp_path, hearing, StopPolicy(grace_seconds=0.05))
 
     outcome = asyncio.run(serving)
 
@@ -518,7 +520,7 @@ def test_a_session_that_outlasts_the_drain_bound_leaves_the_exit_zero(
 
 
 def test_engines_that_will_not_close_end_the_process_through_the_abort_with_zero(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """WIRE-147: a decode that cannot be interrupted does not hold the exit."""
     engine = FakeHearing(hold=True)
@@ -529,7 +531,7 @@ def test_engines_that_will_not_close_end_the_process_through_the_abort_with_zero
     assert engine.entered.wait(WAIT_SECONDS)
     aborted: list[int] = []
     policy = StopPolicy(grace_seconds=0.05, abort=aborted.append)
-    serving = _signalled_stop(tmp_path, monkeypatch, hearing, policy)
+    serving = _signalled_stop(tmp_path, hearing, policy)
 
     outcome = asyncio.run(serving)
 
@@ -540,14 +542,14 @@ def test_engines_that_will_not_close_end_the_process_through_the_abort_with_zero
 
 
 def test_a_hearing_load_that_will_not_end_ends_the_process_through_the_abort_with_zero(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """WIRE-147: a load that cannot be interrupted does not hold the exit."""
     engine = FakeHearing(hold_load=True)
     aborted: list[int] = []
     policy = StopPolicy(grace_seconds=0.05, abort=aborted.append)
     serving = _signalled_stop(
-        tmp_path, monkeypatch, Hearing(engine, LoopClock()), policy, engine.load_entered
+        tmp_path, Hearing(engine, LoopClock()), policy, engine.load_entered
     )
 
     async def stopped_during_the_load() -> int:
@@ -563,7 +565,7 @@ def test_a_hearing_load_that_will_not_end_ends_the_process_through_the_abort_wit
 
 
 def test_server_ending_on_its_own_returns_failure_and_closes_the_listener(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     runtime = Runtime(
         {VoiceId.THORSTEN: FakeSpeaking()},
@@ -576,11 +578,9 @@ def test_server_ending_on_its_own_returns_failure_and_closes_the_listener(
         async def serve(self, *, sockets: list[socket.socket] | None = None) -> None:
             del sockets
 
-    monkeypatch.setattr(__main__, "build_server", lambda _app: Server())
-
     settings = _serving_settings(tmp_path)
 
-    outcome = _serve_until_it_ends(settings, runtime)
+    outcome = _serve_until_it_ends(settings, runtime, lambda _app: Server())
 
     assert outcome == 1
     assert not listens_on(settings.port)
@@ -653,12 +653,12 @@ def _environment_seen_by_engines(
     monkeypatch.setenv("SPEECH_CONFIG_FILE", str(settings.config_file))
     seen: list[str | None] = []
 
-    def building_server(_app: object) -> object:
+    async def observing_serve(_settings: Settings) -> int:
         seen.append(os.environ.get("ORT_DISABLE_TELEMETRY"))
-        raise RuntimeError
+        return 1
 
-    monkeypatch.setattr(__main__, "build_server", building_server)
-    with configured("speech-service"), pytest.raises((SystemExit, RuntimeError)):
+    monkeypatch.setattr(__main__, "serve", observing_serve)
+    with configured("speech-service"), pytest.raises(SystemExit):
         __main__.main()
     return seen[0]
 

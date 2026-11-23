@@ -208,18 +208,15 @@ def test_an_unknown_argument_is_a_usage_error_without_starting(
     assert "usage:" in finished.stderr
 
 
-def test_serve_listens_only_on_one_tcp_socket_of_the_configured_address(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_serve_listens_only_on_one_tcp_socket_of_the_configured_address() -> None:
     """WIRE-01: serve listens only on one tcp socket of the configured address."""
     built: list[uvicorn.Server] = []
     stops = RecordedStops()
-    build_server = __main__.build_server
 
     started = asyncio.Event()
 
     def observed_server(app: object) -> uvicorn.Server:
-        server = build_server(app)
+        server = __main__.build_server(app)
         start = server.startup
 
         async def startup(sockets: list[socket.socket] | None = None) -> None:
@@ -233,7 +230,9 @@ def test_serve_listens_only_on_one_tcp_socket_of_the_configured_address(
     async def scenario() -> tuple[int, list[object]]:
         serving = asyncio.create_task(
             serve_runtime(
-                Settings(port=port), runtime, StopPolicy(install_signals=stops)
+                Settings(port=port),
+                runtime,
+                StopPolicy(install_signals=stops, make_server=observed_server),
             )
         )
         await started.wait()
@@ -247,7 +246,6 @@ def test_serve_listens_only_on_one_tcp_socket_of_the_configured_address(
 
     port = free_loopback_port()
     runtime = _loadable_runtime()
-    monkeypatch.setattr(__main__, "build_server", observed_server)
 
     outcome, addresses = asyncio.run(scenario())
 
