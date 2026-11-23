@@ -77,7 +77,8 @@ def test_prepare_puts_the_library_directories_first_on_the_loader_path(
     library = site / "nvidia" / "cublas" / "lib"
     library.mkdir(parents=True)
     if before is None:
-        monkeypatch.delenv("LD_LIBRARY_PATH", raising=False)
+        monkeypatch.setenv("LD_LIBRARY_PATH", "")
+        monkeypatch.delenv("LD_LIBRARY_PATH")
     else:
         monkeypatch.setenv("LD_LIBRARY_PATH", before)
 
