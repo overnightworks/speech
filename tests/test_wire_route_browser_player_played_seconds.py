@@ -60,6 +60,9 @@ def test_a_cut_sound_reports_the_seconds_the_context_clock_passed_since_it_start
     async def scenario() -> dict[str, object]:
         async with activated(tmp_path) as stage:
             await stage.hand_over(url(sound), url(SHORT))
+            # The sound plays on whatever the page's timing: a streamed body held back
+            # would leave the output silent once its first bytes have played.
+            stage.side.held_release.set()
             await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
             await stage.settle()
             if cut == "stop":
@@ -107,7 +110,7 @@ def test_the_start_a_sound_hands_over_is_the_context_time_its_first_sample_is_he
     async def scenario() -> dict[str, object]:
         async with activated(tmp_path) as stage:
             await stage.hand_over(url(sound))
-            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
+            await stage.until("s.heardOnsets.length > 0")
             return await stage.snapshot()
 
     seen = asyncio.run(scenario())

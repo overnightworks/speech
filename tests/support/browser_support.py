@@ -10,6 +10,7 @@ holds until released.
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from http import HTTPStatus
@@ -69,6 +70,8 @@ CHROMIUM_FLAGS = (
     "--use-fake-ui-for-media-stream",
     "--autoplay-policy=document-user-activation-required",
 )
+# The factor by which the page's CPU is slowed, if the environment names one.
+CPU_THROTTLE_VARIABLE = "SPEECH_BROWSER_CPU_THROTTLE"
 RECORDING = "fixture.wav"
 # An app that records turns the microphone on for its own origin;
 # webauth's default turns it off.
@@ -407,11 +410,18 @@ def write_marker_sound(
 
 @asynccontextmanager
 async def chromium_page() -> AsyncIterator[tuple[Page, PageCoverage]]:
-    """A Chromium page under the autoplay policy, with its coverage if asked for."""
+    """A Chromium page under the autoplay policy, with its coverage if asked for.
+
+    `CPU_THROTTLE_VARIABLE` slows the page's CPU by its factor: the flows then run as
+    on a loaded machine, where the page's tasks come late and the render thread's not.
+    """
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(args=CHROMIUM_FLAGS)
         try:
             page = await browser.new_page()
+            if (rate := float(os.environ.get(CPU_THROTTLE_VARIABLE, "1"))) > 1:
+                session = await page.context.new_cdp_session(page)
+                await session.send("Emulation.setCPUThrottlingRate", {"rate": rate})
             coverage = PageCoverage.from_environment()
             await coverage.watch(page)
             yield page, coverage

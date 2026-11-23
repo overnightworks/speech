@@ -75,6 +75,7 @@ const feeders = new Map();
 const playbacks = [];
 let nextNodeId = 0;
 let stopOnSourceEnd = false;
+let switchRunning = false;
 let rejectNextResume = false;
 let outputGain = null;
 let tapMeter = null;
@@ -142,16 +143,15 @@ function gateFor(kind, result) {
 }
 
 // The context clock advances on the audio thread, and under load two reads in one task straddle any number of its
-// steps. The instrument holds the first read of a context until the task is over, so that the player and the page
-// read the same instant when they act in one task.
+// steps. While the app throws a switch (`act`) the instrument holds the first read of a context, so that the player
+// and the page read the same instant when they act in one task. Every other read is the clock's own: a read the
+// player makes after its work (the start a source is heard at) must see the time that work took.
 Object.defineProperty(BaseAudioContext.prototype, "currentTime", {
   configurable: true,
   get() {
     if (frozenClocks.has(this)) return frozenClocks.get(this);
-    if (!clockReads.has(this)) {
-      clockReads.set(this, Page.clock.get.call(this));
-      setTimeout(() => clockReads.delete(this));
-    }
+    if (!switchRunning) return Page.clock.get.call(this);
+    if (!clockReads.has(this)) clockReads.set(this, Page.clock.get.call(this));
     return clockReads.get(this);
   },
 });
@@ -319,9 +319,15 @@ function handOver(spec) {
 async function act(name, action) {
   seen.lastActionAt = performance.now();
   const gain = outputGain?.gain.value ?? null;
-  clockReads.delete(contexts[0]);
-  action();
-  seen.contextAtAction = contexts[0].currentTime;
+  clockReads.clear();
+  switchRunning = true;
+  try {
+    action();
+    seen.contextAtAction = contexts[0].currentTime;
+  } finally {
+    switchRunning = false;
+    clockReads.clear();
+  }
   seen.actions.push({ name, at: seen.contextAtAction, gain });
   await Promise.resolve();
   seen.endedAtAction = seen.sounds.map((sound) => sound.endedValue);
