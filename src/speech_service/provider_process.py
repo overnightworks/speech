@@ -29,15 +29,15 @@ logger = logging.getLogger(__name__)
 
 TERMINATE_GRACE_SECONDS = 3
 _KILL_REAP_SECONDS = 0.5
-_OWNER_JOIN_SECONDS = 0.5
+OWNER_JOIN_SECONDS = 0.5
 _STDERR_DRAIN_JOIN_SECONDS = 0.5
 CLOSE_SECONDS = (
     TERMINATE_GRACE_SECONDS + _KILL_REAP_SECONDS + _STDERR_DRAIN_JOIN_SECONDS
 )
 """How long `close` waits for the owner: TERM grace, kill reap and stderr drain.
 
-The service's stop grants each close 5 s; the owner's final join (0.5 s) stays
-inside the remainder.
+The owner's final join, `OWNER_JOIN_SECONDS`, follows it; both together stay
+inside the service's stop grace for each close.
 """
 HEALTH_DEADLINE_SECONDS = 600
 """How long a server may take to answer its health check, loading included."""
@@ -259,7 +259,7 @@ class ProviderProcess:
         if not self._stopped.wait(CLOSE_SECONDS):
             self._fatal_callback()
             raise ProviderCleanupFailedError
-        owner.join(timeout=_OWNER_JOIN_SECONDS)
+        owner.join(timeout=OWNER_JOIN_SECONDS)
         if owner.is_alive() or self._cleanup_failed:
             self._fatal_callback()
             raise ProviderCleanupFailedError
