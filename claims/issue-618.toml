@@ -3,6 +3,6 @@ agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
 role = "builder"
 base = "c327499816bb1e331fd15ddc3c12adad7a70eadd"
 branch = "claude/issue-618-a-setting-s-environment-name-has-one-own"
-scope = ["scripts/prove_image.py", "scripts/prove_speech.py", "scripts/voice_lines.py", "scripts/wav_audio.py", "src/speech_service/config.py", "src/speech_service/hearing.py", "src/speech_service/sound_events.py", "src/speech_service/voices.py", "tests/test_setting_names.py"]
+scope = ["packages/client/src/speech_client/realtime_wire.py", "scripts/prove_image.py", "scripts/prove_speech.py", "scripts/voice_lines.py", "scripts/wav_audio.py", "src/speech_service/config.py", "src/speech_service/hearing.py", "src/speech_service/pcm.py", "src/speech_service/sound_events.py", "src/speech_service/voices.py", "tests/test_config_setting_names.py", "tests/test_main_serve_lifecycle.py"]
 opened_commit = "f5e9b0f139f7b88fd8c93d44c0990f15791912d7"
 whole_reason = "One owner for the setting names and the guard that holds every literal to it; the scripts and service sites are its callers, and splitting them leaves the guard red or the owner unused."
