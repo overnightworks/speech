@@ -41,6 +41,7 @@ from tests.support.browser_player_support import (
     edge_peaks,
     ends,
     fed,
+    heard_start_of,
     largest_step,
     peaks_inside,
     peaks_outside_edges,
@@ -350,7 +351,7 @@ def test_resume_while_the_pause_is_still_ramping_plays_on_without_a_click(
 
     seen = asyncio.run(scenario())
 
-    start = start_of(seen)
+    start = heard_start_of(seen)
     [gain_at_resume] = action_gains(seen, "resume")
     assert 0 < gain_at_resume < 1
     assert seen["contextStates"] == ["running"]
@@ -375,7 +376,7 @@ def test_pause_while_the_resume_is_still_ramping_up_holds_the_sound_without_a_cl
 
     held, seen = asyncio.run(scenario())
 
-    start = start_of(seen)
+    start = heard_start_of(seen)
     [*_, last_pause] = action_times(held, "pause")
     [*_, gain_at_pause] = action_gains(held, "pause")
     assert 0 < gain_at_pause < 1
