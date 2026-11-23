@@ -1,0 +1,7 @@
+claim_id = "83602592225a4d539f7f5fa5487ba28e"
+agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
+role = "builder"
+base = "aab4461251ee4ba2d3c49b72a0b33094477bbe2e"
+branch = "claude/issue-639-wire-01-start-test-held-load"
+scope = ["tests/support/fake_launcher.py", "tests/support/launcher_support.py", "tests/test_main_serve_lifecycle.py"]
+opened_commit = "ed477e0371a12caff80a24fe659fea8fdb4d8563"
