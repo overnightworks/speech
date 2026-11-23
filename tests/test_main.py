@@ -245,13 +245,10 @@ class _ObservedSpeaking(QwenSpeaking):
             self._observed_close.set()
 
 
-def test_shutdown_closes_a_pending_real_adapter_before_awaiting_its_load(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _runtime_over_observed_engine(
+    tmp_path: Path, closed: threading.Event
+) -> tuple[Runtime, Path]:
     root, cache = closed_provider(tmp_path, "held-ready")
-    spawned = threading.Event()
-    closed = threading.Event()
-
     engine = _ObservedSpeaking(
         ProviderProcess(
             ProviderLaunch(
@@ -268,6 +265,15 @@ def test_shutdown_closes_a_pending_real_adapter_before_awaiting_its_load(
             missing_artifacts=lambda _voice: (),
         ),
     )
+    return runtime, cache
+
+
+def test_shutdown_closes_a_pending_real_adapter_before_awaiting_its_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spawned = threading.Event()
+    closed = threading.Event()
+    runtime, cache = _runtime_over_observed_engine(tmp_path, closed)
     real_popen = subprocess.Popen
 
     def observed_popen(*args: object, **kwargs: object) -> subprocess.Popen:
