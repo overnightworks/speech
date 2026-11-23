@@ -137,8 +137,9 @@ def test_download_refuses_bytes_that_differ_from_the_pin(
     tampered = tmp_path / "source.bin"
     tampered.write_bytes(b"tampered")
     pin = next(iter(script.SOURCE_SHA256.values()))
+    url = tampered.as_uri()
     with pytest.raises(RuntimeError, match="is not the pinned"):
-        script.download_pinned(tampered.as_uri(), pin)
+        script.download_pinned(url, pin)
 
 
 def test_reference_windows_refuse_a_clip_that_is_not_the_pinned_format(
