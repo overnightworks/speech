@@ -1,8 +1,0 @@
-claim_id = "ecbb2593547348fbaebd15001392c754"
-agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
-role = "builder"
-base = "294f66d392bcd08cedf58bcb55c0b5c2643a610b"
-branch = "claude/issue-628-no-test-reaches-a-private-name"
-scope = ["packages/client/tests/test_hearing.py", "pyproject.toml", "scripts/contract_client.py", "scripts/prove_hearing.py", "scripts/prove_image.py", "tests/scripts/test_contract_client.py", "tests/scripts/test_prove_image.py"]
-opened_commit = "2f77afdd7e0160dc67e84574454b8f8be9cdc35c"
-whole_reason = "One rule, no test reaches a private name, across the scripts' tests and the client's, held by one lint setting; split, the setting could not turn on until the last site is gone."
