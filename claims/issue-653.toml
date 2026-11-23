@@ -1,0 +1,7 @@
+claim_id = "e15b870607a9403390937680c54ade1a"
+agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
+role = "builder"
+base = "5f51e53cc6c68b4955072992710f0bbf5e5a07f2"
+branch = "claude/issue-653-client-hearing-bounds-that-can-fail"
+scope = ["packages/client/tests/support/elapsed_support.py", "packages/client/tests/test_hearing_reconnect.py", "packages/client/tests/test_hearing_timeline.py"]
+opened_commit = "3295a49810d4f99b5b8c4cb1584bd5c2febe569b"
