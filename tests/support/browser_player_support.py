@@ -257,13 +257,18 @@ def waited_seconds(seen: dict[str, object], until: float) -> float:
 
     A streamed sound's chunk that arrives after the one before it has ended starts
     later: the output plays nothing in between, and the sound's played seconds stand
-    still. The waits are read from the starts the output was handed.
+    still. The waits are read from the starts the output was handed, and a wait
+    still running at `until` counts up to `until`. The chunks of every sound the
+    page scheduled are summed, so the page schedules one streamed sound at a time.
     """
     chunks = sorted(seen["scheduledChunks"], key=lambda chunk: chunk["start"])
-    return sum(
+    gaps = sum(
         max(min(following["start"], until) - (chunk["start"] + chunk["seconds"]), 0)
         for chunk, following in pairwise(chunks)
     )
+    if not chunks:
+        return gaps
+    return gaps + max(until - (chunks[-1]["start"] + chunks[-1]["seconds"]), 0)
 
 
 def audible_seconds(seen: dict[str, object], since: float, until: float) -> float:
