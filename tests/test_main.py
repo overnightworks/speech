@@ -588,7 +588,9 @@ def test_serve_refuses_to_start_without_a_readable_caller_configuration(
 ) -> None:
     """WIRE-112: serve refuses to start without a readable configuration."""
     settings = _serving_settings(
-        tmp_path, config_file=None if file_name is None else tmp_path / file_name
+        tmp_path,
+        config_file=None if file_name is None else tmp_path / file_name,
+        catalogue_file=tmp_path / "no-catalogue.toml",
     )
 
     serving = __main__.serve(settings)
@@ -614,7 +616,12 @@ def test_serve_exits_nonzero_naming_the_address_before_any_runtime_work(
         holder.listen()
         port = holder.getsockname()[1]
         host = "127.0.0.1" if taken else "192.0.2.1"
-        settings = _serving_settings(tmp_path, host=host, port=port)
+        settings = _serving_settings(
+            tmp_path,
+            host=host,
+            port=port,
+            catalogue_file=tmp_path / "no-catalogue.toml",
+        )
 
         outcome = asyncio.run(__main__.serve(settings))
 
