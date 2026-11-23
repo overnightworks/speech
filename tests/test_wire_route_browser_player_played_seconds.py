@@ -172,18 +172,15 @@ def test_a_sound_is_heard_at_its_start_or_later_by_the_stall_around_the_start_ca
 
 
 @AROUND_THE_START_CALL
-def test_a_streamed_sounds_next_chunk_overlaps_a_late_first_by_no_more_than_the_stall(
+def test_a_streamed_sounds_next_chunk_is_chained_from_its_first_chunks_asked_start(
     tmp_path: Path, stall: str
 ) -> None:
-    """The next chunk starts where the first chunk's start asked for ends.
+    """The next chunk is chained from the start the first chunk was asked for.
 
-    The player counts the chain from that start. A stall past the output's lead that
-    reaches the render thread after the start call leaves the first chunk on time and
-    the chain gapless. One before the call plays the first chunk later, by up to the
-    blocked time, and the next chunk then overlaps its tail by as much: the output
-    sums the two for that long, to within one render quantum. The page cannot tell the
-    two stalls apart, so a chain counted from a later clock read would turn this
-    overlap into a gap after the other stall.
+    Under a stall past the output's lead, before or after the start call, the next
+    chunk starts at the first chunk's asked start plus its length, not at where the
+    first chunk was heard. How far the first chunk is heard late is the sibling cell's
+    bound.
     """
 
     async def scenario() -> dict[str, object]:
@@ -194,18 +191,13 @@ def test_a_streamed_sounds_next_chunk_overlaps_a_late_first_by_no_more_than_the_
             await stage.until("s.sounds[0].startedValue === 'playing'")
             await stage.act("feed", "long")
             await stage.until("s.scheduledChunks.length >= 2")
-            await stage.until("s.heardOnsets.length > 0")
             return await stage.snapshot()
 
     seen = asyncio.run(scenario())
 
-    (stalled,) = seen["stalls"]
-    blocked = stalled["to"] - stalled["from"]
-    quantum = ONSET_BOUND_FRAMES / seen["sampleRate"]
+    assert len(seen["stalls"]) == 1
     first, second = seen["scheduledChunks"][:2]
     assert second["start"] == pytest.approx(first["start"] + first["seconds"])
-    overlap = heard_start_of(seen) + first["seconds"] - second["start"]
-    assert -quantum <= overlap <= blocked + quantum
 
 
 @pytest.mark.parametrize("sound", [SHORT, STREAMED], ids=["whole", "streamed"])
