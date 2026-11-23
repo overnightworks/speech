@@ -53,6 +53,7 @@ from speech_client.realtime_wire import TranscriptDelta
 from speech_client.wire import Language, RefusalCode
 
 if TYPE_CHECKING:
+    import socket
     from collections.abc import Awaitable, Callable, Iterator
 
     from websockets.asyncio.server import ServerConnection
@@ -434,6 +435,41 @@ def test_a_cancel_at_any_moment_after_an_orderly_end_returns_at_once(
     )
 
     assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)
+
+
+def test_a_cancel_during_the_close_of_a_service_ignoring_it_ends_the_connection() -> (
+    None
+):
+    async def reaches_the_end_of_the_stream(stream: socket.socket) -> None:
+        loop = asyncio.get_running_loop()
+        while await loop.sock_recv(stream, 4096):
+            pass
+
+    async def scenario() -> None:
+        peers: list[socket.socket] = []
+
+        async def hearing(port: int, ended: asyncio.Event) -> None:
+            async with session_to(port, 30):
+                await ended.wait()
+
+        async with stalled_service(peers=peers) as (port, opened):
+            ended = asyncio.Event()
+            call = asyncio.ensure_future(hearing(port, ended))
+            loop = asyncio.get_running_loop()
+            try:
+                async with asyncio.timeout(CLOSE_TIMEOUT_SECONDS):
+                    await opened.wait()
+                    ended.set()
+                    assert await loop.sock_recv(peers[0], 4096)
+                    call.cancel()
+                    await asyncio.wait({call})
+                async with asyncio.timeout(well_before(CLOSE_TIMEOUT_SECONDS)):
+                    await reaches_the_end_of_the_stream(peers[0])
+            finally:
+                for peer in peers:
+                    peer.close()
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize(

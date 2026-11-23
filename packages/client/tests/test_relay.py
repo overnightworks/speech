@@ -233,6 +233,7 @@ def test_with_on_text_each_text_reaches_it_between_the_frames_around_it() -> Non
 
     assert ended == BrowserLeft()
     assert taken == [("é", 0), ("", 1)]
+    assert session.sent == [b"\0", b"\0\0"]
 
 
 @pytest.mark.parametrize(
