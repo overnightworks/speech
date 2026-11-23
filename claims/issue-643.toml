@@ -1,8 +1,0 @@
-claim_id = "99225571c0ea4483a126895a989d9f57"
-agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
-role = "builder"
-base = "5f51e53cc6c68b4955072992710f0bbf5e5a07f2"
-branch = "claude/issue-643-next-chunk-after-a-late-first-chunk"
-scope = ["packages/browser/src/player.ts", "tests/fixtures/browser/player_page.js", "tests/support/browser_player_support.py", "tests/test_wire_route_browser_player_played_seconds.py"]
-opened_commit = "4343b5e4a072e11828127f13c415efa5e0ddb747"
-whole_reason = "One chain rule in the player and the cell that drives a stall through it; split, the rule would change unproven."
