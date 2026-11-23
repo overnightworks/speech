@@ -1,8 +1,0 @@
-claim_id = "057a620bb9a74f819299ecc5d1cd7371"
-agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
-role = "builder"
-base = "c327499816bb1e331fd15ddc3c12adad7a70eadd"
-branch = "claude/issue-621-the-wire-rules-a-final-transcript-withou"
-scope = ["docs/wire.md", "packages/client/src/speech_client/realtime_wire.py", "packages/client/tests/test_realtime_wire.py", "packages/client/tests/test_utterances.py", "tests/test_hearing.py", "tests/test_live_session.py"]
-opened_commit = "1aab2c0101f92927cadcd9e1449590e1244f531d"
-whole_reason = "One wire rule with its producer's proof and its consumer's check; split, the rule would stand unproven on one side."
