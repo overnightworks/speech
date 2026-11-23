@@ -19,6 +19,7 @@ from speech_client.wire import (
     WORKLOAD_TOKEN_HEADER,
     Health,
     HearingHealth,
+    Language,
     SpeakingHealth,
     SpeechRequest,
     VoiceHealth,
@@ -334,6 +335,29 @@ def test_a_script_speaks_each_voice_in_a_language_the_service_accepts(
     (request,) = requests
     spoken = SpeechRequest.model_validate_json(request.body)
     assert spoken.spoken_language == first_language(voice)
+
+
+@pytest.mark.parametrize(
+    ("voice", "language"),
+    [
+        (voice, language)
+        for voice in CATALOGUE
+        for language in CATALOGUE[voice].languages
+    ],
+)
+def test_the_measured_speak_names_the_language_it_is_given_else_the_voices_first(
+    minting: Minting, voice: VoiceId, language: Language
+) -> None:
+    with _recording_speech_service() as (base_url, requests):
+        PROVE.speak_measured(base_url, "Hallo", voice, minting, language=language)
+        PROVE.speak_measured(base_url, "Hallo", voice, minting)
+
+    named, default = (
+        SpeechRequest.model_validate_json(request.body).spoken_language
+        for request in requests
+    )
+    assert named == language
+    assert default == first_language(voice)
 
 
 def test_the_contract_client_speaks_the_language_health_names_first_for_the_voice(
