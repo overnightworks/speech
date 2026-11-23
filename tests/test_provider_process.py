@@ -42,6 +42,7 @@ from tests.support.launcher_support import (
     numba_cache,
     observed,
     provider_launcher,
+    qwen_voice,
     release_load,
     wait_for_starts,
 )
@@ -337,9 +338,7 @@ def test_shutdown_during_the_health_wait_closes_pending_without_publication(
 ) -> None:
     root, cache = closed_provider(tmp_path, "held-ready")
     runtime = _runtime(
-        lambda _voice: QwenSpeaking(
-            _process(root, cache), QwenSpeaker.RYAN, (Language.DE,)
-        )
+        lambda _voice: qwen_voice(root, cache, QwenSpeaker.RYAN, (Language.DE,))
     )
 
     def start() -> None:
@@ -439,7 +438,7 @@ def test_a_term_resistant_server_reaches_kill_and_reap(
     server.load()
     _, _, pid, _ = observed(tmp_path / "cache")
     server.close()
-    assert_reaped(pid)
+    assert_reaped(pid, StopPolicy().grace_seconds)
 
 
 def test_a_term_resistant_server_is_reaped_inside_the_stops_grace(
@@ -451,7 +450,7 @@ def test_a_term_resistant_server_is_reaped_inside_the_stops_grace(
     started = time.monotonic()
     server.close()
     assert time.monotonic() - started < StopPolicy().grace_seconds
-    assert_reaped(pid)
+    assert_reaped(pid, StopPolicy().grace_seconds)
 
 
 def test_the_whole_close_bound_is_below_the_stops_grace() -> None:

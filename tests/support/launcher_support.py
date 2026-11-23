@@ -9,10 +9,21 @@ import time
 import types
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pytest
+from speech_service.provider_process import (
+    ProviderId,
+    ProviderLaunch,
+    ProviderProcess,
+    provider_entrypoint,
+)
+from speech_service.speaking import QwenSpeaking
 
-from speech_service.provider_process import ProviderId, provider_entrypoint
+if TYPE_CHECKING:
+    import pytest
+    from speech_provider_contract import QwenSpeaker
+
+    from speech_client.wire import Language
 
 SERVER_WAIT_SECONDS = 10.0
 _FAKE_LAUNCHER = Path(__file__).with_name("fake_launcher.py")
@@ -23,6 +34,21 @@ def provider_launcher(root: Path) -> Path:
     entrypoint = provider_entrypoint(root, ProviderId.QWEN)
     assert entrypoint is not None
     return entrypoint
+
+
+def qwen_voice(
+    root: Path, cache: Path, speaker: QwenSpeaker, languages: tuple[Language, ...]
+) -> QwenSpeaking:
+    """Build the Qwen voice over the fake launcher under `root`, not yet loaded."""
+    return QwenSpeaking(
+        ProviderProcess(
+            ProviderLaunch(
+                executable=provider_launcher(root), arguments=("--cache", str(cache))
+            )
+        ),
+        speaker,
+        languages,
+    )
 
 
 def closed_provider(tmp_path: Path, behavior: str = "normal") -> tuple[Path, Path]:
@@ -164,9 +190,12 @@ def debug_log(cache: Path) -> Path:
     return Path((cache / "server-debug-log").read_text(encoding="utf-8"))
 
 
-def assert_reaped(pid: int) -> None:
-    with pytest.raises(ProcessLookupError):
-        os.kill(pid, 0)
+def assert_reaped(pid: int, within_seconds: float = 0.0) -> None:
+    """Assert the process `pid` is gone, waiting up to `within_seconds` for it."""
+    deadline = time.monotonic() + within_seconds
+    while is_running(pid):
+        assert time.monotonic() < deadline, f"process {pid} was not reaped"
+        time.sleep(0.01)
 
 
 def is_running(pid: int) -> bool:
