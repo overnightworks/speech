@@ -195,6 +195,23 @@ def test_a_sound_the_app_did_not_ask_for_raises_a_server_event_error() -> None:
     assert recorder.got == []
 
 
+@pytest.mark.parametrize(
+    "transcript", ["   ", " Ok.", "Ok. "], ids=["blank", "leading", "trailing"]
+)
+def test_a_completed_transcript_with_surrounding_whitespace_ends_the_hearing(
+    transcript: str,
+) -> None:
+    recorder = Recorder()
+    browser = Browser()
+    padded = completed("a", "Ok.").model_copy(update={"transcript": transcript})
+
+    outcome = asyncio.run(hear(hearing(padded, stays_open=True), browser, recorder))
+
+    assert outcome == Malformed()
+    assert browser.closed_with == [HopClose.SERVICE_FAILED]
+    assert (recorder.got, recorder.turn_ends) == ([], [])
+
+
 @pytest.mark.parametrize("language", list(Language))
 def test_a_completed_transcript_reaches_the_app_once_with_its_text_and_language(
     language: Language,
