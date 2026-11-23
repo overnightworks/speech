@@ -191,6 +191,30 @@ def test_a_decode_adds_no_words_when_both_measures_say_no_speech_and_reports_the
     )
 
 
+@pytest.mark.parametrize(
+    ("texts", "words"),
+    [
+        ((" Guten", " Tag "), "Guten Tag"),
+        (("  ", "\n"), ""),
+    ],
+    ids=["surrounding-spaces-go", "a-turn-of-spaces-is-empty"],
+)
+def test_a_decode_carries_no_leading_or_trailing_whitespace(
+    library: StandInWhisper,
+    tmp_path: Path,
+    texts: tuple[str, ...],
+    words: str,
+) -> None:
+    """WIRE-170: a transcript is trimmed, and a turn with no words is empty."""
+    library.segments = [Segment(text, 0.0, -0.1) for text in texts]
+    engine = _engine(tmp_path, library)
+    engine.load()
+
+    heard = engine.transcribe(b"\0\0" * 16_000, (Language.DE,))
+
+    assert heard.text == words
+
+
 def test_a_decode_without_a_segment_has_no_measures(
     library: StandInWhisper, tmp_path: Path
 ) -> None:
