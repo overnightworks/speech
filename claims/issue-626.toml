@@ -1,8 +1,0 @@
-claim_id = "a1f42f0c0fc64af48f29bb3bf5ecce9f"
-agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
-role = "builder"
-base = "57e8f781db765b19ae9675c8852e06c68ff17df8"
-branch = "claude/issue-626-quality-v0-25-0-pin"
-scope = [".github/workflows/ci.yml", ".github/workflows/code-scanning.yml", ".github/workflows/release-distributions.yml", ".github/workflows/release.yml", "packages/browser/vitest.config.ts"]
-opened_commit = "2bfdb9fc4fc43e21f83557a950f874eb2756a6c7"
-whole_reason = "One release pin moves in every workflow together with the one fix it enforces; split, a workflow would run the new gate without its fix."
