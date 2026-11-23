@@ -1,0 +1,8 @@
+claim_id = "c59143e7604a492da1d88ad708fae198"
+agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
+role = "builder"
+base = "b5fdad53f11335a7a151c8259478beabf767f5d9"
+branch = "claude/issue-633-player-start-bound-under-page-stall"
+scope = ["packages/browser/src/player.ts", "tests/fixtures/browser/player_page.js", "tests/support/browser_player_support.py", "tests/test_wire_route_browser_player_played_seconds.py"]
+opened_commit = "68e2c1ad7c2a2204bb589d70a0296aac691491fe"
+whole_reason = "One start promise, its doc sentences and the cells that prove it; split, the promise would change without its proof or be proven without its owner."
