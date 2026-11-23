@@ -236,6 +236,16 @@ def start_of(seen: dict[str, object], sound: int = 0) -> float:
     return seen["sounds"][sound]["start"]["contextTime"]
 
 
+def heard_start_of(seen: dict[str, object], sound: int = 0) -> float:
+    """The context time at which the app's sound number `sound` is first heard.
+
+    A page task that stalls past the start the player chose leaves the render
+    thread to play the sound from its next quantum, so the heard start is the
+    announced one or later. A negative `sound` counts from the last.
+    """
+    return seen["heardOnsets"][sound]
+
+
 def peaks_inside(seen: dict[str, object], sound: int, seconds: float) -> list[float]:
     """The peaks of sound number `sound`, `seconds` long, less 3 quanta at each end."""
     start = start_of(seen, sound)
@@ -257,6 +267,11 @@ def action_times(seen: dict[str, object], name: str) -> list[float]:
 def action_gains(seen: dict[str, object], name: str) -> list[float]:
     """The volume the output had when the app's switch `name` was thrown, in order."""
     return [action["gain"] for action in seen["actions"] if action["name"] == name]
+
+
+def ramp_end(seen: dict[str, object], target: float) -> float:
+    """The context time the player's first ramp of the volume to `target` ends."""
+    return next(ramp["endsAt"] for ramp in seen["ramps"] if ramp["target"] == target)
 
 
 def edge_peaks(

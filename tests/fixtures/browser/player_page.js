@@ -14,6 +14,7 @@ const Page = {
   connect: AudioNode.prototype.connect,
   clock: Object.getOwnPropertyDescriptor(BaseAudioContext.prototype, "currentTime"),
   createAnalyser: BaseAudioContext.prototype.createAnalyser,
+  rampTo: AudioParam.prototype.linearRampToValueAtTime,
   createBufferSource: BaseAudioContext.prototype.createBufferSource,
   decodeAudioData: BaseAudioContext.prototype.decodeAudioData,
   resume: AudioContext.prototype.resume,
@@ -22,6 +23,10 @@ const Page = {
 const SAMPLE_MS = 20;
 const SILENCE_POLL_MS = 10;
 const SILENCE_GIVE_UP_MS = 5000;
+// Longer than the page's slowest call into the player under a throttled CPU, and than the player's ramp.
+const RAMP_LEAD_SECONDS = 0.1;
+const RAMP_SEARCH_SECONDS = 0.05;
+const MILLISECONDS_PER_SECOND = 1000;
 const JUNK_BYTES = 512;
 const KINDS = [
   ["GainNode", Page.GainNode],
@@ -54,6 +59,7 @@ const seen = {
   heardPeaks: [],
   contextAtAction: null,
   actions: [],
+  ramps: [],
 };
 const contexts = [];
 const clockReads = new Map();
@@ -173,6 +179,11 @@ BaseAudioContext.prototype.createBufferSource = function () {
 BaseAudioContext.prototype.createAnalyser = function () {
   seen.analysersCreated += 1;
   return Page.createAnalyser.call(this);
+};
+// The volume's ramps as the player sets them: where each ends up and when, on the context's clock.
+AudioParam.prototype.linearRampToValueAtTime = function (target, endsAt) {
+  if (this === outputGain?.gain) seen.ramps.push({ target, endsAt });
+  return Page.rampTo.call(this, target, endsAt);
 };
 Page.AudioBufferSourceNode.prototype.start = function (...parameters) {
   seen.sourcesStarted += 1;
@@ -324,12 +335,20 @@ function nextTurn() {
   });
 }
 
-// A switch of the app thrown once the volume has left the value it had when the call began, so that it reverses a ramp
-// under way. The throw records the volume it found: a ramp that never began, or is over, shows there.
-async function actWhileFading(name, action) {
-  const from = outputGain.gain.value;
+// The second switch of a reversal, thrown once the volume has left the value `from`, so that it reverses a ramp under
+// way. The throw records the volume it found: a ramp that never began, or is over, shows there. The first switch's clock
+// is held `RAMP_LEAD_SECONDS` ahead, so its ramp starts that far in the future, and is let go as the second is thrown.
+// A ramp the first switch set in its own call starts within the lead, and the wait spins in the task until then: a wait
+// that gives up the task queues behind the ear's messages, which a throttled page handles for longer than the ramp
+// lasts. A ramp that waits on the page's tasks (a context's resume) starts only when they run, so the wait then gives
+// up the task: a spin would hold the resume's own continuation back while the audio thread already runs, and the ramp
+// would then be set after it is over.
+async function actWhileFading(name, action, from, rampWaitsOnThePage) {
+  const spinsUntil = performance.now() + (RAMP_LEAD_SECONDS + RAMP_SEARCH_SECONDS) * MILLISECONDS_PER_SECOND;
+  while (!rampWaitsOnThePage && outputGain.gain.value === from && performance.now() < spinsUntil);
   const giveUp = performance.now() + SILENCE_GIVE_UP_MS;
   while (outputGain.gain.value === from && performance.now() < giveUp) await nextTurn();
+  frozenClocks.delete(contexts[0]);
   return act(name, action);
 }
 
@@ -352,8 +371,15 @@ window.playerPage = {
   feedWhile: (key, name) => act(`${name}+feed`, () => { player[name](); feeders.get(key)(); }),
   // The switch `first`, then `second` as soon as the volume it set moves: the second reverses the ramp of the first.
   reverse: async (first, second) => {
-    await act(first, () => player[first]());
-    return actWhileFading(second, () => player[second]());
+    const from = outputGain.gain.value;
+    const rampWaitsOnThePage = contexts[0].state === "suspended";
+    frozenClocks.set(contexts[0], contexts[0].currentTime + RAMP_LEAD_SECONDS);
+    try {
+      await act(first, () => player[first]());
+      return await actWhileFading(second, () => player[second](), from, rampWaitsOnThePage);
+    } finally {
+      frozenClocks.delete(contexts[0]);
+    }
   },
   // The context clock stands still, as the player and the page read it, until `thawClock`: what the player does before
   // the clock moves again happens inside the ramp it started, whatever the page's timing.
