@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
+import socket
 from typing import TYPE_CHECKING
 
 from websockets.asyncio.server import serve
@@ -94,10 +96,14 @@ async def outcome_at(
 @contextlib.asynccontextmanager
 async def stalled_service(
     says_first: tuple[str, ...] = (CREATED_EVENT,),
+    *,
+    peers: list[socket.socket] | None = None,
 ) -> AsyncIterator[tuple[int, asyncio.Event]]:
     """A service that reads the first frame, then stops reading; yields port, opened.
 
-    It says `session.created` first unless told otherwise.
+    It says `session.created` first unless told otherwise. When `peers` is given,
+    the service's end of the accepted connection is added to it, as a
+    non-blocking socket of its own, before `opened` is set.
     """
     released = asyncio.Event()
     opened = asyncio.Event()
@@ -106,6 +112,11 @@ async def stalled_service(
         await connection.recv()
         for message in says_first:
             await connection.send(message)
+        if peers is not None:
+            stream = connection.transport.get_extra_info("socket")
+            peer = socket.socket(fileno=os.dup(stream.fileno()))
+            peer.settimeout(0)
+            peers.append(peer)
         opened.set()
         connection.transport.pause_reading()
         await released.wait()
