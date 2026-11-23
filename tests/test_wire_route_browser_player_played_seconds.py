@@ -22,6 +22,8 @@ from tests.support.browser_player_support import (
     activated,
     bytes_of,
     fed,
+    heard_start_of,
+    start_of,
     url,
     waited_seconds,
 )
@@ -131,6 +133,40 @@ def test_the_start_a_sound_hands_over_is_the_context_time_its_first_sample_is_he
     assert seen["heardOnsets"][0] == pytest.approx(
         start["contextTime"], abs=ONSET_BOUND_FRAMES / seen["sampleRate"]
     )
+
+
+@pytest.mark.parametrize(
+    "stall", ["before", "after"], ids=["before_the_call", "after_the_call"]
+)
+def test_a_sound_is_heard_at_its_start_or_later_by_the_stall_around_the_start_call(
+    tmp_path: Path, stall: str
+) -> None:
+    """The sound is heard from its context time, or later by up to the page's stall.
+
+    The page's task is blocked around the player's start call for longer than the
+    output's lead. The first sample is then heard no earlier than the start less one
+    render quantum and no later than the start plus the blocked time plus one
+    quantum, and the played seconds read ahead of the seconds heard by no more than
+    the blocked time, plus one quantum and one step of the clock the two are read on.
+    """
+
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await stage.act("stallNextStart", stall)
+            await stage.hand_over(url(LONG))
+            await stage.until("s.heardOnsets.length > 0")
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    (stalled,) = seen["stalls"]
+    blocked = stalled["to"] - stalled["from"]
+    quantum = ONSET_BOUND_FRAMES / seen["sampleRate"]
+    start = start_of(seen)
+    heard = heard_start_of(seen)
+    assert start - quantum <= heard <= start + blocked + quantum
+    played_ahead = seen["playedNow"][0] - (seen["contextNow"] - heard)
+    assert played_ahead <= blocked + quantum + seen["clockStep"]
 
 
 @pytest.mark.parametrize("sound", [SHORT, STREAMED], ids=["whole", "streamed"])

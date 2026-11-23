@@ -26,6 +26,9 @@ const SILENCE_GIVE_UP_MS = 5000;
 // Longer than the page's slowest call into the player under a throttled CPU, and than the player's ramp.
 const RAMP_LEAD_SECONDS = 0.1;
 const JUNK_BYTES = 512;
+const RENDER_QUANTUM_FRAMES = 128;
+// How far past a start the real clock is let run in the stall around a source's start, in render quanta.
+const STALL_QUANTA = 6;
 const KINDS = [
   ["GainNode", Page.GainNode],
   ["AudioBufferSourceNode", Page.AudioBufferSourceNode],
@@ -44,6 +47,7 @@ const seen = {
   sourcesCreated: 0,
   sourcesStarted: 0,
   scheduledChunks: [],
+  stalls: [],
   sourcesEnded: 0,
   instrumentStops: 0,
   decodesCalled: 0,
@@ -76,6 +80,8 @@ let nextNodeId = 0;
 let stopOnSourceEnd = false;
 let switchRunning = false;
 let rejectNextResume = false;
+// Where the next source's start stalls the page: "before" the call reaches the render thread, or "after" it.
+let stallNextStart = null;
 let outputGain = null;
 let tapMeter = null;
 let player = null;
@@ -141,6 +147,15 @@ function gateFor(kind, result) {
   return gate.promise.then(() => result);
 }
 
+// The page's task spins, as a task does that the machine does not run, until the render thread is `STALL_QUANTA` past
+// `when`; the stall is recorded as the span of the context's clock the task was blocked.
+function stallPast(context, when) {
+  const from = Page.clock.get.call(context);
+  const until = when + (STALL_QUANTA * RENDER_QUANTUM_FRAMES) / context.sampleRate;
+  while (Page.clock.get.call(context) < until);
+  seen.stalls.push({ from, to: Page.clock.get.call(context) });
+}
+
 // The context clock advances on the audio thread, and under load two reads in one task straddle any number of its
 // steps. While the app throws a switch (`act`) the instrument holds the first read of a context, so that the player
 // and the page read the same instant when they act in one task. Every other read is the clock's own, which
@@ -191,7 +206,12 @@ AudioParam.prototype.linearRampToValueAtTime = function (target, endsAt) {
 Page.AudioBufferSourceNode.prototype.start = function (...parameters) {
   seen.sourcesStarted += 1;
   seen.scheduledChunks.push({ start: parameters[0], seconds: this.buffer.duration });
-  return Page.start.apply(this, parameters);
+  const stall = stallNextStart;
+  stallNextStart = null;
+  if (stall === "before") stallPast(this.context, parameters[0]);
+  const result = Page.start.apply(this, parameters);
+  if (stall === "after") stallPast(this.context, parameters[0]);
+  return result;
 };
 AudioNode.prototype.connect = function (target, ...parameters) {
   const toOutput = target instanceof Page.AudioDestinationNode;
@@ -411,6 +431,9 @@ window.playerPage = {
   hold: (kind) => held[kind].push(Promise.withResolvers()),
   release: () => heldNow.splice(0).forEach((gate) => gate.resolve()),
   rejectNextResume: () => (rejectNextResume = true),
+  // The next source's start finds the page stalled: `where` is "before" the start reaches the render thread, which then
+  // plays the source from the quantum it is on, or "after" it, which leaves the start asked for.
+  stallNextStart: (where) => (stallNextStart = where),
   stopOnNextSourceEnd: (next) => (stopOnSourceEnd = next ?? true),
   snapshot: () => ({
     ...seen,
@@ -418,7 +441,7 @@ window.playerPage = {
     sampleRate: contexts[0].sampleRate,
     contextNow: contexts[0].currentTime,
     playedNow: playbacks.map((playback) => playback.playedSeconds()),
-    clockStep: Math.max(128 / contexts[0].sampleRate, contexts[0].baseLatency),
+    clockStep: Math.max(RENDER_QUANTUM_FRAMES / contexts[0].sampleRate, contexts[0].baseLatency),
     gainValue: outputGain?.gain.value ?? null,
     tapRms: tapRms(),
     tapIsOutputGain: player.tap === outputGain,

@@ -5,7 +5,7 @@ import { openSound, type PcmStream } from "./wav-stream.js";
 export type Sound = ArrayBuffer | string | URL;
 
 export type PlaybackEnd =
-  /** `playedSeconds`: the seconds of the sound the output played, read from the player's AudioContext clock and never more than the sound's length. A "played" sound played its full length; one that never started played 0. */
+  /** `playedSeconds`: the seconds of the sound the output played, read from the player's AudioContext clock and never more than the sound's length. After a page stall around the start call (see `PlaybackStart.contextTime`) it reads ahead of what was heard by up to the blocked time. A "played" sound played its full length; one that never started played 0. */
   | { readonly kind: "played"; readonly playedSeconds: number }
   | { readonly kind: "stopped"; readonly playedSeconds: number } // stop() or close(); a stop() ends the playing sound once its edge is over
   | { readonly kind: "muted"; readonly playedSeconds: number } // setMuted(true), or a sound handed over while muted
@@ -13,7 +13,7 @@ export type PlaybackEnd =
   | { readonly kind: "failed" }; // the fetch, the decode or a streamed body failed
 
 export type PlaybackStart =
-  /** `contextTime`: the time on `context`'s clock (`currentTime`) at which the sound's first sample plays, to within one render quantum. It places only the sound's first sample: a streamed sound's later chunk starts when it arrives if that is later than the one before ends, so the start plus a timing runs early after a stall. `Playback.playedSeconds()` reads how far the sound has played. `context` is the AudioContext the sound plays on. */
+  /** `contextTime`: the time on `context`'s clock (`currentTime`) at which the sound's first sample plays, to within one render quantum, unless the page's task is blocked around the player's start call for longer than the output's lead (the larger of `baseLatency` and one render quantum); then the first sample plays later than `contextTime`, by up to the time the task was blocked. It places only the sound's first sample: a streamed sound's later chunk starts when it arrives if that is later than the one before ends, so the start plus a timing runs early after a stall. `Playback.playedSeconds()` reads how far the sound has played. `context` is the AudioContext the sound plays on. */
   | { readonly kind: "playing"; readonly contextTime: number; readonly context: AudioContext }
   | { readonly kind: "ended" }; // the sound ended first, so it has no start
 
@@ -24,7 +24,7 @@ export interface Playback {
   readonly ended: Promise<PlaybackEnd>;
   /**
    * The seconds of the sound the output has played by now, on the same clock and unit as `PlaybackEnd.playedSeconds`, so
-   * an app adds no start to it. It is 0 before the sound starts, stands still while the output waits for a late chunk
+   * an app adds no start to it. After a page stall around the start call (see `PlaybackStart.contextTime`) it reads ahead of what was heard by up to the blocked time. It is 0 before the sound starts, stands still while the output waits for a late chunk
    * and while paused, and reads the end's `playedSeconds` once the sound has ended (0 for a refused one, and for a failed one that never started; a failed one that played keeps what it played). Never throws.
    */
   playedSeconds(): number;
