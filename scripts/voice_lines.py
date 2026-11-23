@@ -43,7 +43,7 @@ from prove_speech import (
     run_under_probe_run,
     speak_measured,
 )
-from shipped_catalogue import ON_DEMAND_VOICES, first_language
+from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, first_language
 from speech_client.wire import Language, VoiceId
 from speech_service.hearing_models import HearingModel
 from speech_service.pcm import BYTES_PER_SAMPLE
@@ -75,7 +75,7 @@ HOST_FIGURES: Final = ("load_start", "load_end", "cpu_busy_share")
 PROC: Final = Path("/proc")
 FINAL_ROUTES: Final = {"final_seconds": "file", "live_final_seconds": "live"}
 
-type Speak = Callable[[str, VoiceId], tuple[bytes, float, float]]
+type Speak = Callable[[str, VoiceId, Language], tuple[bytes, float, float]]
 type Hear = Callable[[], float]
 
 
@@ -164,15 +164,14 @@ def first_audible_seconds(spoken: figures.Spoken) -> float:
 
 
 def measure_run(
-    speak: Speak,
-    voice: VoiceId,
+    speak: Callable[[], tuple[bytes, float, float]],
     host: Callable[[], HostReading],
     file: Hear | None,
     live: Hear | None,
 ) -> Run:
     """Speak, then hear on each route given, one request at a time."""
     started = host()
-    spoken = figures.spoken_of(speak(SENTENCES[first_language(voice)], voice))
+    spoken = figures.spoken_of(speak())
     file_final = file() if file else None
     live_final = live() if live else None
     return Run(
@@ -261,8 +260,13 @@ def measure(  # noqa: PLR0913 - each port is one boundary the tests replace
     file = hear if arguments.route in {Route.FILE, Route.BOTH} else None
     live_route = live if arguments.route in {Route.LIVE, Route.BOTH} else None
 
+    language = arguments.language
+
+    def speak_it() -> tuple[bytes, float, float]:
+        return speak(SENTENCES[language], voice, language)
+
     def take(count: int) -> list[Run]:
-        return [measure_run(speak, voice, host, file, live_route) for _ in range(count)]
+        return [measure_run(speak_it, host, file, live_route) for _ in range(count)]
 
     warmups = take(arguments.warmups)
     halves: dict[str, Summary] = {}
@@ -286,6 +290,7 @@ def measure(  # noqa: PLR0913 - each port is one boundary the tests replace
         "voice": arguments.voice,
         "hearing_model": arguments.hearing_model,
         "device": arguments.device,
+        "language": arguments.language,
         "runs": arguments.runs,
         "warmups": [asdict(run) for run in warmups],
         "route": arguments.route,
@@ -312,6 +317,7 @@ def parse_arguments(arguments: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--hearing-model", type=HearingModel, choices=list(HearingModel), required=True
     )
+    parser.add_argument("--language", type=Language, choices=list(Language))
     parser.add_argument("--device", choices=["cpu", "cuda"], required=True)
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--clip-seconds", type=float, default=12.5)
@@ -321,6 +327,13 @@ def parse_arguments(arguments: list[str]) -> argparse.Namespace:
         parser.add_argument(f"--{name}", type=float, help="the line, in its unit")
     parser.add_argument("--two-halves", action="store_true")
     parsed = parser.parse_args(arguments)
+    offered = CATALOGUE[parsed.voice].languages
+    parsed.language = parsed.language or first_language(parsed.voice)
+    if parsed.language not in offered:
+        parser.error(
+            f"{parsed.voice} does not offer {parsed.language}; "
+            f"it offers {', '.join(offered)}"
+        )
     if parsed.runs < 1 or parsed.clip_seconds <= 0 or parsed.warmups < 0:
         parser.error(
             "--runs and --clip-seconds must be positive, --warmups not negative"
@@ -349,8 +362,8 @@ def prove(  # noqa: PLR0913 - each port is one boundary the tests replace
             spoken_clip = clip(started, arguments.clip_seconds)
             result = measure(
                 arguments,
-                lambda text, voice: speak(
-                    started.base_url, text, voice, started.minting
+                lambda text, voice, language: speak(
+                    started.base_url, text, voice, started.minting, language=language
                 ),
                 lambda: hear(started, Language.DE, spoken_clip)[0],
                 live=live_final(

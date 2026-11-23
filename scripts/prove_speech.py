@@ -218,8 +218,12 @@ def speak_measured(
     text: str,
     voice: VoiceId,
     minting: Minting,
+    *,
+    language: Language | None = None,
 ) -> tuple[bytes, float, float]:
-    """Speak one request; return the whole WAV, time to first audio and total time.
+    """Speak one request in `language` or the voice's first.
+
+    Return the whole WAV, time to first audio and total time.
 
     The headers leave before synthesis, so the first audio is the first body
     byte. A body the service aborted raises `IncompleteRead` in `http.client`,
@@ -235,7 +239,9 @@ def speak_measured(
         connection.request(
             "POST",
             SPEECH_PATH,
-            speech_request_body(text, voice, ResponseFormat.WAV, first_language(voice)),
+            speech_request_body(
+                text, voice, ResponseFormat.WAV, language or first_language(voice)
+            ),
             speech_request_headers(
                 workload_token=pair.workload, person_token=pair.person
             ),
