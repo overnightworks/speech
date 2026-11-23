@@ -43,6 +43,7 @@ from tests.support.browser_player_support import (
     fed,
     heard_start_of,
     largest_step,
+    peaks_between,
     peaks_inside,
     peaks_outside_edges,
     quantum_seconds,
@@ -266,13 +267,19 @@ def test_stop_ramps_down_without_a_click_then_ends_and_the_next_sound_is_at_full
 
     assert at_stop["endedAtAction"] == [None]
     assert ends(seen) == ["stopped", "played"]
-    # The next start is known to within a quantum; its first quanta are no edge.
-    next_start = start_of(seen, 1) - 3 * quantum_seconds(seen)
-    edge = edge_peaks(seen, "stop", until=next_start)
+    # The player reports the stopped sound's played seconds up to the end of its edge.
+    edge_end = start_of(seen) + seen["sounds"][0]["playedSeconds"]
+    next_heard = heard_start_of(seen, -1)
+    margin = 3 * quantum_seconds(seen)
+    edge = edge_peaks(seen, "stop", until=edge_end)
+    # The next sound may start where the edge ends, with no quantum of silence between.
+    silence = peaks_between(seen, edge_end, next_heard - margin)
     assert seen["sounds"][0]["endedAt"] - seen["lastActionAt"] < STOP_BOUND_MS
     assert largest_step(edge) < CLICK_STEP
-    assert edge[-1] < SILENT_PEAK
-    heard = peaks_inside(seen, 1, SOUND_SECONDS["short.wav"])
+    assert max(silence, default=0) < SILENT_PEAK
+    heard = peaks_between(
+        seen, next_heard + margin, next_heard + SOUND_SECONDS["short.wav"] - margin
+    )
     assert heard
     assert min(heard) >= FULL_PEAK
 
