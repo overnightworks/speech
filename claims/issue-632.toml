@@ -1,8 +1,0 @@
-claim_id = "97b646d7ca6048e59ca22aa079e03b20"
-agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
-role = "builder"
-base = "01580760458f0837181157f9afc8014bd947446e"
-branch = "claude/issue-632-provider-tests-qwen-voice-builder"
-scope = ["tests/support/launcher_support.py", "tests/test_provider_process.py", "tests/test_provider_process_start.py", "tests/test_speaking_qwen.py", "tests/test_voice_slot_warm_up.py"]
-opened_commit = "fee6eb266405b1e886d121efbd5a2c92980c7be6"
-whole_reason = "The provider tests' shared arrangement and their two hang-instead-of-fail paths, in the same five files; split, each slice would touch the same builder and modules."
