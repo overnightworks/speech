@@ -31,6 +31,7 @@ from speech_service.__main__ import StopPolicy
 from speech_service.config import Settings, setting_variable
 from speech_service.control import create_control_app
 from speech_service.hearing import DRAIN_TURN_SECONDS, Hearing
+from speech_service.onnxruntime_telemetry import ONNXRUNTIME_TELEMETRY_SWITCH
 from speech_service.service import Runtime
 from speech_service.voices import piper_voice_paths
 from tests.support.hear_support import FakeHearing
@@ -86,7 +87,7 @@ def install_qwen(cache: Path) -> None:
     touch_snapshot(cache, QWEN_MODEL_ID, QWEN_REVISION, QWEN_ARTIFACTS)
 
 
-_RECORDING_PIPER = """
+_RECORDING_PIPER = f"""
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -96,7 +97,7 @@ class PiperVoice:
     @staticmethod
     def load(_path, **_options):
         Path(__file__).with_name("piper-observed").write_text(
-            repr(os.environ.get("ORT_DISABLE_TELEMETRY")), encoding="utf-8"
+            repr(os.environ.get({ONNXRUNTIME_TELEMETRY_SWITCH!r})), encoding="utf-8"
         )
         return SimpleNamespace(config=SimpleNamespace(sample_rate=22050))
 """
@@ -113,7 +114,11 @@ class StartedService:
     modules: Path
 
     def telemetry_switch_at_piper_load(self) -> str | None:
-        """`ORT_DISABLE_TELEMETRY` as the service held it when a Piper voice loaded."""
+        """The telemetry switch as the service held it when a Piper voice loaded.
+
+        Piper voices load before the Qwen server starts, so the record exists once
+        the service listens.
+        """
         return ast.literal_eval(
             (self.modules / "piper-observed").read_text(encoding="utf-8")
         )
@@ -128,8 +133,9 @@ def started_service(
     """Start the service over a held fake Qwen load; end it and its server on exit.
 
     The service serves one Piper and one Qwen voice; a recording fake `piper` module
-    is importable by it. `environment_changes`
-    sets (a string) or removes (`None`) variables of the inherited environment.
+    is importable by it.
+    `environment_changes` sets (a string) or removes (`None`) variables of the
+    inherited environment.
     """
     port = free_loopback_port()
     speech_root = Path(__file__).resolve().parents[2]

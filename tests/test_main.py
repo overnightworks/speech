@@ -22,6 +22,7 @@ from speech_service.__main__ import StopPolicy
 from speech_service.clock import LoopClock
 from speech_service.config import Settings
 from speech_service.hearing import Hearing
+from speech_service.onnxruntime_telemetry import ONNXRUNTIME_TELEMETRY_SWITCH
 from speech_service.provider_process import ProviderLaunch, ProviderProcess
 from speech_service.service import Runtime, RuntimeDependencies
 from speech_service.speaking import QwenSpeaking
@@ -649,6 +650,6 @@ def test_start_sets_onnxruntime_telemetry_off_before_engines_unless_named(
 ) -> None:
     with started_service(
         tmp_path,
-        environment_changes={"ORT_DISABLE_TELEMETRY": before},
+        environment_changes={ONNXRUNTIME_TELEMETRY_SWITCH: before},
     ) as service:
         assert service.telemetry_switch_at_piper_load() == expected
