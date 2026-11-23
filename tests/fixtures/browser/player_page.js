@@ -326,13 +326,15 @@ async function act(name, action) {
   try {
     action();
     seen.contextAtAction = contexts[0].currentTime;
+    seen.actions.push({ name, at: seen.contextAtAction, gain });
+    // The page's handlers of the sounds the switch ended run in this tick and read the clock the player read: a fresh
+    // read could lie any number of audio steps past it.
+    await Promise.resolve();
+    seen.endedAtAction = seen.sounds.map((sound) => sound.endedValue);
   } finally {
     switchRunning = false;
     clockReads.clear();
   }
-  seen.actions.push({ name, at: seen.contextAtAction, gain });
-  await Promise.resolve();
-  seen.endedAtAction = seen.sounds.map((sound) => sound.endedValue);
 }
 
 // The second switch of a reversal, thrown once the volume has left the value `from`, so that it reverses a ramp under
