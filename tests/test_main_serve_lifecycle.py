@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import os
 import signal
@@ -20,10 +19,10 @@ from shipped_catalogue import CATALOGUE
 from speech_client.wire import VoiceId
 from speech_service import __main__
 from speech_service.__main__ import StopPolicy
-from speech_service.config import Settings, setting_variable
+from speech_service.config import Settings
 from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import FakeSpeaking
-from tests.support.gpu_voice_support import install_qwen
+from tests.support.gpu_voice_support import started_service
 from tests.support.identity_support import (
     caller_configuration_text,
     write_caller_configuration,
@@ -31,16 +30,12 @@ from tests.support.identity_support import (
 from tests.support.launcher_support import (
     SERVER_WAIT_SECONDS,
     assert_reaped,
-    closed_provider,
-    server_starts,
-    wait_for_starts,
 )
 from tests.support.serve_support import RecordedStops, serve_runtime
 from tests.support.tcp_server_support import (
     answers_http,
     free_loopback_port,
     listens_on,
-    wait_until_listening,
 )
 
 if TYPE_CHECKING:
@@ -120,39 +115,17 @@ def test_python_dash_m_starts_the_service_listening_on_the_configured_port(
     tmp_path: Path,
 ) -> None:
     """WIRE-01: python dash m starts the service listening on the configured port."""
-    port = free_loopback_port()
-    speech_root = Path(__file__).resolve().parents[1]
-    provider_root, cache = closed_provider(tmp_path, "held-ready")
-    install_qwen(cache)
-    environment = {
-        **os.environ,
-        setting_variable("port"): str(port),
-        "HF_HUB_OFFLINE": "1",
-        "HF_HOME": str(tmp_path / "hf"),
-        setting_variable("config_file"): str(write_caller_configuration(tmp_path)),
-        setting_variable("device"): "cpu",
-        setting_variable("voices"): VoiceId.RYAN.value,
-        setting_variable("load_gpu_voices_at_start"): "1",
-        setting_variable("provider_root"): str(provider_root),
-        setting_variable("huggingface_cache"): str(cache),
-        "PYTHONPATH": os.pathsep.join([str(speech_root), str(speech_root / "scripts")]),
-    }
-    with subprocess.Popen(
-        [sys.executable, "-m", "speech_service"],
-        cwd=tmp_path,
-        env=environment,
-    ) as server:
-        try:
-            wait_until_listening(server, port)
-            (qwen_server,) = wait_for_starts(cache, 1)
-            server.terminate()
-            assert server.wait(timeout=30) == 0
-            assert_reaped(qwen_server, SERVER_WAIT_SECONDS)
-        finally:
-            server.kill()
-            for started in server_starts(cache):
-                with contextlib.suppress(ProcessLookupError):
-                    os.kill(started, signal.SIGKILL)
+    with started_service(tmp_path) as service:
+        assert listens_on(service.port)
+
+
+def test_sigterm_during_a_held_load_exits_zero_and_reaps_the_server(
+    tmp_path: Path,
+) -> None:
+    with started_service(tmp_path) as service:
+        service.process.terminate()
+        assert service.process.wait(timeout=30) == 0
+        assert_reaped(service.qwen_server, SERVER_WAIT_SECONDS)
 
     assert list(tmp_path.glob("*.sock")) == []
 
