@@ -172,7 +172,7 @@ def spoken_texts() -> list[str]:
 # -- waiting for the service --------------------------------------------------
 
 
-def _speaks(base_url: str, minting: Minting, voice: VoiceId) -> bool:
+def speaks(base_url: str, minting: Minting, voice: VoiceId) -> bool:
     """True once the speak route answers, which it does only after loading ends."""
     pair = mint_pair(minting)
     try:
@@ -250,7 +250,7 @@ def hearing_service(
             wait_ready = functools.partial(
                 wait_loaded,
                 wait=LoadWait(
-                    speaks=functools.partial(_speaks, base_url, minting, voice)
+                    speaks=functools.partial(speaks, base_url, minting, voice)
                 ),
             )
             with speech_server(

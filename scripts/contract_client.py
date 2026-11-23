@@ -64,7 +64,8 @@ def speak(
     return outcome.audio
 
 
-def _run(base_url: str, voice: VoiceId, minting: Minting) -> None:
+def run(base_url: str, voice: VoiceId, minting: Minting) -> None:
+    """Check health, speak the voice once and refuse a silent answer."""
     health = fetch_health(
         base_url,
         deadline_seconds=HEALTH_DEADLINE_SECONDS,
@@ -109,7 +110,7 @@ def main() -> None:
     """Drive health and speak against the speech service URL."""
     _must_not_have_imported_speech()
     options = parse_arguments(sys.argv[1:])
-    _run(options.base_url, options.voice, load_minting(options.minting_file))
+    run(options.base_url, options.voice, load_minting(options.minting_file))
 
 
 if __name__ == "__main__":
