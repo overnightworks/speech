@@ -41,10 +41,13 @@ from tests.support.browser_player_support import (
     edge_peaks,
     ends,
     fed,
+    heard_start_of,
     largest_step,
+    peaks_between,
     peaks_inside,
     peaks_outside_edges,
     quantum_seconds,
+    ramp_end,
     start_of,
     starts,
     tone_quanta,
@@ -62,6 +65,12 @@ pytestmark = pytest.mark.browser
 
 AUDIBLE_CONDITION = f"s.sounds[0].peakRms > {AUDIBLE_RMS}"
 SUSPENDED = "s.contextStates[0] === 'suspended'"
+# The streamed sound's first bytes have played out and its body has not come.
+OUTPUT_SILENT = (
+    f"s.heardPeaks.some(([, peak]) => peak > {SILENT_PEAK})"
+    " && s.heardPeaks.at(-1)[1] === 0"
+)
+HEARD_AGAIN = "s.heardOnsets.length > 1"
 
 
 async def audible(stage: Stage, sound: str) -> None:
@@ -244,19 +253,31 @@ def test_pause_and_resume_on_an_idle_player_report_and_start_nothing(
 
 
 @pytest.mark.parametrize(
-    ("sound", "body_released"),
-    [(LONG, False), (STREAMED, False), (STREAMED, True)],
-    ids=["whole", "streamed", "streamed-body-scheduled"],
+    ("sound", "body_released", "starved"),
+    [
+        (LONG, False, False),
+        (STREAMED, False, False),
+        (STREAMED, True, False),
+        (STREAMED, True, True),
+    ],
+    ids=[
+        "whole",
+        "streamed",
+        "streamed-body-scheduled",
+        "streamed-body-scheduled-after-a-gap",
+    ],
 )
 def test_stop_ramps_down_without_a_click_then_ends_and_the_next_sound_is_at_full_volume(
-    tmp_path: Path, sound: str, *, body_released: bool
+    tmp_path: Path, sound: str, *, body_released: bool, starved: bool
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
         async with activated(tmp_path) as stage:
             await audible(stage, sound)
+            if starved:
+                await stage.until(OUTPUT_SILENT)
             if body_released:
                 stage.side.held_release.set()
-                await stage.settle()
+                await (stage.until(HEARD_AGAIN) if starved else stage.settle())
             await stage.act("stop")
             at_stop = await stage.snapshot()
             return at_stop, await short_sound_played(stage)
@@ -265,13 +286,20 @@ def test_stop_ramps_down_without_a_click_then_ends_and_the_next_sound_is_at_full
 
     assert at_stop["endedAtAction"] == [None]
     assert ends(seen) == ["stopped", "played"]
-    # The next start is known to within a quantum; its first quanta are no edge.
-    next_start = start_of(seen, 1) - 3 * quantum_seconds(seen)
-    edge = edge_peaks(seen, "stop", until=next_start)
+    # Not the played seconds: a sound silent for want of its body played fewer.
+    edge_end = ramp_end(seen, 0)
+    next_heard = heard_start_of(seen, -1)
+    margin = 3 * quantum_seconds(seen)
+    edge = edge_peaks(seen, "stop", until=edge_end)
+    # The next sound may start where the edge ends, with no quantum of silence between.
+    silence = peaks_between(seen, edge_end, next_heard - margin)
     assert seen["sounds"][0]["endedAt"] - seen["lastActionAt"] < STOP_BOUND_MS
     assert largest_step(edge) < CLICK_STEP
     assert edge[-1] < SILENT_PEAK
-    heard = peaks_inside(seen, 1, SOUND_SECONDS["short.wav"])
+    assert max(silence, default=0) < SILENT_PEAK
+    heard = peaks_between(
+        seen, next_heard + margin, next_heard + SOUND_SECONDS["short.wav"] - margin
+    )
     assert heard
     assert min(heard) >= FULL_PEAK
 
@@ -350,7 +378,7 @@ def test_resume_while_the_pause_is_still_ramping_plays_on_without_a_click(
 
     seen = asyncio.run(scenario())
 
-    start = start_of(seen)
+    start = heard_start_of(seen)
     [gain_at_resume] = action_gains(seen, "resume")
     assert 0 < gain_at_resume < 1
     assert seen["contextStates"] == ["running"]
@@ -375,7 +403,7 @@ def test_pause_while_the_resume_is_still_ramping_up_holds_the_sound_without_a_cl
 
     held, seen = asyncio.run(scenario())
 
-    start = start_of(seen)
+    start = heard_start_of(seen)
     [*_, last_pause] = action_times(held, "pause")
     [*_, gain_at_pause] = action_gains(held, "pause")
     assert 0 < gain_at_pause < 1
