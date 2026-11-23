@@ -36,10 +36,11 @@ from tests.support.launcher_support import (
     release_load,
     server_starts,
 )
+from tests.support.serve_support import RecordedStops, serve_runtime
 from tests.support.tcp_server_support import free_loopback_port, listens_on
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Coroutine
     from pathlib import Path
 
 
@@ -168,7 +169,6 @@ def test_the_process_writes_its_ready_and_stop_lines(
         ),
     )
     ready = _ReadyLine()
-    monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
     monkeypatch.setattr(
         __main__, "build_server", lambda _app: _StoppedOnceReady(ready.written)
     )
@@ -176,7 +176,11 @@ def test_the_process_writes_its_ready_and_stop_lines(
     logging.getLogger(__main__.__name__).addHandler(ready)
 
     try:
-        outcome = asyncio.run(__main__.serve(_serving_settings(tmp_path)))
+        outcome = asyncio.run(
+            serve_runtime(
+                _serving_settings(tmp_path), runtime, __main__.install_stop_signals
+            )
+        )
     finally:
         logging.getLogger(__main__.__name__).removeHandler(ready)
 
@@ -198,13 +202,11 @@ def test_failed_loader_stops_the_server_and_closes_the_listener(
             missing_artifacts=lambda _voice: (),
         ),
     )
-    monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
     monkeypatch.setattr(__main__, "build_server", lambda _app: _ShutdownOnlyServer())
-    monkeypatch.setattr(__main__, "_install_signal_handlers", lambda _stopping: None)
 
     settings = _serving_settings(tmp_path)
 
-    outcome = asyncio.run(__main__.serve(settings))
+    outcome = asyncio.run(serve_runtime(settings, runtime, RecordedStops()))
 
     assert outcome == 1
     assert not listens_on(settings.port)
@@ -216,7 +218,6 @@ def test_an_offered_piper_voice_without_its_files_ends_the_start_naming_the_voic
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setattr(__main__, "build_server", lambda _app: _ShutdownOnlyServer())
-    monkeypatch.setattr(__main__, "_install_signal_handlers", lambda _stopping: None)
     settings = _serving_settings(tmp_path).model_copy(
         update={"voices": frozenset({VoiceId.NORMAN}), "voice_cache": tmp_path}
     )
@@ -286,7 +287,6 @@ def test_shutdown_closes_a_pending_real_adapter_before_awaiting_its_load(
     # Only a missing close would need it: the load then waits for its release.
     watchdog = threading.Timer(5, release_the_load)
 
-    monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
     monkeypatch.setattr(__main__, "build_server", lambda _app: server)
     monkeypatch.setattr(
         "speech_service.provider_process.subprocess.Popen", observed_popen
@@ -294,7 +294,11 @@ def test_shutdown_closes_a_pending_real_adapter_before_awaiting_its_load(
 
     watchdog.start()
     try:
-        outcome = asyncio.run(__main__.serve(_serving_settings(tmp_path)))
+        outcome = asyncio.run(
+            serve_runtime(
+                _serving_settings(tmp_path), runtime, __main__.install_stop_signals
+            )
+        )
     finally:
         watchdog.cancel()
 
@@ -343,13 +347,11 @@ def test_owned_speaking_failure_stops_the_server_and_returns_failure(
             await self.stopped.wait()
 
     server = Server()
-    monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
     monkeypatch.setattr(__main__, "build_server", lambda _app: server)
-    monkeypatch.setattr(__main__, "_install_signal_handlers", lambda _stopping: None)
 
     settings = _serving_settings(tmp_path)
 
-    outcome = asyncio.run(__main__.serve(settings))
+    outcome = asyncio.run(serve_runtime(settings, runtime, RecordedStops()))
 
     assert outcome == 1
     assert server.should_exit
@@ -380,13 +382,11 @@ def test_orchestrator_serves_health_from_its_loading_runtime(
         server.use(app)
         return server
 
-    monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
     monkeypatch.setattr(__main__, "build_server", healthy_server)
-    monkeypatch.setattr(__main__, "_install_signal_handlers", lambda _stopping: None)
 
     settings = _serving_settings(tmp_path)
 
-    outcome = asyncio.run(__main__.serve(settings))
+    outcome = asyncio.run(serve_runtime(settings, runtime, RecordedStops()))
 
     assert outcome == 1
     assert observed["speaking"] == {
@@ -424,9 +424,7 @@ def test_signal_handler_stops_the_async_orchestrator(
 
     monkeypatch.setattr(__main__.asyncio, "get_running_loop", running_loop)
 
-    handler_name = "_install_signal_handlers"
-    install_handlers = getattr(__main__, handler_name)
-    install_handlers(stopping)
+    __main__.install_stop_signals(stopping)
     handlers[signal.SIGTERM]()
 
     assert stopping.is_set()
@@ -457,17 +455,13 @@ def test_signal_exit_is_zero_and_closes_the_listener(
             del sockets
             await self._stopped.wait()
 
-    monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
     monkeypatch.setattr(__main__, "build_server", lambda _app: Server())
-    monkeypatch.setattr(
-        __main__,
-        "_install_signal_handlers",
-        lambda stopping: stopping.set(),
-    )
 
     settings = _serving_settings(tmp_path)
 
-    outcome = asyncio.run(__main__.serve(settings))
+    outcome = asyncio.run(
+        serve_runtime(settings, runtime, lambda stopping: stopping.set())
+    )
 
     assert outcome == 0
     assert not listens_on(settings.port)
@@ -477,8 +471,9 @@ def _signalled_stop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     hearing: Hearing,
+    policy: StopPolicy,
     after: threading.Event | None = None,
-) -> Settings:
+) -> Coroutine[object, object, int]:
     """Serve over `hearing` with a server that SIGTERMs the process once it runs.
 
     With `after` the SIGTERM waits until that event is set.
@@ -492,9 +487,9 @@ def _signalled_stop(
         ),
         hearing=hearing,
     )
-    monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
     monkeypatch.setattr(__main__, "build_server", lambda _app: _SignalledServer(after))
-    return _serving_settings(tmp_path, hearing_final_wait_seconds=0.05)
+    settings = _serving_settings(tmp_path, hearing_final_wait_seconds=0.05)
+    return serve_runtime(settings, runtime, __main__.install_stop_signals, policy)
 
 
 def test_a_session_that_outlasts_the_drain_bound_leaves_the_exit_zero(
@@ -504,9 +499,11 @@ def test_a_session_that_outlasts_the_drain_bound_leaves_the_exit_zero(
     hearing = loaded(FakeHearing(), drain_turn_seconds=0.0)
     place = hearing.open_session(1)
     assert place is not None
-    settings = _signalled_stop(tmp_path, monkeypatch, hearing)
+    serving = _signalled_stop(
+        tmp_path, monkeypatch, hearing, StopPolicy(grace_seconds=0.05)
+    )
 
-    outcome = asyncio.run(__main__.serve(settings, StopPolicy(grace_seconds=0.05)))
+    outcome = asyncio.run(serving)
 
     assert outcome == 0
 
@@ -521,11 +518,11 @@ def test_engines_that_will_not_close_end_the_process_through_the_abort_with_zero
     assert lease is not None
     decode = hearing.submit(lease, lambda ear: ear.transcribe(b"", (Language.DE,)))
     assert engine.entered.wait(WAIT_SECONDS)
-    settings = _signalled_stop(tmp_path, monkeypatch, hearing)
     aborted: list[int] = []
     policy = StopPolicy(grace_seconds=0.05, abort=aborted.append)
+    serving = _signalled_stop(tmp_path, monkeypatch, hearing, policy)
 
-    outcome = asyncio.run(__main__.serve(settings, policy))
+    outcome = asyncio.run(serving)
 
     engine.release.set()
     decode.result(WAIT_SECONDS)
@@ -538,15 +535,15 @@ def test_a_hearing_load_that_will_not_end_ends_the_process_through_the_abort_wit
 ) -> None:
     """WIRE-147: a load that cannot be interrupted does not hold the exit."""
     engine = FakeHearing(hold_load=True)
-    settings = _signalled_stop(
-        tmp_path, monkeypatch, Hearing(engine, LoopClock()), engine.load_entered
-    )
     aborted: list[int] = []
     policy = StopPolicy(grace_seconds=0.05, abort=aborted.append)
+    serving = _signalled_stop(
+        tmp_path, monkeypatch, Hearing(engine, LoopClock()), policy, engine.load_entered
+    )
 
     async def stopped_during_the_load() -> int:
         try:
-            return await __main__.serve(settings, policy)
+            return await serving
         finally:
             engine.load_release.set()
 
@@ -570,13 +567,11 @@ def test_server_ending_on_its_own_returns_failure_and_closes_the_listener(
         async def serve(self, *, sockets: list[socket.socket] | None = None) -> None:
             del sockets
 
-    monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
     monkeypatch.setattr(__main__, "build_server", lambda _app: Server())
-    monkeypatch.setattr(__main__, "_install_signal_handlers", lambda _stopping: None)
 
     settings = _serving_settings(tmp_path)
 
-    outcome = asyncio.run(__main__.serve(settings))
+    outcome = asyncio.run(serve_runtime(settings, runtime, RecordedStops()))
 
     assert outcome == 1
     assert not listens_on(settings.port)
@@ -589,15 +584,9 @@ def test_server_ending_on_its_own_returns_failure_and_closes_the_listener(
 )
 def test_serve_refuses_to_start_without_a_readable_caller_configuration(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     file_name: str | None,
 ) -> None:
     """WIRE-112: serve refuses to start without a readable configuration."""
-    monkeypatch.setattr(
-        Runtime,
-        "from_settings",
-        lambda _settings: pytest.fail("constructed runtime"),
-    )
     settings = _serving_settings(
         tmp_path, config_file=None if file_name is None else tmp_path / file_name
     )
@@ -617,15 +606,9 @@ def test_serve_refuses_to_start_without_a_readable_caller_configuration(
 )
 def test_serve_exits_nonzero_naming_the_address_before_any_runtime_work(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
     taken: bool,  # noqa: FBT001 - a parametrized case selector
 ) -> None:
-    monkeypatch.setattr(
-        Runtime,
-        "from_settings",
-        lambda _settings: pytest.fail("constructed runtime"),
-    )
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
         holder.bind(("127.0.0.1", 0))
         holder.listen()
@@ -654,11 +637,11 @@ def _environment_seen_by_engines(
     monkeypatch.setenv("SPEECH_CONFIG_FILE", str(settings.config_file))
     seen: list[str | None] = []
 
-    def from_settings(_settings: Settings) -> Runtime:
+    def building_server(_app: object) -> object:
         seen.append(os.environ.get("ORT_DISABLE_TELEMETRY"))
         raise RuntimeError
 
-    monkeypatch.setattr(Runtime, "from_settings", from_settings)
+    monkeypatch.setattr(__main__, "build_server", building_server)
     with configured("speech-service"), pytest.raises((SystemExit, RuntimeError)):
         __main__.main()
     return seen[0]

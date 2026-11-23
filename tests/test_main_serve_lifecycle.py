@@ -25,6 +25,7 @@ from tests.support.identity_support import (
     caller_configuration_text,
     write_caller_configuration,
 )
+from tests.support.serve_support import RecordedStops, serve_runtime
 from tests.support.tcp_server_support import (
     answers_http,
     free_loopback_port,
@@ -45,15 +46,24 @@ from speech_service.service import Runtime, RuntimeDependencies
 from speech_client.wire import VoiceId
 from tests.support.fakes_support import FakeSpeaking
 
-Runtime.from_settings = lambda _settings: Runtime(
-    {VoiceId.THORSTEN: None},
-    dependencies=RuntimeDependencies(
-        catalogue=load_catalogue(Path(os.environ["SPEECH_CATALOGUE_FILE"])),
-        engine_factory=lambda _voice: FakeSpeaking(),
-        missing_artifacts=lambda _voice: (),
-    ),
-)
+
+def loadable_runtime():
+    return Runtime(
+        {VoiceId.THORSTEN: None},
+        dependencies=RuntimeDependencies(
+            catalogue=load_catalogue(Path(os.environ["SPEECH_CATALOGUE_FILE"])),
+            engine_factory=lambda _voice: FakeSpeaking(),
+            missing_artifacts=lambda _voice: (),
+        ),
+    )
 """
+
+_STARTUP_HOOK = (
+    _LOADABLE_RUNTIME
+    + """
+Runtime.from_settings = lambda _settings: loadable_runtime()
+"""
+)
 
 _SIGTERM_SERVER = (
     """
@@ -61,11 +71,16 @@ import asyncio
 import os
 from speech_service import __main__
 from speech_service.config import Settings
+from tests.support.serve_support import serve_runtime
 """
     + _LOADABLE_RUNTIME
     + """
 settings = Settings(port=int(os.environ["SPEECH_PORT"]))
-raise SystemExit(asyncio.run(__main__.serve(settings)))
+raise SystemExit(
+    asyncio.run(
+        serve_runtime(settings, loadable_runtime(), __main__.install_stop_signals)
+    )
+)
 """
 )
 
@@ -108,7 +123,7 @@ def test_python_dash_m_starts_the_service_listening_on_the_configured_port(
     # point runs against a model load that succeeds and the server stays up.
     startup_hook = tmp_path / "startup_hook"
     startup_hook.mkdir()
-    (startup_hook / "sitecustomize.py").write_text(_LOADABLE_RUNTIME)
+    (startup_hook / "sitecustomize.py").write_text(_STARTUP_HOOK)
     environment = {
         **os.environ,
         "SPEECH_PORT": str(port),
@@ -185,11 +200,11 @@ def test_an_unknown_argument_is_a_usage_error_without_starting(
 
 
 def test_serve_listens_only_on_one_tcp_socket_of_the_configured_address(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """WIRE-01: serve listens only on one tcp socket of the configured address."""
     built: list[uvicorn.Server] = []
-    stopping: list[asyncio.Event] = []
+    stops = RecordedStops()
     build_server = __main__.build_server
 
     started = asyncio.Event()
@@ -206,17 +221,9 @@ def test_serve_listens_only_on_one_tcp_socket_of_the_configured_address(
         built.append(server)
         return server
 
-    def install(stop: asyncio.Event) -> None:
-        stopping.append(stop)
-
     async def scenario() -> tuple[int, list[object]]:
         serving = asyncio.create_task(
-            __main__.serve(
-                Settings(
-                    port=port,
-                    config_file=write_caller_configuration(tmp_path),
-                )
-            )
+            serve_runtime(Settings(port=port), runtime, stops)
         )
         await started.wait()
         addresses = [
@@ -224,14 +231,12 @@ def test_serve_listens_only_on_one_tcp_socket_of_the_configured_address(
             for listening in built[0].servers
             for bound in listening.sockets
         ]
-        stopping[0].set()
+        stops.stop()
         return await serving, addresses
 
     port = free_loopback_port()
     runtime = _loadable_runtime()
-    monkeypatch.setattr(Runtime, "from_settings", lambda _settings: runtime)
     monkeypatch.setattr(__main__, "build_server", observed_server)
-    monkeypatch.setattr(__main__, "_install_signal_handlers", install)
 
     outcome, addresses = asyncio.run(scenario())
 

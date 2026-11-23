@@ -87,34 +87,50 @@ def bind_listener(settings: Settings) -> socket.socket:
 
 async def serve(settings: Settings, stop: StopPolicy = StopPolicy()) -> int:
     """Run the server until a signal or fatal lifecycle outcome."""
-    callers = SpeechCallers.from_config(
-        load_caller_config(_require_config_file(settings)),
-        fetch_key_set=fetch_key_set_over_https,
-        wall_clock=time.time,
-        monotonic_clock=time.monotonic,
-    )
+    callers = load_callers(settings)
     try:
         listener = bind_listener(settings)
     except OSError:
         _LOGGER.exception("listener.failed", extra={"port": settings.port})
         return 1
     with listener:
-        return await _serve_on(settings, callers, listener, stop)
+        runtime = Runtime.from_settings(settings)
+        return await serve_on(
+            settings,
+            callers,
+            listener,
+            runtime,
+            install_signals=install_stop_signals,
+            stop=stop,
+        )
 
 
-async def _serve_on(
+def load_callers(settings: Settings) -> SpeechCallers:
+    """The callers the configuration file names, keyed over HTTPS."""
+    return SpeechCallers.from_config(
+        load_caller_config(_require_config_file(settings)),
+        fetch_key_set=fetch_key_set_over_https,
+        wall_clock=time.time,
+        monotonic_clock=time.monotonic,
+    )
+
+
+async def serve_on(  # noqa: PLR0913 - one seam, each argument is one of the start's owners
     settings: Settings,
     callers: SpeechCallers,
     listener: socket.socket,
-    stop: StopPolicy = StopPolicy(),
+    runtime: Runtime,
+    *,
+    install_signals: Callable[[asyncio.Event], None],
+    stop: StopPolicy,
 ) -> int:
+    """Serve `runtime` on `listener` until a signal or fatal lifecycle outcome."""
     loop = asyncio.get_running_loop()
     fatal = asyncio.Event()
-    runtime = Runtime.from_settings(settings)
     runtime.set_fatal_callback(lambda: loop.call_soon_threadsafe(fatal.set))
     server = build_server(create_control_app(settings, runtime, callers))
     stopping = asyncio.Event()
-    _install_signal_handlers(stopping)
+    install_signals(stopping)
     server_task = asyncio.create_task(server.serve(sockets=[listener]))
     runtime.begin_loading()
     loader = asyncio.create_task(asyncio.to_thread(runtime.load))
@@ -258,7 +274,8 @@ def _require_config_file(settings: Settings) -> Path:
     return settings.config_file
 
 
-def _install_signal_handlers(stopping: asyncio.Event) -> None:
+def install_stop_signals(stopping: asyncio.Event) -> None:
+    """Set `stopping` on SIGINT or SIGTERM."""
     loop = asyncio.get_running_loop()
     for received in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(received, stopping.set)
