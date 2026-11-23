@@ -76,7 +76,7 @@ def test_settings_read_speech_environment(monkeypatch: pytest.MonkeyPatch) -> No
 def test_the_wire_settings_refuse_values_that_cannot_hold(
     monkeypatch: pytest.MonkeyPatch, name: str, value: str
 ) -> None:
-    """WIRE-108 to WIRE-111, WIRE-120, WIRE-121, WIRE-148: values are refused.
+    """WIRE-108, WIRE-109, WIRE-110, WIRE-111, WIRE-120, WIRE-121, WIRE-148.
 
     A value that cannot hold is refused, naming the setting.
     """
