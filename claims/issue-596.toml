@@ -1,0 +1,7 @@
+claim_id = "cf826c58d025454bbc254da813220ffd"
+agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
+role = "builder"
+base = "9242089270d62b4b3f20dba4c8dd39f11219bc42"
+branch = "claude/issue-596-a-provider-s-close-ends-inside-the-stop"
+scope = ["src/speech_service/provider_process.py", "tests/test_provider_process.py"]
+opened_commit = "6a737e2c532dd37217a8a7a947da79934342249f"
