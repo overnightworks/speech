@@ -1,0 +1,7 @@
+claim_id = "487802d42aa54f9fbcc7493fa8225356"
+agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
+role = "builder"
+base = "df3a8af35729ec45ab0125c4c7b143d6a1342fe0"
+branch = "claude/issue-660-resume-tail-onset-counts-dropped-quanta"
+scope = ["tests/fixtures/browser/player_page.js", "tests/support/browser_player_support.py", "tests/test_wire_route_browser_player_hold.py"]
+opened_commit = "bb0d612043707307fdae6acea9d159cd95b15961"
