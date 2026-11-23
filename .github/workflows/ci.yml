@@ -46,7 +46,7 @@ jobs:
         run: uv run --locked ruff format --check
 
       - name: Test
-        run: uv run --locked pytest -q -n auto --cov --cov-report=xml:coverage-root.xml --cov-report=term:skip-covered
+        run: uv run --locked pytest -n auto --cov --cov-report=xml:coverage-root.xml --cov-report=term:skip-covered
 
       - name: Upload the coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -92,7 +92,7 @@ jobs:
       - name: Test
         working-directory: ${{ github.workspace }}
         run: >-
-          uv run --locked --project providers/qwen pytest -q -n auto providers/qwen/tests
+          uv run --locked --project providers/qwen pytest -n auto providers/qwen/tests
           --cov --cov-config=providers/qwen/pyproject.toml --cov-report=xml:coverage-qwen.xml --cov-report=term:skip-covered
 
       - name: Upload the coverage report
@@ -203,6 +203,7 @@ jobs:
           SPEECH_BROWSER_COVERAGE_DIR: ${{ runner.temp }}/browser-coverage-raw
         # Each worker drives real-time audio graphs; two fit the runner without
         # starving the render threads.
+        # pytest-random: flow layer, each browser flow is an end-to-end scenario run in file order
         run: uv run --locked pytest -q -n 2 -m browser tests/test_wire_route_browser_capture.py tests/test_wire_route_browser_capture_texts.py tests/test_wire_route_browser_player.py tests/test_wire_route_browser_player_hold.py tests/test_wire_route_browser_player_played_seconds.py
 
       - name: Convert the page coverage to lcov
@@ -392,7 +393,7 @@ jobs:
       - browser-unit
       - browser-flow
     if: always()
-    uses: overnightworks/quality/.github/workflows/gate.yml@34c82adba7820c036634b18ed01486da78e00c73 # v0.23.0
+    uses: overnightworks/quality/.github/workflows/gate.yml@0cff5e74b3a9b106490723264468271a23d5579d # v0.24.0
     with:
       coverage-artifact: coverage
     permissions:

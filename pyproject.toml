@@ -13,7 +13,7 @@ dependencies = [
     "faster-whisper==1.2.1",
     "huggingface-hub==2.4.0",
     "overnightworks-webauth @ git+https://github.com/overnightworks/webauth@v0.42.0",
-    "overnightworks-logline @ git+https://github.com/overnightworks/logline@v1.8.0",
+    "overnightworks-logline @ git+https://github.com/overnightworks/logline@v1.9.0",
     "numpy==2.5.4",
     "piper-tts[alignment]==1.8.0",
     "python-multipart==0.0.33",
@@ -43,6 +43,7 @@ dev = [
     "pyjwt[crypto]==2.15.1",
     "pytest==9.2.0",
     "pytest-cov==7.1.0",
+    "pytest-randomly==5.1.0",
     "pytest-xdist==3.8.0",
     "ruff==0.17.5",
 ]
