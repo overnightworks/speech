@@ -160,15 +160,38 @@ def test_a_launcher_that_does_not_lead_its_group_ends_without_starting_a_server(
 
 
 def test_the_parent_death_signal_kills_the_launchers_whole_group(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    # In-process because a real group kill ends the launcher before coverage writes.
-    group_kills: list[tuple[int, int]] = []
-    monkeypatch.setattr(os, "killpg", lambda *kill: group_kills.append(kill))
+    # A real group kill ends the launcher before coverage writes, so the line
+    # that issues it is proven by this outcome and not seen by coverage.
+    ready_file = tmp_path / "server.ready"
+    server = (
+        "import os, time\n"
+        "from pathlib import Path\n"
+        f"Path({str(ready_file)!r}).write_text(str(os.getpid()))\n"
+        "time.sleep(3600)\n"
+    )
+    with subprocess.Popen(  # noqa: S603 - the launcher is the program of this test
+        [
+            sys.executable,
+            "-c",
+            _LAUNCHER,
+            str(os.getpid()),
+            sys.executable,
+            "-c",
+            server,
+        ],
+        start_new_session=True,
+    ) as launcher_process:
+        try:
+            await_pid_file(ready_file)
+            os.kill(launcher_process.pid, signal.SIGUSR1)
 
-    launcher._kill_group(signal.SIGUSR1, None)  # noqa: SLF001
-
-    assert group_kills == [(os.getpgrp(), signal.SIGKILL)]
+            assert launcher_process.wait(timeout=60) == -signal.SIGKILL
+            assert group_has_ended(launcher_process.pid)
+        finally:
+            with suppress(ProcessLookupError):
+                os.killpg(launcher_process.pid, signal.SIGKILL)
 
 
 @pytest.mark.usefixtures("restored_sigusr2")
