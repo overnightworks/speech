@@ -276,11 +276,17 @@ def _transcribe(pair: _Pair, port: int) -> tuple[int, dict[str, object]]:
     return response.status, json.loads(response.read())
 
 
-@pytest.mark.parametrize("port_name", ["first_port", "second_port"])
+@pytest.mark.parametrize(
+    "serving",
+    [
+        pytest.param(lambda pair: pair.first_port, id="first process"),
+        pytest.param(lambda pair: pair.second_port, id="second process"),
+    ],
+)
 def test_each_of_two_service_processes_serves_speaking_and_hearing(
-    pair: _Pair, port_name: str
+    pair: _Pair, serving: Callable[[_Pair], int]
 ) -> None:
-    port = getattr(pair, port_name)
+    port = serving(pair)
     pair.release_file.touch()
 
     response, first_byte = _stream_speech(pair, port)

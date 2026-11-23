@@ -7,14 +7,12 @@ import os
 import signal
 import socket
 import subprocess
-import sys
 import threading
 import traceback
 from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
-from logline.testing import configured
 from speech_provider_contract import QwenSpeaker
 
 from shipped_catalogue import CATALOGUE
@@ -28,6 +26,7 @@ from speech_service.provider_process import ProviderLaunch, ProviderProcess
 from speech_service.service import Runtime, RuntimeDependencies
 from speech_service.speaking import QwenSpeaking
 from tests.support.fakes_support import FakeSpeaking
+from tests.support.gpu_voice_support import started_service
 from tests.support.hear_support import WAIT_SECONDS, FakeHearing, loaded
 from tests.support.identity_support import write_caller_configuration
 from tests.support.launcher_support import (
@@ -640,40 +639,16 @@ def test_serve_exits_nonzero_naming_the_address_before_any_runtime_work(
     assert not hasattr(record, "host")
 
 
-def _environment_seen_by_engines(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, before: str | None
-) -> str | None:
-    """`ORT_DISABLE_TELEMETRY` when the first engine would load, after `main` ran."""
-    monkeypatch.setenv("ORT_DISABLE_TELEMETRY", before or "restored")
-    if before is None:
-        monkeypatch.delenv("ORT_DISABLE_TELEMETRY")
-    monkeypatch.setattr(sys, "argv", ["speech-service"])
-    settings = _serving_settings(tmp_path)
-    monkeypatch.setenv("SPEECH_PORT", str(settings.port))
-    monkeypatch.setenv("SPEECH_CONFIG_FILE", str(settings.config_file))
-    seen: list[str | None] = []
-
-    async def observing_serve(_settings: Settings) -> int:
-        seen.append(os.environ.get("ORT_DISABLE_TELEMETRY"))
-        return 1
-
-    monkeypatch.setattr(__main__, "serve", observing_serve)
-    with configured("speech-service"), pytest.raises(SystemExit):
-        __main__.main()
-    return seen[0]
-
-
 @pytest.mark.parametrize(
     ("before", "expected"),
     [(None, "1"), ("0", "0")],
     ids=["unset_is_switched_off", "operator_value_stays"],
 )
 def test_start_sets_onnxruntime_telemetry_off_before_engines_unless_named(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    before: str | None,
-    expected: str,
+    tmp_path: Path, before: str | None, expected: str
 ) -> None:
-    assert (
-        _environment_seen_by_engines(monkeypatch, tmp_path, before=before) == expected
-    )
+    with started_service(
+        tmp_path,
+        environment_changes={"ORT_DISABLE_TELEMETRY": before},
+    ) as service:
+        assert service.telemetry_switch_at_piper_load() == expected

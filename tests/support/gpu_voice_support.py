@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import contextlib
+import os
+import signal
 import socket
+import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
@@ -22,28 +28,36 @@ from speech_provider_contract import (
 from shipped_catalogue import PIPER_VOICES
 from speech_client.wire import HEALTH_PATH, Health, VoiceId
 from speech_service.__main__ import StopPolicy
-from speech_service.config import Settings
+from speech_service.config import Settings, setting_variable
 from speech_service.control import create_control_app
 from speech_service.hearing import DRAIN_TURN_SECONDS, Hearing
 from speech_service.service import Runtime
 from speech_service.voices import piper_voice_paths
 from tests.support.hear_support import FakeHearing
-from tests.support.identity_support import valid_callers, valid_headers
+from tests.support.identity_support import (
+    valid_callers,
+    valid_headers,
+    write_caller_configuration,
+)
 from tests.support.launcher_support import (
     SERVER_WAIT_SECONDS,
     closed_provider,
     fail_every_reap,
     release_exit,
     server_starts,
+    wait_for_starts,
 )
 from tests.support.serve_support import RecordedStops, serve_runtime
 from tests.support.speak_support import ASGI_TIMEOUT_SECONDS, wav_body
-from tests.support.tcp_server_support import answers_http
+from tests.support.tcp_server_support import (
+    answers_http,
+    free_loopback_port,
+    wait_until_listening,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator
+    from collections.abc import Callable, Iterable, Iterator, Mapping
     from concurrent.futures import Future
-    from pathlib import Path
 
     import pytest
     from fastapi import FastAPI
@@ -70,6 +84,99 @@ def touch_snapshot(
 def install_qwen(cache: Path) -> None:
     """Qwen's pinned weights in `cache`."""
     touch_snapshot(cache, QWEN_MODEL_ID, QWEN_REVISION, QWEN_ARTIFACTS)
+
+
+_RECORDING_PIPER = """
+import os
+from pathlib import Path
+from types import SimpleNamespace
+
+
+class PiperVoice:
+    @staticmethod
+    def load(_path, **_options):
+        Path(__file__).with_name("piper-observed").write_text(
+            repr(os.environ.get("ORT_DISABLE_TELEMETRY")), encoding="utf-8"
+        )
+        return SimpleNamespace(config=SimpleNamespace(sample_rate=22050))
+"""
+
+
+@dataclass(frozen=True)
+class StartedService:
+    """`python -m speech_service` listening, with its Qwen server's load held."""
+
+    process: subprocess.Popen[bytes]
+    port: int
+    cache: Path
+    qwen_server: int
+    modules: Path
+
+    def telemetry_switch_at_piper_load(self) -> str | None:
+        """`ORT_DISABLE_TELEMETRY` as the service held it when a Piper voice loaded."""
+        return ast.literal_eval(
+            (self.modules / "piper-observed").read_text(encoding="utf-8")
+        )
+
+
+@contextmanager
+def started_service(
+    tmp_path: Path,
+    *,
+    environment_changes: Mapping[str, str | None] | None = None,
+) -> Iterator[StartedService]:
+    """Start the service over a held fake Qwen load; end it and its server on exit.
+
+    The service serves one Piper and one Qwen voice; a recording fake `piper` module
+    is importable by it. `environment_changes`
+    sets (a string) or removes (`None`) variables of the inherited environment.
+    """
+    port = free_loopback_port()
+    speech_root = Path(__file__).resolve().parents[2]
+    provider_root, cache = closed_provider(tmp_path, "held-ready")
+    install_qwen(cache)
+    modules = tmp_path / "modules"
+    modules.mkdir()
+    (modules / "piper.py").write_text(_RECORDING_PIPER, encoding="utf-8")
+    voice_cache = tmp_path / "piper"
+    voice_cache.mkdir()
+    for voice in PIPER_VOICES:
+        for path in piper_voice_paths(voice_cache, voice.value):
+            path.touch()
+    served_voices = f"{VoiceId.THORSTEN.value},{VoiceId.RYAN.value}"
+    environment = {
+        **os.environ,
+        setting_variable("port"): str(port),
+        "HF_HUB_OFFLINE": "1",
+        "HF_HOME": str(tmp_path / "hf"),
+        setting_variable("config_file"): str(write_caller_configuration(tmp_path)),
+        setting_variable("device"): "cpu",
+        setting_variable("voices"): served_voices,
+        setting_variable("voice_cache"): str(voice_cache),
+        setting_variable("load_gpu_voices_at_start"): "1",
+        setting_variable("provider_root"): str(provider_root),
+        setting_variable("huggingface_cache"): str(cache),
+        "PYTHONPATH": os.pathsep.join(
+            [str(speech_root), str(speech_root / "scripts"), str(modules)]
+        ),
+    }
+    for name, value in (environment_changes or {}).items():
+        if value is None:
+            environment.pop(name, None)
+        else:
+            environment[name] = value
+    with subprocess.Popen(
+        [sys.executable, "-m", "speech_service"], cwd=tmp_path, env=environment
+    ) as process:
+        try:
+            wait_until_listening(process, port)
+            (qwen_server,) = wait_for_starts(cache, 1)
+            yield StartedService(process, port, cache, qwen_server, modules)
+        finally:
+            process.kill()
+            for started in server_starts(cache):
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(started, signal.SIGKILL)
 
 
 def install_piper(monkeypatch: pytest.MonkeyPatch, voice_cache: Path) -> None:
