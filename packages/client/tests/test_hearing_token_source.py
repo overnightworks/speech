@@ -9,7 +9,10 @@ from typing import TYPE_CHECKING
 import pytest
 from logline import current_traceparent, unit_trace
 
-from packages.client.tests.support.elapsed_support import well_before
+from packages.client.tests.support.elapsed_support import (
+    SESSION_DEADLINE_SECONDS,
+    well_before,
+)
 from packages.client.tests.support.hearing_support import (
     PERSON_TOKEN,
     WORKLOAD_TOKEN,
@@ -52,8 +55,6 @@ if TYPE_CHECKING:
     from speech_client.hearing import HearingOutcome
 
 pytestmark = pytest.mark.usefixtures("quick_bound")
-
-SESSION_DEADLINE_SECONDS = 30
 
 
 def test_the_source_is_awaited_before_every_opening_and_its_tokens_travel() -> None:

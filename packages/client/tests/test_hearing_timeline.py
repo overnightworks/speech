@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from packages.client.tests.support.elapsed_support import well_before
+from packages.client.tests.support.elapsed_support import (
+    SESSION_DEADLINE_SECONDS,
+    well_before,
+)
 from packages.client.tests.support.hearing_support import (
     HEARD_DELTA,
     session_to,
@@ -65,8 +68,6 @@ if TYPE_CHECKING:
     from speech_client.hearing import HearingOutcome, HearingSession
 
 pytestmark = pytest.mark.usefixtures("quick_bound")
-
-SESSION_DEADLINE_SECONDS = 30
 
 
 def test_one_byte_over_the_held_limit_ends_the_hearing_while_the_source_runs() -> None:

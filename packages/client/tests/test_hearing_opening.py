@@ -14,6 +14,7 @@ from websockets.asyncio.server import serve
 
 from packages.client.tests.support.elapsed_support import (
     CLOSE_TIMEOUT_SECONDS,
+    SESSION_DEADLINE_SECONDS,
     well_before,
 )
 from packages.client.tests.support.hearing_support import (
@@ -34,7 +35,6 @@ if TYPE_CHECKING:
 
     from speech_client.hearing import HearingOutcome, HearingSession
 
-DEADLINE_SECONDS = 30  # the long wait a stalled opening must not sit through
 OPENING_SHORT = 0.3  # passed at once by a stalled peer, far below the deadline
 
 
@@ -56,13 +56,13 @@ def test_a_stalled_opening_ends_with_unreachable_at_the_bound(stall: str) -> Non
             else:
                 port, _ = await stack.enter_async_context(stalled_service(()))
             started = time.monotonic()
-            ended = await outcome_at(port, DEADLINE_SECONDS, OPENING_SHORT)
+            ended = await outcome_at(port, SESSION_DEADLINE_SECONDS, OPENING_SHORT)
             return ended, time.monotonic() - started
 
     ended, elapsed = asyncio.run(scenario())
 
     assert ended == Unreachable()
-    assert elapsed < well_before(DEADLINE_SECONDS)
+    assert elapsed < well_before(SESSION_DEADLINE_SECONDS)
 
 
 def test_a_deadline_equal_to_the_opening_bound_leaves_the_opening_to_end_it() -> None:

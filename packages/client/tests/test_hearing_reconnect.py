@@ -10,7 +10,10 @@ from typing import TYPE_CHECKING
 import pytest
 from websockets.asyncio.server import serve
 
-from packages.client.tests.support.elapsed_support import well_before
+from packages.client.tests.support.elapsed_support import (
+    SESSION_DEADLINE_SECONDS,
+    well_before,
+)
 from packages.client.tests.support.hearing_support import (
     CREATED_EVENT,
     HEARD_DELTA,
@@ -72,7 +75,6 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.usefixtures("quick_bound")
 
 BUSY_RETRY_AFTER_SECONDS = 30
-SESSION_DEADLINE_SECONDS = 30
 SILENT_OPENING_SECONDS = 30
 
 

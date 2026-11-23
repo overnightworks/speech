@@ -227,7 +227,7 @@ def test_a_stop_during_the_health_wait_does_not_wait_out_the_health_deadline(
 
     started = time.monotonic()
     server.close()
-    loading.join(timeout=5)
+    loading.join(timeout=well_before(HEALTH_DEADLINE_SECONDS))
 
     assert time.monotonic() - started < well_before(HEALTH_DEADLINE_SECONDS)
     assert not loading.is_alive()

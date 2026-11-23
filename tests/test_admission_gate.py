@@ -27,6 +27,7 @@ from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.clock_support import FakeClock
 from tests.support.elapsed_support import well_before
 from tests.support.fakes_support import (
+    GATE_TIMEOUT_SECONDS,
     SPEAK_SAMPLE_RATE,
     FakeSpeaking,
     GatedSpeaking,
@@ -365,7 +366,7 @@ def test_a_second_request_is_told_busy_within_the_wait_while_the_first_streams()
 
     assert second.status_code == HTTP_429_TOO_MANY_REQUESTS
     assert second.headers[RETRY_AFTER_HEADER.lower()] == "1"
-    assert second.started_after < well_before(ASGI_TIMEOUT_SECONDS)
+    assert second.started_after < well_before(GATE_TIMEOUT_SECONDS)
     assert first.status_code == HTTP_200_OK
     assert pcm_from_wav(first_body)[0] == SPEAK_SAMPLE_RATE
 
@@ -534,7 +535,7 @@ def test_a_stream_holding_every_worker_cannot_push_the_busy_answer_past_the_wait
     runtime, first, second, later = asyncio.run(scenario())
 
     assert_call_refusal(second, HTTP_429_TOO_MANY_REQUESTS, RefusalCode.BUSY, None)
-    assert second.started_after < well_before(ASGI_TIMEOUT_SECONDS)
+    assert second.started_after < well_before(GATE_TIMEOUT_SECONDS)
     assert second.headers[RETRY_AFTER_HEADER.lower()] == "1"
     assert first.status_code == HTTP_200_OK
     assert later == HTTP_200_OK
