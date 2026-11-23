@@ -40,6 +40,13 @@ _USAGE_EPILOG = (
 )
 
 
+def install_stop_signals(stopping: asyncio.Event) -> None:
+    """Set `stopping` on SIGINT or SIGTERM."""
+    loop = asyncio.get_running_loop()
+    for received in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(received, stopping.set)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StopPolicy:
     """What the stop allows past the drain, and how it ends a process that is stuck.
@@ -47,8 +54,10 @@ class StopPolicy:
     The sessions get `grace_seconds` past the drain's bound to close, the server
     and the engines each `grace_seconds` to stop; `abort` ends the process when
     the engines will not close or a load will not end, as neither can be interrupted.
+    `install_signals` hands the loop the event a stop signal sets.
     """
 
+    install_signals: Callable[[asyncio.Event], None] = install_stop_signals
     grace_seconds: float = _CLOSE_GRACE_SECONDS
     abort: Callable[[int], object] = os._exit
 
@@ -100,7 +109,6 @@ async def serve(settings: Settings, stop: StopPolicy = StopPolicy()) -> int:
             callers,
             listener,
             runtime,
-            install_signals=install_stop_signals,
             stop=stop,
         )
 
@@ -115,13 +123,11 @@ def load_callers(settings: Settings) -> SpeechCallers:
     )
 
 
-async def serve_on(  # noqa: PLR0913 - one seam, each argument is one of the start's owners
+async def serve_on(
     settings: Settings,
     callers: SpeechCallers,
     listener: socket.socket,
     runtime: Runtime,
-    *,
-    install_signals: Callable[[asyncio.Event], None],
     stop: StopPolicy,
 ) -> int:
     """Serve `runtime` on `listener` until a signal or fatal lifecycle outcome."""
@@ -130,7 +136,7 @@ async def serve_on(  # noqa: PLR0913 - one seam, each argument is one of the sta
     runtime.set_fatal_callback(lambda: loop.call_soon_threadsafe(fatal.set))
     server = build_server(create_control_app(settings, runtime, callers))
     stopping = asyncio.Event()
-    install_signals(stopping)
+    stop.install_signals(stopping)
     server_task = asyncio.create_task(server.serve(sockets=[listener]))
     runtime.begin_loading()
     loader = asyncio.create_task(asyncio.to_thread(runtime.load))
@@ -272,13 +278,6 @@ def _require_config_file(settings: Settings) -> Path:
         message = "SPEECH_CONFIG_FILE is required for the speak wire's callers"
         raise ValueError(message)
     return settings.config_file
-
-
-def install_stop_signals(stopping: asyncio.Event) -> None:
-    """Set `stopping` on SIGINT or SIGTERM."""
-    loop = asyncio.get_running_loop()
-    for received in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(received, stopping.set)
 
 
 if __name__ == "__main__":

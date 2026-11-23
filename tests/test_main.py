@@ -176,11 +176,7 @@ def test_the_process_writes_its_ready_and_stop_lines(
     logging.getLogger(__main__.__name__).addHandler(ready)
 
     try:
-        outcome = asyncio.run(
-            serve_runtime(
-                _serving_settings(tmp_path), runtime, __main__.install_stop_signals
-            )
-        )
+        outcome = asyncio.run(serve_runtime(_serving_settings(tmp_path), runtime))
     finally:
         logging.getLogger(__main__.__name__).removeHandler(ready)
 
@@ -206,7 +202,9 @@ def test_failed_loader_stops_the_server_and_closes_the_listener(
 
     settings = _serving_settings(tmp_path)
 
-    outcome = asyncio.run(serve_runtime(settings, runtime, RecordedStops()))
+    outcome = asyncio.run(
+        serve_runtime(settings, runtime, StopPolicy(install_signals=RecordedStops()))
+    )
 
     assert outcome == 1
     assert not listens_on(settings.port)
@@ -300,11 +298,7 @@ def test_shutdown_closes_a_pending_real_adapter_before_awaiting_its_load(
 
     watchdog.start()
     try:
-        outcome = asyncio.run(
-            serve_runtime(
-                _serving_settings(tmp_path), runtime, __main__.install_stop_signals
-            )
-        )
+        outcome = asyncio.run(serve_runtime(_serving_settings(tmp_path), runtime))
     finally:
         watchdog.cancel()
 
@@ -357,7 +351,9 @@ def test_owned_speaking_failure_stops_the_server_and_returns_failure(
 
     settings = _serving_settings(tmp_path)
 
-    outcome = asyncio.run(serve_runtime(settings, runtime, RecordedStops()))
+    outcome = asyncio.run(
+        serve_runtime(settings, runtime, StopPolicy(install_signals=RecordedStops()))
+    )
 
     assert outcome == 1
     assert server.should_exit
@@ -392,7 +388,9 @@ def test_orchestrator_serves_health_from_its_loading_runtime(
 
     settings = _serving_settings(tmp_path)
 
-    outcome = asyncio.run(serve_runtime(settings, runtime, RecordedStops()))
+    outcome = asyncio.run(
+        serve_runtime(settings, runtime, StopPolicy(install_signals=RecordedStops()))
+    )
 
     assert outcome == 1
     assert observed["speaking"] == {
@@ -466,7 +464,11 @@ def test_signal_exit_is_zero_and_closes_the_listener(
     settings = _serving_settings(tmp_path)
 
     outcome = asyncio.run(
-        serve_runtime(settings, runtime, lambda stopping: stopping.set())
+        serve_runtime(
+            settings,
+            runtime,
+            StopPolicy(install_signals=lambda stopping: stopping.set()),
+        )
     )
 
     assert outcome == 0
@@ -495,7 +497,7 @@ def _signalled_stop(
     )
     monkeypatch.setattr(__main__, "build_server", lambda _app: _SignalledServer(after))
     settings = _serving_settings(tmp_path, hearing_final_wait_seconds=0.05)
-    return serve_runtime(settings, runtime, __main__.install_stop_signals, policy)
+    return serve_runtime(settings, runtime, policy)
 
 
 def test_a_session_that_outlasts_the_drain_bound_leaves_the_exit_zero(
@@ -577,7 +579,9 @@ def test_server_ending_on_its_own_returns_failure_and_closes_the_listener(
 
     settings = _serving_settings(tmp_path)
 
-    outcome = asyncio.run(serve_runtime(settings, runtime, RecordedStops()))
+    outcome = asyncio.run(
+        serve_runtime(settings, runtime, StopPolicy(install_signals=RecordedStops()))
+    )
 
     assert outcome == 1
     assert not listens_on(settings.port)

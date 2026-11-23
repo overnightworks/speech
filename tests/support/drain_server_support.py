@@ -22,6 +22,7 @@ from speech_service.hearing import Heard, Hearing
 from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.hear_support import FakeHearing
+from tests.support.serve_support import serve_runtime
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -103,15 +104,11 @@ def _runtime() -> Runtime:
 
 async def _serve() -> int:
     settings = Settings()
-    with __main__.bind_listener(settings) as listener:
-        return await __main__.serve_on(
-            settings,
-            __main__.load_callers(settings),
-            listener,
-            _runtime(),
-            install_signals=__main__.install_stop_signals,
-            stop=__main__.StopPolicy(),
-        )
+    return await serve_runtime(
+        settings,
+        _runtime(),
+        callers=__main__.load_callers(settings),
+    )
 
 
 def main() -> None:

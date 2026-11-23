@@ -274,8 +274,9 @@ class Serving:
             serve_runtime(
                 self._stage.settings,
                 self._stage.runtime,
-                self._stops,
-                StopPolicy(grace_seconds=STOP_GRACE_SECONDS),
+                StopPolicy(
+                    install_signals=self._stops, grace_seconds=STOP_GRACE_SECONDS
+                ),
                 listener=self.listener,
             )
         )

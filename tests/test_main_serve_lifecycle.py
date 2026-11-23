@@ -18,6 +18,7 @@ import pytest
 from shipped_catalogue import CATALOGUE
 from speech_client.wire import VoiceId
 from speech_service import __main__
+from speech_service.__main__ import StopPolicy
 from speech_service.config import Settings
 from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import FakeSpeaking
@@ -71,7 +72,7 @@ from tests.support.serve_support import serve_runtime
 settings = Settings(port=int(os.environ["SPEECH_PORT"]))
 raise SystemExit(
     asyncio.run(
-        serve_runtime(settings, loadable_runtime(), __main__.install_stop_signals)
+        serve_runtime(settings, loadable_runtime())
     )
 )
 """
@@ -212,7 +213,9 @@ def test_serve_listens_only_on_one_tcp_socket_of_the_configured_address(
 
     async def scenario() -> tuple[int, list[object]]:
         serving = asyncio.create_task(
-            serve_runtime(Settings(port=port), runtime, stops)
+            serve_runtime(
+                Settings(port=port), runtime, StopPolicy(install_signals=stops)
+            )
         )
         await started.wait()
         addresses = [

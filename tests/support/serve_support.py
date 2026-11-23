@@ -10,8 +10,8 @@ from tests.support.identity_support import valid_callers
 if TYPE_CHECKING:
     import asyncio
     import socket
-    from collections.abc import Callable
 
+    from speech_service.callers import SpeechCallers
     from speech_service.config import Settings
     from speech_service.service import Runtime
 
@@ -38,18 +38,17 @@ class RecordedStops:
 async def serve_runtime(
     settings: Settings,
     runtime: Runtime,
-    install_signals: Callable[[asyncio.Event], None],
     stop: StopPolicy | None = None,
     *,
     listener: socket.socket | None = None,
+    callers: SpeechCallers | None = None,
 ) -> int:
     """Serve `runtime` as `serve` does: on the settings' address, then close it."""
     with listener or bind_listener(settings) as bound:
         return await serve_on(
             settings,
-            valid_callers(),
+            callers or valid_callers(),
             bound,
             runtime,
-            install_signals=install_signals,
-            stop=stop or StopPolicy(),
+            stop or StopPolicy(),
         )
