@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 from speech_service.pcm import BYTES_PER_SAMPLE, HEARING_SAMPLE_RATE
@@ -44,6 +45,15 @@ class SpeechStart:
     audio_ms: int
 
 
+class TurnEndedBy(StrEnum):
+    """What ended a turn: a client commit, a drain cut, the length cap or silence."""
+
+    CLIENT = "client"
+    DRAIN = "drain"
+    CAP = "cap"
+    SILENCE = "silence"
+
+
 @dataclass(frozen=True, slots=True)
 class TurnEnd:
     """A turn's 16 kHz audio, where it lay in the session and how much of it was speech.
@@ -57,8 +67,7 @@ class TurnEnd:
     start_ms: int
     end_ms: int
     voiced_seconds: float
-    by_client: bool
-    by_drain: bool = False
+    ended_by: TurnEndedBy
     silence_ms: int = 0
 
 
@@ -122,7 +131,7 @@ class HearingSession:
         """
         if self._last_turn and not self.turn_open:
             return None
-        ended = self._end(self._held_end, by_client=True)
+        ended = self._end(self._held_end, TurnEndedBy.CLIENT)
         return ended[0] if ended else None
 
     @property
@@ -139,7 +148,7 @@ class HearingSession:
         if not self._speaking:
             self._speech_windows = 0
             return None
-        return self._end(self._held_end, by_client=False, by_drain=True)[0]
+        return self._end(self._held_end, TurnEndedBy.DRAIN)[0]
 
     @property
     def silent(self) -> bool:
@@ -214,12 +223,12 @@ class HearingSession:
         else:
             self._silent_windows += 1
         if end - self._held_from >= _MAX_TURN_SAMPLES:
-            return self._end(self._held_from + _MAX_TURN_SAMPLES, by_client=False)
+            return self._end(self._held_from + _MAX_TURN_SAMPLES, TurnEndedBy.CAP)
         if self._silent_windows >= self._silent_windows_to_end:
             silence_ms = (
                 self._silent_windows * WINDOW_SAMPLES // _SAMPLES_PER_MILLISECOND
             )
-            return self._end(end, by_client=False, silence_ms=silence_ms)
+            return self._end(end, TurnEndedBy.SILENCE, silence_ms=silence_ms)
         return []
 
     def _drop_before(self, sample: int) -> None:
@@ -233,9 +242,8 @@ class HearingSession:
     def _end(
         self,
         end: int,
+        ended_by: TurnEndedBy,
         *,
-        by_client: bool,
-        by_drain: bool = False,
         silence_ms: int = 0,
     ) -> list[TurnEnd]:
         start = self._held_from
@@ -261,8 +269,7 @@ class HearingSession:
                 start // _SAMPLES_PER_MILLISECOND,
                 end // _SAMPLES_PER_MILLISECOND,
                 voiced_seconds,
-                by_client,
-                by_drain,
+                ended_by,
                 silence_ms,
             )
         ]

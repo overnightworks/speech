@@ -12,7 +12,6 @@ import base64
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 from logline import StepTimer, current_traceparent, unit_trace
@@ -45,11 +44,11 @@ from speech_client.realtime_wire import (
 from speech_client.wire import DRAIN_CLOSE_CODE, Language, RefusalCode
 from speech_service.failures import log_failure
 from speech_service.hearing_session import (
-    MAX_TURN_SECONDS,
     POLL_WAIT_SECONDS,
     HearingSession,
     SpeechStart,
     TurnEnd,
+    TurnEndedBy,
 )
 from speech_service.pcm import BYTES_PER_SAMPLE, HEARING_SAMPLE_RATE, Resampler
 
@@ -71,13 +70,6 @@ _PCM_BYTES_PER_SECOND: Final = HEARING_SAMPLE_RATE * BYTES_PER_SAMPLE
 _MAX_ENDED_TURNS: Final = 2
 
 
-class _TurnEndedBy(StrEnum):
-    SILENCE = "silence"
-    CAP = "cap"
-    CLIENT = "client"
-    DRAIN = "drain"
-
-
 @dataclass(slots=True)
 class _Final:
     """A turn's audio to decode.
@@ -93,15 +85,6 @@ class _Final:
     hearing: StepTimer
     traceparent: str | None
     emitted: asyncio.Event = field(default_factory=asyncio.Event)
-
-
-def _turn_ended_by(turn: TurnEnd) -> _TurnEndedBy:
-    if turn.by_client:
-        return _TurnEndedBy.CLIENT
-    if turn.by_drain:
-        return _TurnEndedBy.DRAIN
-    reached_cap = len(turn.pcm) / _PCM_BYTES_PER_SECOND >= MAX_TURN_SECONDS
-    return _TurnEndedBy.CAP if reached_cap else _TurnEndedBy.SILENCE
 
 
 def _samples_of(encoded: str) -> bytes | None:
@@ -332,7 +315,7 @@ class LiveSession:
                 "turn_end_wait.ended",
                 logger,
                 item_id=self._open_item_id(),
-                ended_by=_TurnEndedBy.SILENCE.value,
+                ended_by=TurnEndedBy.SILENCE.value,
             )
 
     async def _on_commit(self, event: AudioCommit) -> None:
@@ -384,7 +367,7 @@ class LiveSession:
         self._previous_words = []
         self._sent_words = 0
         with unit_trace(None):
-            self._end_the_wait(item_id, _turn_ended_by(turn))
+            self._end_the_wait(item_id, turn.ended_by)
             traceparent = current_traceparent()
         backlog = len(self._finals) == _MAX_ENDED_TURNS
         if not backlog:
@@ -407,7 +390,7 @@ class LiveSession:
             )
         previous, self._last_item = self._last_item, item_id
         outgoing: list[BaseModel] = []
-        if not turn.by_client:
+        if turn.ended_by is not TurnEndedBy.CLIENT:
             outgoing.append(SpeechStopped(item_id=item_id, audio_end_ms=turn.end_ms))
         outgoing.append(AudioCommitted(item_id=item_id, previous_item_id=previous))
         outgoing.append(
@@ -415,10 +398,10 @@ class LiveSession:
         )
         return outgoing, backlog
 
-    def _end_the_wait(self, item_id: str, ended_by: _TurnEndedBy) -> None:
+    def _end_the_wait(self, item_id: str, ended_by: TurnEndedBy) -> None:
         """Write the line of the wait that ended the turn, in the turn's trace."""
         waiting, self._silence_wait = self._silence_wait, None
-        if waiting is None or ended_by is not _TurnEndedBy.SILENCE:
+        if waiting is None or ended_by is not TurnEndedBy.SILENCE:
             waiting = StepTimer(
                 "turn_end_wait.ended", logger, item_id=item_id, ended_by=ended_by.value
             )
