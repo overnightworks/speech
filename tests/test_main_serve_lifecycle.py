@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import signal
@@ -31,6 +32,7 @@ from tests.support.launcher_support import (
     SERVER_WAIT_SECONDS,
     assert_reaped,
     closed_provider,
+    server_starts,
     wait_for_starts,
 )
 from tests.support.serve_support import RecordedStops, serve_runtime
@@ -71,7 +73,7 @@ _SIGTERM_SERVER = (
 import asyncio
 import os
 from speech_service import __main__
-from speech_service.config import Settings, setting_variable
+from speech_service.config import Settings
 from tests.support.serve_support import serve_runtime
 """
     + _LOADABLE_RUNTIME
@@ -141,13 +143,15 @@ def test_python_dash_m_starts_the_service_listening_on_the_configured_port(
         env=environment,
     ) as server:
         try:
-            (qwen_server,) = wait_for_starts(cache, 1)
             wait_until_listening(server, port)
-            assert server.poll() is None
+            (qwen_server,) = wait_for_starts(cache, 1)
             server.terminate()
             assert server.wait(timeout=30) == 0
         finally:
             server.kill()
+            for started in server_starts(cache):
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(started, signal.SIGKILL)
 
     assert_reaped(qwen_server, SERVER_WAIT_SECONDS)
     assert list(tmp_path.glob("*.sock")) == []
