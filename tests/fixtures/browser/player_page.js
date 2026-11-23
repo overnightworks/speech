@@ -14,6 +14,7 @@ const Page = {
   connect: AudioNode.prototype.connect,
   clock: Object.getOwnPropertyDescriptor(BaseAudioContext.prototype, "currentTime"),
   createAnalyser: BaseAudioContext.prototype.createAnalyser,
+  rampTo: AudioParam.prototype.linearRampToValueAtTime,
   createBufferSource: BaseAudioContext.prototype.createBufferSource,
   decodeAudioData: BaseAudioContext.prototype.decodeAudioData,
   resume: AudioContext.prototype.resume,
@@ -58,6 +59,7 @@ const seen = {
   heardPeaks: [],
   contextAtAction: null,
   actions: [],
+  ramps: [],
 };
 const contexts = [];
 const clockReads = new Map();
@@ -177,6 +179,11 @@ BaseAudioContext.prototype.createBufferSource = function () {
 BaseAudioContext.prototype.createAnalyser = function () {
   seen.analysersCreated += 1;
   return Page.createAnalyser.call(this);
+};
+// The volume's ramps as the player sets them: where each ends up and when, on the context's clock.
+AudioParam.prototype.linearRampToValueAtTime = function (target, endsAt) {
+  if (this === outputGain?.gain) seen.ramps.push({ target, endsAt });
+  return Page.rampTo.call(this, target, endsAt);
 };
 Page.AudioBufferSourceNode.prototype.start = function (...parameters) {
   seen.sourcesStarted += 1;

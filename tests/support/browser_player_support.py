@@ -269,6 +269,11 @@ def action_gains(seen: dict[str, object], name: str) -> list[float]:
     return [action["gain"] for action in seen["actions"] if action["name"] == name]
 
 
+def ramp_end(seen: dict[str, object], target: float) -> float:
+    """The context time the player's first ramp of the volume to `target` ends."""
+    return next(ramp["endsAt"] for ramp in seen["ramps"] if ramp["target"] == target)
+
+
 def edge_peaks(
     seen: dict[str, object], name: str, until: float | None = None
 ) -> list[float]:
