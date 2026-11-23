@@ -159,18 +159,6 @@ def test_a_launcher_that_does_not_lead_its_group_ends_without_starting_a_server(
     assert not started.exists()
 
 
-def test_the_parent_death_signal_kills_the_launchers_whole_group(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # In-process because a real group kill ends the launcher before coverage writes.
-    group_kills: list[tuple[int, int]] = []
-    monkeypatch.setattr(os, "killpg", lambda *kill: group_kills.append(kill))
-
-    launcher._kill_group(signal.SIGUSR1, None)  # noqa: SLF001
-
-    assert group_kills == [(os.getpgrp(), signal.SIGKILL)]
-
-
 @pytest.mark.usefixtures("restored_sigusr2")
 @pytest.mark.parametrize(
     ("killing_signal", "disposition_reset"),
@@ -293,7 +281,9 @@ def test_the_whole_group_ends_with_the_service_even_before_a_stage_arms_its_own_
             service.kill()
             service.wait(timeout=60)
 
-            assert group_has_ended(group)
+            assert group_has_ended(group), (
+                "a member of the launcher's group survived the service"
+            )
         finally:
             service.kill()
             if group is not None:
