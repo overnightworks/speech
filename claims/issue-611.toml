@@ -1,8 +1,0 @@
-claim_id = "40b8204b981d44a28efaadf23522694d"
-agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
-role = "builder"
-base = "9d23933ec93f8714b19cbc087fe6bda0249f1080"
-branch = "claude/issue-611-three-service-decisions-get-one-owner-ea"
-scope = ["src/speech_service/config.py", "src/speech_service/hearing_session.py", "src/speech_service/live_session.py", "src/speech_service/wire_route.py", "tests/test_hearing_session.py"]
-opened_commit = "d5af05ee3b2096eade37984e59ac917234d8858b"
-whole_reason = "Three small one-owner refactors from one audit's ownership lens, each in its own module and proven by the same existing tests; splitting gives three lanes of a few lines each."
