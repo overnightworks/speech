@@ -1,5 +1,5 @@
 claim_id = "ef94131499204a3786796df0f6bc9745"
-agent = "Claude 3b76e1eb-fd84-4487-96b9-4ea20864a4cf"
+agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
 role = "builder"
 base = "3553bfe9ba0e1a640d139253d62cf5a14063a7e8"
 branch = "claude/issue-595-gpu-voice-warms-before-ready"
