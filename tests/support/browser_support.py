@@ -10,6 +10,8 @@ holds until released.
 from __future__ import annotations
 
 import asyncio
+import math
+import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from http import HTTPStatus
@@ -59,6 +61,9 @@ SOUNDS_PATH = "/sounds"
 HELD_PATH = "/held"
 STREAMED_PATH = "/streamed"
 STREAMED_LEAD_BYTES = 16 * 1024
+MARKER_NAME = "marker.wav"
+# The marker sound's tone, gap and short tone: the gap places its position.
+MARKER_SECONDS = (2.0, 1.0, 0.5)
 HEADED_PATH = "/headed"
 # What the headed route sends before it holds the samples back: the whole WAV header.
 HEADED_LEAD_BYTES = len(wav_header(SPEAK_SAMPLE_RATE))
@@ -69,6 +74,8 @@ CHROMIUM_FLAGS = (
     "--use-fake-ui-for-media-stream",
     "--autoplay-policy=document-user-activation-required",
 )
+# The factor by which the page's CPU is slowed, if the environment names one.
+CPU_THROTTLE_VARIABLE = "SPEECH_BROWSER_CPU_THROTTLE"
 RECORDING = "fixture.wav"
 # An app that records turns the microphone on for its own origin;
 # webauth's default turns it off.
@@ -247,9 +254,7 @@ def _install_sounds(
     @app.get(f"{STREAMED_PATH}/{{name}}")
     async def streamed(name: str, request: Request) -> Response:
         side.record_request(request.url.path)
-        return HeldResponse(
-            (recordings / name).read_bytes(), side, lead=STREAMED_LEAD_BYTES
-        )
+        return HeldResponse((recordings / name).read_bytes(), side, lead=_lead_of(name))
 
     @app.get(f"{HEADED_PATH}/{{name}}")
     async def headed(name: str, request: Request) -> Response:
@@ -259,6 +264,18 @@ def _install_sounds(
         )
 
     _install_cut_sounds(app, side, recordings)
+
+
+def _lead_of(name: str) -> int:
+    """The bytes a streamed sound sends before its body is held back.
+
+    The marker sound's lead is its whole first tone: a flow that holds it while the
+    tone plays is then not at the mercy of how late the page comes.
+    """
+    if name != MARKER_NAME:
+        return STREAMED_LEAD_BYTES
+    tone_samples = int(MARKER_SECONDS[0] * SPEAK_SAMPLE_RATE)
+    return HEADED_LEAD_BYTES + tone_samples * BYTES_PER_SAMPLE
 
 
 def _install_cut_sounds(app: FastAPI, side: AppSide, recordings: Path) -> None:
@@ -405,13 +422,29 @@ def write_marker_sound(
     path.write_bytes(wav_header(SPEAK_SAMPLE_RATE, len(pcm)) + pcm)
 
 
+def _cpu_throttle_factor() -> float:
+    """The factor the environment slows the page's CPU by; 1 when it names none."""
+    factor = float(os.environ.get(CPU_THROTTLE_VARIABLE, "1"))
+    if not math.isfinite(factor) or factor < 1:
+        message = f"{CPU_THROTTLE_VARIABLE} must be a finite number of at least 1"
+        raise ValueError(message)
+    return factor
+
+
 @asynccontextmanager
 async def chromium_page() -> AsyncIterator[tuple[Page, PageCoverage]]:
-    """A Chromium page under the autoplay policy, with its coverage if asked for."""
+    """A Chromium page under the autoplay policy, with its coverage if asked for.
+
+    `CPU_THROTTLE_VARIABLE` slows the page's CPU by its factor: the flows then run as
+    on a loaded machine, where the page's tasks come late and the render thread's not.
+    """
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(args=CHROMIUM_FLAGS)
         try:
             page = await browser.new_page()
+            if (rate := _cpu_throttle_factor()) > 1:
+                session = await page.context.new_cdp_session(page)
+                await session.send("Emulation.setCPUThrottlingRate", {"rate": rate})
             coverage = PageCoverage.from_environment()
             await coverage.watch(page)
             yield page, coverage

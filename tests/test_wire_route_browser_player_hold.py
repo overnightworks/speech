@@ -149,6 +149,34 @@ def test_resume_plays_on_from_where_it_paused_though_its_body_arrived_meanwhile(
     )
 
 
+def test_resume_whose_promise_comes_late_plays_the_sound_on_at_full_volume_meanwhile(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with activated(tmp_path) as stage:
+            await audible(stage, MARKER)
+            await paused(stage)
+            await stage.act("hold", "resume")
+            await stage.act("resume")
+            # The context renders again while the page still waits for the promise.
+            await stage.until("s.contextStates[0] === 'running'")
+            await stage.settle()
+            await stage.settle()
+            await stage.act("release")
+            return await stage.finish()
+
+    seen = asyncio.run(scenario())
+
+    tone, _, _ = MARKER_SECONDS
+    start = start_of(seen)
+    assert ends(seen) == ["played"]
+    # The wait for the promise is longer than the edges' slack, so a volume that ramps
+    # up only when the promise comes leaves the tone short by the wait.
+    assert audible_seconds(seen, start, start + tone) == pytest.approx(
+        tone, abs=LOST_AT_EDGES_SECONDS
+    )
+
+
 def test_a_sound_handed_over_while_paused_waits_and_plays_after_resume(
     tmp_path: Path,
 ) -> None:
