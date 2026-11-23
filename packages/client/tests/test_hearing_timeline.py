@@ -17,6 +17,7 @@ from packages.client.tests.support.hearing_support import (
     session_to,
 )
 from packages.client.tests.support.reconnect_support import (
+    BOUND,
     CHUNK,
     CHUNK_MS,
     UNAVAILABLE,
@@ -74,7 +75,9 @@ def test_one_byte_over_the_held_limit_ends_the_hearing_while_the_source_runs() -
     async def scenario() -> tuple[HearingOutcome | None, float]:
         tokens = Tokens(2)
         async with scripted(drains, ends_in_order) as (port, _):
-            session = session_to(port, SESSION_DEADLINE_SECONDS, 3, 5, tokens)
+            session = session_to(
+                port, SESSION_DEADLINE_SECONDS, 3, SESSION_DEADLINE_SECONDS, tokens
+            )
             async with session:
                 await tokens.reached(2)
                 started = time.monotonic()
@@ -88,7 +91,7 @@ def test_one_byte_over_the_held_limit_ends_the_hearing_while_the_source_runs() -
     outcome, elapsed = asyncio.run(scenario())
 
     assert outcome == OverCap()
-    assert elapsed < well_before(SESSION_DEADLINE_SECONDS)
+    assert elapsed < well_before(BOUND.within_seconds)
 
 
 def test_one_byte_over_the_held_limit_ends_the_hearing_during_a_pause() -> None:
