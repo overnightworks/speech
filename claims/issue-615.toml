@@ -1,8 +1,0 @@
-claim_id = "af8f5a0772134a54a85d76d35f0553e0"
-agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
-role = "builder"
-base = "fd0803f8894ea8b792a15f56eedfb9e679ff9237"
-branch = "claude/issue-615-the-player-s-remaining-cells-hold-under"
-scope = ["AGENTS.md", "packages/browser/src/player.ts", "tests/fixtures/browser/player_page.js", "tests/support/browser_player_support.py", "tests/support/browser_support.py", "tests/test_config_setting_names.py", "tests/test_wire_route_browser_player.py", "tests/test_wire_route_browser_player_hold.py", "tests/test_wire_route_browser_player_played_seconds.py"]
-opened_commit = "22accf77d65928c5a7b26bf21d41de80229717b0"
-whole_reason = "The player's remaining timing flakes share one page fixture, one support module and possibly one player cause (a start in the render thread's past); the capture decides which files the fixes touch."
