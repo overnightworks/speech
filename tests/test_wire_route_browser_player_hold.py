@@ -74,7 +74,8 @@ OUTPUT_SILENT = (
 )
 HEARD_AGAIN = "s.heardOnsets.length > 1"
 # A stop ends a sound at once, with no ramp to prove, when none of its chunks is
-# scheduled any more: a first chunk this long outlasts any stall of the page.
+# scheduled any more: a first chunk this long outlasts the stalls of the page
+# that loaded runs (load 40 to 59) showed, the longest above 0.37 s.
 LEAD_SECONDS = 3.0
 
 
@@ -318,7 +319,8 @@ def test_stop_ramps_down_without_a_click_then_ends_and_the_next_sound_is_at_full
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
         async with activated(tmp_path) as stage:
-            await stage.prepare_bytes("long", LONG)
+            if "fed" in sound:
+                await stage.prepare_bytes("long", LONG)
             await audible_handed(stage, sound)
             if starved:
                 await stage.until(OUTPUT_SILENT)
