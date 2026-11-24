@@ -105,6 +105,14 @@ function meterOf(context) {
 }
 
 const earsReady = [];
+// The first frame of the latest render quantum the ear has reported, and who waits for a later one.
+let heardFrame = -1;
+const earWaiters = [];
+
+function heardThrough(frame) {
+  if (heardFrame >= frame) return Promise.resolve();
+  return new Promise((resolve) => earWaiters.push({ frame, resolve }));
+}
 
 // The page's own ear: a worklet in the graph (`ear_processor.js`) that notes the context time of the first sample
 // of each stretch of sound that reaches the output and the peak of each render quantum.
@@ -115,7 +123,11 @@ function listenTo(output) {
       const ear = new AudioWorkletNode(context, "ear");
       ear.port.onmessage = ({ data }) => {
         if (data.onset !== undefined) seen.heardOnsets.push(data.onset);
-        else seen.heardPeaks.push([data.quantum, data.peak]);
+        else {
+          seen.heardPeaks.push([data.quantum, data.peak]);
+          heardFrame = Math.round(data.quantum * context.sampleRate);
+          earWaiters.splice(0).forEach((waiter) => (waiter.frame <= heardFrame ? waiter.resolve() : earWaiters.push(waiter)));
+        }
       };
       Page.connect.call(output, ear);
       Page.connect.call(ear, context.destination);
@@ -426,6 +438,12 @@ window.playerPage = {
       }
     }),
   listening: () => Promise.all(earsReady),
+  // Renders `quanta` render quanta of a stepped context, once the ear has reported them; the frames rendered so far.
+  step: async (quanta) => {
+    const frames = await contexts[0].step(quanta);
+    await heardThrough(frames - RENDER_QUANTUM_FRAMES);
+    return { frames, sampleRate: contexts[0].sampleRate };
+  },
   // The app's reader: one analyser of the player's context, connected to `player.tap` from the outside.
   readTap: () => {
     tapMeter = new Page.AnalyserNode(player.tap.context);

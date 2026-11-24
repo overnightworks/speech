@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tests.support.browser_player_support import (
+    ALL_ENDED,
     AUDIBLE_RMS,
     CLICK_STEP,
     CLOSED,
@@ -26,7 +27,6 @@ from tests.support.browser_player_support import (
     MARKER_SECONDS,
     MARKER_STREAMED,
     MIN_QUANTA_CHECKED,
-    ONSET_BOUND_FRAMES,
     OTHER,
     RESUMES_FOR_START_AND_RESUME,
     SHORT,
@@ -38,10 +38,10 @@ from tests.support.browser_player_support import (
     action_times,
     activated,
     audible_seconds,
-    dropped_seconds,
     edge_peaks,
     ends,
     fed,
+    frames_of,
     heard_start_of,
     largest_step,
     peaks_between,
@@ -52,10 +52,12 @@ from tests.support.browser_player_support import (
     reversal_peaks,
     start_of,
     starts,
+    stepped,
     tone_quanta,
     unactivated,
     url,
 )
+from tests.support.fakes_support import SPEAK_SAMPLE_RATE
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -68,6 +70,17 @@ pytestmark = pytest.mark.browser
 
 AUDIBLE_CONDITION = f"s.sounds[0].peakRms > {AUDIBLE_RMS}"
 SUSPENDED = "s.contextStates[0] === 'suspended'"
+STARTED = "s.sounds[0].startedValue === 'playing'"
+HEARD = "s.heardOnsets.length > 0"
+# The marker sound's whole body is with the output, to within one sample of its own.
+BODY_ARRIVED = (
+    "s.scheduledChunks.reduce((total, chunk) => total + chunk.seconds, 0)"
+    f" > {sum(MARKER_SECONDS) - 1 / SPEAK_SAMPLE_RATE}"
+)
+# What of the tone the output plays before the pause, which lies well inside it.
+PLAYED_BEFORE_PAUSE_SECONDS = 0.5
+# The longest the marker sound plays on after its resume, with a margin.
+PLAYS_ON_SECONDS = 4.0
 # The streamed sound's first bytes have played out and its body has not come.
 OUTPUT_SILENT = (
     f"s.heardPeaks.some(([, peak]) => peak > {SILENT_PEAK})"
@@ -180,20 +193,26 @@ def test_resume_plays_on_from_where_it_paused_though_its_body_arrived_meanwhile(
     tmp_path: Path, sound: str
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
-        async with activated(tmp_path) as stage:
-            await audible(stage, sound)
-            await paused(stage)
+        async with stepped(tmp_path) as stage:
+            await stage.hand_over(url(sound))
+            await stage.until(STARTED)
+            await stage.step_until(HEARD, within_seconds=EDGE_SECONDS)
+            await stage.step(stage.quanta_for(PLAYED_BEFORE_PAUSE_SECONDS))
+            await stage.act("pause")
+            await stage.step_until(SUSPENDED, within_seconds=EDGE_SECONDS)
             stage.side.held_release.set()
-            await stage.settle()
+            await stage.until(BODY_ARRIVED)
             while_paused = await stage.snapshot()
             await stage.act("resume")
-            return while_paused, await stage.finish()
+            await stage.step_until(ALL_ENDED, within_seconds=PLAYS_ON_SECONDS, quanta=8)
+            return while_paused, await stage.snapshot()
 
     while_paused, seen = asyncio.run(scenario())
 
     tone, gap, tail = MARKER_SECONDS
     start = heard_start_of(seen)
     [paused_at] = action_times(seen, "pause")
+    assert start < paused_at < start + tone
     assert audible_seconds(while_paused, paused_at + EDGE_SECONDS, math.inf) == 0
     assert ends(while_paused) == [None]
     assert ends(seen) == ["played"]
@@ -204,16 +223,36 @@ def test_resume_plays_on_from_where_it_paused_though_its_body_arrived_meanwhile(
     assert audible_seconds(seen, start + tone + gap, math.inf) == pytest.approx(
         tail, abs=quantum_seconds(seen)
     )
-    tail_onset = seen["heardOnsets"][-1]
-    # The output's render thread may skip quanta of the context's clock; the sound
-    # waits for them, so the tail starts later by what the ear never rendered.
-    assert tail_onset == pytest.approx(
-        start + tone + gap + dropped_seconds(seen, start, tail_onset),
-        abs=ONSET_BOUND_FRAMES / seen["sampleRate"],
-    )
+    # The context's clock stood still while paused, so the sound plays on from
+    # the content it had played: the tail begins where the content puts it.
+    assert frames_of(seen, seen["heardOnsets"][-1]) == frames_of(
+        seen, start
+    ) + frames_of(seen, tone + gap)
     assert seen["sounds"][0]["playedSeconds"] == pytest.approx(
         tone + gap + tail, abs=seen["clockStep"]
     )
+
+
+@pytest.mark.parametrize(
+    ("ending", "state"), [("suspend", "suspended"), ("close", "closed")]
+)
+def test_a_stepped_context_stays_as_the_call_after_its_pending_resume_left_it(
+    tmp_path: Path, ending: str, state: str
+) -> None:
+    async def scenario() -> str:
+        async with stepped(tmp_path) as stage:
+            return await stage.page.evaluate(
+                """async ending => {
+                    const context = new AudioContext();
+                    const resumed = context.resume();
+                    const ended = context[ending]();
+                    await Promise.all([resumed, ended]);
+                    return context.state;
+                }""",
+                ending,
+            )
+
+    assert asyncio.run(scenario()) == state
 
 
 def test_resume_whose_promise_comes_late_plays_the_sound_on_at_full_volume_meanwhile(
