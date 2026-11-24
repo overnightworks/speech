@@ -34,7 +34,6 @@ from tests.support.browser_player_support import (
     STOP_BOUND_MS,
     STREAMED,
     TONE_PEAK,
-    action_gains,
     action_times,
     activated,
     audible_seconds,
@@ -49,6 +48,7 @@ from tests.support.browser_player_support import (
     peaks_outside_edges,
     quantum_seconds,
     ramp_end,
+    reversal_peaks,
     start_of,
     starts,
     tone_quanta,
@@ -57,6 +57,7 @@ from tests.support.browser_player_support import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     from tests.support.browser_player_support import Stage
@@ -72,11 +73,19 @@ OUTPUT_SILENT = (
     " && s.heardPeaks.at(-1)[1] === 0"
 )
 HEARD_AGAIN = "s.heardOnsets.length > 1"
+# A stop ends a sound at once, with no ramp to prove, when none of its chunks is
+# scheduled any more: a first chunk this long outlasts the stalls of the page
+# that loaded runs (load 40 to 59) showed, the longest above 0.37 s.
+LEAD_SECONDS = 3.0
+
+
+async def audible_handed(stage: Stage, sound: Mapping[str, str | int]) -> None:
+    await stage.hand_over(sound)
+    await stage.until(AUDIBLE_CONDITION)
 
 
 async def audible(stage: Stage, sound: str) -> None:
-    await stage.hand_over(url(sound))
-    await stage.until(AUDIBLE_CONDITION)
+    await audible_handed(stage, url(sound))
 
 
 async def short_sound_played(stage: Stage) -> dict[str, object]:
@@ -130,7 +139,7 @@ def test_resume_plays_on_from_where_it_paused_though_its_body_arrived_meanwhile(
     while_paused, seen = asyncio.run(scenario())
 
     tone, gap, tail = MARKER_SECONDS
-    start = start_of(seen)
+    start = heard_start_of(seen)
     [paused_at] = action_times(seen, "pause")
     assert audible_seconds(while_paused, paused_at + EDGE_SECONDS, math.inf) == 0
     assert ends(while_paused) == [None]
@@ -288,10 +297,10 @@ def test_pause_and_resume_on_an_idle_player_report_and_start_nothing(
 @pytest.mark.parametrize(
     ("sound", "body_released", "starved"),
     [
-        (LONG, False, False),
-        (STREAMED, False, False),
-        (STREAMED, True, False),
-        (STREAMED, True, True),
+        (url(LONG), False, False),
+        (fed("long", lead_seconds=LEAD_SECONDS), False, False),
+        (url(STREAMED), True, False),
+        (url(STREAMED), True, True),
     ],
     ids=[
         "whole",
@@ -301,11 +310,17 @@ def test_pause_and_resume_on_an_idle_player_report_and_start_nothing(
     ],
 )
 def test_stop_ramps_down_without_a_click_then_ends_and_the_next_sound_is_at_full_volume(
-    tmp_path: Path, sound: str, *, body_released: bool, starved: bool
+    tmp_path: Path,
+    sound: Mapping[str, str | int],
+    *,
+    body_released: bool,
+    starved: bool,
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
         async with activated(tmp_path) as stage:
-            await audible(stage, sound)
+            if "fed" in sound:
+                await stage.prepare_bytes("long", LONG)
+            await audible_handed(stage, sound)
             if starved:
                 await stage.until(OUTPUT_SILENT)
             if body_released:
@@ -412,8 +427,11 @@ def test_resume_while_the_pause_is_still_ramping_plays_on_without_a_click(
     seen = asyncio.run(scenario())
 
     start = heard_start_of(seen)
-    [gain_at_resume] = action_gains(seen, "resume")
-    assert 0 < gain_at_resume < 1
+    # The pause set a ramp to silence and the resume came before that ramp's end, on the
+    # context's clock; the ear heard no silence between them.
+    [turned] = action_times(seen, "resume")
+    assert turned < ramp_end(seen, 0)
+    assert min(reversal_peaks(seen, "pause", "resume")) > SILENT_PEAK
     assert seen["contextStates"] == ["running"]
     assert ends(seen) == ["played"]
     assert largest_step([peak for _, peak in tone_quanta(seen, start)]) < CLICK_STEP
@@ -438,8 +456,7 @@ def test_pause_while_the_resume_is_still_ramping_up_holds_the_sound_without_a_cl
 
     start = heard_start_of(seen)
     [*_, last_pause] = action_times(held, "pause")
-    [*_, gain_at_pause] = action_gains(held, "pause")
-    assert 0 < gain_at_pause < 1
+    assert SILENT_PEAK < max(reversal_peaks(held, "resume", "pause")) < FULL_PEAK
     assert ends(held) == [None]
     assert audible_seconds(held, last_pause + EDGE_SECONDS, math.inf) == 0
     assert ends(seen) == ["played"]
