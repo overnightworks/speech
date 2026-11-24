@@ -6,7 +6,8 @@ over TCP with a fake voice; the sounds that need a chosen length, a hold, a fail
 or a cut-off are test-written and served by the stand-in app. The page's measuring
 instrument records the graph, the decodes and the resumes, and reads the output's
 energy. A cell that fails leaves what the instrument saw, with markers computed from
-it, in one JSON file named by the cell, in the directory the run names.
+it, in one JSON file named by the cell, in the directory the run names. The stepped
+stage runs the same page on a context the test renders quantum by quantum.
 """
 
 from __future__ import annotations
