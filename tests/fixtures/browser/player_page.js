@@ -63,6 +63,7 @@ const seen = {
   contextAtAction: null,
   actions: [],
   ramps: [],
+  stateChanges: [],
 };
 const contexts = [];
 const clockReads = new Map();
@@ -177,6 +178,9 @@ window.AudioContext = class AudioContext extends Page.AudioContext {
   constructor(...parameters) {
     super(...parameters);
     contexts.push(this);
+    this.addEventListener("statechange", () =>
+      seen.stateChanges.push({ state: this.state, at: Page.clock.get.call(this) }),
+    );
   }
 };
 window.AudioBufferSourceNode = class AudioBufferSourceNode extends Page.AudioBufferSourceNode {

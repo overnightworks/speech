@@ -5,17 +5,24 @@ headers and the autoplay policy. The app's server speaks through the real servic
 over TCP with a fake voice; the sounds that need a chosen length, a hold, a failure
 or a cut-off are test-written and served by the stand-in app. The page's measuring
 instrument records the graph, the decodes and the resumes, and reads the output's
-energy.
+energy. A cell that fails leaves what the instrument saw, with markers computed from
+it, in one JSON file named by the cell, in the directory the run names.
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
+import os
 import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from itertools import pairwise
+from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
+
+from playwright.async_api import Error as PlaywrightError
 
 from shipped_catalogue import CATALOGUE
 from speech_client.wire import VoiceId
@@ -48,10 +55,10 @@ from tests.support.tcp_server_support import serving_asgi, serving_over_tcp
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Mapping
-    from pathlib import Path
 
     from playwright.async_api import Page
 
+FAILURE_DIRECTORY_VARIABLE = "SPEECH_BROWSER_FAILURE_DIR"
 WAIT_MS = 20_000
 WAIT_SECONDS = 20
 STOP_BOUND_MS = 1000
@@ -126,6 +133,53 @@ def fed(key: str, *, lead_seconds: float = 0) -> dict[str, str | int]:
 JUNK = {"junk": "bytes no decoder reads"}
 
 
+@dataclass
+class Recording:
+    """What the page last showed one cell, kept to be written if the cell fails."""
+
+    directory: Path
+    seen: dict[str, object] | None = None
+    note: str | None = None
+
+    async def take_if_none(self, page: Page) -> None:
+        """Take the page's snapshot now when none was taken, and say if it cannot.
+
+        The page has `WAIT_SECONDS` to answer, so a stalled page cannot hold on.
+        """
+        if self.seen is not None:
+            return
+        try:
+            self.seen = await asyncio.wait_for(
+                page.evaluate("window.playerPage.snapshot()"), WAIT_SECONDS
+            )
+        except (PlaywrightError, TimeoutError) as error:
+            self.note = f"no snapshot: the page did not answer ({error!r})"
+
+    def write(self, cell: str) -> Path:
+        """Write the failed `cell`'s record into the directory, one file per cell."""
+        record = {
+            "cell": cell,
+            "note": self.note,
+            "markers": None if self.seen is None else markers(self.seen),
+            "snapshot": self.seen,
+        }
+        self.directory.mkdir(parents=True, exist_ok=True)
+        path = self.directory / f"{re.sub(r'[^\w.-]+', '_', cell)}.json"
+        path.write_text(json.dumps(record, indent=1))
+        return path
+
+
+# The recording of the cell running now; the suite's failure hook takes it.
+_running: list[Recording] = []
+
+
+def take_recording() -> Recording | None:
+    """The recording of the cell that ran, which no later cell then finds."""
+    taken = _running[:]
+    _running.clear()
+    return taken[0] if taken else None
+
+
 @dataclass(frozen=True)
 class Stage:
     """One test's app side and page."""
@@ -133,6 +187,7 @@ class Stage:
     side: AppSide
     page: Page
     base_url: str
+    recording: Recording
 
     async def open(self, **query: str) -> None:
         """Load the app's page, its player there from the start.
@@ -187,6 +242,7 @@ class Stage:
         Each sound is reported at most once each way, its start before its end.
         """
         seen = await self.page.evaluate("window.playerPage.snapshot()")
+        self.recording.seen = seen
         assert seen["errors"] == []
         for sound in seen["sounds"]:
             assert sound["startedCount"] <= 1
@@ -358,6 +414,76 @@ def peaks_outside_edges(seen: dict[str, object], start: float) -> list[float]:
     ]
 
 
+def markers(seen: dict[str, object]) -> dict[str, list[dict[str, object]]]:
+    """What the recording shows of the four ways a cell's timing goes wrong.
+
+    The ear's quantum reports with a gap or a repeat, each sound's heard start
+    against its announced one, and each pause's time to the `suspended` state.
+    They describe the recording and decide nothing.
+    """
+    return {
+        "quantumReports": quantum_report_faults(seen),
+        "heardStarts": heard_starts(seen),
+        "pauses": pause_suspends(seen),
+    }
+
+
+def quantum_report_faults(seen: dict[str, object]) -> list[dict[str, object]]:
+    """Where the ear's reports skip quanta or repeat one, with the clock times."""
+    quantum = quantum_seconds(seen)
+    faults: list[dict[str, object]] = []
+    for (before, _), (after, _) in pairwise(seen["heardPeaks"]):
+        steps = round((after - before) / quantum)
+        if steps == 0:
+            faults.append({"kind": "duplicate", "at": after})
+        elif steps > 1:
+            faults.append(
+                {"kind": "gap", "after": before, "before": after, "missing": steps - 1}
+            )
+    return faults
+
+
+def heard_starts(seen: dict[str, object]) -> list[dict[str, object]]:
+    """Each started sound's announced start and the first onset heard from it on."""
+    quantum = quantum_seconds(seen)
+    starts = []
+    for sound in seen["sounds"]:
+        if sound["start"] is None:
+            continue
+        announced = sound["start"]["contextTime"]
+        heard = next(
+            (onset for onset in seen["heardOnsets"] if onset >= announced - quantum),
+            None,
+        )
+        late = None if heard is None else heard - announced
+        starts.append(
+            {
+                "sound": sound["id"],
+                "announced": announced,
+                "heard": heard,
+                "lateSeconds": late,
+            }
+        )
+    return starts
+
+
+def pause_suspends(seen: dict[str, object]) -> list[dict[str, object]]:
+    """For each pause, its context time and the first `suspended` state after it."""
+    suspended = [
+        change["at"]
+        for change in seen["stateChanges"]
+        if change["state"] == "suspended"
+    ]
+    pauses = []
+    for paused_at in action_times(seen, "pause"):
+        at = next((when for when in suspended if when >= paused_at), None)
+        seconds = None if at is None else at - paused_at
+        pauses.append(
+            {"pausedAt": paused_at, "suspendedAt": at, "suspendSeconds": seconds}
+        )
+    return pauses
+
+
 @asynccontextmanager
 async def unactivated(tmp_path: Path) -> AsyncIterator[Stage]:
     for name, seconds in SOUND_SECONDS.items():
@@ -372,7 +498,17 @@ async def unactivated(tmp_path: Path) -> AsyncIterator[Stage]:
         side = AppSide.new()
         app = stand_in_app(service.base_url, side, tmp_path)
         async with serving_asgi(app) as base_url, chromium_page() as (page, _):
-            yield Stage(side, page, base_url)
+            directory = os.environ.get(FAILURE_DIRECTORY_VARIABLE)
+            recording = Recording(
+                Path(directory) if directory else tmp_path.parent / "browser-failures"
+            )
+            _running[:] = [recording]
+            stage = Stage(side, page, base_url, recording)
+            try:
+                yield stage
+            except BaseException:
+                await recording.take_if_none(page)
+                raise
 
 
 @asynccontextmanager

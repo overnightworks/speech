@@ -6,6 +6,7 @@ The flows run in Chromium on the stand-in app's page; see the shared stage.
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 from typing import TYPE_CHECKING
 
@@ -120,6 +121,58 @@ def test_pause_ramps_the_output_down_without_a_click_and_holds_the_sound(
     assert audible_seconds(seen, paused_at + EDGE_SECONDS, math.inf) == 0
     assert seen["contextStates"] == ["suspended"]
     assert ends(seen) == [None]
+
+
+def test_the_record_of_a_failed_cell_marks_gaps_repeats_late_starts_and_suspends(
+    tmp_path: Path,
+) -> None:
+    gap_after, gap_before, last = 9, 14, 29
+
+    async def scenario() -> tuple[dict[str, object], Path]:
+        async with activated(tmp_path) as stage:
+            await audible(stage, MARKER)
+            await paused(stage)
+            seen = await stage.snapshot()
+            step = quantum_seconds(seen)
+            reports = [
+                [index * step, 0.0]
+                for index in range(last + 1)
+                if not gap_after < index < gap_before
+            ]
+            seen["heardPeaks"] = [*reports, reports[-1]]
+            stage.recording.seen = seen
+            stage.recording.directory = tmp_path / "records"
+            return seen, stage.recording.write("tests/test_x.py::test_y[case]")
+
+    seen, path = asyncio.run(scenario())
+    record = json.loads(path.read_text())
+    step = quantum_seconds(seen)
+
+    assert path.name == "tests_test_x.py_test_y_case_.json"
+    assert record["cell"] == "tests/test_x.py::test_y[case]"
+    assert record["snapshot"]["sampleRate"] == seen["sampleRate"]
+    assert record["markers"]["quantumReports"] == [
+        {
+            "kind": "gap",
+            "after": gap_after * step,
+            "before": gap_before * step,
+            "missing": gap_before - gap_after - 1,
+        },
+        {"kind": "duplicate", "at": last * step},
+    ]
+    [started] = record["markers"]["heardStarts"]
+    assert started["announced"] == start_of(seen)
+    assert started["heard"] == heard_start_of(seen)
+    assert started["announced"] + started["lateSeconds"] == pytest.approx(
+        started["heard"]
+    )
+    assert started["lateSeconds"] >= -step
+    [pause] = record["markers"]["pauses"]
+    assert pause["pausedAt"] == action_times(seen, "pause")[0]
+    assert pause["suspendSeconds"] > 0
+    assert pause["pausedAt"] + pause["suspendSeconds"] == pytest.approx(
+        pause["suspendedAt"]
+    )
 
 
 @pytest.mark.parametrize("sound", [MARKER, MARKER_STREAMED], ids=["whole", "streamed"])
