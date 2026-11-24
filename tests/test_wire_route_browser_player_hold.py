@@ -139,7 +139,7 @@ def test_resume_plays_on_from_where_it_paused_though_its_body_arrived_meanwhile(
     while_paused, seen = asyncio.run(scenario())
 
     tone, gap, tail = MARKER_SECONDS
-    start = start_of(seen)
+    start = heard_start_of(seen)
     [paused_at] = action_times(seen, "pause")
     assert audible_seconds(while_paused, paused_at + EDGE_SECONDS, math.inf) == 0
     assert ends(while_paused) == [None]
