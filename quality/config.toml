@@ -23,11 +23,6 @@ path = "tests/test_page_coverage_support.py"
 rule = "test-layout"
 reason = "it tests the browser-flow coverage harness in tests/support, which is no module of src/speech_service"
 
-[[layout.allow]]
-path = "tests/test_browser_player_support.py"
-rule = "test-layout"
-reason = "it tests the browser-player stage in tests/support, which is no module of src/speech_service"
-
 [[python.allow]]
 path = "providers/qwen/pyproject.toml"
 reason = "vllm-omni 0.32.0 declares Requires-Python <3.14,>=3.11, so no locked wheel set reaches 3.14"
