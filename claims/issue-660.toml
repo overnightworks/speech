@@ -1,5 +1,5 @@
 claim_id = "487802d42aa54f9fbcc7493fa8225356"
-agent = "Claude 970b78eb-f730-4f2d-9dcc-05ebed2012b5"
+agent = "Claude 42cd797a-ea91-47fd-8107-9ac08af2b7df"
 role = "builder"
 base = "df3a8af35729ec45ab0125c4c7b143d6a1342fe0"
 branch = "claude/issue-660-resume-tail-onset-counts-dropped-quanta"
