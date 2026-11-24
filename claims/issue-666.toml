@@ -3,6 +3,6 @@ agent = "Claude 42cd797a-ea91-47fd-8107-9ac08af2b7df"
 role = "builder"
 base = "ead689691578bbde4451d731f0cebb6af34db3c2"
 branch = "claude/issue-666-take-webauth-0-46-0"
-scope = ["pyproject.toml", "src/speech_service/callers.py", "tests/support/browser_support.py", "uv.lock"]
+scope = ["pyproject.toml", "src/speech_service/callers.py", "src/speech_service/config.py", "tests/support/browser_support.py", "tests/test_config_callers.py", "uv.lock"]
 opened_commit = "3e4d62d3157b9a0d80e35ff40da08ec75607ba9f"
 whole_reason = "One version step: the pin and the two call sites it breaks land together or CI is red."
