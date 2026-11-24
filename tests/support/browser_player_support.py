@@ -293,7 +293,7 @@ class SteppedStage(Stage):
         """Load the app's page under the stepped context and the paused clock."""
         await self.page.add_init_script(path=STEPPED_CONTEXT)
         await self.page.clock.install(time=0)
-        # Paused from the first millisecond: a timer fires only as the stage runs the clock.
+        # Paused from the start: a timer fires only as the stage runs the clock.
         await self.page.clock.pause_at(1)
         await super().open(**query)
         self.stepping.sample_rate = await self.page.evaluate(
