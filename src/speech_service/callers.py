@@ -25,6 +25,7 @@ from speech_client.wire import (
     WORKLOAD_TOKEN_HEADER,
     RefusalCode,
 )
+from speech_service.config import app_group
 
 if TYPE_CHECKING:
     from starlette.datastructures import Headers
@@ -69,7 +70,7 @@ class SpeechCallers:
                 app=name,
                 admission=AdmissionConfig(
                     bound_issuer=identity.issuer,
-                    login_group=f"/apps/{name}",
+                    login_group=app_group(name),
                     admin_group=NoAdmins.IN_THIS_APP,
                 ),
             )

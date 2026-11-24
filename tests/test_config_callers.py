@@ -59,6 +59,10 @@ def test_the_file_is_read_into_the_identity_and_the_apps(tmp_path: Path) -> None
             "apps",
             caller_configuration_text(apps='[apps."a/b"]\nworkload_client = "other"\n'),
         ),
+        (
+            "apps",
+            caller_configuration_text(apps='[apps." a"]\nworkload_client = "other"\n'),
+        ),
     ],
     ids=[
         "key-set URL is not https",
@@ -69,6 +73,7 @@ def test_the_file_is_read_into_the_identity_and_the_apps(tmp_path: Path) -> None
         "client id not a string",
         "identity names a leeway",
         "app name of two segments",
+        "app name with a space around it",
     ],
 )
 def test_a_bad_file_fails_naming_the_field_and_not_its_value(

@@ -14,6 +14,7 @@ from pydantic import (
     model_validator,
 )
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from webauth.admission import GroupPath
 from webauth.https_client import is_https_url
 
 from speech_client.wire import VoiceId
@@ -28,8 +29,19 @@ _CATALOGUE_FILE_UNSET_ERROR = "SPEECH_CATALOGUE_FILE must name the voice catalog
 _KEY_SET_URL_ERROR = "jwks_url must be an https URL"
 _SERVICE_GROUP_ERROR = "service_group must be a group path such as /services/name"
 _APP_NAME_ERROR = "an app name must be one group path segment"
+_APPS_GROUP_PREFIX = "/apps/"
 _SHARED_CLIENT_ERROR = "workload_client must belong to one app"
 _CONFIG_FILE_UNREADABLE_ERROR = "SPEECH_CONFIG_FILE must name a readable file"
+
+
+def app_group(name: str) -> GroupPath:
+    """The group of the app `name`; a name that is not one group segment raises."""
+    if "/" in name:
+        raise ValueError(_APP_NAME_ERROR)
+    try:
+        return GroupPath(f"{_APPS_GROUP_PREFIX}{name}")
+    except ValueError:
+        raise ValueError(_APP_NAME_ERROR) from None
 
 
 def _absolute(error: str) -> AfterValidator:
@@ -187,8 +199,8 @@ class CallerConfig(_FileModel):
     def _app_names_are_one_segment(
         cls, apps: dict[str, AppConfig]
     ) -> dict[str, AppConfig]:
-        if any(not name or "/" in name for name in apps):
-            raise ValueError(_APP_NAME_ERROR)
+        for name in apps:
+            app_group(name)
         return apps
 
     @model_validator(mode="after")
