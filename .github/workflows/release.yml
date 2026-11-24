@@ -48,8 +48,8 @@ jobs:
       version: ${{ inputs.version }}
       push: true
 
-  # The gpu image is larger than the standard runner's disk holds, so it builds
-  # on the paid larger runner `speech-gpu-build`; only this job uses it.
+  # The release's gpu build and push run on the paid larger runner
+  # `speech-gpu-build`; only this job uses it.
   image-gpu:
     name: Image (gpu)
     needs: gate
