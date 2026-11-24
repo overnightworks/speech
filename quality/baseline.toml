@@ -2,7 +2,6 @@
 
 [clones]
 
-[job_minutes.".github/workflows/gpu-image-build.yml"]
-build = 30
+[job_minutes]
 
 [spec_citations]
