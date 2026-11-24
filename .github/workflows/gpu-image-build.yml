@@ -1,42 +1,31 @@
 name: gpu image build
 
-# The runner arrives as an input because the fleet's workflow lint knows only GitHub's
-# hosted labels; a literal `runs-on` of the larger runner's label is refused.
 on:
   workflow_call:
-    inputs:
-      runner:
-        description: The larger runner the gpu stage is built on; the standard runner's disk cannot hold it
-        type: string
-        required: true
-      build:
-        description: Whether the gpu stage is built; false leaves the job a successful note on the standard runner
-        type: boolean
-        required: true
 
 permissions: {}
 
 jobs:
   build:
     name: Build
-    runs-on: ${{ inputs.runner }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
     steps:
-      - name: Say which case ran
+      # The gpu image is larger than the standard runner's root disk holds: drop
+      # the toolchains the build never reads and keep Docker's data on the
+      # larger temporary disk.
+      - name: Free disk and move Docker's data root to the temporary disk
         run: |
-          if [ "$BUILD" = true ]; then
-            echo "Building the gpu stage on ${RUNNER}."
-          else
-            echo "Nothing the gpu stage is built from changed: no build."
-          fi
-        env:
-          BUILD: ${{ inputs.build }}
-          RUNNER: ${{ inputs.runner }}
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL
+          sudo systemctl stop docker docker.socket
+          sudo mkdir -p /mnt/docker
+          echo '{"data-root": "/mnt/docker"}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl start docker
+          df -h / /mnt
 
       - name: Check out the event commit
-        if: inputs.build
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -44,9 +33,7 @@ jobs:
       # The default docker driver exports every build into the docker store; a
       # container builder can discard the result, which nothing reads.
       - name: Set up the builder
-        if: inputs.build
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build the gpu stage without exporting or pushing it
-        if: inputs.build
         run: docker buildx build --target gpu --output type=cacheonly --provenance=false .
