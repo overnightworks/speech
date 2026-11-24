@@ -25,7 +25,7 @@ from tests.support.browser_player_support import (
     MARKER_SECONDS,
     MARKER_STREAMED,
     MIN_QUANTA_CHECKED,
-    ONSET_BOUND_FRAMES,
+    ONSET_DETECTION_FRAMES,
     OTHER,
     RESUMES_FOR_START_AND_RESUME,
     SHORT,
@@ -144,10 +144,11 @@ def test_resume_plays_on_from_where_it_paused_though_its_body_arrived_meanwhile(
     )
     tail_onset = seen["heardOnsets"][-1]
     # The output's render thread may skip quanta of the context's clock; the sound
-    # waits for them, so the tail starts later by what the ear never rendered.
+    # waits for them, so the tail starts later by what the ear never rendered, and
+    # by no render quantum more: a heard onset is not quantised.
     assert tail_onset == pytest.approx(
         start + tone + gap + dropped_seconds(seen, start, tail_onset),
-        abs=ONSET_BOUND_FRAMES / seen["sampleRate"],
+        abs=ONSET_DETECTION_FRAMES / seen["sampleRate"],
     )
     assert seen["sounds"][0]["playedSeconds"] == pytest.approx(
         tone + gap + tail, abs=seen["clockStep"]

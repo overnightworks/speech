@@ -81,8 +81,10 @@ MIN_QUANTA_CHECKED = 100
 LOST_AT_EDGES_SECONDS = 0.25
 SILENT_RMS = 0.001
 AUDIBLE_RMS = 0.05
-# One render quantum plus the detection sample and the tone's silent first sample.
-ONSET_BOUND_FRAMES = 128 + 2
+# The detection sample and the tone's silent first sample: a heard onset's own error.
+ONSET_DETECTION_FRAMES = 2
+# One render quantum more: a start the output may begin at its next quantum.
+ONSET_BOUND_FRAMES = RENDER_QUANTUM_FRAMES + ONSET_DETECTION_FRAMES
 CLOSED = "closed"
 RESUMES_REJECTED_THEN_PASSED = 2
 # The context resume that starts the first sound, and the one after a pause.
