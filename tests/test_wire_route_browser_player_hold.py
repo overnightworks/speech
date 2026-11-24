@@ -163,9 +163,16 @@ def test_the_record_of_a_failed_cell_marks_gaps_repeats_late_starts_and_suspends
     [started] = record["markers"]["heardStarts"]
     assert started["announced"] == start_of(seen)
     assert started["heard"] == heard_start_of(seen)
+    assert started["announced"] + started["lateSeconds"] == pytest.approx(
+        started["heard"]
+    )
+    assert started["lateSeconds"] >= -step
     [pause] = record["markers"]["pauses"]
     assert pause["pausedAt"] == action_times(seen, "pause")[0]
     assert pause["suspendSeconds"] > 0
+    assert pause["pausedAt"] + pause["suspendSeconds"] == pytest.approx(
+        pause["suspendedAt"]
+    )
 
 
 @pytest.mark.parametrize("sound", [MARKER, MARKER_STREAMED], ids=["whole", "streamed"])
