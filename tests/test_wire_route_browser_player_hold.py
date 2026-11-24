@@ -119,7 +119,7 @@ def test_pause_ramps_the_output_down_without_a_click_and_holds_the_sound(
     assert len(ramping) >= EDGE_QUANTA
     assert edge[-1] < SILENT_PEAK
     assert audible_seconds(seen, paused_at + EDGE_SECONDS, math.inf) == 0
-    assert seen["contextStates"] == ["running"]
+    assert seen["contextStates"] == ["suspended"]
     assert ends(seen) == [None]
 
 
