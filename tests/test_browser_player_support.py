@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from tests.support.browser_player_support import RENDER_QUANTUM_FRAMES, dropped_seconds
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 SAMPLE_RATE = 48_000
 QUANTUM = RENDER_QUANTUM_FRAMES / SAMPLE_RATE
@@ -56,7 +61,7 @@ def recording(*quanta: int) -> dict[str, object]:
     ],
 )
 def test_dropped_seconds_counts_elapsed_quanta_less_reported_ones(
-    quanta: list[int], since: int, until: int, dropped_quanta: int
+    quanta: Iterable[int], since: int, until: int, dropped_quanta: int
 ) -> None:
     seen = recording(*quanta)
 
