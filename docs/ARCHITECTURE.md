@@ -93,7 +93,8 @@ revisions, and the service has no route to a registry or hub.
 - The gpu image offers every catalogue voice, bakes Qwen's weights and
   large-v3, and loads both at start. Qwen's environment is uv-managed CPython
   3.12 (vLLM-Omni caps below the service's 3.14) beside CUDA 12 libraries and a
-  C compiler for Triton. Too large for a standard runner's disk, it is built on
+  C compiler for Triton. CI builds it on the standard runner after freeing
+  its disk; the release builds and pushes it on the larger runner
   `speech-gpu-build`.
 - Both images carry the sound model, `frame_mn10` as ONNX, in `/opt/sound-model`.
   A build-only stage converts it: wheel-only packages from the lock of
