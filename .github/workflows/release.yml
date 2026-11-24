@@ -20,7 +20,7 @@ permissions: {}
 jobs:
   gate:
     name: Gate
-    uses: overnightworks/quality/.github/workflows/release-gate.yml@95ceb40c3c9b547c41ef2080df446bfa61bf42f0 # v0.25.0
+    uses: overnightworks/quality/.github/workflows/release-gate.yml@e05e126f29f36bf68b8bfeffdc12278326160d98 # v0.26.0
     permissions:
       actions: read
       checks: read
@@ -38,7 +38,7 @@ jobs:
     needs:
       - gate
       - image-gpu
-    uses: overnightworks/quality/.github/workflows/image.yml@95ceb40c3c9b547c41ef2080df446bfa61bf42f0 # v0.25.0
+    uses: overnightworks/quality/.github/workflows/image.yml@e05e126f29f36bf68b8bfeffdc12278326160d98 # v0.26.0
     permissions:
       attestations: write
       contents: read
@@ -53,7 +53,7 @@ jobs:
   image-gpu:
     name: Image (gpu)
     needs: gate
-    uses: overnightworks/quality/.github/workflows/image.yml@95ceb40c3c9b547c41ef2080df446bfa61bf42f0 # v0.25.0
+    uses: overnightworks/quality/.github/workflows/image.yml@e05e126f29f36bf68b8bfeffdc12278326160d98 # v0.26.0
     permissions:
       attestations: write
       contents: read
@@ -71,7 +71,7 @@ jobs:
       - gate
       - image
       - image-gpu
-    uses: overnightworks/quality/.github/workflows/release-tag.yml@95ceb40c3c9b547c41ef2080df446bfa61bf42f0 # v0.25.0
+    uses: overnightworks/quality/.github/workflows/release-tag.yml@e05e126f29f36bf68b8bfeffdc12278326160d98 # v0.26.0
     permissions:
       contents: write
     with:
