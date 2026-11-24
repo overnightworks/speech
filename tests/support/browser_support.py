@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from pathlib import Path
@@ -23,11 +23,24 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from playwright.async_api import async_playwright
 from pydantic import SecretStr
-from webauth.config import SessionLifetime, WebAuthConfig, install_web_auth_config
-from webauth.middleware import ClientAddressMiddleware, SecurityHeadersMiddleware
-from webauth.policies import SecurityHeadersPolicy, default_content_security_policy
+from webauth.admission import AdmissionConfig, GroupPath, NoAdmins
+from webauth.config import SessionLifetime, WebAuthConfig
+from webauth.oidc import OidcClientConfig
+from webauth.policies import (
+    CsrfPolicy,
+    SecurityHeadersPolicy,
+    default_content_security_policy,
+)
 from webauth.proxies import TrustedProxies
 from webauth.rate_limit import SingleProcessRateLimitBackend
+from webauth.sign_in_routes import SignInPaths
+from webauth.single_process_stores import SingleProcessStores
+from webauth.web_auth import (
+    SignInPages,
+    WebAuth,
+    WebAuthSettings,
+    WebAuthStores,
+)
 
 from speech_client.hearing import HearingSession, SessionTokens
 from speech_client.realtime_wire import (
@@ -40,7 +53,7 @@ from speech_client.speak import Spoken, speak
 from speech_client.wire import Language, ResponseFormat, VoiceId
 from speech_service.pcm import BYTES_PER_SAMPLE, wav_header
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE, sine_pcm
-from tests.support.identity_support import valid_pair
+from tests.support.identity_support import ISSUER, valid_pair
 from tests.support.page_coverage_support import PageCoverage
 
 if TYPE_CHECKING:
@@ -48,6 +61,7 @@ if TYPE_CHECKING:
 
     from playwright.async_api import Page
     from starlette.types import Receive, Scope, Send
+    from webauth.ports import AccountEvent
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 PACKAGE_BUILD = REPOSITORY / "packages/browser/dist"
@@ -166,6 +180,60 @@ def _web_auth_config() -> WebAuthConfig:
             idle_seconds=SESSION_SECONDS, absolute_max_age_seconds=SESSION_SECONDS
         ),
         cookie_secure=False,
+    )
+
+
+class _NoAudit:
+    """An audit sink that keeps nothing: the stand-in app's sign-in is never driven."""
+
+    def account_event(self, event: AccountEvent) -> None:
+        """Drop `event`."""
+
+
+def _stand_in_auth() -> WebAuth:
+    """The stand-in app's webauth host, over an issuer no test ever calls."""
+    stores = SingleProcessStores(audit=_NoAudit())
+    client = OidcClientConfig(
+        issuer=ISSUER,
+        authorization_endpoint=f"{ISSUER}/auth",
+        token_endpoint=f"{ISSUER}/token",
+        jwks_url=f"{ISSUER}/certs",
+        end_session_endpoint=f"{ISSUER}/logout",
+        client_id="stand-in",
+        client_secret=SecretStr("stand-in app client secret"),
+        redirect_uri=f"http://{LOOPBACK}/auth/callback",
+        post_logout_redirect_uri=f"http://{LOOPBACK}/",
+        leeway_seconds=0,
+    )
+    return WebAuth.build(
+        WebAuthSettings(
+            config=_web_auth_config(),
+            client=client,
+            sign_in_paths=SignInPaths(start="/login/oidc", callback="/auth/callback"),
+            keeps_id_token=False,
+            max_sessions=None,
+            security_headers=SecurityHeadersPolicy(
+                content_security_policy=default_content_security_policy(),
+                permissions_policy=MICROPHONE_ON,
+            ),
+            csrf_origin=CsrfPolicy(),
+        ),
+        stores=WebAuthStores(
+            sign_in=stores.transaction, sessions=lambda: nullcontext(stores.sessions)
+        ),
+        groups=AdmissionConfig(
+            bound_issuer=ISSUER,
+            login_group=GroupPath("/apps/stand-in"),
+            admin_group=NoAdmins.IN_THIS_APP,
+        ),
+        pages=SignInPages(
+            refused=lambda _request, _refusal: Response(
+                status_code=HTTPStatus.FORBIDDEN
+            ),
+            logout_page_text=None,
+            ui_language=lambda _request: None,
+        ),
+        front=TrustedProxies(),
     )
 
 
@@ -354,16 +422,8 @@ def _install_messaging(
 
 def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
     """The app: the page, the package, the recording in `recordings`, and the relay."""
+    auth = _stand_in_auth()
     app = FastAPI()
-    install_web_auth_config(app, _web_auth_config())
-    app.add_middleware(
-        SecurityHeadersMiddleware,
-        policy=SecurityHeadersPolicy(
-            content_security_policy=default_content_security_policy(),
-            permissions_policy=MICROPHONE_ON,
-        ),
-    )
-    app.add_middleware(ClientAddressMiddleware, trusted_proxies=TrustedProxies())
 
     @app.get(f"/{RECORDING}")
     async def recording() -> FileResponse:
@@ -397,6 +457,7 @@ def stand_in_app(service_url: str, side: AppSide, recordings: Path) -> FastAPI:
     _install_sounds(app, service_url, side, recordings)
     app.mount("/dist", StaticFiles(directory=PACKAGE_BUILD), name="package")
     app.mount("/", StaticFiles(directory=PAGE_FILES), name="page")
+    auth.install(app, bearer=None)
     return app
 
 
