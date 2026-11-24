@@ -413,7 +413,9 @@ def test_resume_while_the_pause_is_still_ramping_plays_on_without_a_click(
     seen = asyncio.run(scenario())
 
     start = heard_start_of(seen)
-    assert SILENT_PEAK < min(reversal_peaks(seen, "pause", "resume")) < FULL_PEAK
+    # The turn may come within the first quanta of the ramp, where a quantum of the
+    # tone is no quieter than its steady ones: the resume came before silence.
+    assert min(reversal_peaks(seen, "pause", "resume")) > SILENT_PEAK
     assert seen["contextStates"] == ["running"]
     assert ends(seen) == ["played"]
     assert largest_step([peak for _, peak in tone_quanta(seen, start)]) < CLICK_STEP
