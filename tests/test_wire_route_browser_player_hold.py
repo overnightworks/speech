@@ -34,7 +34,6 @@ from tests.support.browser_player_support import (
     STOP_BOUND_MS,
     STREAMED,
     TONE_PEAK,
-    action_gains,
     action_times,
     activated,
     audible_seconds,
@@ -49,6 +48,7 @@ from tests.support.browser_player_support import (
     peaks_outside_edges,
     quantum_seconds,
     ramp_end,
+    reversal_peaks,
     start_of,
     starts,
     tone_quanta,
@@ -413,8 +413,7 @@ def test_resume_while_the_pause_is_still_ramping_plays_on_without_a_click(
     seen = asyncio.run(scenario())
 
     start = heard_start_of(seen)
-    [gain_at_resume] = action_gains(seen, "resume")
-    assert 0 < gain_at_resume < 1
+    assert SILENT_PEAK < min(reversal_peaks(seen, "pause", "resume")) < FULL_PEAK
     assert seen["contextStates"] == ["running"]
     assert ends(seen) == ["played"]
     assert largest_step([peak for _, peak in tone_quanta(seen, start)]) < CLICK_STEP
@@ -439,8 +438,7 @@ def test_pause_while_the_resume_is_still_ramping_up_holds_the_sound_without_a_cl
 
     start = heard_start_of(seen)
     [*_, last_pause] = action_times(held, "pause")
-    [*_, gain_at_pause] = action_gains(held, "pause")
-    assert 0 < gain_at_pause < 1
+    assert SILENT_PEAK < max(reversal_peaks(held, "resume", "pause")) < FULL_PEAK
     assert ends(held) == [None]
     assert audible_seconds(held, last_pause + EDGE_SECONDS, math.inf) == 0
     assert ends(seen) == ["played"]

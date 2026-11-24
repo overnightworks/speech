@@ -300,9 +300,16 @@ def action_times(seen: dict[str, object], name: str) -> list[float]:
     return [action["at"] for action in seen["actions"] if action["name"] == name]
 
 
-def action_gains(seen: dict[str, object], name: str) -> list[float]:
-    """The volume the output had when the app's switch `name` was thrown, in order."""
-    return [action["gain"] for action in seen["actions"] if action["name"] == name]
+def reversal_peaks(seen: dict[str, object], first: str, second: str) -> list[float]:
+    """The peaks from the last throw of `first` to the end of `second`'s edge.
+
+    A `second` thrown while `first`'s ramp still runs turns the volume at a peak
+    between silent and full. The ear heard that turn on the context's clock, whatever
+    the page's own thread did meanwhile.
+    """
+    [*_, began] = action_times(seen, first)
+    [*_, turned] = action_times(seen, second)
+    return peaks_between(seen, began - quantum_seconds(seen), turned + EDGE_SECONDS)
 
 
 def ramp_end(seen: dict[str, object], target: float) -> float:

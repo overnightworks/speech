@@ -342,13 +342,12 @@ function handOver(spec) {
 // would start the player's volume ramp in the past, and the ear would hear a ramp shorter than the player's edge.
 async function act(name, action) {
   seen.lastActionAt = performance.now();
-  const gain = outputGain?.gain.value ?? null;
   clockReads.clear();
   switchRunning = true;
   try {
     action();
     seen.contextAtAction = contexts[0].currentTime;
-    seen.actions.push({ name, at: seen.contextAtAction, gain });
+    seen.actions.push({ name, at: seen.contextAtAction });
     // The page's handlers of the sounds the switch ended run in this tick and read the clock the player read: a fresh
     // read could lie any number of audio steps past it.
     await Promise.resolve();
@@ -360,7 +359,7 @@ async function act(name, action) {
 }
 
 // The second switch of a reversal, thrown once the volume has left the value `from`, so that it reverses a ramp under
-// way. The throw records the volume it found: a ramp that never began, or is over, shows there. The first switch sets its
+// way. The ear's peaks show whether the ramp was still running at the throw. The first switch sets its
 // ramp in its own call, and the wait spins in the task until the volume moves: a wait that gives up the task queues
 // behind the ear's messages, which a throttled page handles for longer than the ramp lasts. On a running context the first
 // switch's clock is held ahead, so that its ramp starts after the call; a suspended context's clock stands still, so it
