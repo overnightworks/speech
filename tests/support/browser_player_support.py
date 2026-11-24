@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -36,6 +37,7 @@ from tests.support.browser_support import (
     HELD_PATH,
     MARKER_NAME,
     MARKER_SECONDS,
+    PAGE_FILES,
     SOUNDS_PATH,
     STREAMED_PATH,
     VOICE_PATH,
@@ -59,6 +61,7 @@ if TYPE_CHECKING:
     from playwright.async_api import Page
 
 FAILURE_DIRECTORY_VARIABLE = "SPEECH_BROWSER_FAILURE_DIR"
+STEPPED_CONTEXT = PAGE_FILES / "stepped_context.js"
 WAIT_MS = 20_000
 WAIT_SECONDS = 20
 STOP_BOUND_MS = 1000
@@ -265,6 +268,81 @@ class Stage:
         )
 
 
+@dataclass
+class Stepping:
+    """How far the stepped stage has run the page: its context's rate and its clock."""
+
+    sample_rate: int = 0
+    clock_milliseconds: int = 0
+
+
+@dataclass(frozen=True)
+class SteppedStage(Stage):
+    """A stage whose audio clock and page timers move only when the test steps them.
+
+    The page's context is `stepped_context.js`'s, which renders whole render quanta
+    when asked, and the page's timers run on Playwright's clock, which the stage
+    advances by the time the quanta took. Waiting is for what the page does without
+    time (a body that arrives, a promise that settles), never for page time: a wait
+    on a timer, `settle()` included, does not end.
+    """
+
+    stepping: Stepping = field(default_factory=Stepping)
+
+    async def open(self, **query: str) -> None:
+        """Load the app's page under the stepped context and the paused clock."""
+        await self.page.add_init_script(path=STEPPED_CONTEXT)
+        await self.page.clock.install(time=0)
+        # Paused from the first millisecond: a timer fires only as the stage runs the clock.
+        await self.page.clock.pause_at(1)
+        await super().open(**query)
+        self.stepping.sample_rate = await self.page.evaluate(
+            "window.playerPage.snapshot().sampleRate"
+        )
+
+    def quanta_for(self, seconds: float) -> int:
+        """The whole render quanta that cover `seconds` of the context's clock."""
+        return math.ceil(seconds * self.stepping.sample_rate / RENDER_QUANTUM_FRAMES)
+
+    async def step(self, quanta: int) -> int:
+        """Render `quanta` render quanta, then run the page's timers over their time.
+
+        Returns the frames the context has rendered so far. A page that does not
+        report the quanta in `WAIT_SECONDS` fails the step.
+        """
+        reply = await asyncio.wait_for(
+            self.page.evaluate("quanta => window.playerPage.step(quanta)", quanta),
+            WAIT_SECONDS,
+        )
+        frames, rate = reply["frames"], reply["sampleRate"]
+        # The clock takes whole milliseconds, so it lags the audio by less than one.
+        milliseconds = frames * 1000 // rate
+        await self.page.clock.run_for(milliseconds - self.stepping.clock_milliseconds)
+        self.stepping.clock_milliseconds = milliseconds
+        return frames
+
+    async def step_until(
+        self, condition: str, *, within_seconds: float, quanta: int = 1
+    ) -> None:
+        """Step `quanta` render quanta at a time until `condition` holds on `s`.
+
+        Fails when it does not hold after `within_seconds` of the context's clock.
+        """
+        for _ in range(math.ceil(self.quanta_for(within_seconds) / quanta)):
+            if await self.holds(condition):
+                return
+            await self.step(quanta)
+        assert await self.holds(condition), (
+            f"not within {within_seconds} s: {condition}"
+        )
+
+    async def holds(self, condition: str) -> bool:
+        """Whether `condition` holds on `s`, what the page saw, now."""
+        return await self.page.evaluate(
+            f"() => (s => {condition})(window.playerPage.snapshot())"
+        )
+
+
 def ends(seen: dict[str, object]) -> list[str]:
     return [sound["endedValue"] for sound in seen["sounds"]]
 
@@ -279,6 +357,11 @@ def events(seen: dict[str, object]) -> list[tuple[str, int]]:
 
 def quantum_seconds(seen: dict[str, object]) -> float:
     return RENDER_QUANTUM_FRAMES / seen["sampleRate"]
+
+
+def frames_of(seen: dict[str, object], seconds: float) -> int:
+    """The frames of the context's clock that make `seconds`."""
+    return round(seconds * seen["sampleRate"])
 
 
 def peaks_between(seen: dict[str, object], since: float, until: float) -> list[float]:
@@ -485,7 +568,9 @@ def pause_suspends(seen: dict[str, object]) -> list[dict[str, object]]:
 
 
 @asynccontextmanager
-async def unactivated(tmp_path: Path) -> AsyncIterator[Stage]:
+async def _staged[StageT: Stage](
+    tmp_path: Path, stage_type: type[StageT]
+) -> AsyncIterator[StageT]:
     for name, seconds in SOUND_SECONDS.items():
         write_sound(tmp_path / name, seconds)
     write_marker_sound(tmp_path / MARKER_NAME, *MARKER_SECONDS)
@@ -503,7 +588,7 @@ async def unactivated(tmp_path: Path) -> AsyncIterator[Stage]:
                 Path(directory) if directory else tmp_path.parent / "browser-failures"
             )
             _running[:] = [recording]
-            stage = Stage(side, page, base_url, recording)
+            stage = stage_type(side, page, base_url, recording)
             try:
                 yield stage
             except BaseException:
@@ -511,10 +596,29 @@ async def unactivated(tmp_path: Path) -> AsyncIterator[Stage]:
                 raise
 
 
+async def _listening(stage: Stage) -> None:
+    """Load the app's page, click once and wait until the page's ear listens."""
+    await stage.open()
+    await stage.activate()
+    await stage.page.evaluate("window.playerPage.listening()")
+
+
+@asynccontextmanager
+async def unactivated(tmp_path: Path) -> AsyncIterator[Stage]:
+    async with _staged(tmp_path, Stage) as stage:
+        yield stage
+
+
 @asynccontextmanager
 async def activated(tmp_path: Path) -> AsyncIterator[Stage]:
     async with unactivated(tmp_path) as stage:
-        await stage.open()
-        await stage.activate()
-        await stage.page.evaluate("window.playerPage.listening()")
+        await _listening(stage)
+        yield stage
+
+
+@asynccontextmanager
+async def stepped(tmp_path: Path) -> AsyncIterator[SteppedStage]:
+    """An activated stage on the stepped context, its ear listening."""
+    async with _staged(tmp_path, SteppedStage) as stage:
+        await _listening(stage)
         yield stage
