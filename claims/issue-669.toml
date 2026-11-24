@@ -1,0 +1,8 @@
+claim_id = "de6788973019478d8048a93a8f94cfcb"
+agent = "Claude 42cd797a-ea91-47fd-8107-9ac08af2b7df"
+role = "builder"
+base = "6ebd978dcec6dfaf40e47b70e5c01b4a9a0a2225"
+branch = "claude/issue-669-failing-player-cell-leaves-recording"
+scope = [".github/workflows/ci.yml", "tests/conftest.py", "tests/support/browser_player_support.py", "tests/test_wire_route_browser_player.py", "tests/test_wire_route_browser_player_hold.py", "tests/test_wire_route_browser_player_played_seconds.py"]
+opened_commit = "79b0236e670245d3f02eb5ccb4879fa66f546741"
+whole_reason = "The stage that writes the record, the hook that knows a cell failed, the three modules that open the stage and the job that uploads the record make one path from a failure to its evidence."
