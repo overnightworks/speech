@@ -184,6 +184,11 @@ def take_recording() -> Recording | None:
     return taken[0] if taken else None
 
 
+def _on_snapshot(condition: str) -> str:
+    """A page function that evaluates `condition` on `s`, what the page saw."""
+    return f"() => (s => {condition})(window.playerPage.snapshot())"
+
+
 @dataclass(frozen=True)
 class Stage:
     """One test's app side and page."""
@@ -230,9 +235,7 @@ class Stage:
 
     async def until(self, condition: str) -> None:
         """Wait until `condition` holds on `s`, what the page saw."""
-        await self.page.wait_for_function(
-            f"() => (s => {condition})(window.playerPage.snapshot())", timeout=WAIT_MS
-        )
+        await self.page.wait_for_function(_on_snapshot(condition), timeout=WAIT_MS)
 
     async def settle(self) -> None:
         """Let a bounded stretch of page time pass, to show nothing more happens."""
@@ -339,9 +342,7 @@ class SteppedStage(Stage):
 
     async def holds(self, condition: str) -> bool:
         """Whether `condition` holds on `s`, what the page saw, now."""
-        return await self.page.evaluate(
-            f"() => (s => {condition})(window.playerPage.snapshot())"
-        )
+        return await self.page.evaluate(_on_snapshot(condition))
 
 
 def ends(seen: dict[str, object]) -> list[str]:
