@@ -127,6 +127,8 @@ def test_resume_plays_on_from_where_it_paused_though_its_body_arrived_meanwhile(
             return while_paused, await stage.finish()
 
     while_paused, seen = asyncio.run(scenario())
+    import json, os, time
+    json.dump(seen, open(f"/tmp/claude-1000/-home-felix-hummert-git-speech/970b78eb-f730-4f2d-9dcc-05ebed2012b5/scratchpad/660/cap-{os.getpid()}-{time.time()}.json", "w"))
 
     tone, gap, tail = MARKER_SECONDS
     start = start_of(seen)
