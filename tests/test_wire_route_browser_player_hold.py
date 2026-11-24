@@ -233,6 +233,28 @@ def test_resume_plays_on_from_where_it_paused_though_its_body_arrived_meanwhile(
     )
 
 
+@pytest.mark.parametrize(
+    ("ending", "state"), [("suspend", "suspended"), ("close", "closed")]
+)
+def test_a_stepped_context_stays_as_the_call_after_its_pending_resume_left_it(
+    tmp_path: Path, ending: str, state: str
+) -> None:
+    async def scenario() -> str:
+        async with stepped(tmp_path) as stage:
+            return await stage.page.evaluate(
+                """async ending => {
+                    const context = new AudioContext();
+                    const resumed = context.resume();
+                    const ended = context[ending]();
+                    await Promise.all([resumed, ended]);
+                    return context.state;
+                }""",
+                ending,
+            )
+
+    assert asyncio.run(scenario()) == state
+
+
 def test_resume_whose_promise_comes_late_plays_the_sound_on_at_full_volume_meanwhile(
     tmp_path: Path,
 ) -> None:

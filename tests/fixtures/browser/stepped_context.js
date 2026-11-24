@@ -19,6 +19,8 @@
     #state = "suspended";
     #changes = new EventTarget();
     #started = false;
+    // Counts the calls that end a pending `resume`: a `suspend` or `close` that comes after it wins.
+    #stops = 0;
 
     constructor() {
       super(OUTPUT_CHANNELS, RENDERABLE_SECONDS * SAMPLE_RATE, SAMPLE_RATE);
@@ -44,16 +46,21 @@
     // The state is "running" when the promise resolves, and `suspend` and `close` change it at the call.
     async resume() {
       this.#refuseWhenClosed();
+      const stopsAtCall = this.#stops;
       await null;
-      this.#become("running");
+      if (this.#stops === stopsAtCall) {
+        this.#become("running");
+      }
     }
 
     async suspend() {
       this.#refuseWhenClosed();
+      this.#stops += 1;
       this.#become("suspended");
     }
 
     async close() {
+      this.#stops += 1;
       this.#become("closed");
     }
 
