@@ -38,6 +38,7 @@ from tests.support.browser_player_support import (
     action_times,
     activated,
     audible_seconds,
+    dropped_seconds,
     edge_peaks,
     ends,
     fed,
@@ -141,8 +142,12 @@ def test_resume_plays_on_from_where_it_paused_though_its_body_arrived_meanwhile(
     assert audible_seconds(seen, start + tone + gap, math.inf) == pytest.approx(
         tail, abs=quantum_seconds(seen)
     )
-    assert seen["heardOnsets"][-1] == pytest.approx(
-        start + tone + gap, abs=ONSET_BOUND_FRAMES / seen["sampleRate"]
+    tail_onset = seen["heardOnsets"][-1]
+    # The output's render thread may skip quanta of the context's clock; the sound
+    # waits for them, so the tail starts later by what the ear never rendered.
+    assert tail_onset == pytest.approx(
+        start + tone + gap + dropped_seconds(seen, start, tail_onset),
+        abs=ONSET_BOUND_FRAMES / seen["sampleRate"],
     )
     assert seen["sounds"][0]["playedSeconds"] == pytest.approx(
         tone + gap + tail, abs=seen["clockStep"]

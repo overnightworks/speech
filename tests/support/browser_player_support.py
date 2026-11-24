@@ -271,6 +271,22 @@ def waited_seconds(seen: dict[str, object], until: float) -> float:
     return gaps + max(until - last_end, 0)
 
 
+def dropped_seconds(seen: dict[str, object], since: float, until: float) -> float:
+    """The seconds of [`since`, `until`] of the context clock the output never rendered.
+
+    The ear reports each quantum it renders with the context time it starts at. A
+    render thread that stalls under load lets the clock go on without rendering, so
+    the sound's content falls behind the clock by the quanta missing from the reports.
+    A quantum reported twice makes up for one missing: the span counts the elapsed
+    quanta, the reports the rendered ones.
+    """
+    quanta = [at for at, _ in seen["heardPeaks"] if since <= at <= until]
+    if not quanta:
+        return 0.0
+    elapsed = round((quanta[-1] - quanta[0]) / quantum_seconds(seen)) + 1
+    return (elapsed - len(quanta)) * quantum_seconds(seen)
+
+
 def audible_seconds(seen: dict[str, object], since: float, until: float) -> float:
     """The seconds of [`since`, `until`) in which the output was not silent."""
     audible = [peak for peak in peaks_between(seen, since, until) if peak > SILENT_PEAK]
