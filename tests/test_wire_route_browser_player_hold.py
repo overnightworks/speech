@@ -57,6 +57,7 @@ from tests.support.browser_player_support import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     from tests.support.browser_player_support import Stage
@@ -72,11 +73,18 @@ OUTPUT_SILENT = (
     " && s.heardPeaks.at(-1)[1] === 0"
 )
 HEARD_AGAIN = "s.heardOnsets.length > 1"
+# A stop ends a sound at once, with no ramp to prove, when none of its chunks is
+# scheduled any more: a first chunk this long outlasts any stall of the page.
+LEAD_SECONDS = 3.0
+
+
+async def audible_handed(stage: Stage, sound: Mapping[str, str | int]) -> None:
+    await stage.hand_over(sound)
+    await stage.until(AUDIBLE_CONDITION)
 
 
 async def audible(stage: Stage, sound: str) -> None:
-    await stage.hand_over(url(sound))
-    await stage.until(AUDIBLE_CONDITION)
+    await audible_handed(stage, url(sound))
 
 
 async def short_sound_played(stage: Stage) -> dict[str, object]:
@@ -289,10 +297,10 @@ def test_pause_and_resume_on_an_idle_player_report_and_start_nothing(
 @pytest.mark.parametrize(
     ("sound", "body_released", "starved"),
     [
-        (LONG, False, False),
-        (STREAMED, False, False),
-        (STREAMED, True, False),
-        (STREAMED, True, True),
+        (url(LONG), False, False),
+        (fed("long", lead_seconds=LEAD_SECONDS), False, False),
+        (url(STREAMED), True, False),
+        (url(STREAMED), True, True),
     ],
     ids=[
         "whole",
@@ -302,11 +310,16 @@ def test_pause_and_resume_on_an_idle_player_report_and_start_nothing(
     ],
 )
 def test_stop_ramps_down_without_a_click_then_ends_and_the_next_sound_is_at_full_volume(
-    tmp_path: Path, sound: str, *, body_released: bool, starved: bool
+    tmp_path: Path,
+    sound: Mapping[str, str | int],
+    *,
+    body_released: bool,
+    starved: bool,
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
         async with activated(tmp_path) as stage:
-            await audible(stage, sound)
+            await stage.prepare_bytes("long", LONG)
+            await audible_handed(stage, sound)
             if starved:
                 await stage.until(OUTPUT_SILENT)
             if body_released:
