@@ -11,6 +11,7 @@ it, in one JSON file named by the cell, in the directory the run names.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -141,13 +142,18 @@ class Recording:
     note: str | None = None
 
     async def take_if_none(self, page: Page) -> None:
-        """Take the page's snapshot now when none was taken, and say if it cannot."""
+        """Take the page's snapshot now when none was taken, and say if it cannot.
+
+        The page has `WAIT_SECONDS` to answer, so a stalled page cannot hold on.
+        """
         if self.seen is not None:
             return
         try:
-            self.seen = await page.evaluate("window.playerPage.snapshot()")
-        except PlaywrightError as error:
-            self.note = f"no snapshot: the page did not answer ({error})"
+            self.seen = await asyncio.wait_for(
+                page.evaluate("window.playerPage.snapshot()"), WAIT_SECONDS
+            )
+        except (PlaywrightError, TimeoutError) as error:
+            self.note = f"no snapshot: the page did not answer ({error!r})"
 
     def write(self, cell: str) -> Path:
         """Write the failed `cell`'s record into the directory, one file per cell."""
@@ -500,7 +506,7 @@ async def unactivated(tmp_path: Path) -> AsyncIterator[Stage]:
             stage = Stage(side, page, base_url, recording)
             try:
                 yield stage
-            except Exception:
+            except BaseException:
                 await recording.take_if_none(page)
                 raise
 
