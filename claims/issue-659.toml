@@ -1,0 +1,8 @@
+claim_id = "5aa22e74e34a4d499896a37506c605c0"
+agent = "Claude 42cd797a-ea91-47fd-8107-9ac08af2b7df"
+role = "builder"
+base = "26ee89fcfce5a9798a3aa7f7df0582db65a9c310"
+branch = "claude/issue-659-gpu-stage-build-15-minutes"
+scope = [".github/workflows/ci.yml", ".github/workflows/gpu-image-build.yml", "quality/baseline.toml", "quality/config.toml"]
+opened_commit = "88eeeba043ae20f5d16b1d3e04019d61f4025a73"
+whole_reason = "One CI job's runner, timeout and trigger with the gate's job list and baseline that name it; split, the gate would name a job that no longer exists."
