@@ -24,6 +24,7 @@ OWN_VARIABLES: Final = {
     "SPEECH_PROOF_PROJECT": "scripts/prove_image.py",
     "SPEECH_PROOF_UNDER_PROBE_RUN": "scripts/prove_speech.py",
     "SPEECH_BROWSER_COVERAGE_DIR": "tests/support/page_coverage_support.py",
+    "SPEECH_BROWSER_FAILURE_DIR": "tests/support/browser_player_support.py",
     "SPEECH_BROWSER_CPU_THROTTLE": "tests/support/browser_support.py",
     # Variables the service no longer reads; the tests that set one prove it is ignored.
     "SPEECH_DEBUG": "tests/test_config.py",
