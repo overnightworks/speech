@@ -54,7 +54,6 @@ const seen = {
   endedAtAction: null,
   peakRms: 0,
   playedSeries: [],
-  playedBeforeStop: null,
   heardOnsets: [],
   heardPeaks: [],
   contextAtAction: null,
@@ -325,7 +324,7 @@ function argumentOf(spec) {
 }
 
 function handOver(spec) {
-  const sound = { id: seen.sounds.length, startedValue: null, startedCount: 0, endedValue: null, endedCount: 0, endedAt: null, peakRms: 0, peakTapRms: 0, playedSeconds: null, start: null, contextAtEnd: null };
+  const sound = { id: seen.sounds.length, startedValue: null, startedCount: 0, endedValue: null, endedCount: 0, endedAt: null, peakRms: 0, peakTapRms: 0, playedSeconds: null, start: null };
   seen.sounds.push(sound);
   const playback = player.play(argumentOf(spec));
   playbacks.push(playback);
@@ -340,7 +339,6 @@ function handOver(spec) {
     sound.endedCount += 1;
     sound.endedAt = performance.now();
     sound.playedSeconds = end.playedSeconds ?? null;
-    sound.contextAtEnd = contexts[0].currentTime;
     seen.log.push({ event: "ended", id: sound.id, value: end.kind, at: sound.endedAt });
     if (spec.bytes !== undefined) seen.bytes[spec.bytes].after = byteStore.get(spec.bytes).byteLength;
     notePlayed();
@@ -391,10 +389,9 @@ window.playerPage = {
   mute: (muted) => act("mute", () => player.setMuted(muted)),
   close: () => act("close", () => player.close()),
   // A stop, then `cut` once the context clock reads `secondsLater` on: the cut comes after the stop's edge, before the
-  // player's own end of the sound. `playedBeforeStop` is what the sound had played when the stop was asked for.
+  // player's own end of the sound.
   stopThenCutPastItsEdge: (cut, secondsLater) =>
     act("stop+cut", () => {
-      seen.playedBeforeStop = playbacks[0].playedSeconds();
       player.stop();
       frozenClocks.set(contexts[0], contexts[0].currentTime + secondsLater);
       try {
