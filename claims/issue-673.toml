@@ -1,8 +1,0 @@
-claim_id = "d4ddad31c7274d44a8ea1a2dd46ccdef"
-agent = "Claude b615f32d-fb65-4b46-aa57-f868fe6338ff"
-role = "builder"
-base = "ee80f6ab33a9a1809ff8d7b0afcb579a3014c2d8"
-branch = "claude/issue-673-hold-cells-on-stepped-context"
-scope = ["tests/fixtures/browser", "tests/support/browser_player_support.py", "tests/test_wire_route_browser_player_hold.py"]
-opened_commit = "f9ff51f605456fdfb04adf6ed04e0e6500af36a9"
-whole_reason = "The cells, the stage they step and the shim members they need move together; a cell half on each stage proves nothing."
