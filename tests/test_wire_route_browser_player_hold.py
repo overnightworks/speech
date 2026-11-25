@@ -420,6 +420,7 @@ def test_stop_ramps_down_without_a_click_then_ends_and_the_next_sound_is_at_full
     next_heard = heard_start_of(seen, -1)
     edge = edge_peaks(seen, "stop", until=edge_end)
     # The next sound may start where the edge ends, with no quantum of silence between.
+    # The quantum with its first heard sample mixes silence and sound: no window has it.
     silence = peaks_wholly_between(seen, edge_end, next_heard)
     assert largest_step(edge) < CLICK_STEP
     assert edge[-1] < SILENT_PEAK

@@ -280,10 +280,10 @@ class Stage:
 
 @dataclass
 class Stepping:
-    """How far the stepped stage has run the page: its context's rate and its clock."""
+    """How far the stepped stage has run the page: its context's rate and clock."""
 
     sample_rate: int = 0
-    quantum_frames: int = 0
+    quantum_frames: int = 0  # frames per render quantum
     clock_milliseconds: int = 0
 
 

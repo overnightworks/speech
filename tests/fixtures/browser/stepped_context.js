@@ -3,9 +3,10 @@
 // whole render quanta, and nothing else moves them.
 //
 // What the context offers is the AudioContext surface a page uses: `state` and its `statechange`, `resume()`, `suspend()`
-// without a time, `close()`, `baseLatency`, `currentTime`, and the `renderQuantumSize` the offline context shares with a real
-// one (128 in Chromium 159), which is the one owner of the quantum a page and its test count in. A context starts suspended; it renders while its state is
-// "running" and stands still while it is "suspended", as a context does on the audio device.
+// without a time, `close()`, `baseLatency`, `currentTime`. A context starts suspended; it renders while its state is
+// "running" and stands still while it is "suspended", as a context does on the audio device. Its render quantum is the
+// `renderQuantumSize` the offline context shares with a real one (128 in Chromium 159): the one owner of the quantum
+// that the page reports and the test counts in.
 (() => {
   const SAMPLE_RATE = 48000;
   const OUTPUT_CHANNELS = 2;
