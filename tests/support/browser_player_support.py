@@ -87,9 +87,6 @@ CLICK_STEP = TONE_PEAK / 2
 EDGE_QUANTA = 2
 # Fewest quanta of a whole run that must pass the volume check for it to mean anything.
 MIN_QUANTA_CHECKED = 100
-# What a hold may take off a sound's audible length: the context renders on for
-# a moment between the end of the edge and the suspend.
-LOST_AT_EDGES_SECONDS = 0.25
 SILENT_RMS = 0.001
 AUDIBLE_RMS = 0.05
 # One render quantum plus the detection sample and the tone's silent first sample.
@@ -99,6 +96,15 @@ RESUMES_REJECTED_THEN_PASSED = 2
 # The context resume that starts the first sound, and the one after a pause.
 RESUMES_FOR_START_AND_RESUME = 2
 ALL_ENDED = "s.sounds.every(sound => sound.endedValue !== null)"
+STARTED = "s.sounds[0].startedValue === 'playing'"
+HEARD = "s.heardOnsets.length > 0"
+SUSPENDED = "s.contextStates[0] === 'suspended'"
+# What the stepped stage plays of a sound before the cell's first switch: inside the
+# first chunk of a streamed sound, which is the shortest sound a cell hears.
+HEARD_FOR_SECONDS = 0.1
+# How long the stepped stage steps for a sound to end; stepping costs no page time.
+FINISH_WITHIN_SECONDS = 10.0
+FINISH_QUANTA = 8
 SHORT = f"{SOUNDS_PATH}/short.wav"
 OTHER = f"{SOUNDS_PATH}/other.wav"
 LONG = f"{SOUNDS_PATH}/long.wav"
@@ -340,9 +346,59 @@ class SteppedStage(Stage):
             f"not within {within_seconds} s: {condition}"
         )
 
+    async def step_for(self, seconds: float) -> int:
+        """Render the quanta that cover `seconds` of the context's clock."""
+        return await self.step(self.quanta_for(seconds))
+
+    async def stand_still_for(self, seconds: float) -> None:
+        """Step `seconds` and fail if the context's clock moved: it is held.
+
+        A paused or closed context renders nothing, whatever the stage steps.
+        """
+        before = await self.page.evaluate("window.playerPage.snapshot().contextNow")
+        frames = await self.step_for(seconds)
+        assert frames == round(before * self.stepping.sample_rate), (
+            f"the context ran on from {before} s to {frames} frames"
+        )
+
     async def holds(self, condition: str) -> bool:
         """Whether `condition` holds on `s`, what the page saw, now."""
         return await self.page.evaluate(_on_snapshot(condition))
+
+    async def hear(
+        self, *sounds: Mapping[str, str | int], for_seconds: float = HEARD_FOR_SECONDS
+    ) -> None:
+        """Hand the sounds over, step until the first is heard, then on a while."""
+        await self.hand_over(*sounds)
+        await self.until(STARTED)
+        await self.step_until(HEARD, within_seconds=EDGE_SECONDS)
+        await self.step_for(for_seconds)
+
+    async def hand_over_decoded(self, route: str) -> int:
+        """Hand over the sound of the app's `route` as bytes the page decodes.
+
+        The decode is the page's own work and needs no page time, so the player holds
+        the decoded sound when the call returns, wherever the stage steps next.
+        """
+        decoded = await self.page.evaluate(
+            "window.playerPage.snapshot().decodesSettled"
+        )
+        await self.prepare_bytes(route, route)
+        [sound] = await self.hand_over(bytes_of(route))
+        await self.until(f"s.decodesSettled > {decoded}")
+        return sound
+
+    async def paused(self) -> None:
+        """Throw the app's pause and step until the context is suspended."""
+        await self.act("pause")
+        await self.step_until(SUSPENDED, within_seconds=EDGE_SECONDS)
+
+    async def finish(self) -> dict[str, object]:
+        """Step until every sound has ended, then what the page saw."""
+        await self.step_until(
+            ALL_ENDED, within_seconds=FINISH_WITHIN_SECONDS, quanta=FINISH_QUANTA
+        )
+        return await self.snapshot()
 
 
 def ends(seen: dict[str, object]) -> list[str]:
@@ -410,22 +466,6 @@ def waited_seconds(seen: dict[str, object], until: float) -> float:
     ends = (chunk["start"] + chunk["seconds"] for chunk in chunks)
     last_end = max(ends, default=until)
     return gaps + max(until - last_end, 0)
-
-
-def dropped_seconds(seen: dict[str, object], since: float, until: float) -> float:
-    """The seconds of [`since`, `until`] of the context clock the output never rendered.
-
-    The ear reports each quantum it renders with the context time it starts at. A
-    render thread that stalls under load lets the clock go on without rendering, so
-    the sound's content falls behind the clock by the quanta missing from the reports.
-    A quantum reported twice makes up for one missing: the span counts the elapsed
-    quanta, the reports the rendered ones.
-    """
-    quanta = [at for at, _ in seen["heardPeaks"] if since <= at <= until]
-    if not quanta:
-        return 0.0
-    elapsed = round((quanta[-1] - quanta[0]) / quantum_seconds(seen)) + 1
-    return (elapsed - len(quanta)) * quantum_seconds(seen)
 
 
 def audible_seconds(seen: dict[str, object], since: float, until: float) -> float:

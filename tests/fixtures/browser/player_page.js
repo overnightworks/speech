@@ -23,8 +23,6 @@ const Page = {
 const SAMPLE_MS = 20;
 const SILENCE_POLL_MS = 10;
 const SILENCE_GIVE_UP_MS = 5000;
-// Longer than the page's slowest call into the player under a throttled CPU, and than the player's ramp.
-const RAMP_LEAD_SECONDS = 0.1;
 const JUNK_BYTES = 512;
 const RENDER_QUANTUM_FRAMES = 128;
 // How far past a start the real clock is let run in the stall around a source's start, in render quanta.
@@ -374,19 +372,6 @@ async function act(name, action) {
   }
 }
 
-// The second switch of a reversal, thrown once the volume has left the value `from`, so that it reverses a ramp under
-// way. The ear's peaks show whether the ramp was still running at the throw. The first switch sets its
-// ramp in its own call, and the wait spins in the task until the volume moves: a wait that gives up the task queues
-// behind the ear's messages, which a throttled page handles for longer than the ramp lasts. On a running context the first
-// switch's clock is held ahead, so that its ramp starts after the call; a suspended context's clock stands still, so it
-// is held where it is. The hold is let go as the second switch is thrown.
-async function actWhileFading(name, action, from) {
-  const giveUp = performance.now() + SILENCE_GIVE_UP_MS;
-  while (outputGain.gain.value === from && performance.now() < giveUp);
-  frozenClocks.delete(contexts[0]);
-  return act(name, action);
-}
-
 window.playerPage = {
   seen,
   play: (...specs) => specs.map(handOver),
@@ -404,23 +389,6 @@ window.playerPage = {
   feed: (key) => act("feed", () => feeders.get(key)()),
   // The switch `name` and the rest of the fed body `key`, in one task.
   feedWhile: (key, name) => act(`${name}+feed`, () => { player[name](); feeders.get(key)(); }),
-  // The switch `first`, then `second` as soon as the volume it set moves: the second reverses the ramp of the first.
-  reverse: async (first, second) => {
-    const from = outputGain.gain.value;
-    // A suspended context's clock stands still: its ramp starts when the context renders again, whatever the call takes.
-    const lead = contexts[0].state === "suspended" ? 0 : RAMP_LEAD_SECONDS;
-    frozenClocks.set(contexts[0], contexts[0].currentTime + lead);
-    try {
-      await act(first, () => player[first]());
-      return await actWhileFading(second, () => player[second](), from);
-    } finally {
-      frozenClocks.delete(contexts[0]);
-    }
-  },
-  // The context clock stands still, as the player and the page read it, until `thawClock`: what the player does before
-  // the clock moves again happens inside the ramp it started, whatever the page's timing.
-  freezeClock: () => contexts.forEach((context) => frozenClocks.set(context, context.currentTime)),
-  thawClock: () => frozenClocks.clear(),
   mute: (muted) => act("mute", () => player.setMuted(muted)),
   close: () => act("close", () => player.close()),
   // A stop, then `cut` once the context clock reads `secondsLater` on: the cut comes after the stop's edge, before the
