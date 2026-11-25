@@ -32,6 +32,7 @@ from tests.support.browser_player_support import (
     SOUND_SECONDS,
     STARTED,
     STREAMED,
+    STRETCH_SECONDS,
     SUSPENDED,
     TONE_PEAK,
     SteppedStage,
@@ -47,6 +48,7 @@ from tests.support.browser_player_support import (
     peaks_between,
     peaks_inside,
     peaks_outside_edges,
+    peaks_wholly_between,
     quantum_seconds,
     ramp_end,
     reversal_peaks,
@@ -98,8 +100,6 @@ def switch(
 PLAYED_BEFORE_PAUSE_SECONDS = 0.5
 # A switch thrown this many quanta after the one before turns the volume mid-edge.
 INTO_THE_EDGE_QUANTA = 4
-# A stretch that shows nothing more happens: longer than an edge.
-STRETCH_SECONDS = 2 * EDGE_SECONDS
 # The streamed sound's first bytes have played out and its body has not come.
 OUTPUT_SILENT = (
     f"s.heardPeaks.some(([, peak]) => peak > {SILENT_PEAK})"
@@ -418,15 +418,14 @@ def test_stop_ramps_down_without_a_click_then_ends_and_the_next_sound_is_at_full
     assert ends(seen) == ["stopped", "played"]
     edge_end = ramp_end(seen, 0)
     next_heard = heard_start_of(seen, -1)
-    margin = 3 * quantum_seconds(seen)
     edge = edge_peaks(seen, "stop", until=edge_end)
     # The next sound may start where the edge ends, with no quantum of silence between.
-    silence = peaks_between(seen, edge_end, next_heard - margin)
+    silence = peaks_wholly_between(seen, edge_end, next_heard)
     assert largest_step(edge) < CLICK_STEP
     assert edge[-1] < SILENT_PEAK
     assert max(silence, default=0) < SILENT_PEAK
-    heard = peaks_between(
-        seen, next_heard + margin, next_heard + SOUND_SECONDS["short.wav"] - margin
+    heard = peaks_wholly_between(
+        seen, next_heard, next_heard + SOUND_SECONDS["short.wav"]
     )
     assert heard
     assert min(heard) >= FULL_PEAK

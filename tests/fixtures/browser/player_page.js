@@ -24,7 +24,6 @@ const SAMPLE_MS = 20;
 const SILENCE_POLL_MS = 10;
 const SILENCE_GIVE_UP_MS = 5000;
 const JUNK_BYTES = 512;
-const RENDER_QUANTUM_FRAMES = 128;
 // How far past a start the real clock is let run in the stall around a source's start, in render quanta.
 const STALL_QUANTA = 6;
 const KINDS = [
@@ -162,7 +161,7 @@ function gateFor(kind, result) {
 // `when`; the stall is recorded as the span of the context's clock the task was blocked.
 function stallPast(context, when) {
   const from = Page.clock.get.call(context);
-  const until = when + (STALL_QUANTA * RENDER_QUANTUM_FRAMES) / context.sampleRate;
+  const until = when + (STALL_QUANTA * context.renderQuantumSize) / context.sampleRate;
   while (Page.clock.get.call(context) < until);
   seen.stalls.push({ from, to: Page.clock.get.call(context) });
 }
@@ -268,17 +267,15 @@ function tapRms() {
   return Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
 }
 
-// As often as the page's tasks allow, so a read that steps back between two of the sound's events shows. A task that
-// reads nothing new adds nothing, so the series stays as long as the read's own changes.
-const sampling = new MessageChannel();
-sampling.port1.onmessage = () => {
+// What the first sound's read shows after each step of the context, each switch of the app and each end: a read that
+// steps back between two of them shows. A moment that reads nothing new adds nothing, so the series stays as long as
+// the read's own changes.
+function notePlayed() {
   if (playbacks.length > 0) {
     const played = playbacks[0].playedSeconds();
     if (played !== seen.playedSeries.at(-1)) seen.playedSeries.push(played);
   }
-  sampling.port2.postMessage(null);
-};
-sampling.port2.postMessage(null);
+}
 
 setInterval(() => {
   const level = rms();
@@ -346,6 +343,7 @@ function handOver(spec) {
     sound.contextAtEnd = contexts[0].currentTime;
     seen.log.push({ event: "ended", id: sound.id, value: end.kind, at: sound.endedAt });
     if (spec.bytes !== undefined) seen.bytes[spec.bytes].after = byteStore.get(spec.bytes).byteLength;
+    notePlayed();
     window.noteEnded?.(sound.id);
   });
   return sound.id;
@@ -366,6 +364,7 @@ async function act(name, action) {
     // read could lie any number of audio steps past it.
     await Promise.resolve();
     seen.endedAtAction = seen.sounds.map((sound) => sound.endedValue);
+    notePlayed();
   } finally {
     switchRunning = false;
     clockReads.clear();
@@ -409,7 +408,8 @@ window.playerPage = {
   // Renders `quanta` render quanta of a stepped context, once the ear has reported them; the frames rendered so far.
   step: async (quanta) => {
     const frames = await contexts[0].step(quanta);
-    await heardThrough(frames - RENDER_QUANTUM_FRAMES);
+    await heardThrough(frames - contexts[0].renderQuantumSize);
+    notePlayed();
     return { frames, sampleRate: contexts[0].sampleRate };
   },
   // The app's reader: one analyser of the player's context, connected to `player.tap` from the outside.
@@ -424,18 +424,28 @@ window.playerPage = {
   // plays the source from the quantum it is on, or "after" it, which leaves the start asked for.
   stallNextStart: (where) => (stallNextStart = where),
   stopOnNextSourceEnd: (next) => (stopOnSourceEnd = next ?? true),
-  snapshot: () => ({
-    ...seen,
-    contextStates: contexts.map((context) => context.state),
-    sampleRate: contexts[0].sampleRate,
-    contextNow: contexts[0].currentTime,
-    playedNow: playbacks.map((playback) => playback.playedSeconds()),
-    clockStep: Math.max(RENDER_QUANTUM_FRAMES / contexts[0].sampleRate, contexts[0].baseLatency),
-    gainValue: outputGain?.gain.value ?? null,
-    tapRms: tapRms(),
-    tapIsOutputGain: player.tap === outputGain,
-    hasBeenActive: navigator.userActivation.hasBeenActive,
-  }),
+  // One read of the clock serves the whole snapshot, so that its times are of one instant.
+  snapshot: () => {
+    clockReads.clear();
+    switchRunning = true;
+    try {
+      return {
+        ...seen,
+        contextStates: contexts.map((context) => context.state),
+        sampleRate: contexts[0].sampleRate,
+        contextNow: contexts[0].currentTime,
+        playedNow: playbacks.map((playback) => playback.playedSeconds()),
+        renderQuantumFrames: contexts[0].renderQuantumSize,
+        gainValue: outputGain?.gain.value ?? null,
+        tapRms: tapRms(),
+        tapIsOutputGain: player.tap === outputGain,
+        hasBeenActive: navigator.userActivation.hasBeenActive,
+      };
+    } finally {
+      switchRunning = false;
+      clockReads.clear();
+    }
+  },
   async silentAfterAction(threshold) {
     const start = performance.now();
     while (rms() > threshold && performance.now() - start < SILENCE_GIVE_UP_MS) {
