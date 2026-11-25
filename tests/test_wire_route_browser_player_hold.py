@@ -34,6 +34,7 @@ from tests.support.browser_player_support import (
     STREAMED,
     SUSPENDED,
     TONE_PEAK,
+    SteppedStage,
     action_times,
     audible_seconds,
     bytes_of,
@@ -58,7 +59,7 @@ from tests.support.browser_player_support import (
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Awaitable, Callable, Mapping
     from pathlib import Path
 
 pytestmark = pytest.mark.browser
@@ -70,6 +71,27 @@ def scheduled_seconds(seconds: float) -> str:
         "s.scheduledChunks.reduce((total, chunk) => total + chunk.seconds, 0)"
         f" > {seconds - 1 / SPEAK_SAMPLE_RATE}"
     )
+
+
+async def heard_then(
+    tmp_path: Path,
+    sound: Mapping[str, str | int],
+    *steps: Callable[[SteppedStage], Awaitable[object]],
+    report: Callable[[SteppedStage], Awaitable[dict[str, object]]],
+) -> dict[str, object]:
+    """The sound heard, each of the `steps` taken in turn, then what `report` gives."""
+    async with stepped(tmp_path) as stage:
+        await stage.hear(sound)
+        for step in steps:
+            await step(stage)
+        return await report(stage)
+
+
+def switch(
+    action: str, *arguments: object
+) -> Callable[[SteppedStage], Awaitable[None]]:
+    """A step: the app's switch `action`."""
+    return lambda stage: stage.act(action, *arguments)
 
 
 # What of the tone the output plays before the pause, which lies well inside it.
@@ -96,14 +118,15 @@ LEAD_SECONDS = 1.0
 def test_pause_ramps_the_output_down_without_a_click_and_holds_the_sound(
     tmp_path: Path, sound: str
 ) -> None:
-    async def scenario() -> dict[str, object]:
-        async with stepped(tmp_path) as stage:
-            await stage.hear(url(sound))
-            await stage.paused()
-            await stage.stand_still_for(STRETCH_SECONDS)
-            return await stage.snapshot()
-
-    seen = asyncio.run(scenario())
+    seen = asyncio.run(
+        heard_then(
+            tmp_path,
+            url(sound),
+            lambda stage: stage.paused(),
+            lambda stage: stage.stand_still_for(STRETCH_SECONDS),
+            report=SteppedStage.snapshot,
+        )
+    )
 
     [paused_at] = action_times(seen, "pause")
     edge = edge_peaks(seen, "pause")
@@ -483,15 +506,16 @@ def test_stop_while_the_pause_still_ramps_ends_the_sound_after_that_edge_and_hol
 def test_resume_while_the_pause_is_still_ramping_plays_on_without_a_click(
     tmp_path: Path,
 ) -> None:
-    async def scenario() -> dict[str, object]:
-        async with stepped(tmp_path) as stage:
-            await stage.hear(url(MARKER))
-            await stage.act("pause")
-            await stage.step(INTO_THE_EDGE_QUANTA)
-            await stage.act("resume")
-            return await stage.finish()
-
-    seen = asyncio.run(scenario())
+    seen = asyncio.run(
+        heard_then(
+            tmp_path,
+            url(MARKER),
+            switch("pause"),
+            lambda stage: stage.step(INTO_THE_EDGE_QUANTA),
+            switch("resume"),
+            report=SteppedStage.finish,
+        )
+    )
 
     start = heard_start_of(seen)
     # The pause set a ramp to silence and the resume came before that ramp's end, on the
@@ -535,31 +559,33 @@ def test_pause_while_the_resume_is_still_ramping_up_holds_the_sound_without_a_cl
 def test_resume_after_stop_changes_nothing_and_the_next_sound_plays_at_full_volume(
     tmp_path: Path,
 ) -> None:
-    async def scenario() -> dict[str, object]:
-        async with stepped(tmp_path) as stage:
-            await stage.hear(url(LONG))
-            await stage.act("stop")
-            await stage.act("resume")
-            await stage.hand_over_decoded(SHORT)
-            return await stage.finish()
-
-    seen = asyncio.run(scenario())
+    seen = asyncio.run(
+        heard_then(
+            tmp_path,
+            url(LONG),
+            switch("stop"),
+            switch("resume"),
+            lambda stage: stage.hand_over_decoded(SHORT),
+            report=SteppedStage.finish,
+        )
+    )
 
     assert ends(seen) == ["stopped", "played"]
     assert min(peaks_inside(seen, 1, SOUND_SECONDS["short.wav"])) >= FULL_PEAK
 
 
 def test_pause_twice_and_resume_twice_act_once(tmp_path: Path) -> None:
-    async def scenario() -> dict[str, object]:
-        async with stepped(tmp_path) as stage:
-            await stage.hear(url(MARKER))
-            await stage.act("pause")
-            await stage.paused()
-            await stage.act("resume")
-            await stage.act("resume")
-            return await stage.finish()
-
-    seen = asyncio.run(scenario())
+    seen = asyncio.run(
+        heard_then(
+            tmp_path,
+            url(MARKER),
+            switch("pause"),
+            lambda stage: stage.paused(),
+            switch("resume"),
+            switch("resume"),
+            report=SteppedStage.finish,
+        )
+    )
 
     start = start_of(seen)
     assert ends(seen) == ["played"]
@@ -611,14 +637,15 @@ def test_close_while_paused_ends_the_sound_at_once_and_closes_the_context(
 def test_the_volume_changes_in_no_way_but_at_the_edges_of_a_pause_and_a_resume(
     tmp_path: Path,
 ) -> None:
-    async def scenario() -> dict[str, object]:
-        async with stepped(tmp_path) as stage:
-            await stage.hear(url(MARKER))
-            await stage.paused()
-            await stage.act("resume")
-            return await stage.finish()
-
-    seen = asyncio.run(scenario())
+    seen = asyncio.run(
+        heard_then(
+            tmp_path,
+            url(MARKER),
+            lambda stage: stage.paused(),
+            switch("resume"),
+            report=SteppedStage.finish,
+        )
+    )
 
     outside = peaks_outside_edges(seen, start_of(seen))
     assert len(outside) > MIN_QUANTA_CHECKED
