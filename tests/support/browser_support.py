@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from playwright.async_api import async_playwright
 from pydantic import SecretStr
-from webauth.admission import AdmissionConfig, GroupPath, NoAdmins
+from webauth.admission import AdmissionConfig, NoAdmins
 from webauth.config import SessionLifetime, WebAuthConfig
 from webauth.oidc import OidcClientConfig
 from webauth.policies import (
@@ -51,6 +51,7 @@ from speech_client.realtime_wire import (
 from speech_client.relay import HOP_FRAME_BYTES, relay
 from speech_client.speak import Spoken, speak
 from speech_client.wire import Language, ResponseFormat, VoiceId
+from speech_service.config import app_group
 from speech_service.pcm import BYTES_PER_SAMPLE, wav_header
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE, sine_pcm
 from tests.support.identity_support import ISSUER, valid_pair
@@ -223,7 +224,7 @@ def _stand_in_auth() -> WebAuth:
         ),
         groups=AdmissionConfig(
             bound_issuer=ISSUER,
-            login_group=GroupPath("/apps/stand-in"),
+            login_group=app_group("stand-in"),
             admin_group=NoAdmins.IN_THIS_APP,
         ),
         pages=SignInPages(
