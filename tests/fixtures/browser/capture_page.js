@@ -5,14 +5,20 @@
 // call throws) and `sendWhileConnecting` (set: send a text right after `startCapture` returns).
 // `window.capturePage` holds what the page saw, for the test to read, and `window.sendFromPage`
 // sends a message of the app's own through the capture.
+// `context` makes the package's context misbehave: `throws` (the constructor throws), `suspended` (it
+// starts suspended, runs once `resume()` is called) or `rejects` (it starts suspended, `resume()` rejects).
+// `worklet=ear` serves a module that registers another processor than the package's.
+// `window.contextStates()` lists the package's contexts' states, `window.dispatchStateChange()` fires
+// `statechange` on the first, and `seen.startThrew` says `startCapture` itself threw.
 import { startCapture } from "/dist/index.js";
 
 const query = new URLSearchParams(location.search);
-const WORKLET_PATHS = { file: "/dist/capture-worklet.js", held: "/held-worklet.js" };
+const WORKLET_PATHS = { file: "/dist/capture-worklet.js", held: "/held-worklet.js", ear: "/ear_processor.js" };
 const TWO_TONES = [440, 1250];
 
 const seen = {
   started: null,
+  startThrew: false,
   ended: null,
   endedCount: 0,
   errors: [],
@@ -64,10 +70,23 @@ window.WebSocket = class extends PageWebSocket {
   }
 };
 window.AudioContext = class extends PageAudioContext {
+  #awaitingResume = ["suspended", "rejects"].includes(query.get("context"));
+
   constructor(...parameters) {
+    if (query.get("context") === "throws") throw new Error("no audio context");
     super(...parameters);
     contexts.push(this);
     seen.contextsOpened += 1;
+  }
+
+  get state() {
+    return this.#awaitingResume && super.state !== "closed" ? "suspended" : super.state;
+  }
+
+  async resume() {
+    if (query.get("context") === "rejects") throw new Error("resume refused");
+    this.#awaitingResume = false;
+    return super.resume();
   }
 };
 const pageGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
@@ -142,12 +161,17 @@ let stoppedAt = null;
 async function switchOn() {
   const { stream, onStreaming } = await prepareSource();
   track = stream.getAudioTracks()[0] ?? null;
-  capture = startCapture({
-    stream,
-    hopUrl: new URL(query.get("hop") ?? "/hear", location.href.replace(/^http/, "ws")),
-    workletUrl: await workletUrl(),
-    ...(query.has("messages") ? { onMessage } : {}),
-  });
+  try {
+    capture = startCapture({
+      stream,
+      hopUrl: new URL(query.get("hop") ?? "/hear", location.href.replace(/^http/, "ws")),
+      workletUrl: await workletUrl(),
+      ...(query.has("messages") ? { onMessage } : {}),
+    });
+  } catch {
+    seen.startThrew = true;
+    return;
+  }
   if (query.has("sendWhileConnecting")) seen.sendWhileConnecting = capture.send("too early");
   capture.started.then((started) => {
     seen.started = started;
@@ -186,6 +210,8 @@ window.endTrack = () => {
 
 // The context stops underneath the capture, as a failing sound server does: not through the app's stop().
 window.stopContext = (how) => contexts[0][how]();
+window.contextStates = () => contexts.map((context) => context.state);
+window.dispatchStateChange = () => contexts[0].dispatchEvent(new Event("statechange"));
 
 document.getElementById("switch").addEventListener("click", () => (capture === null ? switchOn() : switchOff()));
 if (query.get("start") === "load") {
