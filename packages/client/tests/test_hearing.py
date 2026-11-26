@@ -33,14 +33,21 @@ from packages.client.tests.support.hearing_support import (
     WORKLOAD_TOKEN,
     fixed_tokens,
     held_open,
+    leaves,
     outcome_at,
+    passes_the_limit,
     session_to,
     silent_peer,
     stalled_service,
     takes_every_event,
 )
 from speech_client._failures import settled
-from speech_client.hearing import OPENING_SECONDS, Closed, HearingSession, Refused
+from speech_client.hearing import (
+    OPENING_SECONDS,
+    Closed,
+    HearingSession,
+    Refused,
+)
 from speech_client.outcomes import (
     Busy,
     BusyWait,
@@ -82,14 +89,6 @@ async def _hears(connection: ServerConnection) -> None:
     delta = TranscriptDelta(item_id="i", delta=HEARD_TEXT)
     await connection.send(delta.model_dump_json())
     await connection.close()
-
-
-async def _leaves(_: HearingSession) -> None:
-    return None
-
-
-async def _passes_the_limit(session: HearingSession) -> None:
-    session.send(b"ab")
 
 
 async def _outcome_against(handler: object) -> HearingOutcome | None:
@@ -267,9 +266,9 @@ def test_a_service_that_ignores_the_close_does_not_swallow_the_callers_timeout()
 @pytest.mark.parametrize(
     ("says_first", "end", "outcome", "deadline_seconds", "opening_seconds"),
     [
-        pytest.param((), _leaves, Closed(), 1, OPENING_SECONDS, id="leave"),
+        pytest.param((), leaves, Closed(), 1, OPENING_SECONDS, id="leave"),
         pytest.param(
-            (), _passes_the_limit, OverCap(), 1, OPENING_SECONDS, id="over-limit"
+            (), passes_the_limit, OverCap(), 1, OPENING_SECONDS, id="over-limit"
         ),
         pytest.param(
             ("not json",),
@@ -279,9 +278,9 @@ def test_a_service_that_ignores_the_close_does_not_swallow_the_callers_timeout()
             OPENING_SECONDS,
             id="nonsense",
         ),
-        pytest.param((), _leaves, Closed(), 30, OPENING_MARGIN, id="leave-by-opening"),
+        pytest.param((), leaves, Closed(), 30, OPENING_MARGIN, id="leave-by-opening"),
         pytest.param(
-            (), _passes_the_limit, OverCap(), 30, OPENING_MARGIN, id="limit-by-opening"
+            (), passes_the_limit, OverCap(), 30, OPENING_MARGIN, id="limit-by-opening"
         ),
     ],
 )
@@ -378,10 +377,10 @@ def test_a_peer_that_stops_reading_does_not_hold_the_session_past_its_deadline()
 @pytest.mark.parametrize(
     ("says", "end", "outcome"),
     [
-        pytest.param([], _leaves, Closed(), id="leave-after-open"),
-        pytest.param([], _passes_the_limit, OverCap(), id="over-limit-left-at-once"),
+        pytest.param([], leaves, Closed(), id="leave-after-open"),
+        pytest.param([], passes_the_limit, OverCap(), id="over-limit-left-at-once"),
         pytest.param(
-            [HEARD_DELTA, HEARD_DELTA], _leaves, Closed(), id="two-events-untaken"
+            [HEARD_DELTA, HEARD_DELTA], leaves, Closed(), id="two-events-untaken"
         ),
         pytest.param(["not json"], takes_every_event, Malformed(), id="nonsense"),
     ],
@@ -417,8 +416,8 @@ def test_every_orderly_end_closes_the_connection_with_the_normal_code(
 @pytest.mark.parametrize(
     "end",
     [
-        pytest.param(_leaves, id="leave"),
-        pytest.param(_passes_the_limit, id="over-limit"),
+        pytest.param(leaves, id="leave"),
+        pytest.param(passes_the_limit, id="over-limit"),
     ],
 )
 @pytest.mark.parametrize("yields_before_cancel", range(31))
@@ -470,53 +469,6 @@ def test_a_cancel_during_the_close_of_a_service_ignoring_it_ends_the_connection(
                     peer.close()
 
     asyncio.run(scenario())
-
-
-@pytest.mark.parametrize(
-    ("end", "outcome"),
-    [
-        pytest.param(_passes_the_limit, OverCap(), id="over-limit"),
-        pytest.param(_leaves, Closed(), id="leave"),
-    ],
-)
-def test_an_end_before_the_connection_opens_ends_the_session_at_once(
-    end: Callable[[HearingSession], Awaitable[None]], outcome: HearingOutcome
-) -> None:
-    async def scenario() -> tuple[HearingOutcome | None, float]:
-        async with await asyncio.start_server(silent_peer, LOOPBACK, 0) as server:
-            session = session_to(server.sockets[0].getsockname()[1], 30)
-            started = time.monotonic()
-            async with session:
-                await end(session)
-            return session.outcome, time.monotonic() - started
-
-    ended, elapsed = asyncio.run(scenario())
-
-    assert ended == outcome
-    assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)
-
-
-def test_a_caller_timeout_during_a_stalled_opening_leaves_no_task_behind() -> None:
-    async def scenario() -> float:
-        peers: set[asyncio.Task[object] | None] = set()
-
-        async def silent(reader: asyncio.StreamReader, writer: object) -> None:
-            peers.add(asyncio.current_task())
-            await silent_peer(reader, writer)
-
-        async with await asyncio.start_server(silent, LOOPBACK, 0) as server:
-            started = time.monotonic()
-            with pytest.raises(TimeoutError):
-                async with (
-                    asyncio.timeout(0.2),
-                    session_to(server.sockets[0].getsockname()[1], 30) as session,
-                ):
-                    await takes_every_event(session)
-            elapsed = time.monotonic() - started
-            assert asyncio.all_tasks() - peers == {asyncio.current_task()}
-        return elapsed
-
-    assert asyncio.run(scenario()) < well_before(CLOSE_TIMEOUT_SECONDS)
 
 
 def _fails_the_writer(session: HearingSession) -> None:

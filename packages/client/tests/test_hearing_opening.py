@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from websockets.asyncio.server import serve
+from websockets.frames import CloseCode
 
 from packages.client.tests.support.elapsed_support import (
     CLOSE_TIMEOUT_SECONDS,
@@ -21,16 +22,23 @@ from packages.client.tests.support.hearing_support import (
     CREATED_EVENT,
     LOOPBACK,
     OPENING_MARGIN,
+    fixed_tokens,
+    leaves,
     outcome_at,
+    passes_the_limit,
     session_to,
     silent_peer,
     stalled_service,
     takes_every_event,
 )
-from speech_client.hearing import Closed
-from speech_client.outcomes import Unreachable
+from packages.client.tests.support.reconnect_support import WHOLE_RUN_SECONDS
+from packages.client.tests.support.scripted_hearing_support import Visit, scripted
+from speech_client.hearing import Closed, SessionTokens
+from speech_client.outcomes import OverCap, Unreachable
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from websockets.asyncio.server import ServerConnection
 
     from speech_client.hearing import HearingOutcome, HearingSession
@@ -154,3 +162,99 @@ def test_audio_held_for_a_stalled_opening_never_reaches_the_peer() -> None:
 def test_an_opening_bound_of_zero_or_less_raises(opening_seconds: float) -> None:
     with pytest.raises(ValueError, match="opening_seconds"):
         session_to(1, opening_seconds=opening_seconds)
+
+
+@pytest.mark.parametrize(
+    ("end", "outcome"),
+    [
+        pytest.param(passes_the_limit, OverCap(), id="over-limit"),
+        pytest.param(leaves, Closed(), id="leave"),
+    ],
+)
+def test_an_end_before_the_connection_opens_ends_the_session_at_once(
+    end: Callable[[HearingSession], Awaitable[None]], outcome: HearingOutcome
+) -> None:
+    async def scenario() -> tuple[HearingOutcome | None, float]:
+        async with await asyncio.start_server(silent_peer, LOOPBACK, 0) as server:
+            session = session_to(server.sockets[0].getsockname()[1], 30)
+            started = time.monotonic()
+            async with session:
+                await end(session)
+            return session.outcome, time.monotonic() - started
+
+    ended, elapsed = asyncio.run(scenario())
+
+    assert ended == outcome
+    assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)
+
+
+async def no_token() -> None:
+    return None
+
+
+@pytest.mark.parametrize(
+    ("late_answer", "connects"),
+    [
+        pytest.param(fixed_tokens, True, id="a-connection-is-aborted"),
+        pytest.param(no_token, False, id="no-token-is-left-alone"),
+    ],
+)
+def test_an_opening_that_settles_after_the_session_ended_leaves_its_outcome(
+    late_answer: Callable[[], Awaitable[SessionTokens | None]], *, connects: bool
+) -> None:
+    async def scenario() -> tuple[HearingOutcome | None, list[int | None]]:
+        asked = asyncio.Event()
+
+        async def answers_only_once_cancelled() -> SessionTokens | None:
+            asked.set()
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.Event().wait()
+            return await late_answer()
+
+        closed_with: list[int | None] = []
+        closed = asyncio.Event()
+
+        async def waits_for_the_client_to_go(
+            connection: ServerConnection, _: Visit
+        ) -> None:
+            await connection.wait_closed()
+            closed_with.append(connection.close_code)
+            closed.set()
+
+        async with scripted(waits_for_the_client_to_go) as (port, _):
+            session = session_to(port, 30, 1, 5, answers_only_once_cancelled)
+            async with session:
+                await asked.wait()
+                session.send(b"over the held limit")
+            if connects:
+                async with asyncio.timeout(WHOLE_RUN_SECONDS):
+                    await closed.wait()
+        return session.outcome, closed_with
+
+    outcome, close_codes = asyncio.run(scenario())
+
+    assert outcome == OverCap()
+    assert close_codes == ([CloseCode.ABNORMAL_CLOSURE] if connects else [])
+
+
+def test_a_caller_timeout_during_a_stalled_opening_leaves_no_task_behind() -> None:
+    async def scenario() -> float:
+        peers: set[asyncio.Task[object] | None] = set()
+
+        async def silent(reader: asyncio.StreamReader, writer: object) -> None:
+            peers.add(asyncio.current_task())
+            await silent_peer(reader, writer)
+
+        async with await asyncio.start_server(silent, LOOPBACK, 0) as server:
+            started = time.monotonic()
+            with pytest.raises(TimeoutError):
+                async with (
+                    asyncio.timeout(0.2),
+                    session_to(server.sockets[0].getsockname()[1], 30) as session,
+                ):
+                    await takes_every_event(session)
+            elapsed = time.monotonic() - started
+            assert asyncio.all_tasks() - peers == {asyncio.current_task()}
+        return elapsed
+
+    assert asyncio.run(scenario()) < well_before(CLOSE_TIMEOUT_SECONDS)

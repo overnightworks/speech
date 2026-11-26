@@ -17,6 +17,7 @@ from tests.support.live_support import (
     FAILED,
     WAIT_SECONDS,
     FakeSocket,
+    StallingSocket,
     append,
     audio,
     commit,
@@ -550,6 +551,33 @@ def test_a_result_that_arrives_after_the_session_ended_is_dropped() -> None:
 
     assert socket.of_type(COMPLETED) == []
     assert end_is(socket, "invalid_request", failed=1)
+
+
+def test_a_client_that_leaves_while_a_turns_events_go_out_gets_the_rest_unsent() -> (
+    None
+):
+    """WIRE-83: a client that left is sent none of the turn's remaining events."""
+
+    async def scenario() -> FakeSocket:
+        socket = StallingSocket("input_audio_buffer.committed")
+        session, _ = await started(
+            loaded(FakeHearing(hold=True), FakeClock()), socket=socket
+        )
+        await session.on_message(append(audio(0.3)))
+        committing = asyncio.create_task(session.on_message(commit()))
+        await socket.stalled.wait()
+        await session.on_disconnect()
+        socket.proceed.set()
+        await committing
+        return socket
+
+    socket = asyncio.run(scenario())
+
+    assert socket.types() == [
+        "session.created",
+        "input_audio_buffer.speech_started",
+        "input_audio_buffer.committed",
+    ]
 
 
 def test_the_poll_runs_every_three_tenths_of_a_second() -> None:

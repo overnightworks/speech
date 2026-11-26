@@ -61,6 +61,14 @@ async def held_open(session: HearingSession) -> None:
         await asyncio.Event().wait()
 
 
+async def leaves(_: HearingSession) -> None:
+    return None
+
+
+async def passes_the_limit(session: HearingSession) -> None:
+    session.send(b"ab")
+
+
 def session_to(  # noqa: PLR0913 - one keyword per thing a scenario varies
     port: int,
     deadline_seconds: float = 5,
