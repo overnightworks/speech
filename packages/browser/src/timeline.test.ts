@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classify, contextTimeAt, lengthOf, playedBy, type Chunk } from "./timeline.js";
+import { classify, contextTimeAt, endOf, lengthOf, playedBy, type Chunk } from "./timeline.js";
 
 const EDGE = 0.03;
 // Two chunks of one second with a gap of half a second between them, as a late chunk leaves.
@@ -40,6 +40,17 @@ describe("playedBy", () => {
 describe("lengthOf", () => {
   it("adds the chunks", () => {
     expect(lengthOf(WITH_GAP)).toBe(2);
+  });
+});
+
+describe("endOf", () => {
+  it("is where the last chunk ends, whatever the order of the chunks", () => {
+    expect(endOf(WITH_GAP)).toBe(12.5);
+    expect(endOf([...WITH_GAP].reverse())).toBe(12.5);
+  });
+
+  it("is -Infinity for no chunk", () => {
+    expect(endOf([])).toBe(-Infinity);
   });
 });
 

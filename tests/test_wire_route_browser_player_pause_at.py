@@ -16,7 +16,6 @@ import pytest
 
 from tests.support.browser_player_support import (
     ABSENT,
-    action_times,
     CLICK_STEP,
     CUT_LATE,
     EDGE_SECONDS,
@@ -26,6 +25,7 @@ from tests.support.browser_player_support import (
     SILENT_PEAK,
     SOUND_SECONDS,
     STRETCH_SECONDS,
+    action_times,
     audible_seconds,
     audible_throughout,
     bytes_of,

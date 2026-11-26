@@ -1,4 +1,4 @@
-import { playedBy, type Chunk } from "./timeline.js";
+import { endOf, playedBy, type Chunk } from "./timeline.js";
 import type { Held, Playback, PlaybackEnd, PlaybackStart } from "./player.js";
 import type { PcmStream } from "./wav-stream.js";
 
@@ -39,8 +39,7 @@ export class Scheduled {
 
   /** Whether the sound's sources run out after its hold point, so that a late page can end it before `resume()`. */
   runsOutHeld(): boolean {
-    const endsAt = this.chunks.reduce((latest, { start, seconds }) => Math.max(latest, start + seconds), -Infinity);
-    return this.held !== undefined && this.held.at < endsAt;
+    return this.held !== undefined && this.held.at < endOf(this.chunks);
   }
 }
 

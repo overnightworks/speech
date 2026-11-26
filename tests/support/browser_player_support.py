@@ -394,13 +394,11 @@ class SteppedStage(Stage):
         await self.until(f"s.decodesSettled > {decoded}")
         return sound
 
-    async def hear_decoded(
-        self, *routes: str, for_seconds: float = HEARD_FOR_SECONDS
-    ) -> None:
+    async def hear_decoded(self, *routes: str) -> None:
         """Hand over the sounds of `routes` as decoded bytes and hear the first."""
         for route in routes:
             await self.prepare_bytes(route, route)
-        await self.hear(*(bytes_of(route) for route in routes), for_seconds=for_seconds)
+        await self.hear(*(bytes_of(route) for route in routes))
 
     async def pause_at(self, target: int | str, seconds: float) -> None:
         """Throw the app's `pauseAt` of sound `target` (or "foreign") at `seconds`."""
@@ -546,11 +544,14 @@ def hold_point_of(seen: dict[str, object], sound: int = 0) -> float:
     return last_ramp_end(seen, 0) - start_of(seen, sound)
 
 
+def ramp_ends(seen: dict[str, object], target: float) -> list[float]:
+    """The context times the player's ramps of the volume to `target` end, in order."""
+    return [ramp["endsAt"] for ramp in seen["ramps"] if ramp["target"] == target]
+
+
 def last_ramp_end(seen: dict[str, object], target: float) -> float:
     """The context time the player's last ramp of the volume to `target` ends."""
-    return next(
-        ramp["endsAt"] for ramp in reversed(seen["ramps"]) if ramp["target"] == target
-    )
+    return ramp_ends(seen, target)[-1]
 
 
 def audible_throughout(seen: dict[str, object], since: float, until: float) -> bool:
@@ -561,7 +562,7 @@ def audible_throughout(seen: dict[str, object], since: float, until: float) -> b
 
 def ramp_end(seen: dict[str, object], target: float) -> float:
     """The context time the player's first ramp of the volume to `target` ends."""
-    return next(ramp["endsAt"] for ramp in seen["ramps"] if ramp["target"] == target)
+    return ramp_ends(seen, target)[0]
 
 
 def edge_peaks(

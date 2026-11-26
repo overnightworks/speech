@@ -553,8 +553,9 @@ class PlayerRun {
           this.#playing = scheduled;
           head.follow(() => scheduled.read(this.#context.currentTime));
           if (loaded.kind === "buffer") {
-            this.#schedule(scheduled, loaded.buffer, 0);
+            // The whole body is scheduled before the waiting call looks at it, so that a position at the end is the end.
             scheduled.bodyScheduled = true;
+            this.#schedule(scheduled, loaded.buffer, 0);
           } else {
             void this.#playStream(scheduled, loaded.stream, generation);
           }

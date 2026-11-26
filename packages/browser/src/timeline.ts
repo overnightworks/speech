@@ -27,6 +27,11 @@ export function lengthOf(chunks: readonly Chunk[]): number {
   return chunks.reduce((length, { seconds }) => length + seconds, 0);
 }
 
+/** The context time the last of the chunks ends at; -Infinity for no chunk. */
+export function endOf(chunks: readonly Chunk[]): number {
+  return chunks.reduce((latest, { start, seconds }) => Math.max(latest, start + seconds), -Infinity);
+}
+
 /**
  * The inverse of `playedBy`: the earliest context time at which it reaches `position` (above 0), inside the chunks'
  * content and never into a gap between them. Undefined past the chunks.
