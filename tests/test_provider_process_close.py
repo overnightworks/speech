@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import socket
 import tempfile
 import threading
 from typing import TYPE_CHECKING
@@ -14,6 +15,7 @@ import pytest
 from speech_service.provider_process import (
     CLOSE_SECONDS,
     ProviderCleanupFailedError,
+    _is_healthy,
 )
 from tests.support.launcher_support import (
     LoadOutcome,
@@ -135,3 +137,15 @@ def test_a_dropped_or_garbled_health_answer_is_not_ready_and_the_poll_goes_on(
     assert server.ready
     assert (tmp_path / "cache" / "health-spoiled").exists()
     server.close()
+
+
+def test_a_health_request_that_gets_no_answer_in_time_is_not_healthy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(f"{_OWNER}._HEALTH_REQUEST_SECONDS", _SMALL_SECONDS)
+    socket_path = tmp_path / "silent.sock"
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as silent:
+        silent.bind(str(socket_path))
+        silent.listen()
+
+        assert not _is_healthy(socket_path)
