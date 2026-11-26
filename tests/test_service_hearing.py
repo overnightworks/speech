@@ -260,6 +260,17 @@ def test_the_sound_model_loads_only_after_the_engine_is_ready(tmp_path: Path) ->
     assert hearing.open_sound_stream() is None
 
 
+def test_a_closed_hearing_opens_no_detector() -> None:
+    hearing = Hearing(FakeHearing(), LoopClock())
+    hearing.load()
+    assert hearing.open_detector() is not None
+
+    hearing.close()
+
+    with pytest.raises(RuntimeError, match="hearing is unavailable"):
+        hearing.open_detector()
+
+
 def test_a_loaded_hearing_opens_a_sound_stream_and_closing_it_stops_the_scoring(
     tmp_path: Path,
 ) -> None:
