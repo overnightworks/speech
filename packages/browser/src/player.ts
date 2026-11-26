@@ -392,7 +392,7 @@ class PlayerRun {
   /**
    * Ends the waiting call, and takes its fade off the gain's timeline if it is on it, ramping the volume back up unless
    * the switch that overtakes it sets the volume itself. A fade that has ended on the audio clock cannot be taken off:
-   * the sound is held at its point, which stays: a switch that restores the volume holds it for good.
+   * the sound is held at its point, which stays: a newer `pauseAt` holds the player there, and a `resume()` plays on from it.
    */
   #overtake(call: HoldCall, { restoreVolume }: { readonly restoreVolume: boolean }): void {
     if (call.scheduled) {
