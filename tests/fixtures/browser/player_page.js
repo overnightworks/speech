@@ -96,7 +96,8 @@ const fenceEchoes = new Map();
 let garbledReport = null;
 
 // Resolves once every report the ear posted before this call has arrived: the ear echoes the fence on the port the
-// reports travel, which keeps their order, so the wait does not read what the reports say.
+// reports travel, which keeps their order, so the wait does not read what the reports say. The ear exists only once
+// `listening` has resolved, so a cell steps after it.
 function earReported(context) {
   const fence = fenceEchoes.size;
   const echoed = new Promise((resolve) => fenceEchoes.set(fence, resolve));
