@@ -141,7 +141,9 @@ def test_stop_ends_waiting_sounds_at_once_the_playing_one_after_its_edge_and_abo
             await stage.act("stop")
             at_stop = (await stage.snapshot())["endedAtAction"]
             await asyncio.wait_for(stage.side.held_aborted.wait(), WAIT_SECONDS)
-            return await stage.finish(), at_stop
+            await stage.finish()
+            await stage.step_for(STRETCH_SECONDS)
+            return await stage.snapshot(), at_stop
 
     seen, at_stop = asyncio.run(scenario())
 
@@ -295,7 +297,9 @@ def test_stop_silences_a_streamed_wav_at_once_and_aborts_its_fetch(
             await stage.hear(url(STREAMED))
             await stage.act("stop")
             await asyncio.wait_for(stage.side.held_aborted.wait(), WAIT_SECONDS)
-            return await stage.finish()
+            await stage.finish()
+            await stage.step_for(STRETCH_SECONDS)
+            return await stage.snapshot()
 
     seen = asyncio.run(scenario())
 

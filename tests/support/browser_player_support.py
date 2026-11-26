@@ -425,7 +425,7 @@ def peaks_between(seen: dict[str, object], since: float, until: float) -> list[f
     return [peak for at, peak in seen["heardPeaks"] if since <= at < until]
 
 
-def loudest_peak(seen: dict[str, object], since: float = 0.0) -> float:
+def loudest_peak(seen: dict[str, object], since: float) -> float:
     """The loudest quantum the ear reported from `since` of the context clock on."""
     return max(peaks_between(seen, since, math.inf), default=0.0)
 
