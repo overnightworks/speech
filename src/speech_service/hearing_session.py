@@ -325,7 +325,6 @@ class HearingSession:
         self._speech_windows = 0
         self._silent_windows = 0
         self._voiced_windows = 0
-        self._sustained_windows = 0
         self._sustained_sent = False
         self._waiting_voiced.clear()
         self._last_partial_at = None

@@ -392,6 +392,30 @@ audio, pre-roll included.
   `error` or the close no sound event follows. During a drain (WIRE-146) sounds are sent until
   the `1012` close, which they never delay.
 
+- WIRE-170: `completed.transcript` carries no leading or trailing whitespace, and a turn
+  with no words is `""`. The service trims every transcript it sends, and the client refuses
+  a `completed` event that breaks the rule as a malformed server event. Deltas are provisional
+  and follow no such rule (WIRE-71).
+
+- WIRE-136: `completed.languages` is `[{"code": "<code>"}]` with exactly one element, the
+  language the turn was decoded in: also for a session of one language, for a turn heard in
+  the main language because the identifier did not know, and for an empty transcript. It is
+  never `[]`, which deviates from OpenAI, whose `languages` may come back empty. `failed` and
+  `error` carry no language.
+
+- WIRE-150: `completed.traceparent` is the W3C `traceparent` of the trace the service
+  started at the turn's end and wrote the turn's `turn_end_wait.ended` and `hearing.ended`
+  lines under: a turn has no client message to carry a trace, so the service sends its own,
+  a trace of its own for each turn and never the upgrade's (WIRE-149). A client reads it as
+  optional: a service from before the field sends none. An app that runs its handling of
+  the turn under `logline.unit_trace(traceparent)` writes its lines in the turn's trace;
+  `speech_client.utterances` hands it over with the `item_id` in the `Utterance`.
+
+- WIRE-78: Every server event has a fresh `event_id`. Correlate by `item_id`: OpenAI does not
+  order completions across items;
+- WIRE-79: here the second ended turn's `completed` waits
+  for the first's, so they come in turn order, but do not depend on it.
+
 **Sustained speech.**
 
 - WIRE-172: A session asks for it with `session.audio.input.sustained_speech`
@@ -421,30 +445,6 @@ audio, pre-roll included.
   once (WIRE-80). The event is sent while a drain runs (WIRE-146), until the `1012` close;
   after an `error`, a `failed` or the close none follows. It is counted as audio arrives,
   so it never delays a receive or a decode.
-
-- WIRE-170: `completed.transcript` carries no leading or trailing whitespace, and a turn
-  with no words is `""`. The service trims every transcript it sends, and the client refuses
-  a `completed` event that breaks the rule as a malformed server event. Deltas are provisional
-  and follow no such rule (WIRE-71).
-
-- WIRE-136: `completed.languages` is `[{"code": "<code>"}]` with exactly one element, the
-  language the turn was decoded in: also for a session of one language, for a turn heard in
-  the main language because the identifier did not know, and for an empty transcript. It is
-  never `[]`, which deviates from OpenAI, whose `languages` may come back empty. `failed` and
-  `error` carry no language.
-
-- WIRE-150: `completed.traceparent` is the W3C `traceparent` of the trace the service
-  started at the turn's end and wrote the turn's `turn_end_wait.ended` and `hearing.ended`
-  lines under: a turn has no client message to carry a trace, so the service sends its own,
-  a trace of its own for each turn and never the upgrade's (WIRE-149). A client reads it as
-  optional: a service from before the field sends none. An app that runs its handling of
-  the turn under `logline.unit_trace(traceparent)` writes its lines in the turn's trace;
-  `speech_client.utterances` hands it over with the `item_id` in the `Utterance`.
-
-- WIRE-78: Every server event has a fresh `event_id`. Correlate by `item_id`: OpenAI does not
-  order completions across items;
-- WIRE-79: here the second ended turn's `completed` waits
-  for the first's, so they come in turn order, but do not depend on it.
 
 **Every announced item ends once.**
 
