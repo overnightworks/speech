@@ -1,8 +1,0 @@
-claim_id = "751893918c174322a4b2f44380d2da20"
-agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
-role = "builder"
-base = "3bd6e5fb54004707a1001762425431ea92d7442f"
-branch = "claude/issue-679-the-played-seconds-module-s-cells-run-on"
-scope = ["tests/fixtures/browser", "tests/support/browser_player_support.py", "tests/test_wire_route_browser_player_hold.py", "tests/test_wire_route_browser_player_played_seconds.py"]
-opened_commit = "fa909e6415636d111a797400c18ab8b07fb6a2fa"
-whole_reason = "The cells, the stage they step and the shim members they need move together; a cell half on each stage proves nothing."
