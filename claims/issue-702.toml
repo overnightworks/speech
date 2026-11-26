@@ -1,7 +1,0 @@
-claim_id = "98428803b41c4307b87397a64713b27d"
-agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
-role = "builder"
-base = "3dfae075ef6153fb07b28c3c9b9bd57f6383cb75"
-branch = "claude/issue-702-service-group-by-webauth-group-path"
-scope = ["src/speech_service/config.py", "tests/test_config_callers.py"]
-opened_commit = "a618761db24841dfefe341378d6a6f97790a742d"
