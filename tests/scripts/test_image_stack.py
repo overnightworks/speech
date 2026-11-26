@@ -192,3 +192,17 @@ def test_a_service_started_with_an_override_keeps_the_log_and_the_proofs_files(
     assert session.logs == ["the log"]
     assert "--force-recreate" in commands[-1]
     assert commands[-1][-1] == image_stack.SERVICE
+
+
+def test_an_image_environment_is_read_from_the_image_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def inspect(*arguments: str, **_: object) -> str:
+        assert arguments[-1] == "image-under-proof"
+        return json.dumps(["PATH=/bin:/usr/bin", "SPEECH_SETTING=a=b"])
+
+    monkeypatch.setattr(image_stack, "docker", inspect)
+
+    environment = image_stack.image_environment("image-under-proof")
+
+    assert environment["SPEECH_SETTING"] == "a=b"

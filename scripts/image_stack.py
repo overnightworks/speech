@@ -161,6 +161,14 @@ def docker(*arguments: str, stdin: str | None = None) -> str:
     return completed.stdout
 
 
+def image_environment(image: str) -> dict[str, str]:
+    """The environment `image` carries itself, as `docker image inspect` lists it."""
+    entries = json.loads(
+        docker("image", "inspect", "--format", "{{json .Config.Env}}", image)
+    )
+    return dict(entry.split("=", 1) for entry in entries)
+
+
 def container_of(compose: Compose, service: str) -> str:
     """The id of the one container of `service`."""
     return compose.run("ps", "--quiet", service).stdout.strip()

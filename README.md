@@ -88,8 +88,8 @@ Every setting is read from `SPEECH_*`. The wire's settings are in
 | `SPEECH_PORT` | `8080` | TCP port |
 | `SPEECH_DEVICE` | `cuda` | Hearing's device, `cuda` or `cpu`; Piper stays on the CPU, Qwen on `cuda` |
 | `SPEECH_CATALOGUE_FILE` | none, required | Absolute path of [`deploy/catalogue.toml`](deploy/catalogue.toml); the images set it |
-| `SPEECH_VOICE_CACHE` | `~/.cache/piper` | Where Piper's files are kept and fetched to |
-| `SPEECH_HUGGINGFACE_CACHE` | the Hub cache | Where hearing's and Qwen's files are kept and fetched to |
+| `SPEECH_VOICE_CACHE` | `~/.cache/piper` | Where Piper's files are kept and fetched to; the images set `/opt/voices` |
+| `SPEECH_HUGGINGFACE_CACHE` | the Hub cache | Where hearing's and Qwen's files are kept and fetched to; the images set `/opt/hearing` |
 | `SPEECH_PROVIDER_ROOT` | none | Directory of the provider environments; a GPU voice needs it, and with it the default offer holds every catalogue voice |
 | `SPEECH_SOUND_EVENTS` | `true` | With hearing, whether sounds are detected for a session that asks; `false` loads no sound model |
 | `SPEECH_SOUND_MODEL_DIRECTORY` | `~/.cache/frame-mn10` | Absolute path of the model `scripts/build_sound_model.py` builds; the images set `/opt/sound-model` |

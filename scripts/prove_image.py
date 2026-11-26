@@ -79,6 +79,7 @@ from image_stack import (
     docker,
     form_of_size,
     healthcheck_passes,
+    image_environment,
     new_project,
     remove_image,
     seconds_until_healthy,
@@ -181,7 +182,7 @@ def _locked_set() -> set[str]:
 
 def cell_contents(plain: Compose) -> None:
     """Cell 2: the image holds the locked set, the pinned voices and hearing model."""
-    environment = service_config(plain)["environment"]
+    environment = image_environment(plain.project)
     voice_hashes = {
         Path(file.path).name: file.sha256
         for voice in CATALOGUE.values()
@@ -357,7 +358,7 @@ def cell_hearing_ready(session: Session, plain: Compose, seconds: float) -> None
     `seconds` is cell 3's measure of the first start.
     """
     service = service_config(plain)
-    model = service["environment"][HEARING_MODEL_SETTING]
+    model = image_environment(plain.project)[HEARING_MODEL_SETTING]
     passes = healthcheck_passes(session.compose, service["healthcheck"])
     require_hearing_ready(session.health(), model, healthcheck_passes=passes)
     start_period = service["healthcheck"]["start_period"]
@@ -524,7 +525,7 @@ def cell_hearing_restart(session: Session, wav: bytes, plain: Compose) -> None:
     service = service_config(plain)
     require_hearing_ready(
         session.health(),
-        service["environment"][HEARING_MODEL_SETTING],
+        image_environment(plain.project)[HEARING_MODEL_SETTING],
         healthcheck_passes=healthcheck_passes(compose, service["healthcheck"]),
     )
     health = session.health()
@@ -601,9 +602,9 @@ def cell_hearing_negatives(session: Session, wav: bytes) -> None:
 
 
 def require_hearing_model_negatives(session: Session) -> None:
-    """A compose file without the model and an image without it each fail."""
+    """A start without the model and an image without it each fail."""
     plain = session.compose.with_files(session.compose.files[:1])
-    model = service_config(plain)["environment"][HEARING_MODEL_SETTING]
+    model = image_environment(plain.project)[HEARING_MODEL_SETTING]
     without = start_with(session, NO_MODEL_OVERRIDE)
     wait_until_speaking_alone(session)
     passes = healthcheck_passes(without, service_config(without)["healthcheck"])
@@ -611,7 +612,7 @@ def require_hearing_model_negatives(session: Session) -> None:
         lambda: require_hearing_ready(
             session.health(), model, healthcheck_passes=passes
         ),
-        "a compose file without the model",
+        "a start without the model",
         naming="hearing is not ready",
     )
     if passes:
@@ -699,7 +700,7 @@ def hearing_cells(
     session: Session, plain: Compose, wav: bytes, started_after: float
 ) -> None:
     """Cells 13 to 19 and 24: hearing in the image, after a start of `started_after`."""
-    model = HearingModel(service_config(plain)["environment"][HEARING_MODEL_SETTING])
+    model = HearingModel(image_environment(plain.project)[HEARING_MODEL_SETTING])
     cell_hearing_ready(session, plain, started_after)
     cell_recording(session, wav)
     cell_english_voice(session, model)
