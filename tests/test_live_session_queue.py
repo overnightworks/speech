@@ -2,10 +2,14 @@
 
 import asyncio
 
+from speech_client.realtime_wire import (
+    AudioCommitted,
+    SpeechStarted,
+    TranscriptCompleted,
+)
 from tests.support.clock_support import FakeClock
 from tests.support.hear_support import FakeHearing, loaded
 from tests.support.live_support import (
-    COMPLETED,
     WAIT_SECONDS,
     FakeSocket,
     StallingSocket,
@@ -40,7 +44,9 @@ def test_finals_of_several_sessions_are_served_in_arrival_order_before_file_jobs
             await commit_a_turn(session, seconds)
         running.close()
         for _, socket in sessions:
-            await socket.until(lambda socket=socket: bool(socket.of_type(COMPLETED)))
+            await socket.until(
+                lambda socket=socket: bool(socket.of_type(TranscriptCompleted))
+            )
         file_lease = await file_job
         assert file_lease is not None
         heard_before_the_file_job = len(engine.heard)
@@ -74,16 +80,16 @@ def test_a_second_ended_turn_decodes_before_a_waiting_file_job_and_follows() -> 
         file = asyncio.create_task(file_job(), eager_start=True)
         await commit_a_turn(session, 0.4)
         engine.release.set()
-        await socket.until(lambda: len(socket.of_type(COMPLETED)) == FINALS)
+        await socket.until(lambda: len(socket.of_type(TranscriptCompleted)) == FINALS)
         await file
         return socket, heard_when_the_file_job_runs[0]
 
     socket, heard_when_the_file_job_runs = asyncio.run(scenario())
 
-    committed = socket.of_type("input_audio_buffer.committed")
+    committed = socket.of_type(AudioCommitted)
     assert heard_when_the_file_job_runs == FINALS
-    assert [done["item_id"] for done in socket.of_type(COMPLETED)] == [
-        turn["item_id"] for turn in committed
+    assert [done.item_id for done in socket.of_type(TranscriptCompleted)] == [
+        turn.item_id for turn in committed
     ]
 
 
@@ -96,7 +102,7 @@ def test_a_stalled_send_of_the_first_completed_does_not_hold_the_second_decode()
         engine = FakeHearing(hold=True)
         clock = FakeClock()
         hearing = loaded(engine, clock)
-        socket = StallingSocket(COMPLETED)
+        socket = StallingSocket(TranscriptCompleted)
         session, _ = await started(hearing, socket=socket)
         await commit_a_turn(session)
         assert await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
@@ -110,13 +116,13 @@ def test_a_stalled_send_of_the_first_completed_does_not_hold_the_second_decode()
         heard_when_the_gate_is_free = len(engine.heard)
         lease.close()
         socket.proceed.set()
-        await socket.until(lambda: len(socket.of_type(COMPLETED)) == FINALS)
+        await socket.until(lambda: len(socket.of_type(TranscriptCompleted)) == FINALS)
         return socket, heard_when_the_gate_is_free
 
     socket, heard_when_the_gate_is_free = asyncio.run(scenario())
 
     assert heard_when_the_gate_is_free == FINALS
-    assert len(socket.of_type(COMPLETED)) == FINALS
+    assert len(socket.of_type(TranscriptCompleted)) == FINALS
 
 
 def test_a_stalled_send_at_the_second_turns_end_lets_nothing_pass_its_decode() -> None:
@@ -126,7 +132,7 @@ def test_a_stalled_send_at_the_second_turns_end_lets_nothing_pass_its_decode() -
         engine = FakeHearing(hold=True)
         clock = FakeClock()
         hearing = loaded(engine, clock)
-        socket = StallingSocket("input_audio_buffer.committed", occurrence=2)
+        socket = StallingSocket(AudioCommitted, occurrence=2)
         session, _ = await started(hearing, socket=socket)
         other, other_socket = await started(hearing)
         await commit_a_turn(session, 0.3)
@@ -147,7 +153,9 @@ def test_a_stalled_send_at_the_second_turns_end_lets_nothing_pass_its_decode() -
         await asyncio.wait_for(file, WAIT_SECONDS)
         socket.proceed.set()
         await second
-        await other_socket.until(lambda: bool(other_socket.of_type(COMPLETED)))
+        await other_socket.until(
+            lambda: bool(other_socket.of_type(TranscriptCompleted))
+        )
         return [size for size, _ in engine.heard], heard_when_the_file_job_runs[0]
 
     sizes, heard_when_the_file_job_runs = asyncio.run(scenario())
@@ -168,7 +176,7 @@ def test_a_capped_turn_behind_a_stalled_send_queues_before_a_file_job() -> None:
         file = asyncio.create_task(
             hearing.gate.acquire(clock.now() + WAIT_SECONDS, 1), eager_start=True
         )
-        socket = StallingSocket("input_audio_buffer.speech_started")
+        socket = StallingSocket(SpeechStarted)
         session, _ = await started(hearing, socket=socket)
         append_past_the_cap = asyncio.create_task(
             session.on_message(append(audio(CAP_PLUS_SECONDS)))
@@ -196,7 +204,7 @@ def test_a_final_whose_turn_end_send_stalls_past_its_wait_is_never_heard() -> No
         hearing = loaded(engine, clock)
         running = hearing.gate.try_acquire()
         assert running is not None
-        socket = StallingSocket("input_audio_buffer.committed")
+        socket = StallingSocket(AudioCommitted)
         session, _ = await started(
             hearing, final_wait_seconds=WAIT_SECONDS, socket=socket
         )
@@ -230,7 +238,7 @@ def test_a_turn_that_ends_stands_in_the_gates_queue_before_a_waiting_file_job() 
         session, socket = await started(hearing)
         await commit_a_turn(session)
         running.close()
-        await socket.until(lambda: bool(socket.of_type(COMPLETED)))
+        await socket.until(lambda: bool(socket.of_type(TranscriptCompleted)))
         file_lease = await asyncio.wait_for(file, WAIT_SECONDS)
         return file_lease is not None, len(engine.heard) == 1
 
@@ -248,15 +256,17 @@ def test_a_waiting_turn_is_heard_after_the_outstanding_final() -> None:
         session, socket = await started(loaded(engine, FakeClock()))
         await commit_a_turn(session)
         await commit_a_turn(session)
-        announced = len(socket.of_type("input_audio_buffer.committed"))
+        announced = len(socket.of_type(AudioCommitted))
         engine.release.set()
-        await socket.until(lambda: len(socket.of_type(COMPLETED)) == announced)
+        await socket.until(
+            lambda: len(socket.of_type(TranscriptCompleted)) == announced
+        )
         await session.settled()
         return socket
 
     socket = asyncio.run(scenario())
 
-    committed = socket.of_type("input_audio_buffer.committed")
-    assert [done["item_id"] for done in socket.of_type(COMPLETED)] == [
-        turn["item_id"] for turn in committed
+    committed = socket.of_type(AudioCommitted)
+    assert [done.item_id for done in socket.of_type(TranscriptCompleted)] == [
+        turn.item_id for turn in committed
     ]

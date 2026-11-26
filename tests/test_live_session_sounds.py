@@ -8,12 +8,18 @@ import pytest
 from logline.testing import configured
 from starlette.status import WS_1012_SERVICE_RESTART
 
+from speech_client.realtime_wire import (
+    ErrorEvent,
+    SessionCreated,
+    SessionUpdated,
+    SoundDetected,
+    SoundName,
+    TranscriptCompleted,
+)
 from tests.support.clock_support import FakeClock
 from tests.support.hear_support import FakeHearing, loaded
 from tests.support.live_support import (
     ASK_FOR_SOUNDS,
-    COMPLETED,
-    SOUND_DETECTED,
     FakeSocket,
     append,
     audio,
@@ -63,8 +69,8 @@ async def _in_flight(model: FakeSoundModel) -> None:
     await asyncio.to_thread(model.entered.wait, WAIT_SECONDS)
 
 
-def _sound_events(socket: FakeSocket) -> list[dict[str, object]]:
-    return socket.of_type(SOUND_DETECTED)
+def _sound_events(socket: FakeSocket) -> list[SoundDetected]:
+    return socket.of_type(SoundDetected)
 
 
 def test_a_session_that_asks_is_echoed_the_ask_and_gets_one_event_per_sound(
@@ -82,13 +88,13 @@ def test_a_session_that_asks_is_echoed_the_ask_and_gets_one_event_per_sound(
 
     socket = asyncio.run(scenario())
 
-    (echo,) = socket.of_type("session.updated")
-    assert echo["session"]["audio"]["input"]["sound_detection"] == ASK_FOR_SOUNDS
+    (echo,) = socket.of_type(SessionUpdated)
+    assert echo.session.audio.input.sound_detection.model_dump() == ASK_FOR_SOUNDS
     (heard,) = _sound_events(socket)
-    assert heard["sound"] == "Laughter"
-    assert (heard["audio_start_ms"], heard["audio_end_ms"]) == (0, 2000)
-    assert "item_id" not in heard
-    assert heard["event_id"]
+    assert heard.sound == SoundName.LAUGHTER
+    assert (heard.audio_start_ms, heard.audio_end_ms) == (0, 2000)
+    assert "item_id" not in heard.model_dump()
+    assert heard.event_id
 
 
 def test_a_session_that_does_not_ask_is_scored_nowhere_and_echoed_no_field(
@@ -108,10 +114,13 @@ def test_a_session_that_does_not_ask_is_scored_nowhere_and_echoed_no_field(
 
     socket, model = asyncio.run(scenario())
 
-    assert "sound_detection" not in json.dumps(socket.of_type("session.updated"))
+    assert all(
+        echo.session.audio.input.sound_detection is None
+        for echo in socket.of_type(SessionUpdated)
+    )
     assert _sound_events(socket) == []
     assert model.windows == []
-    assert COMPLETED in socket.types()
+    assert TranscriptCompleted in socket.types()
 
 
 @pytest.mark.parametrize("ask", [True, False], ids=["asked", "not-asked"])
@@ -131,9 +140,12 @@ def test_a_hearing_without_sounds_echoes_no_field_hears_on_and_sends_no_event(
 
     socket = asyncio.run(scenario())
 
-    assert "sound_detection" not in json.dumps(socket.of_type("session.updated"))
+    assert all(
+        echo.session.audio.input.sound_detection is None
+        for echo in socket.of_type(SessionUpdated)
+    )
     assert _sound_events(socket) == []
-    assert COMPLETED in socket.types()
+    assert TranscriptCompleted in socket.types()
 
 
 @pytest.mark.parametrize(
@@ -155,7 +167,9 @@ def test_an_ask_of_another_kind_ends_the_session_invalid(
     socket = asyncio.run(scenario())
 
     assert end_is(socket, "invalid_request", failed=0)
-    assert socket.of_type("error")[0]["error"]["param"].endswith("sound_detection.type")
+    (param,) = (event.error.param for event in socket.of_type(ErrorEvent))
+    assert param is not None
+    assert param.endswith("sound_detection.type")
 
 
 def test_a_run_that_raises_ends_the_session_unavailable_with_no_sound_after(
@@ -274,7 +288,7 @@ def test_a_hop_in_flight_when_the_client_leaves_sends_nothing(tmp_path: Path) ->
 
     socket = asyncio.run(scenario())
 
-    assert socket.types() == ["session.created", "session.updated"]
+    assert socket.types() == [SessionCreated, SessionUpdated]
 
 
 def test_sounds_are_sent_during_a_drain_and_the_close_is_the_turns(
@@ -295,9 +309,9 @@ def test_sounds_are_sent_during_a_drain_and_the_close_is_the_turns(
 
     socket = asyncio.run(scenario())
 
-    assert [event["sound"] for event in _sound_events(socket)] == ["Laughter"]
-    assert COMPLETED in socket.types()
-    assert "error" not in socket.types()
+    assert [event.sound for event in _sound_events(socket)] == [SoundName.LAUGHTER]
+    assert TranscriptCompleted in socket.types()
+    assert ErrorEvent not in socket.types()
     assert socket.close_code == WS_1012_SERVICE_RESTART
 
 

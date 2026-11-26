@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 from logline.testing import configured
 
+from speech_client.realtime_wire import TranscriptCompleted
 from speech_client.wire import RefusalCode
 from speech_service.voice_activity import WINDOW_SECONDS
 from tests.support.clock_support import FakeClock
@@ -31,7 +32,6 @@ if TYPE_CHECKING:
 SPEECH_WINDOWS = 16
 WAIT = "turn_end_wait.ended"
 HEARING = "hearing.ended"
-TRANSCRIPT_COMPLETED = "conversation.item.input_audio_transcription.completed"
 Line = dict[str, object]
 
 
@@ -110,18 +110,18 @@ def test_every_turn_has_its_own_trace_and_its_transcript_names_it(
     turn: Callable[[LiveSession], Awaitable[None]], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """WIRE-75, WIRE-150: the event names the trace of the turn's lines."""
-    completed: list[dict[str, object]] = []
+    completed: list[TranscriptCompleted] = []
 
     async def scenario() -> None:
         session, socket = await started(loaded(FakeHearing(), FakeClock()))
         for _ in range(2):
             await turn(session)
             await session.settled()
-        completed.extend(socket.of_type(TRANSCRIPT_COMPLETED))
+        completed.extend(socket.of_type(TranscriptCompleted))
 
     first_wait, first_hearing, second_wait, second_hearing = _drive(scenario, capsys)
 
-    first, second = (_trace_id_of(event["traceparent"]) for event in completed)
+    first, second = (_trace_id_of(event.traceparent) for event in completed)
     assert first == first_wait["trace_id"] == first_hearing["trace_id"]
     assert second == second_wait["trace_id"] == second_hearing["trace_id"]
     assert first != second

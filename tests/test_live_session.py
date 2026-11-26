@@ -6,6 +6,18 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from speech_client.realtime_wire import (
+    AudioCommitted,
+    ErrorEvent,
+    ItemCreated,
+    SessionCreated,
+    SessionUpdated,
+    SpeechStarted,
+    SpeechStopped,
+    TranscriptCompleted,
+    TranscriptDelta,
+    TranscriptFailed,
+)
 from speech_client.wire import Language
 from speech_service.admission_gate import Lease
 from speech_service.live_session import POLL_WAIT_SECONDS, poll_forever
@@ -13,8 +25,6 @@ from speech_service.voice_activity import WINDOW_SECONDS
 from tests.support.clock_support import FakeClock
 from tests.support.hear_support import HEARD_TEXT, FakeHearing, loaded
 from tests.support.live_support import (
-    COMPLETED,
-    FAILED,
     WAIT_SECONDS,
     FakeSocket,
     StallingSocket,
@@ -29,12 +39,12 @@ from tests.support.live_support import (
 )
 
 if TYPE_CHECKING:
+    from speech_client.realtime_wire import ServerEvent
     from speech_service.hearing import HearingEngine
 
 POLLS = 3
 THREE_TURNS_SECONDS = 4 * 30 + 1
 BLOCKER_AND_MARKER = 2
-DELTA = "conversation.item.input_audio_transcription.delta"
 # Half a second of speech touches 16 windows; 16 windows of silence end the turn.
 QUESTION_WINDOWS = 32
 
@@ -52,8 +62,10 @@ def test_the_session_opens_with_the_default_session() -> None:
 
     socket = asyncio.run(scenario())
 
-    assert socket.types() == ["session.created"]
-    assert json.dumps(socket.events[0]["session"]).count('"de"') == 1
+    assert socket.types() == [SessionCreated]
+    assert (
+        socket.of_type(SessionCreated)[0].session.model_dump_json().count('"de"') == 1
+    )
 
 
 def test_a_question_without_a_commit_is_announced_ended_and_heard_once() -> None:
@@ -68,19 +80,17 @@ def test_a_question_without_a_commit_is_announced_ended_and_heard_once() -> None
     socket = asyncio.run(scenario())
 
     assert socket.types() == [
-        "session.created",
-        "input_audio_buffer.speech_started",
-        "input_audio_buffer.speech_stopped",
-        "input_audio_buffer.committed",
-        "conversation.item.created",
-        COMPLETED,
+        SessionCreated,
+        SpeechStarted,
+        SpeechStopped,
+        AudioCommitted,
+        ItemCreated,
+        TranscriptCompleted,
     ]
-    assert len({event["item_id"] for event in socket.events[1:4]}) == 1
-    assert socket.events[-1]["transcript"] == HEARD_TEXT
-    assert socket.events[-1]["usage"] == {
-        "type": "duration",
-        "seconds": pytest.approx(QUESTION_WINDOWS * WINDOW_SECONDS),
-    }
+    assert len({event.item_id for event in socket.events[1:4]}) == 1
+    (completed,) = socket.of_type(TranscriptCompleted)
+    assert completed.transcript == HEARD_TEXT
+    assert completed.usage.seconds == pytest.approx(QUESTION_WINDOWS * WINDOW_SECONDS)
 
 
 @pytest.mark.parametrize(
@@ -115,8 +125,10 @@ def test_a_valid_update_is_answered_with_the_applied_session() -> None:
 
     socket = asyncio.run(scenario())
 
-    assert socket.events[-1]["type"] == "session.updated"
-    assert json.dumps(socket.events[-1]["session"]).count('"en"') == 1
+    assert socket.types()[-1] is SessionUpdated
+    assert (
+        socket.of_type(SessionUpdated)[0].session.model_dump_json().count('"en"') == 1
+    )
 
 
 @pytest.mark.parametrize(
@@ -146,9 +158,9 @@ def test_every_completed_item_names_exactly_the_language_it_was_heard_in(
 
     socket, engine = asyncio.run(scenario())
 
-    (completed,) = socket.of_type(COMPLETED)
+    (completed,) = socket.of_type(TranscriptCompleted)
     (_, allowed) = engine.heard[0]
-    assert completed["languages"] == [{"code": (heard_in or allowed[0]).value}]
+    assert [spoken.code for spoken in completed.languages] == [heard_in or allowed[0]]
 
 
 def test_the_final_names_its_own_language_and_the_deltas_name_none() -> None:
@@ -174,12 +186,10 @@ def test_the_final_names_its_own_language_and_the_deltas_name_none() -> None:
 
     socket = asyncio.run(scenario())
 
-    deltas = socket.of_type(DELTA)
-    assert deltas
-    assert all("languages" not in delta for delta in deltas)
-    (completed,) = socket.of_type(COMPLETED)
-    assert completed["languages"] == [{"code": "en"}]
-    assert completed["transcript"] == "Good morning"
+    assert socket.of_type(TranscriptDelta)
+    (completed,) = socket.of_type(TranscriptCompleted)
+    assert [spoken.code for spoken in completed.languages] == [Language.EN]
+    assert completed.transcript == "Good morning"
 
 
 def test_two_questions_make_two_items_chained_by_their_predecessor() -> None:
@@ -194,17 +204,14 @@ def test_two_questions_make_two_items_chained_by_their_predecessor() -> None:
 
     socket = asyncio.run(scenario())
 
-    first, second = socket.of_type("input_audio_buffer.committed")
-    created = socket.of_type("conversation.item.created")
-    assert first["item_id"] != second["item_id"]
-    assert (first["previous_item_id"], second["previous_item_id"]) == (
-        None,
-        first["item_id"],
-    )
-    assert created[1]["previous_item_id"] == first["item_id"]
-    assert [done["item_id"] for done in socket.of_type(COMPLETED)] == [
-        first["item_id"],
-        second["item_id"],
+    first, second = socket.of_type(AudioCommitted)
+    created = socket.of_type(ItemCreated)
+    assert first.item_id != second.item_id
+    assert (first.previous_item_id, second.previous_item_id) == (None, first.item_id)
+    assert created[1].previous_item_id == first.item_id
+    assert [done.item_id for done in socket.of_type(TranscriptCompleted)] == [
+        first.item_id,
+        second.item_id,
     ]
 
 
@@ -225,8 +232,8 @@ def test_deltas_carry_the_words_two_decodes_agree_on() -> None:
 
     socket = asyncio.run(scenario())
 
-    item = socket.of_type("input_audio_buffer.speech_started")[0]["item_id"]
-    assert [(d["item_id"], d["delta"]) for d in socket.of_type(DELTA)] == [
+    item = socket.of_type(SpeechStarted)[0].item_id
+    assert [(d.item_id, d.delta) for d in socket.of_type(TranscriptDelta)] == [
         (item, HEARD_TEXT)
     ]
 
@@ -247,7 +254,7 @@ def test_a_contended_partial_tick_is_skipped_without_an_error() -> None:
 
     socket, engine = asyncio.run(scenario())
 
-    assert socket.types() == ["session.created", "input_audio_buffer.speech_started"]
+    assert socket.types() == [SessionCreated, SpeechStarted]
     assert engine.heard == []
 
 
@@ -261,11 +268,11 @@ def test_a_commit_mid_speech_ends_the_turn_without_a_speech_stopped() -> None:
         return socket
 
     assert asyncio.run(scenario()).types() == [
-        "session.created",
-        "input_audio_buffer.speech_started",
-        "input_audio_buffer.committed",
-        "conversation.item.created",
-        COMPLETED,
+        SessionCreated,
+        SpeechStarted,
+        AudioCommitted,
+        ItemCreated,
+        TranscriptCompleted,
     ]
 
 
@@ -284,9 +291,9 @@ def test_a_commit_with_no_audio_ends_the_session_failing_the_announced_item() ->
     socket = asyncio.run(scenario())
 
     assert end_is(socket, "invalid_request", failed=1)
-    assert socket.of_type("error")[0]["error"]["event_id"] == "empty"
-    committed = socket.of_type("input_audio_buffer.committed")[0]
-    assert socket.of_type(FAILED)[0]["item_id"] == committed["item_id"]
+    assert socket.of_type(ErrorEvent)[0].error.event_id == "empty"
+    committed = socket.of_type(AudioCommitted)[0]
+    assert socket.of_type(TranscriptFailed)[0].item_id == committed.item_id
 
 
 @pytest.mark.parametrize(
@@ -323,7 +330,7 @@ def test_a_message_that_breaks_the_protocol_ends_the_session(
     socket = asyncio.run(scenario())
 
     assert end_is(socket, "invalid_request", failed=0)
-    assert socket.of_type("error")[0]["error"]["param"] == param
+    assert socket.of_type(ErrorEvent)[0].error.param == param
 
 
 @pytest.mark.parametrize(
@@ -344,7 +351,7 @@ def test_the_setup_is_one_update_before_the_first_audio(messages: list[str]) -> 
 
 
 def test_a_session_that_ended_takes_nothing_more() -> None:
-    async def scenario() -> list[object]:
+    async def scenario() -> list[type[ServerEvent]]:
         session, socket = await started(loaded(FakeHearing(), FakeClock()))
         await session.on_message("not json")
         sent = len(socket.events)
@@ -366,15 +373,12 @@ def test_an_item_whose_final_decode_is_empty_completes_once_with_empty_text() ->
 
     socket = asyncio.run(scenario())
 
-    completed = socket.of_type(COMPLETED)
-    assert [event["transcript"] for event in completed] == [""]
-    assert [event["usage"] for event in completed] == [
-        {
-            "type": "duration",
-            "seconds": pytest.approx(QUESTION_WINDOWS * WINDOW_SECONDS),
-        }
+    completed = socket.of_type(TranscriptCompleted)
+    assert [event.transcript for event in completed] == [""]
+    assert [event.usage.seconds for event in completed] == [
+        pytest.approx(QUESTION_WINDOWS * WINDOW_SECONDS)
     ]
-    assert socket.of_type(FAILED) == []
+    assert socket.of_type(TranscriptFailed) == []
 
 
 def test_a_decode_failure_fails_every_announced_item_then_errors_and_closes() -> None:
@@ -394,7 +398,7 @@ def test_a_decode_failure_fails_every_announced_item_then_errors_and_closes() ->
     socket = asyncio.run(scenario())
 
     assert end_is(socket, "unavailable", failed=2)
-    assert socket.of_type(COMPLETED) == []
+    assert socket.of_type(TranscriptCompleted) == []
 
 
 def test_a_lost_engine_ends_the_session_as_unavailable() -> None:
@@ -419,7 +423,7 @@ def test_a_second_ended_turn_while_one_waits_ends_the_session_as_busy() -> None:
         await commit_a_turn(session)
         await commit_a_turn(session)
         await session.on_message(append(audio(0.3)))
-        assert not socket.of_type("error")
+        assert not socket.of_type(ErrorEvent)
         await session.on_message(commit())
         engine.release.set()
         await session.on_disconnect()
@@ -549,7 +553,7 @@ def test_a_result_that_arrives_after_the_session_ended_is_dropped() -> None:
 
     socket = asyncio.run(scenario())
 
-    assert socket.of_type(COMPLETED) == []
+    assert socket.of_type(TranscriptCompleted) == []
     assert end_is(socket, "invalid_request", failed=1)
 
 
@@ -559,7 +563,7 @@ def test_a_client_that_leaves_while_a_turns_events_go_out_gets_the_rest_unsent()
     """WIRE-83: a client that left is sent none of the turn's remaining events."""
 
     async def scenario() -> FakeSocket:
-        socket = StallingSocket("input_audio_buffer.committed")
+        socket = StallingSocket(AudioCommitted)
         session, _ = await started(
             loaded(FakeHearing(hold=True), FakeClock()), socket=socket
         )
@@ -574,9 +578,9 @@ def test_a_client_that_leaves_while_a_turns_events_go_out_gets_the_rest_unsent()
     socket = asyncio.run(scenario())
 
     assert socket.types() == [
-        "session.created",
-        "input_audio_buffer.speech_started",
-        "input_audio_buffer.committed",
+        SessionCreated,
+        SpeechStarted,
+        AudioCommitted,
     ]
 
 
@@ -668,7 +672,10 @@ def test_deltas_hold_back_words_the_decodes_disagree_on() -> None:
 
     socket = asyncio.run(scenario())
 
-    assert [event["delta"] for event in socket.of_type(DELTA)] == ["Guten", " Morgen"]
+    assert [event.delta for event in socket.of_type(TranscriptDelta)] == [
+        "Guten",
+        " Morgen",
+    ]
 
 
 def test_a_partial_that_fails_ends_the_session_as_unavailable() -> None:
@@ -711,10 +718,10 @@ def test_a_partial_that_returns_after_its_turn_ended_adds_no_delta() -> None:
         await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
         await session.on_message(commit())
         engine.release.set()
-        await socket.until(lambda: bool(socket.of_type(COMPLETED)))
+        await socket.until(lambda: bool(socket.of_type(TranscriptCompleted)))
         await session.settled()
         return socket
 
     socket = asyncio.run(scenario())
 
-    assert socket.of_type(DELTA) == []
+    assert socket.of_type(TranscriptDelta) == []

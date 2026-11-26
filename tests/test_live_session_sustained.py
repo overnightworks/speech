@@ -1,13 +1,24 @@
 """A session that asks for sustained speech gets one event per item once voice lasts."""
 
 import asyncio
-import json
 from itertools import groupby
 from typing import TYPE_CHECKING
 
 import pytest
 from starlette.status import WS_1012_SERVICE_RESTART
 
+from speech_client.realtime_wire import (
+    AudioCommitted,
+    ErrorEvent,
+    ItemCreated,
+    SessionCreated,
+    SessionUpdated,
+    SpeechStarted,
+    SpeechStopped,
+    SpeechSustained,
+    SustainedSpeech,
+    TranscriptCompleted,
+)
 from speech_service.hearing import DRAIN_TURN_SECONDS
 from speech_service.hearing_session import DEFAULT_SUSTAINED_SPEECH_MS
 from tests.support.clock_support import FakeClock
@@ -18,10 +29,7 @@ from tests.support.detector_support import (
 )
 from tests.support.hear_support import FakeHearing, loaded
 from tests.support.live_support import (
-    COMPLETED,
     SPEECH_LEVEL,
-    SPEECH_STOPPED,
-    SPEECH_SUSTAINED,
     WAIT_SECONDS,
     FakeSocket,
     append,
@@ -32,8 +40,6 @@ from tests.support.live_support import (
     windows,
 )
 
-STARTED = "input_audio_buffer.speech_started"
-COMMITTED = "input_audio_buffer.committed"
 FOUR_TENTHS = {"duration_ms": FOUR_TENTHS_MS}
 SILENCE_WINDOWS = 16
 PARAM = "session.audio.input.sustained_speech.duration_ms"
@@ -41,6 +47,7 @@ ITEMS = 4
 LEVELS = {"v": SPEECH_LEVEL, ".": 0}
 
 if TYPE_CHECKING:
+    from speech_client.realtime_wire import ServerEvent
     from speech_service.hearing import Hearing
     from speech_service.live_session import LiveSession
 
@@ -84,8 +91,8 @@ async def _end_by(
     await endings[ending]()
 
 
-def _sustained(socket: FakeSocket) -> list[dict[str, object]]:
-    return socket.of_type(SPEECH_SUSTAINED)
+def _sustained(socket: FakeSocket) -> list[SpeechSustained]:
+    return socket.of_type(SpeechSustained)
 
 
 @pytest.mark.parametrize(
@@ -107,11 +114,12 @@ def test_the_echo_carries_the_applied_duration_and_the_creation_none(
 
     socket = asyncio.run(scenario())
 
-    (echo,) = socket.of_type("session.updated")
-    assert echo["session"]["audio"]["input"]["sustained_speech"] == {
-        "duration_ms": applied
-    }
-    assert "sustained_speech" not in json.dumps(socket.of_type("session.created"))
+    (echo,) = socket.of_type(SessionUpdated)
+    assert echo.session.audio.input.sustained_speech == SustainedSpeech(
+        duration_ms=applied
+    )
+    (created,) = socket.of_type(SessionCreated)
+    assert created.session.audio.input.sustained_speech is None
 
 
 def test_a_session_that_does_not_ask_sees_no_field_and_no_event() -> None:
@@ -127,15 +135,15 @@ def test_a_session_that_does_not_ask_sees_no_field_and_no_event() -> None:
 
     socket = asyncio.run(scenario())
 
-    assert "sustained" not in json.dumps(socket.events)
+    assert not any("sustained" in event.model_dump_json() for event in socket.events)
     assert socket.types() == [
-        "session.created",
-        "session.updated",
-        STARTED,
-        SPEECH_STOPPED,
-        COMMITTED,
-        "conversation.item.created",
-        COMPLETED,
+        SessionCreated,
+        SessionUpdated,
+        SpeechStarted,
+        SpeechStopped,
+        AudioCommitted,
+        ItemCreated,
+        TranscriptCompleted,
     ]
 
 
@@ -156,8 +164,8 @@ def test_a_bad_ask_ends_the_session_invalid_naming_the_field(ask: object) -> Non
     socket = asyncio.run(scenario())
 
     assert end_is(socket, "invalid_request", failed=0)
-    assert socket.of_type("error")[0]["error"]["param"] == PARAM
-    assert socket.of_type("session.updated") == []
+    assert socket.of_type(ErrorEvent)[0].error.param == PARAM
+    assert socket.of_type(SessionUpdated) == []
 
 
 def test_the_event_names_its_item_and_the_end_of_the_window_of_the_count() -> None:
@@ -171,10 +179,10 @@ def test_the_event_names_its_item_and_the_end_of_the_window_of_the_count() -> No
     socket = asyncio.run(scenario())
 
     (event,) = _sustained(socket)
-    (opened,) = socket.of_type(STARTED)
-    assert event["item_id"] == opened["item_id"]
-    assert event["audio_end_ms"] == end_of_window(THRESHOLD_WINDOWS - 1)
-    assert event["event_id"]
+    (opened,) = socket.of_type(SpeechStarted)
+    assert event.item_id == opened.item_id
+    assert event.audio_end_ms == end_of_window(THRESHOLD_WINDOWS - 1)
+    assert event.event_id
 
 
 def test_the_event_lies_after_the_start_and_before_the_stop_and_the_commit() -> None:
@@ -190,14 +198,14 @@ def test_the_event_lies_after_the_start_and_before_the_stop_and_the_commit() -> 
 
     types = socket.types()
     assert types[:5] == [
-        "session.created",
-        "session.updated",
-        STARTED,
-        SPEECH_SUSTAINED,
-        SPEECH_STOPPED,
+        SessionCreated,
+        SessionUpdated,
+        SpeechStarted,
+        SpeechSustained,
+        SpeechStopped,
     ]
-    assert types.index(SPEECH_SUSTAINED) < types.index(COMMITTED)
-    assert types.count(COMPLETED) == 1
+    assert types.index(SpeechSustained) < types.index(AudioCommitted)
+    assert types.count(TranscriptCompleted) == 1
 
 
 def test_a_pre_roll_that_holds_the_count_has_its_event_right_after_the_start() -> None:
@@ -211,9 +219,9 @@ def test_a_pre_roll_that_holds_the_count_has_its_event_right_after_the_start() -
     socket = asyncio.run(scenario())
 
     (event,) = _sustained(socket)
-    assert event["audio_end_ms"] == end_of_window(5)
+    assert event.audio_end_ms == end_of_window(5)
     types = socket.types()
-    assert types.index(SPEECH_SUSTAINED) == types.index(STARTED) + 1
+    assert types.index(SpeechSustained) == types.index(SpeechStarted) + 1
 
 
 def test_each_item_gets_its_own_event_and_a_voice_that_stopped_first_none() -> None:
@@ -231,10 +239,10 @@ def test_each_item_gets_its_own_event_and_a_voice_that_stopped_first_none() -> N
     socket = asyncio.run(scenario())
 
     events = _sustained(socket)
-    items = [event["item_id"] for event in socket.of_type(STARTED)]
+    items = [event.item_id for event in socket.of_type(SpeechStarted)]
     assert len(items) == ITEMS
-    assert [event["item_id"] for event in events] == items[2:]
-    assert events[0]["audio_end_ms"] < events[1]["audio_end_ms"]
+    assert [event.item_id for event in events] == items[2:]
+    assert events[0].audio_end_ms < events[1].audio_end_ms
 
 
 @pytest.mark.parametrize("ending", ["silence", "commit", "drain-cut"])
@@ -253,8 +261,8 @@ def test_an_item_that_ends_before_the_count_has_no_event_and_ends_once(
     socket = asyncio.run(scenario())
 
     assert _sustained(socket) == []
-    assert socket.types().count(STARTED) == 1
-    assert socket.types().count(COMPLETED) == 1
+    assert socket.types().count(SpeechStarted) == 1
+    assert socket.types().count(TranscriptCompleted) == 1
 
 
 @pytest.mark.parametrize("ending", ["commit", "drain-cut"])
@@ -274,14 +282,18 @@ def test_an_item_that_ends_after_the_event_keeps_it_and_ends_once(
 
     assert len(_sustained(socket)) == 1
     types = socket.types()
-    assert types.index(STARTED) < types.index(SPEECH_SUSTAINED) < types.index(COMMITTED)
-    assert types.count(COMPLETED) == 1
+    assert (
+        types.index(SpeechStarted)
+        < types.index(SpeechSustained)
+        < types.index(AudioCommitted)
+    )
+    assert types.count(TranscriptCompleted) == 1
 
 
 def test_the_event_is_sent_to_a_draining_session_until_its_close() -> None:
     """WIRE-175: a drain sends the event while the open item runs, then closes 1012."""
 
-    async def scenario() -> tuple[FakeSocket, list[object]]:
+    async def scenario() -> tuple[FakeSocket, list[type[ServerEvent]]]:
         session, socket, hearing, clock = await _asking()
         await session.on_message(append(_voice("v" * 8)))
         hearing.begin_drain()
@@ -299,7 +311,7 @@ def test_the_event_is_sent_to_a_draining_session_until_its_close() -> None:
     assert socket.types() == closed_with
     assert len(_sustained(socket)) == 1
     assert socket.close_code == WS_1012_SERVICE_RESTART
-    assert socket.types().index(SPEECH_SUSTAINED) < socket.types().index(COMMITTED)
+    assert socket.types().index(SpeechSustained) < socket.types().index(AudioCommitted)
 
 
 def test_nothing_follows_an_error_not_even_a_sustained_voice() -> None:
@@ -314,7 +326,7 @@ def test_nothing_follows_an_error_not_even_a_sustained_voice() -> None:
 
     socket = asyncio.run(scenario())
 
-    assert socket.types()[-1] == "error"
+    assert socket.types()[-1] is ErrorEvent
     assert _sustained(socket) == []
 
 
@@ -322,7 +334,7 @@ def test_the_event_is_sent_while_a_decode_is_held() -> None:
     """WIRE-175: the event waits for no decode."""
     voiced_before_the_decode = 15
 
-    async def scenario() -> tuple[list[object], list[object]]:
+    async def scenario() -> tuple[list[object], list[type[ServerEvent]]]:
         engine = FakeHearing(hold=True)
         session, socket, _, _ = await _asking({"duration_ms": 800}, engine)
         await session.on_message(append(_voice("v" * voiced_before_the_decode)))
