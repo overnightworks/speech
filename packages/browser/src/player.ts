@@ -232,8 +232,11 @@ class PlayerRun {
     if (this.#closed) {
       return;
     }
-    if (this.#call !== undefined && this.#call.item === this.#playing?.item) {
-      this.#overtake(this.#call, { restoreVolume: true });
+    // A call on a queued target stays pending through the resume; one whose hold is under way, on the sound that plays or
+    // after the end of its target, gives overtaken.
+    const call = this.#call;
+    if (call !== undefined && (call.afterEnd || call.item === this.#playing?.item)) {
+      this.#overtake(call, { restoreVolume: true });
     }
     if (this.#flow === "running") {
       return;

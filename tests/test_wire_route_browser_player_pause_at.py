@@ -16,6 +16,7 @@ import pytest
 
 from tests.support.browser_player_support import (
     ABSENT,
+    action_times,
     CLICK_STEP,
     CUT_LATE,
     EDGE_SECONDS,
@@ -60,8 +61,6 @@ LEAD_SECONDS = 1.0
 WITHIN_AN_EDGE = 0.005
 # How long the stepped page is late between the fade's end and the suspend.
 LATE_PAGE_SECONDS = 0.3
-HELD = {"kind": "held"}
-SOUNDS_OF = {"whole": False, "streamed": True}
 WHOLE_OR_STREAMED = pytest.mark.parametrize(
     "streamed", [False, True], ids=["whole", "streamed"]
 )
@@ -716,3 +715,27 @@ def test_a_call_while_a_stops_edge_is_in_flight_is_overtaken(tmp_path: Path) -> 
 
     assert result_of(seen) == {"kind": "overtaken"}
     assert ends(seen) == ["stopped"]
+
+
+def test_resume_in_the_edge_of_a_hold_after_the_end_overtakes_the_call_and_plays_on(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with stepped(tmp_path) as stage:
+            await stage.hear_decoded(LONG, SHORT)
+            await stage.pause_at(0, LONG_SECONDS)
+            await stage.step_until(
+                "s.sounds[0].endedValue === 'played'",
+                within_seconds=LONG_SECONDS,
+                quanta=4,
+            )
+            await stage.act("resume")
+            await stage.until_resolved()
+            await stage.finish()
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    assert result_of(seen) == {"kind": "overtaken"}
+    assert ends(seen) == ["played", "played"]
+    assert seen["contextStates"][0] == "running"
