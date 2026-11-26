@@ -57,7 +57,7 @@ from tests.support.fakes_support import (
 from tests.support.tcp_server_support import serving_asgi, serving_over_tcp
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Mapping
+    from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 
     from playwright.async_api import Page
 
@@ -363,6 +363,15 @@ class SteppedStage(Stage):
         await self.step_until(HEARD, within_seconds=EDGE_SECONDS)
         await self.step_for(for_seconds)
 
+    async def hear_then_release(
+        self, *sounds: Mapping[str, str | int]
+    ) -> dict[str, object]:
+        """Hear the sounds, then let the app's held body go; the page's view before."""
+        await self.hear(*sounds)
+        before = await self.snapshot()
+        self.side.held_release.set()
+        return before
+
     async def hand_over_decoded(self, route: str) -> int:
         """Hand over the sound of the app's `route` as bytes the page decodes.
 
@@ -661,6 +670,16 @@ async def activated(tmp_path: Path) -> AsyncIterator[Stage]:
     async with unactivated(tmp_path) as stage:
         await _listening(stage)
         yield stage
+
+
+async def stepped_through(
+    tmp_path: Path, *steps: Callable[[SteppedStage], Awaitable[object]]
+) -> dict[str, object]:
+    """Each of the `steps` taken in turn on a stepped stage, then what the page saw."""
+    async with stepped(tmp_path) as stage:
+        for step in steps:
+            await step(stage)
+        return await stage.snapshot()
 
 
 @asynccontextmanager

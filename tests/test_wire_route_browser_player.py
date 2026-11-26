@@ -45,6 +45,7 @@ from tests.support.browser_player_support import (
     start_of,
     starts,
     stepped,
+    stepped_through,
     unactivated,
     url,
 )
@@ -199,14 +200,14 @@ def test_stop_twice_on_an_idle_player_reports_nothing(tmp_path: Path) -> None:
 def test_muting_ends_the_playing_and_waiting_sounds_at_once_and_silences_the_output(
     tmp_path: Path,
 ) -> None:
-    async def scenario() -> dict[str, object]:
-        async with stepped(tmp_path) as stage:
-            await stage.hear(url(LONG), url(SHORT))
-            await stage.set_muted(muted=True)
-            await stage.step_for(STRETCH_SECONDS)
-            return await stage.snapshot()
-
-    seen = asyncio.run(scenario())
+    seen = asyncio.run(
+        stepped_through(
+            tmp_path,
+            lambda stage: stage.hear(url(LONG), url(SHORT)),
+            lambda stage: stage.set_muted(muted=True),
+            lambda stage: stage.step_for(STRETCH_SECONDS),
+        )
+    )
 
     assert seen["endedAtAction"] == ["muted", "muted"]
     assert starts(seen) == ["playing", "ended"]
@@ -235,15 +236,16 @@ def test_a_sound_handed_over_while_muted_ends_muted_and_is_not_fetched(
 def test_unmuting_plays_the_next_sound_and_none_handed_over_before(
     tmp_path: Path,
 ) -> None:
-    async def scenario() -> dict[str, object]:
-        async with stepped(tmp_path) as stage:
-            await stage.hear(url(LONG), url(SHORT))
-            await stage.set_muted(muted=True)
-            await stage.set_muted(muted=False)
-            await stage.hand_over(url(OTHER))
-            return await stage.finish()
-
-    seen = asyncio.run(scenario())
+    seen = asyncio.run(
+        stepped_through(
+            tmp_path,
+            lambda stage: stage.hear(url(LONG), url(SHORT)),
+            lambda stage: stage.set_muted(muted=True),
+            lambda stage: stage.set_muted(muted=False),
+            lambda stage: stage.hand_over(url(OTHER)),
+            lambda stage: stage.finish(),
+        )
+    )
 
     assert ends(seen) == ["muted", "muted", "played"]
     assert starts(seen) == ["playing", "ended", "playing"]
@@ -274,9 +276,7 @@ def test_a_streamed_wav_starts_before_its_body_has_ended_and_plays_through_to_it
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
         async with stepped(tmp_path) as stage:
-            await stage.hear(url(STREAMED))
-            while_streaming = await stage.snapshot()
-            stage.side.held_release.set()
+            while_streaming = await stage.hear_then_release(url(STREAMED))
             return while_streaming, await stage.finish()
 
     while_streaming, seen = asyncio.run(scenario())
@@ -321,8 +321,7 @@ def test_a_streamed_wav_that_breaks_off_stops_playing_where_it_broke_and_fails(
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
         async with stepped(tmp_path) as stage:
-            await stage.hear(url(CUT_LATE), url(SHORT))
-            stage.side.held_release.set()
+            await stage.hear_then_release(url(CUT_LATE), url(SHORT))
             await stage.until("s.sounds[0].endedValue !== null")
             at_break = await stage.snapshot()
             return at_break, await stage.finish()
