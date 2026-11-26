@@ -3,6 +3,6 @@ agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
 role = "builder"
 base = "82b67319287dfa634569fdef57cf3634011c21ae"
 branch = "claude/issue-710-sustained-speech-event"
-scope = ["docs/wire.md", "packages/client/src/speech_client/realtime_wire.py", "packages/client/tests/test_realtime_wire.py", "src/speech_service/hearing_session.py", "src/speech_service/live_session.py", "tests/support/live_support.py", "tests/test_hearing_session.py", "tests/test_live_session.py", "tests/test_live_session_drain.py", "tests/test_live_session_sustained.py", "tests/test_wire_route_realtime.py"]
+scope = ["docs/wire.md", "packages/client/src/speech_client/realtime_wire.py", "packages/client/tests/test_realtime_wire.py", "src/speech_service/hearing_session.py", "src/speech_service/live_session.py", "tests/support/detector_support.py", "tests/support/live_support.py", "tests/test_hearing_session.py", "tests/test_live_session.py", "tests/test_live_session_drain.py", "tests/test_live_session_sustained.py", "tests/test_wire_route_realtime.py"]
 opened_commit = "0640c02bbedc82069ce98c930ab4216df8f9b53e"
 whole_reason = "The ask, the count, the event, the wire types and their rules are one contract: an event no session can ask for, or an ask with no event, is a half wire."
