@@ -1,0 +1,8 @@
+claim_id = "515df26bee0746e5a6e22febba713232"
+agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
+role = "builder"
+base = "f8f916f880835b15c33399cb0ca2ee7532e43642"
+branch = "claude/issue-700-client-last-unreached-sites"
+scope = ["packages/client/src/speech_client/_transport.py", "packages/client/src/speech_client/utterances.py", "packages/client/src/speech_client/voice_preference.py", "packages/client/tests/support/utterances_support.py", "packages/client/tests/test_utterances.py"]
+opened_commit = "a61f9c3b01dbab7373d4746204887e376b061c47"
+whole_reason = "Three dead-flow removals and one reconnect test close one finding, and each change is a few lines in a file no other lane holds."
