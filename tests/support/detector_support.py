@@ -16,6 +16,7 @@ LOUD_LEVEL = 5000
 _SPEECH_LEVEL = 1000
 # The ruled arithmetic: 0.4 s is 13 windows of 32 ms, and a pause of 5 windows is
 # longer than the 0.15 s bound where 4 are not.
+FOUR_TENTHS_MS = 400
 THRESHOLD_WINDOWS = 13
 
 

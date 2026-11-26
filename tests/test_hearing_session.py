@@ -22,6 +22,7 @@ from speech_service.voice_activity import (
     WINDOW_SECONDS,
 )
 from tests.support.detector_support import (
+    FOUR_TENTHS_MS,
     LOUD_LEVEL,
     THRESHOLD_WINDOWS,
     LevelDetector,
@@ -344,7 +345,6 @@ def test_a_turn_ended_by_the_client_leaves_the_next_to_start_at_its_end() -> Non
 # One character is one 32 ms window: voiced speech, a faint voiced window that only
 # the pre-roll can hold, or a window that is not voiced.
 _WINDOW_PROBABILITY = {"v": 0.9, "f": 0.4, ".": 0.0}
-FOUR_TENTHS_MS = 400
 SHORT_PAUSE = "." * 4
 LONG_PAUSE = "." * 5
 PRE_ROLL_WINDOWS = int(PRE_ROLL_SECONDS / WINDOW_SECONDS)

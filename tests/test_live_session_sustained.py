@@ -11,7 +11,11 @@ from starlette.status import WS_1012_SERVICE_RESTART
 from speech_service.hearing import DRAIN_TURN_SECONDS
 from speech_service.hearing_session import DEFAULT_SUSTAINED_SPEECH_MS
 from tests.support.clock_support import FakeClock
-from tests.support.detector_support import THRESHOLD_WINDOWS, end_of_window
+from tests.support.detector_support import (
+    FOUR_TENTHS_MS,
+    THRESHOLD_WINDOWS,
+    end_of_window,
+)
 from tests.support.hear_support import FakeHearing, loaded
 from tests.support.live_support import (
     COMPLETED,
@@ -30,7 +34,7 @@ from tests.support.live_support import (
 
 STARTED = "input_audio_buffer.speech_started"
 COMMITTED = "input_audio_buffer.committed"
-FOUR_TENTHS = {"duration_ms": 400}
+FOUR_TENTHS = {"duration_ms": FOUR_TENTHS_MS}
 SILENCE_WINDOWS = 16
 PARAM = "session.audio.input.sustained_speech.duration_ms"
 ITEMS = 4
@@ -65,15 +69,19 @@ async def _asking(
 async def _end_by(
     ending: str, session: LiveSession, hearing: Hearing, clock: FakeClock
 ) -> None:
-    """End the open item by `ending`: silence, the client's commit or a drain cut."""
-    if ending == "silence":
-        await session.on_message(append(_voice("." * SILENCE_WINDOWS)))
-    elif ending == "commit":
-        await session.on_message(commit())
-    else:
+    """End the open item by `ending`; an unknown ending raises KeyError."""
+
+    async def drain_cut() -> None:
         hearing.begin_drain()
         clock.jump(DRAIN_TURN_SECONDS)
         await session.on_tick()
+
+    endings = {
+        "silence": lambda: session.on_message(append(_voice("." * SILENCE_WINDOWS))),
+        "commit": lambda: session.on_message(commit()),
+        "drain-cut": drain_cut,
+    }
+    await endings[ending]()
 
 
 def _sustained(socket: FakeSocket) -> list[dict[str, object]]:
