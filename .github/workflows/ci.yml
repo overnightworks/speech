@@ -205,7 +205,7 @@ jobs:
         # Each worker drives real-time audio graphs; two fit the runner without
         # starving the render threads.
         # pytest-random: flow layer, each browser flow is an end-to-end scenario run in file order
-        run: uv run --locked pytest -q -n 2 -m browser tests/test_wire_route_browser_capture.py tests/test_wire_route_browser_capture_texts.py tests/test_wire_route_browser_player.py tests/test_wire_route_browser_player_hold.py tests/test_wire_route_browser_player_played_seconds.py tests/test_wire_route_browser_player_pause_at.py
+        run: uv run --locked pytest -q -n 2 -m browser tests/test_wire_route_browser_capture.py tests/test_wire_route_browser_capture_texts.py tests/test_wire_route_browser_player.py tests/test_wire_route_browser_player_hold.py tests/test_wire_route_browser_player_played_seconds.py tests/test_wire_route_browser_player_pause_at.py tests/test_wire_route_browser_player_pause_at_late.py
 
       - name: Upload the records of the failed player cells
         if: failure()

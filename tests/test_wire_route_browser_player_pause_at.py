@@ -14,6 +14,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.support.browser_pause_at_support import (
+    HOLD_AT,
+    SWITCHES,
+    held_at,
+    silent_from,
+)
 from tests.support.browser_player_support import (
     ABSENT,
     CLICK_STEP,
@@ -26,7 +32,6 @@ from tests.support.browser_player_support import (
     SOUND_SECONDS,
     STRETCH_SECONDS,
     action_times,
-    audible_seconds,
     audible_throughout,
     bytes_of,
     edge_peaks,
@@ -53,8 +58,6 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.browser
 
 LONG_SECONDS = SOUND_SECONDS["long.wav"]
-# A position well inside the long sound and past the first chunk of its streamed form.
-HOLD_AT = 2.0
 # The seconds the streamed sound's first chunk holds before the rest arrives.
 LEAD_SECONDS = 1.0
 # A distance from a position that is under any edge: a few render quanta.
@@ -75,15 +78,6 @@ async def hear_long(stage: SteppedStage, *, streamed: bool, then: str = SHORT) -
         await stage.until("s.scheduledChunks.length >= 2")
     else:
         await stage.hear_decoded(LONG, then)
-
-
-def held_at(position: float) -> dict[str, object]:
-    return {"kind": "held", "playedSeconds": position}
-
-
-def silent_from(seen: dict[str, object], at: float) -> bool:
-    """Whether every quantum that starts from `at` of the clock was silent."""
-    return audible_seconds(seen, at, math.inf) == 0
 
 
 @WHOLE_OR_STREAMED
@@ -442,31 +436,11 @@ def test_the_read_during_a_stops_edge_never_passes_the_edges_end(
     assert seen["sounds"][0]["playedSeconds"] == pytest.approx(hold_point_of(seen))
 
 
-async def mute(stage: SteppedStage) -> None:
-    await stage.set_muted(muted=True)
-
-
-async def mute_during_the_fade(stage: SteppedStage) -> None:
-    thrown = await stage.snapshot()
-    two_quanta = 2 * quantum_seconds(thrown)
-    await stage.step_for(last_ramp_end(thrown, 0) - two_quanta - thrown["contextNow"])
-    await mute(stage)
-
-
-# The switch the app throws while a call waits, and how the sound it ends reads.
-SWITCHES: dict[str, tuple[Callable[[SteppedStage], object], str]] = {
-    "stop": (lambda stage: stage.act("stop"), "stopped"),
-    "mute": (mute, "muted"),
-    "mute_during_the_fade": (mute_during_the_fade, "muted"),
-    "close": (lambda stage: stage.act("close"), "stopped"),
-}
-
-
-@pytest.mark.parametrize("switch", SWITCHES.items(), ids=SWITCHES.keys())
+@pytest.mark.parametrize("switch", ["mute", "mute_during_the_fade", "close"])
 def test_a_switch_that_ends_the_sound_overtakes_the_waiting_call(
-    tmp_path: Path, switch: tuple[str, tuple[Callable[[SteppedStage], object], str]]
+    tmp_path: Path, switch: str
 ) -> None:
-    _, (throw, end_kind) = switch
+    throw, end_kind = SWITCHES[switch]
 
     async def scenario() -> dict[str, object]:
         async with stepped(tmp_path) as stage:
@@ -498,9 +472,7 @@ def test_pause_while_a_call_waits_holds_now_and_the_call_gives_where_it_held(
 
     seen = asyncio.run(scenario())
 
-    [pause_at] = (
-        action["at"] for action in seen["actions"] if action["name"] == "pause"
-    )
+    [pause_at] = action_times(seen, "pause")
     assert result_of(seen) == held_at(pytest.approx(hold_point_of(seen)))
     assert result_of(seen)["playedSeconds"] < HOLD_AT / 2
     assert pause_at < last_ramp_end(seen, 0) <= pause_at + EDGE_SECONDS
@@ -736,136 +708,3 @@ def test_a_call_while_a_stops_edge_is_in_flight_is_overtaken(tmp_path: Path) -> 
 
     assert result_of(seen) == {"kind": "overtaken"}
     assert ends(seen) == ["stopped"]
-
-
-def test_resume_in_the_edge_of_a_hold_after_the_end_overtakes_the_call_and_plays_on(
-    tmp_path: Path,
-) -> None:
-    async def scenario() -> dict[str, object]:
-        async with stepped(tmp_path) as stage:
-            await stage.hear_decoded(LONG, SHORT)
-            await stage.pause_at(0, LONG_SECONDS)
-            await stage.step_until(
-                "s.sounds[0].endedValue === 'played'",
-                within_seconds=LONG_SECONDS,
-                quanta=4,
-            )
-            await stage.act("resume")
-            await stage.until_resolved()
-            await stage.finish()
-            return await stage.snapshot()
-
-    seen = asyncio.run(scenario())
-
-    assert result_of(seen) == {"kind": "overtaken"}
-    assert ends(seen) == ["played", "played"]
-    assert seen["contextStates"][0] == "running"
-
-
-def test_a_call_thrown_as_the_resume_fades_in_fades_out_from_where_the_volume_is(
-    tmp_path: Path,
-) -> None:
-    async def scenario() -> dict[str, object]:
-        async with stepped(tmp_path) as stage:
-            await stage.hear_decoded(LONG)
-            await stage.paused()
-            await stage.stand_still_for(STRETCH_SECONDS)
-            await stage.act("resume")
-            resumed = await stage.snapshot()
-            # One and a half of the resume's edges ahead: the fade starts inside it.
-            edge = last_ramp_end(resumed, 1) - resumed["contextNow"]
-            await stage.pause_at(
-                0, resumed["contextNow"] - start_of(resumed) + 1.5 * edge
-            )
-            await stage.until_resolved()
-            return await stage.snapshot()
-
-    seen = asyncio.run(scenario())
-
-    [resumed_at] = action_times(seen, "resume")
-    assert result_of(seen)["kind"] == "held"
-    assert (
-        largest_step(
-            peaks_between(
-                seen, resumed_at - quantum_seconds(seen), last_ramp_end(seen, 0)
-            )
-        )
-        < CLICK_STEP
-    )
-    assert silent_from(seen, last_ramp_end(seen, 0))
-
-
-LATE_HOLD_AT = 0.2
-
-
-async def into_the_late_window(stage: SteppedStage) -> None:
-    """Hold the short sound at `LATE_HOLD_AT`, then render the context past its end.
-
-    The page is late: its timers have not run, so the player still waits for the fade
-    that has ended on the audio clock, and the sound's sources have run out held.
-    """
-    await stage.hear_decoded(SHORT, OTHER)
-    await stage.pause_at(0, LATE_HOLD_AT)
-    thrown = await stage.snapshot()
-    sound_end = start_of(thrown) + SOUND_SECONDS["short.wav"]
-    await stage.render(
-        stage.quanta_for(sound_end + STRETCH_SECONDS - thrown["contextNow"])
-    )
-    assert ends(await stage.snapshot()) == [None, None]
-
-
-@pytest.mark.parametrize("switch", ["stop", "mute", "close"])
-def test_a_switch_in_the_late_window_ends_the_held_sound_at_its_hold_point(
-    tmp_path: Path, switch: str
-) -> None:
-    throw, end_kind = SWITCHES[switch]
-
-    async def scenario() -> dict[str, object]:
-        async with stepped(tmp_path) as stage:
-            await into_the_late_window(stage)
-            await throw(stage)
-            await stage.until("s.pauseAts[0].result !== null")
-            await stage.finish()
-            return await stage.snapshot()
-
-    seen = asyncio.run(scenario())
-
-    assert result_of(seen) == {"kind": "overtaken"}
-    assert ends(seen)[0] == end_kind
-    assert seen["sounds"][0]["playedSeconds"] == pytest.approx(LATE_HOLD_AT)
-
-
-def test_resume_in_the_late_window_ends_the_held_sound_played_and_starts_the_next(
-    tmp_path: Path,
-) -> None:
-    async def scenario() -> dict[str, object]:
-        async with stepped(tmp_path) as stage:
-            await into_the_late_window(stage)
-            await stage.act("resume")
-            await stage.until_resolved()
-            await stage.finish()
-            return await stage.snapshot()
-
-    seen = asyncio.run(scenario())
-
-    assert result_of(seen) == {"kind": "overtaken"}
-    assert ends(seen) == ["played", "played"]
-    assert seen["sounds"][0]["playedSeconds"] == pytest.approx(
-        SOUND_SECONDS["short.wav"]
-    )
-
-
-def test_pause_in_the_late_window_keeps_the_hold_point_of_the_call(
-    tmp_path: Path,
-) -> None:
-    async def scenario() -> dict[str, object]:
-        async with stepped(tmp_path) as stage:
-            await into_the_late_window(stage)
-            await stage.act("pause")
-            await stage.until_resolved()
-            return await stage.snapshot()
-
-    seen = asyncio.run(scenario())
-
-    assert result_of(seen) == held_at(LATE_HOLD_AT)
-    assert ends(seen) == [None, None]
