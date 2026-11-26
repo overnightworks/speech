@@ -16,6 +16,7 @@ from speech_service.provider_process import (
     CLOSE_SECONDS,
     ProviderCleanupFailedError,
     _is_healthy,
+    _require_stderr,
 )
 from tests.support.launcher_support import (
     LoadOutcome,
@@ -31,7 +32,9 @@ from tests.support.launcher_support import (
 from tests.support.process_state import has_ended
 
 if TYPE_CHECKING:
+    import subprocess
     from pathlib import Path
+    from typing import IO
 
 _OWNER = "speech_service.provider_process"
 _SMALL_SECONDS = 0.05
@@ -107,10 +110,18 @@ def test_a_failed_scratch_cleanup_is_logged_and_the_release_goes_on(
     assert_reaped(pid)
 
 
-def test_a_grandchild_that_holds_stderr_does_not_hold_the_release(
+def test_a_grandchild_that_holds_stderr_does_not_hold_the_release_and_stderr_is_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(f"{_OWNER}._STDERR_DRAIN_JOIN_SECONDS", _SMALL_SECONDS)
+    streams: list[IO[bytes]] = []
+    require_stderr = _require_stderr
+
+    def record_stderr(child: subprocess.Popen[bytes]) -> IO[bytes]:
+        streams.append(require_stderr(child))
+        return streams[-1]
+
+    monkeypatch.setattr(f"{_OWNER}._require_stderr", record_stderr)
     cache = tmp_path / "cache"
     server = provider_server(tmp_path, "detached-stage")
     server.load()
@@ -120,6 +131,7 @@ def test_a_grandchild_that_holds_stderr_does_not_hold_the_release(
     try:
         server.close()
         assert_reaped(pid)
+        assert [stream.closed for stream in streams] == [True]
     finally:
         os.kill(stage, signal.SIGKILL)
     assert has_ended(stage)
