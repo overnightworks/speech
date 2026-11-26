@@ -59,6 +59,7 @@ from speech_client.realtime_wire import (
     SoundDetected,
     SoundName,
     SpeechStarted,
+    SpeechSustained,
 )
 from speech_client.wire import DRAIN_CLOSE_CODE
 
@@ -219,12 +220,32 @@ def test_positions_count_every_byte_whose_write_began_even_one_the_peer_never_re
     assert positions == [40 + shift_ms]
 
 
-def test_a_sound_after_a_reconnect_is_on_the_hearings_timeline() -> None:
-    sound = SoundDetected(sound=SoundName.LAUGHTER, audio_start_ms=40, audio_end_ms=240)
+@pytest.mark.parametrize(
+    ("event", "expected"),
+    [
+        pytest.param(
+            SoundDetected(
+                sound=SoundName.LAUGHTER, audio_start_ms=40, audio_end_ms=240
+            ),
+            SoundDetected(
+                sound=SoundName.LAUGHTER, audio_start_ms=340, audio_end_ms=540
+            ),
+            id="sound",
+        ),
+        pytest.param(
+            SpeechSustained(item_id="item", audio_end_ms=240),
+            SpeechSustained(item_id="item", audio_end_ms=540),
+            id="sustained-speech",
+        ),
+    ],
+)
+def test_an_event_after_a_reconnect_is_on_the_hearings_timeline(
+    event: SoundDetected | SpeechSustained, expected: SoundDetected | SpeechSustained
+) -> None:
     first = reads(3, closes_with=DRAIN_CLOSE_CODE)
-    second = says(sound.model_dump_json(), then_close=1000)
+    second = says(event.model_dump_json(), then_close=1000)
 
-    async def scenario() -> list[SoundDetected]:
+    async def scenario() -> list[object]:
         tokens = Tokens(2)
         async with scripted(first, second) as (port, _):
             session = session_to(port, 30, 3 * len(CHUNK) + 1, 5, tokens)
@@ -235,14 +256,16 @@ def test_a_sound_after_a_reconnect_is_on_the_hearings_timeline() -> None:
                 tokens.release(2)
                 async with asyncio.timeout(WHOLE_RUN_SECONDS):
                     return [
-                        event
-                        async for event in session.events()
-                        if isinstance(event, SoundDetected)
+                        heard
+                        async for heard in session.events()
+                        if isinstance(heard, type(event))
                     ]
 
     (heard,) = asyncio.run(scenario())
 
-    assert (heard.audio_start_ms, heard.audio_end_ms) == (340, 540)
+    assert heard.model_dump(exclude={"event_id"}) == expected.model_dump(
+        exclude={"event_id"}
+    )
 
 
 def test_positions_stay_on_one_timeline_across_two_reconnects() -> None:

@@ -25,7 +25,16 @@ from pydantic import (
     model_validator,
 )
 
-from speech_client.wire import MODEL, Language, RefusalCode, absent, refusal
+from speech_client.wire import (
+    MODEL,
+    REALTIME_INTENT,
+    REALTIME_INTENT_PARAM,
+    REALTIME_PATH,
+    Language,
+    RefusalCode,
+    absent,
+    refusal,
+)
 
 # The Realtime transcription session, as OpenAI types it, narrowed to what this
 # service applies. A field it does not apply is refused, never ignored.
@@ -509,3 +518,43 @@ def error_event(
     """The `error` event for `code`, naming the field and the client event at fault."""
     failure = item_failure(code, param)
     return ErrorEvent(error=RealtimeError(**failure.model_dump(), event_id=event_id))
+
+
+def realtime_url(base_url: str) -> str:
+    """The Realtime transcription WebSocket of the service at `base_url`."""
+    return (
+        f"ws{base_url.removeprefix('http')}{REALTIME_PATH}"
+        f"?{REALTIME_INTENT_PARAM}={REALTIME_INTENT}"
+    )
+
+
+def session_update(
+    languages: tuple[Language, ...],
+    *,
+    sound_detection: bool = False,
+    sustained_speech: SustainedSpeech | None = None,
+) -> str:
+    """The one `session.update` that sets the languages of a session.
+
+    It asks for sounds only when `sound_detection` is true and for sustained
+    speech only when `sustained_speech` is given; without them the bytes carry
+    neither key.
+    """
+    asked: dict[str, SoundDetection | SustainedSpeech] = {}
+    if sound_detection:
+        asked["sound_detection"] = SoundDetection(type="audioset")
+    if sustained_speech is not None:
+        asked["sustained_speech"] = sustained_speech
+    update = SessionUpdate(
+        type="session.update",
+        session=TranscriptionSession(
+            type="transcription",
+            audio=SessionAudio(
+                input=SessionInput(
+                    transcription=TranscriptionSetting(languages=languages),
+                    **asked,
+                )
+            ),
+        ),
+    )
+    return update.model_dump_json(exclude_none=True)

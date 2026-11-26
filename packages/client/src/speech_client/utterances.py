@@ -22,6 +22,17 @@ after `ended` is set no callback is called again.
   event, the moment the service ends a person's turn, `audio_end_ms` into the
   audio, in event order with the other callbacks: before that item's utterance
   and `on_turn_ended`. Without it nothing of the event reaches the app.
+- `on_speech_sustained`, if given, gets a `SustainedVoice` for each
+  `speech_sustained` event, once a person's voice has lasted `sustained_speech_ms`
+  (the service's default when it is `None`), `audio_end_ms` into the audio, in
+  event order with the other callbacks: after that item's `on_speech_started` and
+  before its `on_speech_stopped`. Passing it is what asks the service for the
+  event; without it the hearing asks for none and sends the bytes it always sent,
+  and a `speech_sustained` that arrives anyway raises `ServerEventError`. A
+  `sustained_speech_ms` without the callback, or outside the wire's bound for a
+  duration, raises `ValueError` at the call, before any connection. The ask needs
+  service release `v2026.11.26.1`: an older service refuses it and the hearing
+  ends `invalid_request`.
 - `on_turn_ended`, if given, gets a `TurnEnd` for each finished item, empty or
   not, after that item's `on_utterance`: `heard_words` is false when the
   transcript was empty, a cough for one. Without it nothing of an empty turn
@@ -61,6 +72,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
 from speech_client.hearing import (
     OPENING_SECONDS,
     HearingSession,
@@ -73,6 +86,8 @@ from speech_client.realtime_wire import (
     SoundName,
     SpeechStarted,
     SpeechStopped,
+    SpeechSustained,
+    SustainedSpeech,
     TranscriptCompleted,
     TranscriptDelta,
     TranscriptFailed,
@@ -112,6 +127,14 @@ class SpeechStart:
 class SpeechStop:
     """The service ended a person's turn, `audio_end_ms` into the audio."""
 
+    audio_end_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class SustainedVoice:
+    """A person's voice in item `item_id` has lasted, `audio_end_ms` into the audio."""
+
+    item_id: str
     audio_end_ms: int
 
 
@@ -181,6 +204,7 @@ class HearingCallbacks:
     on_sound: Callable[[HeardSound], Awaitable[None]] | None = None
     on_reconnected: Callable[[Reconnected], Awaitable[None]] | None = None
     on_text: Callable[[str], None] | None = None
+    on_speech_sustained: Callable[[SustainedVoice], Awaitable[None]] | None = None
 
 
 @dataclass(slots=True)
@@ -201,6 +225,8 @@ class _Mapping:
                 await self._on_speech(event)
             case SoundDetected():
                 await self._on_sound(event)
+            case SpeechSustained():
+                await self._on_sustained(event)
             case TranscriptDelta() if self.callbacks.on_partial is not None:
                 text = self.items.text.get(event.item_id, "") + event.delta
                 self.items.text[event.item_id] = text
@@ -234,6 +260,13 @@ class _Mapping:
             HeardSound(event.sound, event.audio_start_ms, event.audio_end_ms)
         )
 
+    async def _on_sustained(self, event: SpeechSustained) -> None:
+        if self.callbacks.on_speech_sustained is None:
+            raise ServerEventError
+        await self.callbacks.on_speech_sustained(
+            SustainedVoice(event.item_id, event.audio_end_ms)
+        )
+
     async def _completed(self, event: TranscriptCompleted) -> None:
         start, end = self.items.finish(event.item_id)
         if event.transcript:
@@ -253,6 +286,26 @@ class _Mapping:
             )
 
 
+def _sustained_ask(
+    callbacks: HearingCallbacks, sustained_speech_ms: int | None
+) -> SustainedSpeech | None:
+    """The session's ask for sustained speech; only the callback asks."""
+    if callbacks.on_speech_sustained is None:
+        if sustained_speech_ms is not None:
+            message = "sustained_speech_ms needs on_speech_sustained"
+            raise ValueError(message)
+        return None
+    try:
+        return (
+            SustainedSpeech()
+            if sustained_speech_ms is None
+            else SustainedSpeech(duration_ms=sustained_speech_ms)
+        )
+    except ValidationError as refused:
+        message = "sustained_speech_ms is outside the wire's bound for a duration"
+        raise ValueError(message) from refused
+
+
 async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
     browser: BrowserSocket,
     origin: str,
@@ -265,8 +318,10 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
     callbacks: HearingCallbacks,
     opening_seconds: float = OPENING_SECONDS,
     traceparent: str | None = None,
+    sustained_speech_ms: int | None = None,
 ) -> UtteranceOutcome:
     """Hear `browser`'s audio at the service at `origin`; see the module."""
+    sustained_speech = _sustained_ask(callbacks, sustained_speech_ms)
     session = HearingSession(
         origin,
         token_source=token_source,
@@ -276,6 +331,7 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
         opening_seconds=opening_seconds,
         traceparent=traceparent,
         sound_detection=callbacks.on_sound is not None,
+        sustained_speech=sustained_speech,
     )
     try:
         return await relay(
