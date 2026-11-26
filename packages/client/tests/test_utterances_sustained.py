@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import functools
 from typing import TYPE_CHECKING
 
@@ -34,16 +33,7 @@ from speech_client.utterances import (
 from speech_client.wire import Language
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from websockets.asyncio.server import ServerConnection
-
-
-type Peer = Callable[[], contextlib.AbstractAsyncContextManager[int]]
-
-DISCONNECT = {"type": "websocket.disconnect", "code": 1001}
-# Far below the session deadline, so a stalled opening is told from a late one.
-STALLED_OPENING_SECONDS = 0.3
 
 
 @pytest.mark.parametrize(
