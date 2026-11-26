@@ -18,10 +18,23 @@ from starlette.status import (
     HTTP_429_TOO_MANY_REQUESTS,
     HTTP_503_SERVICE_UNAVAILABLE,
 )
-from starlette.testclient import WebSocketDenialResponse
+from starlette.testclient import WebSocketDenialResponse, WebSocketTestSession
 from starlette.websockets import WebSocketDisconnect
 
 from proof_identity import PERSON_SECONDS, WORKLOAD_SECONDS
+from speech_client.realtime_wire import (
+    AudioCommitted,
+    ErrorEvent,
+    ItemCreated,
+    ServerEvent,
+    SessionCreated,
+    SessionUpdated,
+    SpeechStarted,
+    SpeechSustained,
+    SustainedSpeech,
+    TranscriptCompleted,
+    TranscriptFailed,
+)
 from speech_client.wire import (
     AUTHENTICATE_HEADER,
     REALTIME_PATH,
@@ -53,12 +66,21 @@ from tests.support.identity_support import (
     valid_headers,
     valid_pair,
 )
-from tests.support.live_support import append, audio, commit, update, windows
+from tests.support.live_support import (
+    append,
+    audio,
+    commit,
+    read_event,
+    update,
+    windows,
+)
 from tests.support.speak_support import assert_refusal_body
 
 URL = f"{REALTIME_PATH}?intent=transcription"
-COMPLETED = "conversation.item.input_audio_transcription.completed"
-FAILED = "conversation.item.input_audio_transcription.failed"
+
+
+def _received(socket: WebSocketTestSession) -> ServerEvent:
+    return read_event(socket.receive_text())
 
 
 def _client(engine: FakeHearing | None = None, **settings: float) -> TestClient:
@@ -84,21 +106,23 @@ def _assert_denied(
 def test_a_session_hears_a_committed_turn_and_ends_when_the_client_leaves() -> None:
     """WIRE-03, WIRE-48, WIRE-55, WIRE-56, WIRE-63: a session hears a committed turn."""
     with _client().websocket_connect(URL, headers=valid_headers()) as socket:
-        assert socket.receive_json()["type"] == "session.created"
+        assert isinstance(_received(socket), SessionCreated)
         socket.send_text(update("en"))
-        assert socket.receive_json()["type"] == "session.updated"
+        assert isinstance(_received(socket), SessionUpdated)
         socket.send_text(append(audio(0.5)))
         socket.send_text(commit())
-        events = [socket.receive_json() for _ in range(4)]
+        events = [_received(socket) for _ in range(4)]
 
-    assert [event["type"] for event in events] == [
-        "input_audio_buffer.speech_started",
-        "input_audio_buffer.committed",
-        "conversation.item.created",
-        COMPLETED,
+    assert [type(event) for event in events] == [
+        SpeechStarted,
+        AudioCommitted,
+        ItemCreated,
+        TranscriptCompleted,
     ]
-    assert events[-1]["transcript"] == HEARD_TEXT
-    assert events[-1]["languages"] == [{"code": "en"}]
+    completed = events[-1]
+    assert isinstance(completed, TranscriptCompleted)
+    assert completed.transcript == HEARD_TEXT
+    assert [spoken.code for spoken in completed.languages] == [Language.EN]
 
 
 def test_the_ask_for_sustained_speech_its_echo_and_its_event_travel_the_route() -> None:
@@ -106,17 +130,19 @@ def test_the_ask_for_sustained_speech_its_echo_and_its_event_travel_the_route() 
     # The resampler holds back the last samples, so a silent window follows.
     thirteen_windows = windows(13) + windows(1, 0)
     with _client().websocket_connect(URL, headers=valid_headers()) as socket:
-        assert socket.receive_json()["type"] == "session.created"
+        assert isinstance(_received(socket), SessionCreated)
         socket.send_text(update(sustained_speech={"duration_ms": 400}))
-        echo = socket.receive_json()
+        echo = _received(socket)
         socket.send_text(append(thirteen_windows))
-        opened = socket.receive_json()
-        sustained = socket.receive_json()
+        opened = _received(socket)
+        sustained = _received(socket)
 
-    assert echo["session"]["audio"]["input"]["sustained_speech"] == {"duration_ms": 400}
-    assert sustained["type"] == "input_audio_buffer.speech_sustained"
-    assert sustained["item_id"] == opened["item_id"]
-    assert sustained["audio_end_ms"] == 13 * 32
+    assert isinstance(echo, SessionUpdated)
+    assert echo.session.audio.input.sustained_speech == SustainedSpeech(duration_ms=400)
+    assert isinstance(opened, SpeechStarted)
+    assert isinstance(sustained, SpeechSustained)
+    assert sustained.item_id == opened.item_id
+    assert sustained.audio_end_ms == 13 * 32
 
 
 def test_a_session_runs_on_after_both_tokens_expire_and_a_new_upgrade_is_refused() -> (
@@ -132,14 +158,15 @@ def test_a_session_runs_on_after_both_tokens_expire_and_a_new_upgrade_is_refused
     headers = valid_headers(clocks.wall)
 
     with client.websocket_connect(URL, headers=headers) as socket:
-        assert socket.receive_json()["type"] == "session.created"
+        assert isinstance(_received(socket), SessionCreated)
         clocks.advance(max(WORKLOAD_SECONDS, PERSON_SECONDS) + 1)
         socket.send_text(append(audio(0.5)))
         socket.send_text(commit())
-        events = [socket.receive_json() for _ in range(4)]
+        events = [_received(socket) for _ in range(4)]
 
-    assert events[-1]["type"] == COMPLETED
-    assert events[-1]["transcript"] == HEARD_TEXT
+    completed = events[-1]
+    assert isinstance(completed, TranscriptCompleted)
+    assert completed.transcript == HEARD_TEXT
     _assert_denied(
         _denied(client, headers=headers),
         HTTP_401_UNAUTHORIZED,
@@ -153,17 +180,20 @@ def test_a_session_with_a_set_echoes_it_and_names_the_language_of_each_item() ->
     engine = FakeHearing()
     engine.heard_in = Language.EN
     with _client(engine).websocket_connect(URL, headers=valid_headers()) as socket:
-        socket.receive_json()
+        _received(socket)
         socket.send_text(update(None, languages=["de", "en"]))
-        updated = socket.receive_json()
+        updated = _received(socket)
         socket.send_text(append(audio(0.5)))
         socket.send_text(commit())
-        events = [socket.receive_json() for _ in range(4)]
+        events = [_received(socket) for _ in range(4)]
 
-    transcription = updated["session"]["audio"]["input"]["transcription"]
-    assert transcription["languages"] == ["de", "en"]
-    assert "language" not in transcription
-    assert events[-1]["languages"] == [{"code": "en"}]
+    assert isinstance(updated, SessionUpdated)
+    transcription = updated.session.audio.input.transcription
+    assert transcription.languages == (Language.DE, Language.EN)
+    assert transcription.language is None
+    completed = events[-1]
+    assert isinstance(completed, TranscriptCompleted)
+    assert [spoken.code for spoken in completed.languages] == [Language.EN]
     assert [languages for _, languages in engine.heard] == [(Language.DE, Language.EN)]
 
 
@@ -173,10 +203,10 @@ def _first_turn_bytes(**settings: float) -> int:
     with _client(engine, **settings).websocket_connect(
         URL, headers=valid_headers()
     ) as socket:
-        socket.receive_json()
+        _received(socket)
         for message in (audio(0.5), audio(0.8, 0), audio(0.5), audio(2.5, 0)):
             socket.send_text(append(message))
-        while socket.receive_json()["type"] != COMPLETED:
+        while not isinstance(_received(socket), TranscriptCompleted):
             pass
     return engine.heard[0][0]
 
@@ -192,18 +222,20 @@ def test_a_live_turn_ends_after_the_configured_silence_and_not_the_default() -> 
 
 def _completed_per_turn(
     engine: FakeHearing, setup: str, *heard_in: Language | None
-) -> list[dict[str, object]]:
+) -> list[TranscriptCompleted]:
     """The `completed` event of one committed turn for each entry of `heard_in`."""
-    completed = []
+    completed: list[TranscriptCompleted] = []
     with _client(engine).websocket_connect(URL, headers=valid_headers()) as socket:
-        socket.receive_json()
+        _received(socket)
         socket.send_text(setup)
-        socket.receive_json()
+        _received(socket)
         for language in heard_in:
             engine.heard_in = language
             socket.send_text(append(audio(0.5)))
             socket.send_text(commit())
-            completed.append([socket.receive_json() for _ in range(4)][-1])
+            (*_, last) = (_received(socket) for _ in range(4))
+            assert isinstance(last, TranscriptCompleted)
+            completed.append(last)
     return completed
 
 
@@ -213,9 +245,9 @@ def test_two_turns_of_a_set_are_each_heard_in_their_own_language() -> None:
 
     completed = _completed_per_turn(FakeHearing(), setup, Language.DE, Language.EN)
 
-    assert [event["languages"] for event in completed] == [
-        [{"code": "de"}],
-        [{"code": "en"}],
+    assert [[spoken.code for spoken in event.languages] for event in completed] == [
+        [Language.DE],
+        [Language.EN],
     ]
 
 
@@ -225,7 +257,8 @@ def test_an_empty_transcript_still_names_the_one_language_it_was_decoded_in() ->
 
     (completed,) = _completed_per_turn(FakeHearing(text=""), setup, None)
 
-    assert (completed["transcript"], completed["languages"]) == ("", [{"code": "en"}])
+    assert completed.transcript == ""
+    assert [spoken.code for spoken in completed.languages] == [Language.EN]
 
 
 def test_a_failed_item_and_the_error_name_no_language() -> None:
@@ -233,15 +266,14 @@ def test_a_failed_item_and_the_error_name_no_language() -> None:
     engine = FakeHearing()
     engine.fail_transcription = True
     with _client(engine).websocket_connect(URL, headers=valid_headers()) as socket:
-        socket.receive_json()
+        _received(socket)
         socket.send_text(update(None, languages=["de", "en"]))
-        socket.receive_json()
+        _received(socket)
         socket.send_text(append(audio(0.5)))
         socket.send_text(commit())
-        ended = [socket.receive_json() for _ in range(5)]
+        ended = [_received(socket) for _ in range(5)]
 
-    assert [event["type"] for event in ended[-2:]] == [FAILED, "error"]
-    assert all("languages" not in event for event in ended[-2:])
+    assert [type(event) for event in ended[-2:]] == [TranscriptFailed, ErrorEvent]
 
 
 def test_a_registered_app_with_no_hearing_key_opens_a_live_session() -> None:
@@ -254,7 +286,7 @@ def test_a_registered_app_with_no_hearing_key_opens_a_live_session() -> None:
     with client.websocket_connect(
         URL, headers=valid_headers(minting=OTHER_MINTING)
     ) as socket:
-        assert socket.receive_json()["type"] == "session.created"
+        assert isinstance(_received(socket), SessionCreated)
 
 
 @pytest.mark.parametrize(
@@ -268,15 +300,7 @@ def test_a_registered_app_with_no_hearing_key_opens_a_live_session() -> None:
             update(None, languages=["de", "fr"]), "languages.1", id="fr-in-set"
         ),
         pytest.param(
-            json.dumps(
-                {
-                    "type": "session.update",
-                    "session": {
-                        "type": "transcription",
-                        "audio": {"input": {"transcription": {"languages": None}}},
-                    },
-                }
-            ),
+            update(None, languages=[]).replace("[]", "null"),
             "languages",
             id="null-languages",
         ),
@@ -290,15 +314,15 @@ def test_a_setup_outside_the_one_transcription_shape_ends_the_session_with_an_er
 ) -> None:
     """WIRE-56, WIRE-57, WIRE-58, WIRE-77: a setup outside the shape is refused."""
     with _client().websocket_connect(URL, headers=valid_headers()) as socket:
-        socket.receive_json()
+        _received(socket)
         socket.send_text(setup)
-        error = socket.receive_json()
-        assert error["type"] == "error"
+        error = _received(socket)
+        assert isinstance(error, ErrorEvent)
         with pytest.raises(WebSocketDisconnect):
-            socket.receive_json()
+            socket.receive_text()
 
-    assert error["error"]["code"] == RefusalCode.INVALID_REQUEST
-    assert error["error"]["param"] == f"session.audio.input.transcription.{param}"
+    assert error.error.code == RefusalCode.INVALID_REQUEST
+    assert error.error.param == f"session.audio.input.transcription.{param}"
 
 
 def test_a_caller_without_tokens_is_told_so_before_anything_else() -> None:
@@ -375,14 +399,14 @@ def test_a_session_beyond_the_bound_is_denied_as_busy_until_one_leaves() -> None
     client = _client(max_hearing_sessions=1)
 
     with client.websocket_connect(URL, headers=valid_headers()) as first:
-        first.receive_json()
+        _received(first)
         denial = _denied(client)
     with client.websocket_connect(URL, headers=valid_headers()) as again:
-        reopened = again.receive_json()
+        reopened = _received(again)
 
     _assert_denied(denial, HTTP_429_TOO_MANY_REQUESTS, RefusalCode.BUSY, None)
     assert int(denial.headers[RETRY_AFTER_HEADER]) >= 1
-    assert reopened["type"] == "session.created"
+    assert isinstance(reopened, SessionCreated)
 
 
 def test_a_recording_is_heard_while_a_live_session_sits_idle() -> None:
@@ -391,7 +415,7 @@ def test_a_recording_is_heard_while_a_live_session_sits_idle() -> None:
     client = _client(engine, hearing_busy_wait_seconds=0)
 
     with client.websocket_connect(URL, headers=valid_headers()) as idle:
-        idle.receive_json()
+        _received(idle)
         response = post_recording(client, multipart_body(file=recording()))
 
     assert response.status_code == HTTP_200_OK
@@ -515,9 +539,9 @@ def test_a_session_writes_its_own_line_in_the_upgrades_trace_or_a_fresh_one(
         configured("speech"),
         _client().websocket_connect(URL, headers=headers) as socket,
     ):
-        assert socket.receive_json()["type"] == "session.created"
+        assert isinstance(_received(socket), SessionCreated)
         socket.send_text("not an event")
-        assert socket.receive_json()["type"] == "error"
+        assert isinstance(_received(socket), ErrorEvent)
 
     (line,) = _session_lines(_written_lines(capsys))
     assert re.fullmatch(expected_trace_id, str(line["trace_id"]))
@@ -532,7 +556,7 @@ def test_a_malformed_traceparent_on_the_upgrade_logs_no_error(
         configured("speech"),
         _client().websocket_connect(URL, headers=headers) as socket,
     ):
-        assert socket.receive_json()["type"] == "session.created"
+        assert isinstance(_received(socket), SessionCreated)
 
     levels = {line["level"] for line in _written_lines(capsys)}
     assert levels.isdisjoint({"error", "critical"})

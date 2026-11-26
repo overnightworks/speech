@@ -7,6 +7,16 @@ from fastapi.testclient import TestClient
 from starlette.status import HTTP_503_SERVICE_UNAVAILABLE, WS_1012_SERVICE_RESTART
 from starlette.testclient import WebSocketDenialResponse
 
+from speech_client.realtime_wire import (
+    AudioCommitted,
+    ErrorEvent,
+    ItemCreated,
+    SessionCreated,
+    SpeechStarted,
+    SpeechStopped,
+    TranscriptCompleted,
+    TranscriptFailed,
+)
 from speech_client.wire import RefusalCode
 from speech_service.hearing import DRAIN_TURN_SECONDS
 from speech_service.voice_activity import WINDOW_SECONDS
@@ -22,8 +32,6 @@ from tests.support.hear_support import (
 )
 from tests.support.identity_support import valid_headers
 from tests.support.live_support import (
-    COMPLETED,
-    FAILED,
     FakeSocket,
     StallingSocket,
     append,
@@ -34,12 +42,12 @@ from tests.support.live_support import (
 from tests.support.speak_support import assert_refusal_body
 
 _ANNOUNCED_AND_COMPLETED = [
-    "session.created",
-    "input_audio_buffer.speech_started",
-    "input_audio_buffer.speech_stopped",
-    "input_audio_buffer.committed",
-    "conversation.item.created",
-    COMPLETED,
+    SessionCreated,
+    SpeechStarted,
+    SpeechStopped,
+    AudioCommitted,
+    ItemCreated,
+    TranscriptCompleted,
 ]
 _FINAL_WAIT_SECONDS = 30.0
 _SESSION_URL = "/v1/realtime?intent=transcription"
@@ -110,8 +118,8 @@ def test_a_final_unfinished_at_the_bound_fails_its_item_and_closes_1012() -> Non
 
     socket, _engine = asyncio.run(scenario())
 
-    assert socket.types()[-2:] == [FAILED, "error"]
-    assert COMPLETED not in socket.types()
+    assert socket.types()[-2:] == [TranscriptFailed, ErrorEvent]
+    assert TranscriptCompleted not in socket.types()
     assert socket.close_code == WS_1012_SERVICE_RESTART
 
 
@@ -121,7 +129,7 @@ def test_a_client_that_leaves_while_the_drain_cuts_its_turn_gets_no_close() -> N
     async def scenario() -> FakeSocket:
         clock = FakeClock()
         hearing = loaded(FakeHearing(hold=True), clock)
-        socket = StallingSocket("input_audio_buffer.committed")
+        socket = StallingSocket(AudioCommitted)
         session, _ = await started(
             hearing, socket=socket, final_wait_seconds=_FINAL_WAIT_SECONDS
         )
@@ -186,7 +194,7 @@ def test_a_turn_open_when_the_drain_is_30_seconds_old_ends_there_and_is_heard() 
 
     assert open_before_the_bound
     assert socket.types() == _ANNOUNCED_AND_COMPLETED
-    assert FAILED not in socket.types()
+    assert TranscriptFailed not in socket.types()
     assert socket.close_code == WS_1012_SERVICE_RESTART
 
 
@@ -205,7 +213,7 @@ def test_speech_still_being_confirmed_at_the_bound_closes_without_a_turn() -> No
 
     socket = asyncio.run(scenario())
 
-    assert socket.types() == ["session.created"]
+    assert socket.types() == [SessionCreated]
     assert socket.close_code == WS_1012_SERVICE_RESTART
 
 

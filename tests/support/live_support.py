@@ -37,6 +37,15 @@ NOT_ASKED = object()
 _INPUT_SAMPLES_PER_WINDOW = WINDOW_SAMPLES * INPUT_RATE // HEARING_SAMPLE_RATE
 
 
+def read_event(text: str) -> ServerEvent:
+    """The server event in `text`; one the client cannot read in full fails loud."""
+    event = parse_server_event(text)
+    assert json.loads(event.model_dump_json()) == json.loads(text), (
+        "the client reads every field the service sent"
+    )
+    return event
+
+
 class FakeSocket:
     """The events a session sent, as the client reads them, and whether it closed."""
 
@@ -49,10 +58,7 @@ class FakeSocket:
 
     async def send(self, text: str) -> None:
         """Record one event; one the client cannot read fails the session."""
-        event = parse_server_event(text)
-        assert json.loads(event.model_dump_json()) == json.loads(text), (
-            "the client reads every field the service sent"
-        )
+        event = read_event(text)
         async with self._changed:
             self.events.append(event)
             self._changed.notify_all()

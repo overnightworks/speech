@@ -28,6 +28,16 @@ from speech_client.hearing import (
     Reconnected,
     SessionTokens,
 )
+from speech_client.realtime_wire import (
+    ErrorEvent,
+    ServerEvent,
+    SessionCreated,
+    SpeechStarted,
+    SpeechStopped,
+    TranscriptCompleted,
+    TranscriptFailed,
+    parse_server_event,
+)
 from speech_client.relay import HOP_FRAME_BYTES
 from speech_client.utterances import (
     HearingCallbacks,
@@ -53,10 +63,7 @@ from tests.support.drain_server_support import (
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE, sine_pcm
 from tests.support.hear_support import HEARD_TEXT, MULTIPART, multipart_body, recording
 from tests.support.live_support import (
-    COMPLETED,
-    FAILED,
     SPEECH_LEVEL,
-    SPEECH_STOPPED,
     append,
     audio,
 )
@@ -144,15 +151,15 @@ def pair(tmp_path: Path) -> Iterator[_Pair]:
         )
 
 
-async def _received(connection: ClientConnection) -> dict[str, object]:
-    return json.loads(await asyncio.wait_for(connection.recv(), _WAIT_SECONDS))
+async def _received(connection: ClientConnection) -> ServerEvent:
+    return parse_server_event(await asyncio.wait_for(connection.recv(), _WAIT_SECONDS))
 
 
 async def _until_closed(
     connection: ClientConnection,
-) -> tuple[list[dict[str, object]], int]:
+) -> tuple[list[ServerEvent], int]:
     """The events that arrive before the server closes, and the code it closes with."""
-    events: list[dict[str, object]] = []
+    events: list[ServerEvent] = []
     while True:
         try:
             events.append(await _received(connection))
@@ -165,7 +172,7 @@ async def _open_session(pair: _Pair, port: int) -> ClientConnection:
         _SESSION_URL.format(host=_LOOPBACK, port=port),
         additional_headers=pair.headers(),
     )
-    assert (await _received(connection))["type"] == "session.created"
+    assert isinstance(await _received(connection), SessionCreated)
     return connection
 
 
@@ -201,13 +208,11 @@ def test_a_stopped_process_finishes_its_turn_and_stream_while_another_takes_work
 ) -> None:
     """WIRE-144, WIRE-145, WIRE-146: the stopped process drains, the other serves."""
 
-    async def scenario() -> tuple[list[dict[str, object]], int, bytes, int]:
+    async def scenario() -> tuple[list[ServerEvent], int, bytes, int]:
         async with balancing([pair.first_port, pair.second_port]) as entry:
             hearing = await _open_session(pair, entry)
             await hearing.send(append(audio(0.5)))
-            assert (await _received(hearing))["type"] == (
-                "input_audio_buffer.speech_started"
-            )
+            assert isinstance(await _received(hearing), SpeechStarted)
             response, first_byte = await asyncio.to_thread(_stream_speech, pair, entry)
 
             pair.first.send_signal(signal.SIGTERM)
@@ -237,10 +242,10 @@ def test_a_stopped_process_finishes_its_turn_and_stream_while_another_takes_work
 
     events, code, speech, exit_code = asyncio.run(scenario())
 
-    types = [event["type"] for event in events]
-    assert types[-1] == COMPLETED
-    assert "error" not in types
-    assert FAILED not in types
+    types = [type(event) for event in events]
+    assert types[-1] is TranscriptCompleted
+    assert ErrorEvent not in types
+    assert TranscriptFailed not in types
     assert code == DRAIN_CLOSE_CODE
     assert speech.startswith(b"RIFF")
     assert exit_code == 0
@@ -422,7 +427,7 @@ def test_a_hearing_goes_on_at_the_other_process_after_a_stopped_one_finished_its
     speech_stopped_at: dict[int, float] = {}
 
     def noting_speech_stopped(port: int, message: str) -> None:
-        if json.loads(message)["type"] == SPEECH_STOPPED:
+        if isinstance(parse_server_event(message), SpeechStopped):
             speech_stopped_at.setdefault(port, time.monotonic())
 
     async def scenario() -> tuple[_Hearing, int, dict[int, float], float]:

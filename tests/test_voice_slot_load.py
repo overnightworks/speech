@@ -18,6 +18,11 @@ from speech_provider_contract import (
     QWEN_SAMPLE_RATE,
 )
 
+from speech_client.realtime_wire import (
+    SessionCreated,
+    SessionUpdated,
+    TranscriptCompleted,
+)
 from speech_client.wire import REALTIME_PATH, Health, RefusalCode, VoiceId
 from tests.support.gpu_voice_support import (
     PIPER_SAMPLE_RATE,
@@ -45,7 +50,7 @@ from tests.support.launcher_support import (
     wait_for_held_exit,
     wait_for_starts,
 )
-from tests.support.live_support import COMPLETED, append, audio, commit, update
+from tests.support.live_support import append, audio, commit, read_event, update
 from tests.support.speak_support import (
     SpeakCall,
     assert_call_refusal,
@@ -90,14 +95,15 @@ def _assert_a_live_turn_is_heard(client: TestClient) -> None:
     with client.websocket_connect(
         f"{REALTIME_PATH}?intent=transcription", headers=valid_headers()
     ) as socket:
-        assert socket.receive_json()["type"] == "session.created"
+        assert isinstance(read_event(socket.receive_text()), SessionCreated)
         socket.send_text(update())
-        assert socket.receive_json()["type"] == "session.updated"
+        assert isinstance(read_event(socket.receive_text()), SessionUpdated)
         socket.send_text(append(audio(0.5)))
         socket.send_text(commit())
-        final = [socket.receive_json() for _ in range(4)][-1]
+        final = [read_event(socket.receive_text()) for _ in range(4)][-1]
 
-    assert (final["type"], final["transcript"]) == (COMPLETED, HEARD_TEXT)
+    assert isinstance(final, TranscriptCompleted)
+    assert final.transcript == HEARD_TEXT
 
 
 def _speak_in_background(
