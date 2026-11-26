@@ -75,8 +75,6 @@ SOUND_SECONDS = {
 }
 # The tone's amplitude as the ear reads it: a quantum of the tone peaks here.
 TONE_PEAK = TONE_AMPLITUDE / PCM_FULL_SCALE
-# The ear reports the peak of each render quantum, `RENDER_QUANTUM_FRAMES` samples.
-RENDER_QUANTUM_FRAMES = 128
 # A quantum under this is silent: 26 dB below the tone, no step to or from it is heard.
 SILENT_PEAK = 0.05 * TONE_PEAK
 FULL_PEAK = 0.95 * TONE_PEAK
@@ -89,8 +87,8 @@ EDGE_QUANTA = 2
 MIN_QUANTA_CHECKED = 100
 SILENT_RMS = 0.001
 AUDIBLE_RMS = 0.05
-# One render quantum plus the detection sample and the tone's silent first sample.
-ONSET_BOUND_FRAMES = 128 + 2
+# The tone's first sample is silent, so the ear hears a sound from its second frame.
+FIRST_SAMPLE_SILENT_FRAMES = 1
 CLOSED = "closed"
 RESUMES_REJECTED_THEN_PASSED = 2
 # The context resume that starts the first sound, and the one after a pause.
@@ -102,6 +100,8 @@ SUSPENDED = "s.contextStates[0] === 'suspended'"
 # What the stepped stage plays of a sound before the cell's first switch: inside the
 # first chunk of a streamed sound, which is the shortest sound a cell hears.
 HEARD_FOR_SECONDS = 0.1
+# A stretch the stepped stage steps to show nothing more happens: longer than an edge.
+STRETCH_SECONDS = 2 * EDGE_SECONDS
 # How long the stepped stage steps for a sound to end; stepping costs no page time.
 FINISH_WITHIN_SECONDS = 10.0
 FINISH_QUANTA = 8
@@ -280,9 +280,10 @@ class Stage:
 
 @dataclass
 class Stepping:
-    """How far the stepped stage has run the page: its context's rate and its clock."""
+    """How far the stepped stage has run the page: its context's rate and clock."""
 
     sample_rate: int = 0
+    quantum_frames: int = 0  # frames per render quantum
     clock_milliseconds: int = 0
 
 
@@ -306,13 +307,15 @@ class SteppedStage(Stage):
         # Paused from the start: a timer fires only as the stage runs the clock.
         await self.page.clock.pause_at(1)
         await super().open(**query)
-        self.stepping.sample_rate = await self.page.evaluate(
-            "window.playerPage.snapshot().sampleRate"
-        )
+        seen = await self.page.evaluate("window.playerPage.snapshot()")
+        self.stepping.sample_rate = seen["sampleRate"]
+        self.stepping.quantum_frames = seen["renderQuantumFrames"]
 
     def quanta_for(self, seconds: float) -> int:
         """The whole render quanta that cover `seconds` of the context's clock."""
-        return math.ceil(seconds * self.stepping.sample_rate / RENDER_QUANTUM_FRAMES)
+        return math.ceil(
+            seconds * self.stepping.sample_rate / self.stepping.quantum_frames
+        )
 
     async def step(self, quanta: int) -> int:
         """Render `quanta` render quanta, then run the page's timers over their time.
@@ -414,7 +417,7 @@ def events(seen: dict[str, object]) -> list[tuple[str, int]]:
 
 
 def quantum_seconds(seen: dict[str, object]) -> float:
-    return RENDER_QUANTUM_FRAMES / seen["sampleRate"]
+    return seen["renderQuantumFrames"] / seen["sampleRate"]
 
 
 def frames_of(seen: dict[str, object], seconds: float) -> int:
@@ -425,6 +428,23 @@ def frames_of(seen: dict[str, object], seconds: float) -> int:
 def peaks_between(seen: dict[str, object], since: float, until: float) -> list[float]:
     """The peaks of the quanta that start in [`since`, `until`) of the context clock."""
     return [peak for at, peak in seen["heardPeaks"] if since <= at < until]
+
+
+def peaks_wholly_between(
+    seen: dict[str, object], since: float, until: float
+) -> list[float]:
+    """The peaks of the quanta that lie wholly inside [`since`, `until`] of the clock.
+
+    A quantum that straddles a bound mixes what lies on either side of it, so it
+    belongs to neither window.
+    """
+    quantum = seen["renderQuantumFrames"]
+    first, last = frames_of(seen, since), frames_of(seen, until)
+    return [
+        peak
+        for at, peak in seen["heardPeaks"]
+        if first <= frames_of(seen, at) and frames_of(seen, at) + quantum <= last
+    ]
 
 
 def start_of(seen: dict[str, object], sound: int = 0) -> float:
@@ -442,30 +462,18 @@ def heard_start_of(seen: dict[str, object], sound: int = 0) -> float:
     return seen["heardOnsets"][sound]
 
 
+def onset_after_start_frames(seen: dict[str, object], sound: int = 0) -> int:
+    """The frames from sound number `sound`'s announced start to its first heard one."""
+    return frames_of(seen, heard_start_of(seen, sound)) - frames_of(
+        seen, start_of(seen, sound)
+    )
+
+
 def peaks_inside(seen: dict[str, object], sound: int, seconds: float) -> list[float]:
     """The peaks of sound number `sound`, `seconds` long, less 3 quanta at each end."""
     start = start_of(seen, sound)
     margin = 3 * quantum_seconds(seen)
     return peaks_between(seen, start + margin, start + seconds - margin)
-
-
-def waited_seconds(seen: dict[str, object], until: float) -> float:
-    """The seconds before `until` of the context clock the output waited for a chunk.
-
-    A streamed sound's chunk that arrives after the one before it has ended starts
-    later: the output plays nothing in between, and the sound's played seconds stand
-    still. The waits are read from the starts the output was handed, and a wait
-    still running at `until` counts up to `until`. The chunks of every sound the
-    page scheduled are summed, so the page schedules one streamed sound at a time.
-    """
-    chunks = sorted(seen["scheduledChunks"], key=lambda chunk: chunk["start"])
-    gaps = sum(
-        max(min(following["start"], until) - (chunk["start"] + chunk["seconds"]), 0)
-        for chunk, following in pairwise(chunks)
-    )
-    ends = (chunk["start"] + chunk["seconds"] for chunk in chunks)
-    last_end = max(ends, default=until)
-    return gaps + max(until - last_end, 0)
 
 
 def audible_seconds(seen: dict[str, object], since: float, until: float) -> float:

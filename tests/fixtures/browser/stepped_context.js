@@ -4,9 +4,10 @@
 //
 // What the context offers is the AudioContext surface a page uses: `state` and its `statechange`, `resume()`, `suspend()`
 // without a time, `close()`, `baseLatency`, `currentTime`. A context starts suspended; it renders while its state is
-// "running" and stands still while it is "suspended", as a context does on the audio device.
+// "running" and stands still while it is "suspended", as a context does on the audio device. Its render quantum is the
+// `renderQuantumSize` the offline context shares with a real one (128 in Chromium 159): the one owner of the quantum
+// that the page reports and the test counts in.
 (() => {
-  const RENDER_QUANTUM_FRAMES = 128;
   const SAMPLE_RATE = 48000;
   const OUTPUT_CHANNELS = 2;
   // How long a context can be stepped: the rendering buffer is allocated up front.
@@ -81,9 +82,9 @@
     // Renders `quanta` render quanta if the context is running, and returns the frames rendered so far.
     async step(quanta) {
       if (this.#state === "running") {
-        const frames = Math.round(clock.get.call(this) * SAMPLE_RATE) + quanta * RENDER_QUANTUM_FRAMES;
+        const frames = Math.round(clock.get.call(this) * SAMPLE_RATE) + quanta * this.renderQuantumSize;
         // A suspend time is rounded up to a render quantum: asking for the middle of the last one is exact.
-        const reached = super.suspend((frames - RENDER_QUANTUM_FRAMES / 2) / SAMPLE_RATE);
+        const reached = super.suspend((frames - this.renderQuantumSize / 2) / SAMPLE_RATE);
         if (this.#started) {
           super.resume();
         } else {

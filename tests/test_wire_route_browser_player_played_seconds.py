@@ -1,6 +1,8 @@
 """An app's browser reads how many seconds each of its sounds has played.
 
-The flows run in Chromium on the stand-in app's page; see the shared stage.
+The flows run in Chromium on the stand-in app's page, on a context the test steps; see
+the shared stage. The two that block the page around the player's start call run on
+a real context: a stall in which the render thread runs on exists only there.
 """
 
 from __future__ import annotations
@@ -12,20 +14,27 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tests.support.browser_player_support import (
-    AUDIBLE_RMS,
+    ALL_ENDED,
     CUT_LATE,
+    EDGE_SECONDS,
+    FIRST_SAMPLE_SILENT_FRAMES,
+    HEARD,
     LONG,
-    ONSET_BOUND_FRAMES,
     SHORT,
     SOUND_SECONDS,
+    STARTED,
     STREAMED,
+    STRETCH_SECONDS,
     activated,
     bytes_of,
     fed,
     heard_start_of,
+    onset_after_start_frames,
+    quantum_seconds,
+    ramp_end,
     start_of,
+    stepped,
     url,
-    waited_seconds,
 )
 
 if TYPE_CHECKING:
@@ -48,14 +57,14 @@ def test_a_sound_played_through_reports_its_full_length_as_played_seconds(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.hand_over(url(SHORT))
             return await stage.finish()
 
     seen = asyncio.run(scenario())
 
     assert seen["sounds"][0]["playedSeconds"] == pytest.approx(
-        SOUND_SECONDS["short.wav"], abs=seen["clockStep"]
+        SOUND_SECONDS["short.wav"]
     )
 
 
@@ -65,13 +74,8 @@ def test_a_cut_sound_reports_the_seconds_the_context_clock_passed_since_it_start
     tmp_path: Path, cut: str, sound: str
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
-            await stage.hand_over(url(sound), url(SHORT))
-            # The sound plays on whatever the page's timing: a streamed body held back
-            # would leave the output silent once its first bytes have played.
-            stage.side.held_release.set()
-            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
-            await stage.settle()
+        async with stepped(tmp_path) as stage:
+            await stage.hear(url(sound), url(SHORT))
             if cut == "stop":
                 await stage.act("stop")
             else:
@@ -81,25 +85,14 @@ def test_a_cut_sound_reports_the_seconds_the_context_clock_passed_since_it_start
     seen = asyncio.run(scenario())
 
     cut_sound, waiting = seen["sounds"]
-    # A streamed body's chunk that arrives late leaves the output waiting, and the
-    # played seconds stand still meanwhile.
     start = cut_sound["start"]["contextTime"]
-    elapsed = cut_sound["contextAtEnd"] - start
-    assert elapsed > 0
     if cut == "mute":
         assert cut_sound["playedSeconds"] == pytest.approx(
-            elapsed - waited_seconds(seen, cut_sound["contextAtEnd"]),
-            abs=seen["clockStep"],
+            seen["contextAtAction"] - start
         )
     else:
-        # A stopped sound plays on through its edge, up to the end it reports.
-        step = seen["clockStep"]
-        waited = waited_seconds(seen, seen["contextAtAction"])
-        assert (
-            cut_sound["playedSeconds"]
-            >= seen["contextAtAction"] - start - waited - step
-        )
-        assert cut_sound["playedSeconds"] <= elapsed + step
+        # A stopped sound plays on through its edge, up to the end of the ramp.
+        assert cut_sound["playedSeconds"] == pytest.approx(ramp_end(seen, 0) - start)
     assert waiting["playedSeconds"] == 0
 
 
@@ -107,7 +100,7 @@ def test_a_sound_that_never_started_ends_with_zero_played_seconds(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.set_muted(muted=True)
             await stage.hand_over(url(SHORT))
             return await stage.finish()
@@ -122,21 +115,16 @@ def test_the_start_a_sound_hands_over_is_the_context_time_its_first_sample_is_he
     tmp_path: Path, sound: str
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.hand_over(url(sound))
-            await stage.until("s.heardOnsets.length > 0")
+            await stage.until(STARTED)
+            await stage.step_until(HEARD, within_seconds=EDGE_SECONDS)
             return await stage.snapshot()
 
     seen = asyncio.run(scenario())
 
-    start = seen["sounds"][0]["start"]
-    assert start["onThePlayersContext"]
-    # The start is never earlier than the render thread's clock, so the sound is heard
-    # within one render quantum of it. The page hears the onset to one sample, and the
-    # tone's first sample is silent: the onset heard is a sample later.
-    assert seen["heardOnsets"][0] == pytest.approx(
-        start["contextTime"], abs=ONSET_BOUND_FRAMES / seen["sampleRate"]
-    )
+    assert seen["sounds"][0]["start"]["onThePlayersContext"]
+    assert onset_after_start_frames(seen) == FIRST_SAMPLE_SILENT_FRAMES
 
 
 @AROUND_THE_START_CALL
@@ -149,7 +137,7 @@ def test_a_sound_is_heard_at_its_start_or_later_by_the_stall_around_the_start_ca
     output's lead. The first sample is then heard no earlier than the start less one
     render quantum and no later than the start plus the blocked time plus one
     quantum, and the played seconds read ahead of the seconds heard by no more than
-    the blocked time, plus one quantum and one step of the clock the two are read on.
+    the blocked time plus one quantum, both read at one instant of the clock.
     """
 
     async def scenario() -> dict[str, object]:
@@ -163,12 +151,12 @@ def test_a_sound_is_heard_at_its_start_or_later_by_the_stall_around_the_start_ca
 
     (stalled,) = seen["stalls"]
     blocked = stalled["to"] - stalled["from"]
-    quantum = ONSET_BOUND_FRAMES / seen["sampleRate"]
+    quantum = quantum_seconds(seen)
     start = start_of(seen)
     heard = heard_start_of(seen)
     assert start - quantum <= heard <= start + blocked + quantum
     played_ahead = seen["playedNow"][0] - (seen["contextNow"] - heard)
-    assert played_ahead <= blocked + quantum + seen["clockStep"]
+    assert played_ahead <= blocked + quantum
 
 
 @AROUND_THE_START_CALL
@@ -205,43 +193,51 @@ def test_the_start_of_a_sound_scheduled_right_after_another_ended_is_where_it_is
     tmp_path: Path, sound: str
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.hand_over(url(SHORT), url(sound))
-            await stage.until("s.heardOnsets.length === 2")
+            await stage.until(STARTED)
+            await stage.step_until(
+                "s.sounds[0].endedValue !== null",
+                within_seconds=SOUND_SECONDS["short.wav"] + EDGE_SECONDS,
+            )
+            await stage.until("s.sounds[1].startedValue === 'playing'")
+            await stage.step_until(
+                "s.heardOnsets.length === 2", within_seconds=EDGE_SECONDS
+            )
             return await stage.snapshot()
 
     seen = asyncio.run(scenario())
 
-    start = seen["sounds"][1]["start"]
     # The second sound's time has passed when it is scheduled; the player still hands
     # over a start the render thread has not passed.
-    assert seen["heardOnsets"][1] == pytest.approx(
-        start["contextTime"], abs=ONSET_BOUND_FRAMES / seen["sampleRate"]
-    )
+    assert onset_after_start_frames(seen, 1) == FIRST_SAMPLE_SILENT_FRAMES
 
 
 def test_a_streamed_sound_reads_still_across_a_late_chunks_gap_and_grows_after_it(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> tuple[dict[str, object], ...]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.prepare_bytes("long", LONG)
-            await stage.hand_over(fed("long", lead_seconds=LEAD_SECONDS))
-            await stage.until("s.sounds[0].startedValue === 'playing'")
-            await stage.until(f"s.playedNow[0] >= {LEAD_SECONDS}")
+            await stage.hear(fed("long", lead_seconds=LEAD_SECONDS), for_seconds=0)
+            await stage.step_until(
+                f"s.playedNow[0] >= {LEAD_SECONDS}", within_seconds=LEAD_SECONDS
+            )
             gap_begins = await stage.snapshot()
-            await stage.settle()
+            await stage.step_for(STRETCH_SECONDS)
             in_gap = await stage.snapshot()
             await stage.act("feed", "long")
-            await stage.until(f"s.playedNow[0] > {LEAD_SECONDS + GROWTH_SECONDS}")
+            await stage.step_until(
+                f"s.playedNow[0] > {LEAD_SECONDS + GROWTH_SECONDS}",
+                within_seconds=GROWTH_SECONDS + EDGE_SECONDS,
+            )
             return gap_begins, in_gap, await stage.snapshot()
 
     gap_begins, in_gap, after = asyncio.run(scenario())
 
-    step = in_gap["clockStep"]
     assert in_gap["contextNow"] > gap_begins["contextNow"]
-    assert in_gap["playedNow"][0] == pytest.approx(LEAD_SECONDS, abs=step)
-    assert in_gap["playedNow"][0] == pytest.approx(gap_begins["playedNow"][0], abs=step)
+    assert in_gap["playedNow"][0] == pytest.approx(LEAD_SECONDS)
+    assert in_gap["playedNow"][0] == gap_begins["playedNow"][0]
     assert after["playedNow"][0] > in_gap["playedNow"][0]
 
 
@@ -250,13 +246,14 @@ def test_a_pause_holds_the_seconds_a_sound_has_played(
     tmp_path: Path, sound: str
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
-        async with activated(tmp_path) as stage:
-            await stage.hand_over(url(sound))
-            await stage.until(f"s.playedNow[0] > {GROWTH_SECONDS}")
-            await stage.act("pause")
-            await stage.until("s.contextStates[0] === 'suspended'")
+        async with stepped(tmp_path) as stage:
+            await stage.hear(url(sound), for_seconds=0)
+            await stage.step_until(
+                f"s.playedNow[0] > {GROWTH_SECONDS}", within_seconds=GROWTH_SECONDS
+            )
+            await stage.paused()
             held = await stage.snapshot()
-            await stage.settle()
+            await stage.stand_still_for(STRETCH_SECONDS)
             return held, await stage.snapshot()
 
     held, later = asyncio.run(scenario())
@@ -270,7 +267,7 @@ def test_the_seconds_a_sound_has_played_equal_those_its_end_reports(
     tmp_path: Path, *, streamed: bool
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.prepare_bytes("long", LONG)
             if streamed:
                 await stage.hand_over(fed("long", lead_seconds=LEAD_SECONDS))
@@ -278,12 +275,14 @@ def test_the_seconds_a_sound_has_played_equal_those_its_end_reports(
             else:
                 await stage.hand_over(bytes_of("long"))
             await stage.finish()
-            await stage.settle()
+            await stage.step_for(STRETCH_SECONDS)
             return await stage.snapshot()
 
     seen = asyncio.run(scenario())
 
-    assert seen["sounds"][0]["playedSeconds"] > 0
+    assert seen["sounds"][0]["playedSeconds"] == pytest.approx(
+        SOUND_SECONDS["long.wav"]
+    )
     assert seen["playedNow"][0] == seen["sounds"][0]["playedSeconds"]
 
 
@@ -292,10 +291,9 @@ def test_a_cut_sounds_read_stays_at_the_seconds_its_end_reports(
     tmp_path: Path, cut: str
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.prepare_bytes("long", LONG)
-            await stage.hand_over(fed("long", lead_seconds=LEAD_SECONDS))
-            await stage.until("s.sounds[0].startedValue === 'playing'")
+            await stage.hear(fed("long", lead_seconds=LEAD_SECONDS))
             await stage.act("feed", "long")
             if cut == "stop":
                 await stage.act("stop")
@@ -303,7 +301,7 @@ def test_a_cut_sounds_read_stays_at_the_seconds_its_end_reports(
                 await stage.set_muted(muted=True)
             await stage.finish()
             after_end = await stage.snapshot()
-            await stage.settle()
+            await stage.step_for(STRETCH_SECONDS)
             return after_end, await stage.snapshot()
 
     after_end, later = asyncio.run(scenario())
@@ -318,20 +316,19 @@ def test_a_stopped_sound_cut_after_its_edge_reports_no_more_than_the_edge(
     tmp_path: Path, cut: str
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.prepare_bytes("long", LONG)
-            await stage.hand_over(fed("long", lead_seconds=LEAD_SECONDS))
-            await stage.until("s.sounds[0].startedValue === 'playing'")
+            await stage.hear(fed("long", lead_seconds=LEAD_SECONDS))
             await stage.act("feed", "long")
             await stage.act("stopThenCutPastItsEdge", cut, PAST_THE_EDGE_SECONDS)
             await stage.finish()
-            await stage.settle()
+            await stage.step_for(STRETCH_SECONDS)
             return await stage.snapshot()
 
     seen = asyncio.run(scenario())
 
     reported = seen["sounds"][0]["playedSeconds"]
-    assert reported < seen["playedBeforeStop"] + PAST_THE_EDGE_SECONDS / 2
+    assert reported == pytest.approx(ramp_end(seen, 0) - start_of(seen))
     assert seen["playedNow"][0] == reported
     series = seen["playedSeries"]
     assert all(later >= earlier for earlier, later in itertools.pairwise(series))
@@ -341,15 +338,13 @@ def test_a_streamed_sound_that_breaks_off_after_playing_keeps_what_it_played(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
-        async with activated(tmp_path) as stage:
-            await stage.hand_over(url(CUT_LATE))
-            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
-            await stage.settle()
+        async with stepped(tmp_path) as stage:
+            await stage.hear(url(CUT_LATE))
             before_break = await stage.snapshot()
             stage.side.held_release.set()
-            await stage.until("s.sounds[0].endedValue !== null")
-            after_break = await stage.snapshot()
-            return before_break, after_break
+            await stage.until(ALL_ENDED)
+            await stage.step_for(STRETCH_SECONDS)
+            return before_break, await stage.snapshot()
 
     before_break, after_break = asyncio.run(scenario())
 
@@ -362,14 +357,13 @@ def test_the_read_never_steps_back_across_a_stops_fade_and_its_end(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.prepare_bytes("long", LONG)
-            await stage.hand_over(fed("long", lead_seconds=LEAD_SECONDS))
-            await stage.until("s.sounds[0].startedValue === 'playing'")
+            await stage.hear(fed("long", lead_seconds=LEAD_SECONDS))
             await stage.act("feed", "long")
             await stage.act("stop")
-            await stage.finish()
-            await stage.settle()
+            await stage.step_until(ALL_ENDED, within_seconds=EDGE_SECONDS)
+            await stage.step_for(STRETCH_SECONDS)
             return await stage.snapshot()
 
     seen = asyncio.run(scenario())
@@ -381,11 +375,11 @@ def test_the_read_never_steps_back_across_a_stops_fade_and_its_end(
 
 def test_a_sound_muted_at_hand_over_reads_zero_played_seconds(tmp_path: Path) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.set_muted(muted=True)
             await stage.hand_over(url(SHORT))
             await stage.finish()
-            await stage.settle()
+            await stage.step_for(STRETCH_SECONDS)
             return await stage.snapshot()
 
     seen = asyncio.run(scenario())
