@@ -1,0 +1,8 @@
+claim_id = "79b7a01ab77e42e48a955b865aff8555"
+agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
+role = "builder"
+base = "b0397894bf8021fd4ab1f573e95daefbcce5f1d4"
+branch = "claude/issue-686-the-browser-package-and-the-scripts-call"
+scope = ["packages/browser/src/wav-stream.test.ts", "packages/browser/src/wav-stream.ts", "scripts", "tests/scripts"]
+opened_commit = "fe95a760195e3ee9cb7602d633088f374d2e80a1"
+whole_reason = "Five small one-owner calls from the same audit run; each is a few lines and one review reads them together."
