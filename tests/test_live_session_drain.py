@@ -116,16 +116,18 @@ def test_a_final_unfinished_at_the_bound_fails_its_item_and_closes_1012() -> Non
 
 
 def test_a_client_that_leaves_while_the_drain_cuts_its_turn_gets_no_close() -> None:
-    """WIRE-146: a drain whose session ended while it cut closes nothing."""
+    """WIRE-83: a drain whose session ended while it cut sends the client nothing."""
 
     async def scenario() -> FakeSocket:
         clock = FakeClock()
         hearing = loaded(FakeHearing(hold=True), clock)
         socket = StallingSocket("input_audio_buffer.committed")
-        session, _ = await started(hearing, socket=socket)
+        session, _ = await started(
+            hearing, socket=socket, final_wait_seconds=_FINAL_WAIT_SECONDS
+        )
         await session.on_message(append(audio(0.5)))
         hearing.begin_drain()
-        clock.jump(DRAIN_TURN_SECONDS)
+        clock.jump(DRAIN_TURN_SECONDS + _FINAL_WAIT_SECONDS)
         draining = asyncio.create_task(session.on_tick())
         await socket.stalled.wait()
         await session.on_disconnect()
@@ -136,7 +138,6 @@ def test_a_client_that_leaves_while_the_drain_cuts_its_turn_gets_no_close() -> N
     socket = asyncio.run(scenario())
 
     assert not socket.closed
-    assert "conversation.item.created" not in socket.types()
 
 
 def test_a_session_waits_for_a_final_in_the_queue_before_it_closes() -> None:

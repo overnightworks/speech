@@ -556,7 +556,7 @@ def test_a_result_that_arrives_after_the_session_ended_is_dropped() -> None:
 def test_a_client_that_leaves_while_a_turns_events_go_out_gets_the_rest_unsent() -> (
     None
 ):
-    """WIRE-84: a client that left is sent none of the turn's remaining events."""
+    """WIRE-83: a client that left is sent none of the turn's remaining events."""
 
     async def scenario() -> FakeSocket:
         socket = StallingSocket("input_audio_buffer.committed")
