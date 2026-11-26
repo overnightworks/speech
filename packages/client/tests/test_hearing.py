@@ -504,15 +504,28 @@ def test_an_end_before_the_connection_opens_ends_the_session_at_once(
     assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)
 
 
-def test_a_connection_that_opens_after_the_session_ended_is_aborted() -> None:
-    async def scenario() -> tuple[HearingOutcome | None, int | None]:
+async def no_token() -> None:
+    return None
+
+
+@pytest.mark.parametrize(
+    ("late_answer", "connects"),
+    [
+        pytest.param(fixed_tokens, True, id="a-connection-is-aborted"),
+        pytest.param(no_token, False, id="no-token-is-left-alone"),
+    ],
+)
+def test_an_opening_that_settles_after_the_session_ended_leaves_its_outcome(
+    late_answer: Callable[[], Awaitable[SessionTokens | None]], connects: bool
+) -> None:
+    async def scenario() -> tuple[HearingOutcome | None, list[int | None]]:
         asked = asyncio.Event()
 
-        async def answers_only_once_cancelled() -> SessionTokens:
+        async def answers_only_once_cancelled() -> SessionTokens | None:
             asked.set()
             with contextlib.suppress(asyncio.CancelledError):
                 await asyncio.Event().wait()
-            return await fixed_tokens()
+            return await late_answer()
 
         closed_with: list[int | None] = []
         closed = asyncio.Event()
@@ -529,14 +542,15 @@ def test_a_connection_that_opens_after_the_session_ended_is_aborted() -> None:
             async with session:
                 await asked.wait()
                 session.send(b"over the held limit")
+            if connects:
                 async with asyncio.timeout(WHOLE_RUN_SECONDS):
                     await closed.wait()
-        return session.outcome, closed_with[0]
+        return session.outcome, closed_with
 
-    outcome, close_code = asyncio.run(scenario())
+    outcome, close_codes = asyncio.run(scenario())
 
     assert outcome == OverCap()
-    assert close_code == CloseCode.ABNORMAL_CLOSURE
+    assert close_codes == ([CloseCode.ABNORMAL_CLOSURE] if connects else [])
 
 
 def test_a_caller_timeout_during_a_stalled_opening_leaves_no_task_behind() -> None:
