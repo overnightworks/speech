@@ -11,11 +11,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
-from playwright.async_api import async_playwright
-
-from tests.support.browser_support import MESSAGING_HOP_PATH, AppSide, stand_in_app
+from tests.support.browser_support import (
+    MESSAGING_HOP_PATH,
+    AppSide,
+    chromium_page,
+    stand_in_app,
+)
 from tests.support.hear_support import FakeHearing, hear_runtime
-from tests.support.page_coverage_support import PageCoverage
 from tests.support.tcp_server_support import serving_asgi, serving_over_tcp
 
 if TYPE_CHECKING:
@@ -24,11 +26,8 @@ if TYPE_CHECKING:
 
     from playwright.async_api import Page
 
-CHROMIUM_FLAGS = (
-    "--use-fake-device-for-media-stream",
-    "--use-fake-ui-for-media-stream",
-    "--autoplay-policy=document-user-activation-required",
-)
+    from tests.support.page_coverage_support import PageCoverage
+
 WAIT_MS = 20_000
 FRAMES_BEFORE_STOP = 3
 # The page passes `onMessage`, and the app's route writes messages of its own.
@@ -99,13 +98,5 @@ async def capture_stage(
     async with serving_over_tcp(hear_runtime(engine)) as service:
         side = AppSide.new()
         app = stand_in_app(service.base_url, side, tmp_path)
-        async with serving_asgi(app) as base_url, async_playwright() as playwright:
-            browser = await playwright.chromium.launch(args=CHROMIUM_FLAGS)
-            try:
-                page = await browser.new_page()
-                coverage = PageCoverage.from_environment()
-                await coverage.watch(page)
-                yield Stage(side, page, base_url, service.base_url, coverage)
-                await coverage.write()
-            finally:
-                await browser.close()
+        async with serving_asgi(app) as base_url, chromium_page() as (page, coverage):
+            yield Stage(side, page, base_url, service.base_url, coverage)
