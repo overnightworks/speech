@@ -120,8 +120,9 @@ holds all four at one version.
 
 ## Release
 
-The operator releases by dispatching a workflow with a version; his yes covers
-whatever `main` holds at the dispatch, and release tags are his:
+An agent dispatches `release.yml` and `release-distributions.yml` with a
+version once the release item's review and CI are green, and the head reports
+the release to the operator:
 
 ```sh
 gh workflow run release.yml -f version=YYYY.MM.DD.N
