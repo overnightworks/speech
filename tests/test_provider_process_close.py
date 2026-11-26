@@ -16,7 +16,6 @@ from speech_service.provider_process import (
     CLOSE_SECONDS,
     ProviderCleanupFailedError,
     _is_healthy,
-    _require_stderr,
 )
 from tests.support.launcher_support import (
     LoadOutcome,
@@ -26,15 +25,17 @@ from tests.support.launcher_support import (
     release_exit,
     release_load,
     server_starts,
+    stage_stderr_outcome,
     wait_for_held_exit,
     wait_for_starts,
 )
 from tests.support.process_state import has_ended
 
 if TYPE_CHECKING:
-    import subprocess
+    from collections.abc import Iterator
     from pathlib import Path
-    from typing import IO
+
+    from speech_service.provider_process import ProviderProcess
 
 _OWNER = "speech_service.provider_process"
 _SMALL_SECONDS = 0.05
@@ -110,31 +111,41 @@ def test_a_failed_scratch_cleanup_is_logged_and_the_release_goes_on(
     assert_reaped(pid)
 
 
-def test_a_grandchild_that_holds_stderr_does_not_hold_the_release_and_stderr_is_closed(
+@pytest.fixture
+def stage_holding_stderr(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+) -> Iterator[tuple[ProviderProcess, int]]:
     monkeypatch.setattr(f"{_OWNER}._STDERR_DRAIN_JOIN_SECONDS", _SMALL_SECONDS)
-    streams: list[IO[bytes]] = []
-    require_stderr = _require_stderr
-
-    def record_stderr(child: subprocess.Popen[bytes]) -> IO[bytes]:
-        streams.append(require_stderr(child))
-        return streams[-1]
-
-    monkeypatch.setattr(f"{_OWNER}._require_stderr", record_stderr)
     cache = tmp_path / "cache"
     server = provider_server(tmp_path, "detached-stage")
     server.load()
     (pid,) = server_starts(cache)
     stage = int((cache / "stage").read_text(encoding="utf-8"))
-
     try:
-        server.close()
-        assert_reaped(pid)
-        assert [stream.closed for stream in streams] == [True]
+        yield server, pid
     finally:
         os.kill(stage, signal.SIGKILL)
     assert has_ended(stage)
+
+
+def test_a_grandchild_that_holds_stderr_does_not_hold_the_release(
+    stage_holding_stderr: tuple[ProviderProcess, int],
+) -> None:
+    server, pid = stage_holding_stderr
+
+    server.close()
+
+    assert_reaped(pid)
+
+
+def test_the_providers_stderr_is_closed_for_a_grandchild_that_holds_it(
+    tmp_path: Path, stage_holding_stderr: tuple[ProviderProcess, int]
+) -> None:
+    server, _pid = stage_holding_stderr
+
+    server.close()
+
+    assert stage_stderr_outcome(tmp_path / "cache") == "stderr-closed"
 
 
 @pytest.mark.parametrize("spoiled", ["health-dropped", "health-garbled"])

@@ -145,6 +145,20 @@ def release_exit(cache: Path, pid: int) -> None:
     _write_atomically(cache / f"release-exit-{pid}", "")
 
 
+def stage_stderr_outcome(cache: Path) -> str:
+    """Whether the stage's inherited stderr is `stderr-closed` or still `stderr-open`.
+
+    Asks the `with-stage` or `detached-stage` stage to write to it until a write
+    fails, and waits, bounded, for what it met.
+    """
+    _write_atomically(cache / "stage-probe", "")
+    deadline = time.monotonic() + SERVER_WAIT_SECONDS
+    while not (cache / "stage-stderr").exists():
+        assert time.monotonic() < deadline, "the stage never wrote to its stderr"
+        time.sleep(0.01)
+    return (cache / "stage-stderr").read_text(encoding="utf-8")
+
+
 def _write_atomically(path: Path, text: str) -> None:
     staged = path.with_name(f"{path.name}.staged")
     staged.write_text(text, encoding="utf-8")

@@ -99,9 +99,31 @@ if "stale-socket" in behaviors:
     (cache / "scenario-begun").touch()
     while True:
         time.sleep(1)
+
+
+# The stage keeps the stderr it inherited; once `stage-probe` exists it writes to it
+# until a write fails or its tries run out, and records which came first.
+STAGE_SCRIPT = """
+import sys, time
+from pathlib import Path
+cache = Path(sys.argv[1])
+while not (cache / "stage-probe").exists():
+    time.sleep(0.01)
+outcome = "stderr-open"
+for _ in range(500):
+    try:
+        sys.stderr.write("x")
+        sys.stderr.flush()
+    except BrokenPipeError:
+        outcome = "stderr-closed"
+        break
+    time.sleep(0.01)
+(cache / "stage-stderr").write_text(outcome, encoding="utf-8")
+time.sleep(600)
+"""
 if "with-stage" in behaviors or "detached-stage" in behaviors:
     stage = subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(600)"],
+        [sys.executable, "-c", STAGE_SCRIPT, str(cache)],
         start_new_session="detached-stage" in behaviors,
     )
     (cache / "stage").write_text(str(stage.pid), encoding="utf-8")
