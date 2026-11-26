@@ -248,7 +248,7 @@ class PlayerRun {
       return;
     }
     this.#flow = "running";
-    void this.#resumeAndFadeIn(++this.#fade);
+    void this.#resumeAndFadeIn(++this.#fade, this.#playing?.held);
   }
 
   stop(): void {
@@ -392,7 +392,7 @@ class PlayerRun {
   /**
    * Ends the waiting call, and takes its fade off the gain's timeline if it is on it, ramping the volume back up unless
    * the switch that overtakes it sets the volume itself. A fade that has ended on the audio clock cannot be taken off:
-   * the sound is held at its point, which stays, and a switch that restores the volume holds it for good.
+   * the sound is held at its point, which stays: a switch that restores the volume holds it for good.
    */
   #overtake(call: HoldCall, { restoreVolume }: { readonly restoreVolume: boolean }): void {
     if (call.scheduled) {
@@ -485,7 +485,8 @@ class PlayerRun {
     void this.#suspendOnceFaded(endsAt, this.#fade);
   }
 
-  async #resumeAndFadeIn(fade: number): Promise<void> {
+  /** `ended` is the hold point this resume ends: a `pauseAt` thrown while the resume is in flight sets its own, which stays. */
+  async #resumeAndFadeIn(fade: number, ended: Scheduled["held"]): Promise<void> {
     // A suspended context's clock stands still, so the ramp set on it starts the moment the context renders again, not
     // when the page's task that awaits the resume runs: the sounds play on where they paused, whatever the page's timing.
     this.#fadeIn();
@@ -498,7 +499,9 @@ class PlayerRun {
     if (fade === this.#fade) {
       if (this.#playing !== undefined) {
         // The hold ends once the context runs: a refused resume leaves the sound held at its point.
-        this.#playing.held = undefined;
+        if (this.#playing.held === ended) {
+          this.#playing.held = undefined;
+        }
         this.#announceStart(this.#playing);
         this.#settle(this.#playing);
       }

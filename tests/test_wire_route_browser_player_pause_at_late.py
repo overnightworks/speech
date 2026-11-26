@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tests.support.browser_pause_at_support import (
+    HOLD_AT,
     SWITCHES,
     held_at,
     silent_from,
@@ -174,4 +175,51 @@ def test_pause_in_the_late_window_keeps_the_hold_point_of_the_call(
     seen = asyncio.run(scenario())
 
     assert result_of(seen) == held_at(LATE_HOLD_AT)
+    assert ends(seen) == [None, None]
+
+
+async def resume_and_pause_at_in_one_task(stage: SteppedStage, position: float) -> None:
+    """Hear the long sound and the other, pause, then resume and hold at `position`.
+
+    Both are thrown in one page task, so the call comes while the resume is in flight.
+    """
+    await stage.hear_decoded(LONG, OTHER)
+    await stage.paused()
+    await stage.act("resumeThenPauseAt", 0, position)
+
+
+def test_a_call_thrown_while_the_resume_is_in_flight_holds_at_the_position(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with stepped(tmp_path) as stage:
+            await resume_and_pause_at_in_one_task(stage, HOLD_AT)
+            await stage.until_resolved()
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    assert result_of(seen) == held_at(HOLD_AT)
+    assert ends(seen) == [None, None]
+
+
+def test_a_call_thrown_while_the_resume_is_in_flight_holds_a_sound_that_runs_out_late(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> tuple[dict[str, object], dict[str, object]]:
+        async with stepped(tmp_path) as stage:
+            await resume_and_pause_at_in_one_task(stage, HOLD_AT)
+            thrown = await stage.snapshot()
+            sound_end = start_of(thrown) + LONG_SECONDS
+            await stage.render(
+                stage.quanta_for(sound_end + STRETCH_SECONDS - thrown["contextNow"])
+            )
+            late = await stage.snapshot()
+            await stage.until_resolved()
+            return late, await stage.snapshot()
+
+    late, seen = asyncio.run(scenario())
+
+    assert ends(late) == [None, None]
+    assert result_of(seen) == held_at(HOLD_AT)
     assert ends(seen) == [None, None]
