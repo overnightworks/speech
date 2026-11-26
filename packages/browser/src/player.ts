@@ -658,10 +658,8 @@ class PlayerRun {
       }
       return;
     }
-    if (generation === this.#generation) {
-      scheduled.bodyScheduled = true;
-      this.#settle(scheduled);
-    }
+    scheduled.bodyScheduled = true;
+    this.#settle(scheduled);
   }
 
   async #scheduleChunks(
