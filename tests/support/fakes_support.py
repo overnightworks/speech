@@ -171,11 +171,8 @@ class GatedSpeaking:
                 self.active_syntheses -= 1
 
 
-class GatedEngine:
+class GatedEngine(FakeSpeaking):
     """An engine whose load and close each wait for a gate, and whose close may fail."""
-
-    model_name = "gated-engine"
-    sample_rate = SPEAK_SAMPLE_RATE
 
     def __init__(
         self,
@@ -185,12 +182,11 @@ class GatedEngine:
         close_fails: bool = False,
     ) -> None:
         """Start with every gate open unless held; `close_fails` makes `close` raise."""
-        self.ready = False
+        super().__init__(ready=False)
         self.entered_load = threading.Event()
         self.release_load = threading.Event()
         self.entered_close = threading.Event()
         self.release_close = threading.Event()
-        self.closed = threading.Event()
         self._close_fails = close_fails
         if not hold_load:
             self.release_load.set()
@@ -208,18 +204,10 @@ class GatedEngine:
         _pass_gate(self.release_load)
         self.ready = True
 
-    def pcm_chunks(
-        self, text: str, language: str, instructions: str | None = None
-    ) -> Iterator[bytes]:
-        """Speak nothing."""
-        del text, language, instructions
-        return iter(())
-
     def close(self) -> None:
         """End once the close gate opens, then raise when built to fail."""
         self.entered_close.set()
         _pass_gate(self.release_close)
-        self.closed.set()
         if self._close_fails:
             message = "close failed"
             raise RuntimeError(message)

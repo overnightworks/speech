@@ -67,21 +67,21 @@ def waited(monkeypatch: pytest.MonkeyPatch) -> threading.Event:
     return noting_slot_waits(monkeypatch)
 
 
-def _a_ready_engine_that_failed(
-    *, close_fails: bool, hold_close: bool = False
-) -> GatedEngine:
-    engine = GatedEngine(close_fails=close_fails, hold_close=hold_close)
-    engine.ready = True
-    return engine
+def _slot_whose_engine_failed(
+    *fresh: GatedEngine, close_fails: bool, hold_close: bool = False
+) -> tuple[_Slot, GatedEngine]:
+    failed = GatedEngine(close_fails=close_fails, hold_close=hold_close)
+    failed.ready = True
+    owner = _Slot(*fresh, speaking=failed)
+    failed.ready = False
+    return owner, failed
 
 
 @pytest.mark.parametrize("close_fails", [False, True], ids=["closed", "close-failed"])
 def test_a_close_waits_for_the_close_of_a_failed_engine_and_raises_when_it_failed(
     pool: ThreadPoolExecutor, waited: threading.Event, *, close_fails: bool
 ) -> None:
-    failed = _a_ready_engine_that_failed(close_fails=close_fails, hold_close=True)
-    owner = _Slot(speaking=failed)
-    failed.ready = False
+    owner, failed = _slot_whose_engine_failed(close_fails=close_fails, hold_close=True)
     reconciling = pool.submit(owner.slot.reconcile_failed_active)
     assert failed.entered_close.wait(GATE_TIMEOUT_SECONDS)
 
@@ -139,10 +139,8 @@ def test_a_dead_engine_whose_close_fails_is_fatal_and_no_engine_is_built() -> No
 def test_a_shared_load_builds_no_engine_until_the_failed_engines_close_ends(
     pool: ThreadPoolExecutor, waited: threading.Event
 ) -> None:
-    failed = _a_ready_engine_that_failed(close_fails=False, hold_close=True)
     fresh = GatedEngine()
-    owner = _Slot(fresh, speaking=failed)
-    failed.ready = False
+    owner, failed = _slot_whose_engine_failed(fresh, close_fails=False, hold_close=True)
     reconciling = pool.submit(owner.slot.reconcile_failed_active)
     assert failed.entered_close.wait(GATE_TIMEOUT_SECONDS)
 
