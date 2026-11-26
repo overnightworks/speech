@@ -53,7 +53,7 @@ from tests.support.identity_support import (
     valid_headers,
     valid_pair,
 )
-from tests.support.live_support import append, audio, commit, update
+from tests.support.live_support import append, audio, commit, update, windows
 from tests.support.speak_support import assert_refusal_body
 
 URL = f"{REALTIME_PATH}?intent=transcription"
@@ -99,6 +99,24 @@ def test_a_session_hears_a_committed_turn_and_ends_when_the_client_leaves() -> N
     ]
     assert events[-1]["transcript"] == HEARD_TEXT
     assert events[-1]["languages"] == [{"code": "en"}]
+
+
+def test_the_ask_for_sustained_speech_its_echo_and_its_event_travel_the_route() -> None:
+    """WIRE-171, WIRE-172, WIRE-174: a session that asks gets the event."""
+    # The resampler holds back the last samples, so a silent window follows.
+    thirteen_windows = windows(13) + windows(1, 0)
+    with _client().websocket_connect(URL, headers=valid_headers()) as socket:
+        assert socket.receive_json()["type"] == "session.created"
+        socket.send_text(update(sustained_speech={"duration_ms": 400}))
+        echo = socket.receive_json()
+        socket.send_text(append(thirteen_windows))
+        opened = socket.receive_json()
+        sustained = socket.receive_json()
+
+    assert echo["session"]["audio"]["input"]["sustained_speech"] == {"duration_ms": 400}
+    assert sustained["type"] == "input_audio_buffer.speech_sustained"
+    assert sustained["item_id"] == opened["item_id"]
+    assert sustained["audio_end_ms"] == 13 * 32
 
 
 def test_a_session_runs_on_after_both_tokens_expire_and_a_new_upgrade_is_refused() -> (
