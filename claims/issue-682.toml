@@ -1,0 +1,8 @@
+claim_id = "9c087666c0b84a0391264e60bc6666f1"
+agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
+role = "builder"
+base = "2c06e34cec7e7cb15a85da124903176f64dfca39"
+branch = "claude/issue-682-the-base-player-module-s-scheduling-cell"
+scope = ["tests/fixtures/browser", "tests/support/browser_player_support.py", "tests/test_wire_route_browser_player.py"]
+opened_commit = "74a8424f8aee1dc6bac7bf94551a49592d11da2d"
+whole_reason = "The cells, the stage they step and the shim members they need move together; a cell half on each stage proves nothing."
