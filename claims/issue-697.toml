@@ -1,0 +1,8 @@
+claim_id = "b77f174e55274245abef34d068e2b0be"
+agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
+role = "builder"
+base = "dd1a8bf6c898b3a06827b9a0f995fd7cd598e4ad"
+branch = "claude/issue-697-capture-failure-outcomes-proven"
+scope = ["packages/browser/src/capture.ts", "tests/fixtures/browser/capture_page.js", "tests/support/browser_support.py", "tests/test_wire_route_browser_capture.py"]
+opened_commit = "5fd748390d437a2096b2eb4516d7f0ebf3a05c69"
+whole_reason = "The cells and the page knobs they drive land together; a knob without its cell is unused fixture code."
