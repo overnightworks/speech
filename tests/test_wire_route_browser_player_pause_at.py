@@ -507,6 +507,27 @@ def test_pause_while_a_call_waits_holds_now_and_the_call_gives_where_it_held(
     assert silent_from(seen, last_ramp_end(seen, 0))
 
 
+def test_a_stop_while_a_call_waits_ends_the_sound_at_todays_edge_not_at_the_position(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with stepped(tmp_path) as stage:
+            await stage.hear_decoded(LONG)
+            await stage.pause_at(0, HOLD_AT)
+            await stage.act("stop")
+            await stage.until("s.pauseAts[0].result !== null")
+            await stage.finish()
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    [stop_at] = action_times(seen, "stop")
+    assert result_of(seen) == {"kind": "overtaken"}
+    assert ends(seen) == ["stopped"]
+    assert stop_at < last_ramp_end(seen, 0) <= stop_at + EDGE_SECONDS
+    assert seen["sounds"][0]["playedSeconds"] < HOLD_AT / 2
+
+
 def test_resume_while_a_call_waits_cancels_the_fade_and_the_sound_plays_on(
     tmp_path: Path,
 ) -> None:
