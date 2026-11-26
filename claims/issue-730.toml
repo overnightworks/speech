@@ -1,0 +1,7 @@
+claim_id = "11d9845cee4e43ddbe79f0dce358f732"
+agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
+role = "builder"
+base = "126199e9efa09558d690dea758fdb9d3f2af0fa1"
+branch = "claude/issue-730-the-services-process-tests-share-one-ser"
+scope = ["tests/test_main.py"]
+opened_commit = "fcafffb4631b18d5dafb8d6806b7b2bad5253f4c"
