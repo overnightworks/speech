@@ -247,6 +247,54 @@ def test_a_waiter_cancelled_after_the_hand_off_is_scheduled_frees_the_gate() -> 
     assert asyncio.run(scenario())
 
 
+def test_a_waiter_whose_loop_closed_as_it_was_popped_passes_the_lease_on() -> None:
+    gate = _InterleavedGate()
+    held = gate.try_acquire()
+    assert held is not None
+    gone = asyncio.new_event_loop()
+    leaving = gone.create_task(gate.acquire(_in(WAIT_SECONDS), MANY_WAITERS))
+    gone.run_until_complete(_settle())
+
+    def leave_and_close_the_loop() -> None:
+        leaving.cancel()
+        gone.run_until_complete(asyncio.gather(leaving, return_exceptions=True))
+        gone.close()
+
+    async def scenario() -> bool:
+        next_in_line = asyncio.create_task(
+            gate.acquire(_in(WAIT_SECONDS), MANY_WAITERS)
+        )
+        await _settle()
+        gate.interleaving.after_exit = leave_and_close_the_loop
+        await asyncio.to_thread(held.close)
+        lease = await asyncio.wait_for(next_in_line, WAIT_SECONDS)
+        return lease is not None
+
+    assert asyncio.run(scenario())
+
+
+def test_a_waiter_cancelled_before_the_hand_off_runs_passes_the_lease_to_the_next() -> (
+    None
+):
+    async def scenario() -> bool:
+        gate = AdmissionGate(LoopClock())
+        held = gate.try_acquire()
+        assert held is not None
+        cancelled = asyncio.create_task(gate.acquire(_in(WAIT_SECONDS), MANY_WAITERS))
+        await _settle()
+        next_in_line = asyncio.create_task(
+            gate.acquire(_in(WAIT_SECONDS), MANY_WAITERS)
+        )
+        await _settle()
+        cancelled.cancel()  # its wake-up queues ahead of the hand-off the release makes
+        held.close()
+        await asyncio.gather(cancelled, return_exceptions=True)
+        lease = await asyncio.wait_for(next_in_line, WAIT_SECONDS)
+        return lease is not None
+
+    assert asyncio.run(scenario())
+
+
 def test_a_lease_gives_the_gate_back_once() -> None:
     gate = AdmissionGate(LoopClock())
     lease = gate.try_acquire()
