@@ -217,13 +217,13 @@ def exchange_stream[Item](
     connection = _open(origin, deadline, clock)
     if not isinstance(connection, HTTPConnection):
         yield connection
-        return
-    try:
-        for item in ask(connection):
-            yield item
-            if clock() >= deadline:
-                raise TimeoutError
-    except (OSError, HTTPException) as error:
-        yield _ended_by(error)
-    finally:
-        connection.close()
+    else:
+        try:
+            for item in ask(connection):
+                yield item
+                if clock() >= deadline:
+                    raise TimeoutError
+        except (OSError, HTTPException) as error:
+            yield _ended_by(error)
+        finally:
+            connection.close()

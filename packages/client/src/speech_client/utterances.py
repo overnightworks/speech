@@ -220,7 +220,7 @@ class _Mapping:
                     await self.callbacks.on_speech_started(
                         SpeechStart(event.audio_start_ms)
                     )
-            case SpeechStopped():
+            case _:
                 self.items.stopped[event.item_id] = event.audio_end_ms
                 if self.callbacks.on_speech_stopped is not None:
                     await self.callbacks.on_speech_stopped(

@@ -246,9 +246,9 @@ class _Speaking:
         """
         if self.seconds_left() <= 0:
             yield PastDeadline()
-            return
-        yield self.first
-        yield from self.chunks
+        else:
+            yield self.first
+            yield from self.chunks
 
 
 def _choose(  # noqa: PLR0913 - each wire option is its own argument
