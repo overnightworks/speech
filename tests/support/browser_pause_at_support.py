@@ -11,6 +11,7 @@ import math
 from typing import TYPE_CHECKING
 
 from tests.support.browser_player_support import (
+    SOUND_SECONDS,
     audible_seconds,
     last_ramp_end,
     quantum_seconds,
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
 
 # A position well inside the long sound and past the first chunk of its streamed form.
 HOLD_AT = 2.0
+LONG_SECONDS = SOUND_SECONDS["long.wav"]
 
 
 def held_at(position: float) -> dict[str, object]:

@@ -16,6 +16,7 @@ import pytest
 
 from tests.support.browser_pause_at_support import (
     HOLD_AT,
+    LONG_SECONDS,
     SWITCHES,
     held_at,
     silent_from,
@@ -57,7 +58,6 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.browser
 
-LONG_SECONDS = SOUND_SECONDS["long.wav"]
 # The seconds the streamed sound's first chunk holds before the rest arrives.
 LEAD_SECONDS = 1.0
 # A distance from a position that is under any edge: a few render quanta.

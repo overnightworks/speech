@@ -14,6 +14,7 @@ import pytest
 
 from tests.support.browser_pause_at_support import (
     HOLD_AT,
+    LONG_SECONDS,
     SWITCHES,
     held_at,
     silent_from,
@@ -43,7 +44,6 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.browser
 
-LONG_SECONDS = SOUND_SECONDS["long.wav"]
 # A position inside the short sound that the late page's context renders past.
 LATE_HOLD_AT = 0.2
 
@@ -105,6 +105,15 @@ def test_a_call_thrown_as_the_resume_fades_in_fades_out_from_where_the_volume_is
     assert silent_from(seen, last_ramp_end(seen, 0))
 
 
+async def render_past_the_end(stage: SteppedStage, sound_seconds: float) -> None:
+    """Render the context past the end of the sound that started where it was thrown."""
+    thrown = await stage.snapshot()
+    sound_end = start_of(thrown) + sound_seconds
+    await stage.render(
+        stage.quanta_for(sound_end + STRETCH_SECONDS - thrown["contextNow"])
+    )
+
+
 async def into_the_late_window(stage: SteppedStage) -> None:
     """Hold the short sound at `LATE_HOLD_AT`, then render the context past its end.
 
@@ -113,11 +122,7 @@ async def into_the_late_window(stage: SteppedStage) -> None:
     """
     await stage.hear_decoded(SHORT, OTHER)
     await stage.pause_at(0, LATE_HOLD_AT)
-    thrown = await stage.snapshot()
-    sound_end = start_of(thrown) + SOUND_SECONDS["short.wav"]
-    await stage.render(
-        stage.quanta_for(sound_end + STRETCH_SECONDS - thrown["contextNow"])
-    )
+    await render_past_the_end(stage, SOUND_SECONDS["short.wav"])
     assert ends(await stage.snapshot()) == [None, None]
 
 
@@ -188,32 +193,13 @@ async def resume_and_pause_at_in_one_task(stage: SteppedStage, position: float) 
     await stage.act("resumeThenPauseAt", 0, position)
 
 
-def test_a_call_thrown_while_the_resume_is_in_flight_holds_at_the_position(
-    tmp_path: Path,
-) -> None:
-    async def scenario() -> dict[str, object]:
-        async with stepped(tmp_path) as stage:
-            await resume_and_pause_at_in_one_task(stage, HOLD_AT)
-            await stage.until_resolved()
-            return await stage.snapshot()
-
-    seen = asyncio.run(scenario())
-
-    assert result_of(seen) == held_at(HOLD_AT)
-    assert ends(seen) == [None, None]
-
-
 def test_a_call_thrown_while_the_resume_is_in_flight_holds_a_sound_that_runs_out_late(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
         async with stepped(tmp_path) as stage:
             await resume_and_pause_at_in_one_task(stage, HOLD_AT)
-            thrown = await stage.snapshot()
-            sound_end = start_of(thrown) + LONG_SECONDS
-            await stage.render(
-                stage.quanta_for(sound_end + STRETCH_SECONDS - thrown["contextNow"])
-            )
+            await render_past_the_end(stage, LONG_SECONDS)
             late = await stage.snapshot()
             await stage.until_resolved()
             return late, await stage.snapshot()
