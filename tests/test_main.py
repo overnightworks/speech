@@ -116,7 +116,7 @@ class _ShutdownOnlyServer:
         del sockets
         if self._once_serving is not None:
             self._once_serving()
-        await self._stopped.wait()
+        await asyncio.wait_for(self._stopped.wait(), WAIT_SECONDS)
 
 
 class _SignalledServer(_ShutdownOnlyServer):
