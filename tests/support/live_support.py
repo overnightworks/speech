@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 
 from speech_service.config import DEFAULT_LIVE_SILENCE_SECONDS
 from speech_service.live_session import LiveSession
+from speech_service.pcm import HEARING_SAMPLE_RATE
+from speech_service.voice_activity import WINDOW_SAMPLES
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -21,9 +23,12 @@ INPUT_RATE = 24_000
 WAIT_SECONDS = 5.0
 SPEECH_STOPPED = "input_audio_buffer.speech_stopped"
 SOUND_DETECTED = "input_audio_buffer.sound_detected"
+SPEECH_SUSTAINED = "input_audio_buffer.speech_sustained"
 ASK_FOR_SOUNDS = {"type": "audioset"}
 COMPLETED = "conversation.item.input_audio_transcription.completed"
 FAILED = "conversation.item.input_audio_transcription.failed"
+NOT_ASKED = object()
+_INPUT_SAMPLES_PER_WINDOW = WINDOW_SAMPLES * INPUT_RATE // HEARING_SAMPLE_RATE
 
 
 class FakeSocket:
@@ -90,10 +95,18 @@ class StallingSocket(FakeSocket):
         await super().send(text)
 
 
+def _samples(count: int, level: int) -> str:
+    return base64.b64encode(struct.pack("<h", level) * count).decode()
+
+
 def audio(seconds: float, level: int = SPEECH_LEVEL) -> str:
     """The base64 PCM16 at 24 kHz of a constant level `seconds` long."""
-    count = int(seconds * INPUT_RATE)
-    return base64.b64encode(struct.pack("<h", level) * count).decode()
+    return _samples(int(seconds * INPUT_RATE), level)
+
+
+def windows(count: int, level: int = SPEECH_LEVEL) -> str:
+    """The base64 PCM16 at 24 kHz of `count` whole 32 ms windows of one level."""
+    return _samples(count * _INPUT_SAMPLES_PER_WINDOW, level)
 
 
 def append(data: str, event_id: str | None = None) -> str:
@@ -117,10 +130,12 @@ def update(
     model: str | None = None,
     languages: list[str] | None = None,
     sound_detection: dict[str, str] | None = None,
+    sustained_speech: object = NOT_ASKED,
 ) -> str:
     """A `session.update` message for `language` or `languages`, `model` if given.
 
-    It asks for sounds with `sound_detection`, when that is given.
+    It asks for sounds with `sound_detection`, and for a sustained speech with
+    `sustained_speech`, whatever that is, when they are given.
     """
     transcription: dict[str, object] = {}
     if language is not None:
@@ -132,6 +147,8 @@ def update(
     audio_input: dict[str, object] = {"transcription": transcription}
     if sound_detection is not None:
         audio_input["sound_detection"] = sound_detection
+    if sustained_speech is not NOT_ASKED:
+        audio_input["sustained_speech"] = sustained_speech
     session = {"type": "transcription", "audio": {"input": audio_input}}
     return json.dumps({"type": "session.update", "session": session})
 

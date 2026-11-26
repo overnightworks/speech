@@ -242,7 +242,7 @@ The limits, each answered without decoding more than it must:
 - WIRE-48: `WS /v1/realtime?intent=transcription` hears audio as it arrives.
 - WIRE-49: It speaks the
   events of OpenAI's Realtime transcription session that this service applies, and
-  one event of its own, sound detection (WIRE-163).
+  two events of its own, sound detection (WIRE-163) and sustained speech (WIRE-171).
 - WIRE-50: Both tokens travel in the upgrade request's headers, as on the
   other routes; a client sends them from a server, never from a browser.
 - WIRE-140: The tokens are checked once, at the upgrade; a session runs on after either
@@ -273,14 +273,18 @@ The limits, each answered without decoding more than it must:
   `transcription.model` absent or `speech`; `transcription.language`
   absent, `de` or `en`; `transcription.languages` absent or a non-empty array of
   distinct `de` or `en`; `turn_detection` absent or `{"type": "server_vad"}`;
-  `sound_detection` absent or `{"type": "audioset"}` (WIRE-164).
+  `sound_detection` absent or `{"type": "audioset"}` (WIRE-164); `sustained_speech` absent,
+  `{}` or `{"duration_ms": <integer from 1 to 30000>}` (WIRE-172).
 - WIRE-58: Anything
   else ends the session with an `error`, among it a second update, an update after
   audio, `null` turn detection, `language` and `languages` together, an empty or
   repeating `languages`, a code the service does not hear (`param` ends with the
   element's index, such as `...transcription.languages.1`), an explicit `null` for
-  either field, an explicit `null` or any other `type` for `sound_detection`, and every
-  field the service does not apply (prompt, keywords, noise reduction, include).
+  either field, an explicit `null` or any other `type` for `sound_detection`, an explicit
+  `null` for `sustained_speech`, a `duration_ms` that is `null`, not an integer or outside
+  1 to 30000, or a key it does not know (`param` `session.audio.input.sustained_speech`
+  with `.duration_ms` or the key's name), and every field the service does not apply
+  (prompt, keywords, noise reduction, include).
 
 **Languages.**
 
@@ -345,8 +349,9 @@ The limits, each answered without decoding more than it must:
 | WIRE-76 | `conversation.item.input_audio_transcription.failed` (`item_id`, `content_index` 0, `error`) | only as a session ends |
 | WIRE-77 | `error` (`error.type`, `error.code`, `error.message`, `error.param`, `error.event_id`) | the session ends after it |
 | WIRE-163 | `input_audio_buffer.sound_detected` (`sound`, `audio_start_ms`, `audio_end_ms`) | a sound began, in a session that asked (below); it has no `item_id` |
+| WIRE-171 | `input_audio_buffer.speech_sustained` (`item_id`, `audio_end_ms`) | once per item, in a session that asked (WIRE-172), when the item's voice has lasted the session's duration (WIRE-173): after its `speech_started`, before its `speech_stopped` and `committed` (WIRE-175); `audio_end_ms` counts as below |
 
-`audio_start_ms` and `audio_end_ms` (WIRE-70, WIRE-72) count milliseconds of the audio
+`audio_start_ms` and `audio_end_ms` (WIRE-70, WIRE-72, WIRE-171) count milliseconds of the audio
 the service received in this session, from its first byte, in the service's 16 kHz time,
 the dropped audio between turns included. They depend on neither the wall clock nor when
 an event is sent. Turns are ordered, not contiguous: a turn's end is the position of the
@@ -410,6 +415,36 @@ audio, pre-roll included.
   order completions across items;
 - WIRE-79: here the second ended turn's `completed` waits
   for the first's, so they come in turn order, but do not depend on it.
+
+**Sustained speech.**
+
+- WIRE-172: A session asks for it with `session.audio.input.sustained_speech`
+  `{"duration_ms": <integer>}` in its `session.update`, and only a session that asked gets
+  `input_audio_buffer.speech_sustained`; without the ask every event and echo is as it would
+  be without it. `duration_ms` is an integer from 1 to 30000, the turn cap (WIRE-66); left
+  out, it is the service's default, 400 ms. The duration is fixed for the session (WIRE-58).
+  An app holds a speaking agent on this event instead of on `speech_started`, so a short
+  "mhm", cough or laugh does not stop it.
+- WIRE-173: The count is the item's voiced 32 ms windows since its last pause longer than
+  0.15 s, the pre-roll's windows included (WIRE-66). A window is voiced as WIRE-66 hears a
+  voice, a faint one included; a pause is a run of consecutive windows that are not voiced.
+  A run of up to 4 windows (128 ms) adds nothing and restarts nothing; a run of 5 (160 ms) or
+  more restarts the count. The count reaches `duration_ms` at the window that completes
+  `ceil(duration_ms / 32)` windows, 13 for 400 ms, and the event comes then, once per item:
+  `audio_end_ms` is that window's end, or the end of the window that opened the turn when
+  the pre-roll already holds the count, and the event follows `speech_started` in the same
+  batch. No event is sent for an item that ends before the count: silence, the 30 s cap
+  (which a duration of 30000 ms never beats), a client commit or a drain cut. An event
+  sent stands, whatever the item hears afterwards. The 0.15 s is the service's own value,
+  never the session's.
+- WIRE-174: `session.updated` echoes the field with the duration the session applies,
+  `{"duration_ms": <integer>}`, as asked or the default when the ask leaves it out;
+  `session.created` never carries it.
+- WIRE-175: The event follows its item's `speech_started` and precedes its `speech_stopped`
+  and `committed`; its order against deltas is free. Every announced item still ends
+  once (WIRE-80). The event is sent while a drain runs (WIRE-146), until the `1012` close;
+  after an `error`, a `failed` or the close none follows. It is counted as audio arrives,
+  so it never delays a receive or a decode.
 
 **Every announced item ends once.**
 

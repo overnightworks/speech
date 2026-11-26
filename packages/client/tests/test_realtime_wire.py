@@ -21,6 +21,7 @@ from speech_client.realtime_wire import (
     SoundName,
     SpeechStarted,
     SpeechStopped,
+    SpeechSustained,
     TranscriptCompleted,
     TranscriptDelta,
     TranscriptFailed,
@@ -37,6 +38,8 @@ from speech_client.wire import (
     RefusalCode,
     refusal,
 )
+
+_SUSTAINED_DURATION = "audio.input.sustained_speech.duration_ms"
 
 
 def _session_update(session: object) -> str:
@@ -85,6 +88,17 @@ def test_a_session_update_names_the_language_it_applies() -> None:
         ({"sound_detection": {"type": "other"}}, "audio.input.sound_detection.type"),
         ({"sound_detection": {}}, "audio.input.sound_detection.type"),
         ({"sound_detection": None}, "audio.input.sound_detection"),
+        ({"sustained_speech": None}, "audio.input.sustained_speech"),
+        ({"sustained_speech": {"duration_ms": None}}, _SUSTAINED_DURATION),
+        ({"sustained_speech": {"duration_ms": "400"}}, _SUSTAINED_DURATION),
+        ({"sustained_speech": {"duration_ms": 400.5}}, _SUSTAINED_DURATION),
+        ({"sustained_speech": {"duration_ms": True}}, _SUSTAINED_DURATION),
+        ({"sustained_speech": {"duration_ms": 0}}, _SUSTAINED_DURATION),
+        ({"sustained_speech": {"duration_ms": -1}}, _SUSTAINED_DURATION),
+        (
+            {"sustained_speech": {"duration_ms": 400, "pause_ms": 100}},
+            "audio.input.sustained_speech.pause_ms",
+        ),
     ],
     ids=[
         "other-rate",
@@ -101,6 +115,14 @@ def test_a_session_update_names_the_language_it_applies() -> None:
         "other-sound-detection",
         "sound-detection-without-type",
         "null-sound-detection",
+        "null-sustained-speech",
+        "null-duration",
+        "string-duration",
+        "float-duration",
+        "bool-duration",
+        "zero-duration",
+        "negative-duration",
+        "unknown-sustained-speech-key",
     ],
 )
 def test_a_session_update_with_a_value_the_service_does_not_apply_is_refused(
@@ -228,6 +250,49 @@ def test_a_sound_detection_ask_is_echoed_and_an_absent_one_is_never_dumped() -> 
         "type": "audioset"
     }
     assert "sound_detection" not in plain
+
+
+def _asking_for_sustained_speech(ask: dict[str, object]) -> SessionUpdate:
+    event = parse_client_event(
+        _session_update(
+            {
+                "type": "transcription",
+                "audio": {"input": {"sustained_speech": ask}},
+            }
+        )
+    )
+    assert isinstance(event, SessionUpdate)
+    return event
+
+
+@pytest.mark.parametrize(
+    "ask", [{}, {"duration_ms": 250}], ids=["without-a-duration", "with-a-duration"]
+)
+def test_a_sustained_speech_ask_is_echoed_as_sent_and_an_absent_one_is_never_dumped(
+    ask: dict[str, object],
+) -> None:
+    """WIRE-172, WIRE-174: the ask's part is dumped as sent; an absent part never is."""
+    echoed = json.loads(
+        SessionUpdated(
+            session=_asking_for_sustained_speech(ask).session
+        ).model_dump_json()
+    )
+    plain = SessionUpdated(
+        session=TranscriptionSession(type="transcription")
+    ).model_dump_json()
+
+    assert echoed["session"]["audio"]["input"]["sustained_speech"] == ask
+    assert "sustained_speech" not in plain
+
+
+def test_a_session_applies_the_duration_it_was_given_to_its_ask() -> None:
+    """WIRE-174: the applied duration replaces whatever the ask held."""
+    asked = _asking_for_sustained_speech({}).session
+
+    applied = asked.with_sustained_duration(400)
+
+    sent = json.loads(SessionUpdated(session=applied).model_dump_json())
+    assert sent["session"]["audio"]["input"]["sustained_speech"] == {"duration_ms": 400}
 
 
 def test_a_session_without_the_ask_is_what_the_ask_leaves_out() -> None:
@@ -370,6 +435,7 @@ def _each_server_event() -> list[ServerEvent]:
         ),
         error_event(RefusalCode.BUSY, param="audio"),
         SoundDetected(sound=SoundName.LAUGHTER, audio_start_ms=1500, audio_end_ms=3500),
+        SpeechSustained(item_id="item", audio_end_ms=416),
     ]
 
 
@@ -530,3 +596,13 @@ def test_a_sound_event_carries_the_audioset_display_name_and_no_item() -> None:
         "Clapping",
         "Screaming",
     }
+
+
+def test_a_sustained_speech_event_names_its_item_and_the_end_of_the_window() -> None:
+    """WIRE-171: the event carries `item_id` and `audio_end_ms`."""
+    event = json.loads(
+        SpeechSustained(item_id="item", audio_end_ms=416).model_dump_json()
+    )
+
+    assert event["type"] == "input_audio_buffer.speech_sustained"
+    assert (event["item_id"], event["audio_end_ms"]) == ("item", 416)

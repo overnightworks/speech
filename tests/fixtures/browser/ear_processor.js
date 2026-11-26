@@ -7,6 +7,12 @@ registerProcessor(
   class extends AudioWorkletProcessor {
     silent = true;
 
+    constructor() {
+      super();
+      // The page's fence: the echo follows every report posted before it.
+      this.port.onmessage = ({ data }) => this.port.postMessage(data);
+    }
+
     process(inputs, outputs) {
       const samples = inputs[0][0] ?? [];
       const first = samples.findIndex((value) => Math.abs(value) > HEARD_THRESHOLD);

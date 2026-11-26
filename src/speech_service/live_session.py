@@ -30,6 +30,7 @@ from speech_client.realtime_wire import (
     SoundDetected,
     SpeechStarted,
     SpeechStopped,
+    SpeechSustained,
     TranscriptCompleted,
     TranscriptDelta,
     TranscriptFailed,
@@ -44,9 +45,12 @@ from speech_client.realtime_wire import (
 from speech_client.wire import DRAIN_CLOSE_CODE, Language, RefusalCode
 from speech_service.failures import log_failure
 from speech_service.hearing_session import (
+    DEFAULT_SUSTAINED_SPEECH_MS,
+    MAX_TURN_SECONDS,
     POLL_WAIT_SECONDS,
     HearingSession,
     SpeechStart,
+    SpeechSustain,
     TurnEnd,
     TurnEndedBy,
 )
@@ -68,6 +72,8 @@ __all__ = ["POLL_WAIT_SECONDS", "LiveSession", "poll_forever"]
 
 _PCM_BYTES_PER_SECOND: Final = HEARING_SAMPLE_RATE * BYTES_PER_SAMPLE
 _MAX_ENDED_TURNS: Final = 2
+_MAX_SUSTAINED_SPEECH_MS: Final = round(MAX_TURN_SECONDS * 1000)
+_SUSTAINED_DURATION_PARAM: Final = "session.audio.input.sustained_speech.duration_ms"
 
 
 @dataclass(slots=True)
@@ -285,6 +291,18 @@ class LiveSession:
             self._sounds = self._hearing.open_sound_stream()
             if self._sounds is None:
                 session = session.without_sound_detection()
+        sustained = session.audio.input.sustained_speech
+        if sustained is not None:
+            duration_ms = sustained.duration_ms or DEFAULT_SUSTAINED_SPEECH_MS
+            if duration_ms > _MAX_SUSTAINED_SPEECH_MS:
+                await self._end_locked(
+                    RefusalCode.INVALID_REQUEST,
+                    _SUSTAINED_DURATION_PARAM,
+                    event.event_id,
+                )
+                return
+            self._scheduler.sustain_after(duration_ms)
+            session = session.with_sustained_duration(duration_ms)
         await self._emit(SessionUpdated(session=session))
 
     async def _on_append(self, event: AudioAppend) -> None:
@@ -303,7 +321,9 @@ class LiveSession:
             self._sounds.add(pcm)
             await self._start_sound_hop()
 
-    def _watch_silence(self, events: Sequence[SpeechStart | TurnEnd]) -> None:
+    def _watch_silence(
+        self, events: Sequence[SpeechStart | SpeechSustain | TurnEnd]
+    ) -> None:
         """Time the wait for the open turn's end from the first silent audio on."""
         if any(isinstance(event, TurnEnd) for event in events):
             return
@@ -328,7 +348,9 @@ class LiveSession:
             return
         await self._apply([turn])
 
-    async def _apply(self, events: Sequence[SpeechStart | TurnEnd]) -> None:
+    async def _apply(
+        self, events: Sequence[SpeechStart | SpeechSustain | TurnEnd]
+    ) -> None:
         """Settle every ended turn of `events` before the first send suspends."""
         outgoing: list[BaseModel] = []
         backlog = False
@@ -337,6 +359,13 @@ class LiveSession:
                 outgoing.append(
                     SpeechStarted(
                         item_id=self._open_item_id(), audio_start_ms=event.audio_ms
+                    )
+                )
+                continue
+            if isinstance(event, SpeechSustain):
+                outgoing.append(
+                    SpeechSustained(
+                        item_id=self._open_item_id(), audio_end_ms=event.audio_ms
                     )
                 )
                 continue
