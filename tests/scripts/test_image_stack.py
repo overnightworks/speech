@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import subprocess
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -19,6 +20,8 @@ from speech_client.wire import SpeechRequest
 from speech_service.config import load_caller_config
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from proof_identity import Minting
     from speech_client.wire import VoiceId
 
@@ -195,14 +198,16 @@ def test_a_service_started_with_an_override_keeps_the_log_and_the_proofs_files(
 
 
 def test_an_image_environment_is_read_from_the_image_itself(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def inspect(*arguments: str, **_: object) -> str:
-        assert arguments[-1] == "image-under-proof"
-        return json.dumps(["PATH=/bin:/usr/bin", "SPEECH_SETTING=a=b"])
-
-    monkeypatch.setattr(image_stack, "docker", inspect)
+    fake = tmp_path / "docker"
+    fake.write_text(
+        '#!/bin/sh\necho \'["PATH=/bin:/usr/bin","SPEECH_SETTING=a=b"]\'\n',
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
 
     environment = image_stack.image_environment("image-under-proof")
 
-    assert environment["SPEECH_SETTING"] == "a=b"
+    assert environment == {"PATH": "/bin:/usr/bin", "SPEECH_SETTING": "a=b"}
