@@ -1,0 +1,8 @@
+claim_id = "7765cd48a0224d1a8515b5b364c850ec"
+agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
+role = "builder"
+base = "ac5cf0f59fa17dbedc28f2e086a6a55ed6fe8e1d"
+branch = "claude/issue-725-the-cpu-image-sets-the-paths-device-and"
+scope = ["Dockerfile", "README.md", "compose.yaml", "scripts/prove_image.py", "tests/fixtures", "tests/scripts/test_image_judgement.py", "tests/scripts/test_image_stack.py"]
+opened_commit = "99311cfbe8dfd999d432470880e08a2b21be63b5"
+whole_reason = "The CPU image's own facts move from its deployments into its stage, and the proof that starts it reads them from there; split, either half leaves a copy or an unproven image."
