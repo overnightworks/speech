@@ -1,8 +1,0 @@
-claim_id = "aaff6447b2254cdea19445a1e9334a12"
-agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
-role = "builder"
-base = "4d331140b4b6d8db1e085251f9c506cda43ecfff"
-branch = "claude/issue-724-every-failure-line-names-its-event-as-a"
-scope = ["providers/provider-contract/src/speech_provider_contract/__init__.py", "scripts/prove_speech.py", "src/speech_service/espeak_marks.py", "src/speech_service/failures.py", "src/speech_service/live_session.py", "src/speech_service/voice_slot.py", "src/speech_service/wire_route.py", "tests/test_failures.py", "tests/test_speaking_qwen.py", "tests/test_voice_slot_failure_lines.py"]
-opened_commit = "645fc4ceb4dfe0cf70e73880f49377d5b9dd7e03"
-whole_reason = "One helper and its six callers change together, so the check reads every failure line's literal event."
