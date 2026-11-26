@@ -95,14 +95,18 @@ class OpenTurn:
     voiced_seconds: float
 
 
+def _restarts_count(unvoiced_run: int) -> bool:
+    """Whether a run of this many unvoiced windows is a pause that restarts the count."""
+    return unvoiced_run >= _PAUSE_WINDOWS
+
+
 def _voiced_since_last_pause(starts: deque[int]) -> int:
     """How many of the voiced windows, by their starts, follow the last long pause."""
     count = 0
     newer: int | None = None
     for start in reversed(starts):
-        if (
-            newer is not None
-            and (newer - start) // WINDOW_SAMPLES - 1 >= _PAUSE_WINDOWS
+        if newer is not None and _restarts_count(
+            (newer - start) // WINDOW_SAMPLES - 1
         ):
             break
         count += 1
@@ -269,7 +273,7 @@ class HearingSession:
         self, probability: float, end: int
     ) -> list[SpeechSustain | TurnEnd]:
         if is_voiced(probability):
-            if self._silent_windows >= _PAUSE_WINDOWS:
+            if _restarts_count(self._silent_windows):
                 self._sustained_windows = 0
             self._sustained_windows += 1
             self._voiced_windows += 1
