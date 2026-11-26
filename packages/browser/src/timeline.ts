@@ -66,7 +66,7 @@ export function classify(
   if (complete && position >= length - edge) {
     return "end";
   }
-  if (!(position > playedBy(chunks, now + edge))) {
+  if (Number.isNaN(position) || position <= playedBy(chunks, now + edge)) {
     return "passed";
   }
   return position >= length - edge ? "beyond" : "ahead";
