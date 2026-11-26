@@ -73,6 +73,7 @@ HELD_WORKLET_PATH = "/held-worklet.js"
 REFUSING_HOP_PATH = "/refuse"
 VOICE_PATH = "/voice"
 SOUNDS_PATH = "/sounds"
+UNSTREAMED_PATH = "/unstreamed"
 HELD_PATH = "/held"
 STREAMED_PATH = "/streamed"
 STREAMED_LEAD_BYTES = 16 * 1024
@@ -99,6 +100,8 @@ SESSION_SECONDS = 30
 HELD_LIMIT_BYTES = 4 * 1024 * 1024
 LOOPBACK = "127.0.0.1"
 WAV_MEDIA_TYPE = "audio/wav"
+# A media type the player does not stream, so it reads the answer whole and decodes it.
+UNSTREAMED_MEDIA_TYPE = "application/octet-stream"
 SPOKEN_TEXT = "Hello"
 SPEAK_SECONDS = 10.0
 SPEAK_CAP_BYTES = 1024 * 1024
@@ -289,7 +292,7 @@ async def _until_disconnect(receive: Receive) -> None:
 def _install_sounds(
     app: FastAPI, service_url: str, side: AppSide, recordings: Path
 ) -> None:
-    """The routes that answer a sound: spoken, whole, held, headed or streamed."""
+    """The routes that answer a sound, spoken or test-written."""
 
     @app.get(VOICE_PATH)
     async def voice(request: Request) -> Response:
@@ -314,6 +317,11 @@ def _install_sounds(
     async def sound(name: str, request: Request) -> FileResponse:
         side.record_request(request.url.path)
         return FileResponse(recordings / name, media_type=WAV_MEDIA_TYPE)
+
+    @app.get(f"{UNSTREAMED_PATH}/{{name}}")
+    async def unstreamed(name: str, request: Request) -> FileResponse:
+        side.record_request(request.url.path)
+        return FileResponse(recordings / name, media_type=UNSTREAMED_MEDIA_TYPE)
 
     @app.get(f"{HELD_PATH}/{{name}}")
     async def held(name: str, request: Request) -> Response:

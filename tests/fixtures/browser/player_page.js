@@ -18,6 +18,7 @@ const Page = {
   createBufferSource: BaseAudioContext.prototype.createBufferSource,
   decodeAudioData: BaseAudioContext.prototype.decodeAudioData,
   resume: AudioContext.prototype.resume,
+  suspend: AudioContext.prototype.suspend,
   start: AudioBufferSourceNode.prototype.start,
 };
 const JUNK_BYTES = 512;
@@ -62,7 +63,7 @@ const clockReads = new Map();
 const frozenClocks = new Map();
 const nodeIds = new WeakMap();
 const trackedSources = new WeakSet();
-const held = { decode: [], resume: [] };
+const held = { decode: [], resume: [], suspend: [] };
 const heldNow = [];
 const byteStore = new Map();
 const fedBodies = new Map();
@@ -248,11 +249,20 @@ BaseAudioContext.prototype.decodeAudioData = function (...parameters) {
 };
 AudioContext.prototype.resume = function () {
   seen.resumesCalled += 1;
+  let result;
   if (rejectNextResume) {
     rejectNextResume = false;
-    return Promise.reject(new DOMException("refused", "NotAllowedError"));
+    result = Promise.reject(new DOMException("refused", "NotAllowedError"));
+    // A held refusal reaches the player only at the release, which then handles it.
+    result.catch(() => {});
+  } else {
+    result = Page.resume.call(this);
   }
-  return gateFor("resume", Page.resume.call(this));
+  return gateFor("resume", result);
+};
+// The context suspends at the call, as a real one does; the held promise is the call's answer reaching the player late.
+AudioContext.prototype.suspend = function () {
+  return gateFor("suspend", Page.suspend.call(this));
 };
 
 function tapRms() {
