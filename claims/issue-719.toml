@@ -1,8 +1,0 @@
-claim_id = "1d8ace2d52904b3ba45eeaa6842d43a4"
-agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
-role = "builder"
-base = "d549cbd3f561bd9f33398bc6c143cdb91e1a3f3e"
-branch = "claude/issue-719-the-service-hearing-decides-submit-again"
-scope = ["src/speech_service/hearing.py", "tests/support/live_support.py", "tests/test_hearing_submission.py", "tests/test_service_drain.py", "tests/test_service_hearing.py"]
-opened_commit = "454a84e3b964a0ff63f589118188e5c31bdfaeff"
-whole_reason = "The hearing's close races share one owner and one lock: the submit, the detector's open and the drain age are decided against the same close."
