@@ -1,0 +1,8 @@
+claim_id = "2920cfd76b464de889a2c31596675ece"
+agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
+role = "builder"
+base = "dd1a8bf6c898b3a06827b9a0f995fd7cd598e4ad"
+branch = "claude/issue-696-pause-at-holds-a-playing-sound"
+scope = [".github/workflows/ci.yml", "AGENTS.md", "packages/browser/src/player.ts", "packages/browser/src/timeline.test.ts", "packages/browser/src/timeline.ts", "packages/browser/vitest.config.ts", "tests/fixtures/browser", "tests/support/browser_player_support.py", "tests/test_wire_route_browser_player_pause_at.py"]
+opened_commit = "e73f9bf73df6bdcddb62ed9b5b5b9d1e1e7866bb"
+whole_reason = "The call, its pure timeline, the page action and the stepped cells that prove each outcome land together: a call without its cells is unproven, and the cells need the call."
