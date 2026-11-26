@@ -46,9 +46,10 @@ async def _asking(
     *,
     ask: bool = True,
     hold: bool = False,
+    engine: FakeHearing | None = None,
 ) -> tuple[LiveSession, FakeSocket, FakeSoundModel, Hearing]:
     taggers, model = loaded_taggers(tmp_path)
-    hearing = loaded(FakeHearing(), FakeClock(), sounds=taggers)
+    hearing = loaded(engine or FakeHearing(), FakeClock(), sounds=taggers)
     model.windows.clear()
     if hold:
         model.hold_runs()
@@ -200,12 +201,8 @@ def test_a_refused_submit_ends_the_session_unavailable(tmp_path: Path) -> None:
     """WIRE-168: a refused submit ends the session unavailable."""
 
     async def scenario() -> FakeSocket:
-        taggers, _ = loaded_taggers(tmp_path)
-        session, socket = await started(
-            loaded(FakeHearing(), FakeClock(), sounds=taggers)
-        )
-        await session.on_message(update(sound_detection=ASK_FOR_SOUNDS))
-        taggers.close()
+        session, socket, _, hearing = await _asking(tmp_path)
+        hearing.close()
         await session.on_message(append(audio(2.2)))
         await session.settled()
         return socket
@@ -243,11 +240,8 @@ def test_a_hop_falling_due_on_the_audio_that_ends_the_session_busy_is_never_scor
     """WIRE-168: no sound is scored after the session ended."""
 
     async def scenario() -> tuple[FakeSocket, FakeSoundModel]:
-        taggers, model = loaded_taggers(tmp_path)
         engine = FakeHearing(hold=True)
-        session, socket = await started(loaded(engine, FakeClock(), sounds=taggers))
-        model.windows.clear()
-        await session.on_message(update(sound_detection=ASK_FOR_SOUNDS))
+        session, socket, model, hearing = await _asking(tmp_path, engine=engine)
         await commit_a_turn(session, 0.6)
         await commit_a_turn(session, 0.6)
         await session.on_message(append(audio(0.5)))
@@ -256,6 +250,7 @@ def test_a_hop_falling_due_on_the_audio_that_ends_the_session_busy_is_never_scor
         await session.settled()
         engine.release.set()
         await session.on_disconnect()
+        hearing.close()
         return socket, model
 
     socket, model = asyncio.run(scenario())
