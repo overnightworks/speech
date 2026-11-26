@@ -60,7 +60,7 @@ from typing import TYPE_CHECKING, Final, Literal, overload
 
 from pydantic import ValidationError
 
-from speech_client._traceparent import traceparent_headers
+from speech_client._traceparent import given_traceparent_headers
 from speech_client._transport import (
     body_pieces,
     checked_origin,
@@ -382,7 +382,7 @@ def _chunks(  # noqa: PLR0913 - each wire option is its own argument
         **speech_request_headers(
             workload_token=workload_token, person_token=person_token
         ),
-        **traceparent_headers(traceparent),
+        **given_traceparent_headers(traceparent),
     }
     return exchange_stream(
         origin,
@@ -470,7 +470,8 @@ def speak_stream(  # noqa: PLR0913 - each wire option is its own argument
     the tone, for a voice that takes them. `stream_format` `sse` adds each
     sentence's `SentenceMarks` to the items. `deadline_seconds` bounds the whole
     stream, `cap_bytes` the audio. `traceparent` joins the service's lines to a
-    trace; it defaults to the trace running at the call. See the module for the
+    trace. Without it the request carries the trace running at the call when the
+    host has called `logline.configure`. See the module for the
     last item and for what raises, which happens at the call.
     """
     return _with_length(
@@ -511,7 +512,8 @@ def speak(  # noqa: PLR0913 - each wire option is its own argument
     `language` is required for a voice of several languages. `instructions` name
     the tone, for a voice that takes them. `deadline_seconds` bounds the whole
     call, `cap_bytes` the audio. `traceparent` joins the service's lines to a
-    trace; it defaults to the trace running at the call. See the module for the
+    trace. Without it the request carries the trace running at the call when the
+    host has called `logline.configure`. See the module for the
     outcomes and for what raises.
     """
     chunks = _chunks(

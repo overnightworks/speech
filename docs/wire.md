@@ -116,8 +116,10 @@ unfinished items), or the code of a failed item or of an `error` event
   realtime upgrade may also carry a W3C `traceparent` header; the service writes the lines
   of that request or session in its trace, and a missing or malformed value starts a trace
   of its own. `speak`, `speak_stream`, `HearingSession` and `hear_utterances` take
-  `traceparent=` and send it, by default the trace running at the call (`logline`'s
-  `current_traceparent()`). The header parents only a session's own lines, never a turn
+  `traceparent=` and send it. Without one, `speak` and `speak_stream` carry the trace running
+  at the call through `logline`'s hook once the host has called `logline.configure`, and
+  none otherwise; `HearingSession` and `hear_utterances` send `current_traceparent()`
+  themselves. The header parents only a session's own lines, never a turn
   (WIRE-150). The service answers only when both tokens are valid and belong together:
 
 - WIRE-13: Both come from the configured issuer, name the service in `aud`, and are
