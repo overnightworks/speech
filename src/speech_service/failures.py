@@ -24,32 +24,27 @@ class PayloadFreeError(RuntimeError):
     """An error whose message and notes never hold what a person spoke or heard."""
 
 
-def log_failure(
-    logger: logging.Logger,
-    event: str,
-    error: BaseException,
-    *,
-    level: int = logging.ERROR,
-    **fields: str,
-) -> None:
-    """Log `event` with `fields` and the error class; the chain is the exception.
+def failure_fields(error: BaseException) -> dict[str, str]:
+    """The record fields a failure line always carries: the error class."""
+    return {"error_type": type(error).__name__}
 
-    A failure that a timed step's own line ends as failed passes `level` below
-    ERROR, so the failure is one error line, the step's.
+
+def payload_free_chain(error: BaseException) -> PayloadFreeError:
+    """The `exc_info` of a failure line: the chain, never a message.
+
+    A failure line is `logger.log(level, "<event>", extra={**failure_fields(error),
+    ...}, exc_info=payload_free_chain(error))`, its event a literal at the call.
 
     An exception message, argument or local variable can hold the text a person
     spoke or heard, so none of them is ever logged. A `PayloadFreeError` is
     payload-free by construction and is logged as it is; any other error is
     logged as a message-free `PayloadFreeError` whose note is its rendered
     chain. Either reaches the log once, through `exc_info`.
+
+    A failure that a timed step's own line ends as failed logs below ERROR, so
+    the failure is one error line, the step's.
     """
-    logged = error if isinstance(error, PayloadFreeError) else _chain_error(error)
-    logger.log(
-        level,
-        event,
-        extra={**fields, "error_type": type(error).__name__},
-        exc_info=logged,
-    )
+    return error if isinstance(error, PayloadFreeError) else _chain_error(error)
 
 
 def _chain_error(error: BaseException) -> PayloadFreeError:
@@ -102,7 +97,12 @@ class PayloadFreeFailure:
         del exception_type, traceback
         if not isinstance(error, Exception) or isinstance(error, self._expected):
             return False
-        log_failure(self._logger, self._event, error, level=self._level)
+        self._logger.log(
+            self._level,
+            self._event,
+            extra=failure_fields(error),
+            exc_info=payload_free_chain(error),
+        )
         self.failed = True
         if self._reraise_as is not None:
             raise self._reraise_as from None

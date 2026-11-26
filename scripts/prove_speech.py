@@ -474,7 +474,7 @@ def _prove_concurrent_speak(base_url: str, voice: VoiceId, minting: Minting) -> 
         try:
             results[key] = speak_measured(base_url, text, voice, minting)
         except Exception as error:
-            LOGGER.exception("concurrent speak %s failed", key)
+            LOGGER.exception("concurrent_speak.failed", extra={"key": key})
             errors.append(f"{key}: {error}")
 
     first = threading.Thread(target=run, args=("first", SENTENCE), daemon=True)

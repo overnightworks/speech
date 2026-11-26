@@ -11,7 +11,7 @@ import pytest
 from speech_provider_contract import QWEN_MODEL_ID, QWEN_SAMPLE_RATE, QwenSpeaker
 
 from speech_client.wire import Language
-from speech_service.failures import log_failure
+from speech_service.failures import failure_fields, payload_free_chain
 from speech_service.provider_process import (
     ProviderNotReadyError,
     ProviderSynthesisFailedError,
@@ -159,7 +159,11 @@ def test_a_server_that_ends_mid_stream_fails_the_synthesis_and_logs_no_server_te
     with pytest.raises(ProviderSynthesisFailedError) as raised:
         list(chunks)
     transport_text = str(raised.value.__context__)
-    log_failure(logging.getLogger("speaking"), "speaking.failed", raised.value)
+    logging.getLogger("speaking").error(
+        "speaking.failed",
+        extra=failure_fields(raised.value),
+        exc_info=payload_free_chain(raised.value),
+    )
 
     assert voice.ready is False
     assert transport_text

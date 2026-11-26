@@ -11,7 +11,8 @@ from speech_service.failures import (
     PayloadFreeError,
     PayloadFreeFailure,
     SpeakingFailedError,
-    log_failure,
+    failure_fields,
+    payload_free_chain,
 )
 
 _SENTENCE = "Ein Satz, den nur der Aufrufer kennt"
@@ -34,7 +35,11 @@ def _raised(error: Exception, cause: Exception | None = None) -> Exception:
 def _logged(caplog: pytest.LogCaptureFixture, error: Exception) -> str:
     logger = logging.getLogger("tests.failures")
     with caplog.at_level(logging.ERROR, logger=logger.name):
-        log_failure(logger, "speaking.failed", error)
+        logger.error(
+            "speaking.failed",
+            extra=failure_fields(error),
+            exc_info=payload_free_chain(error),
+        )
     (record,) = caplog.records
     assert not hasattr(record, "failure_chain")
     assert record.getMessage() == "speaking.failed"
@@ -162,7 +167,11 @@ def test_a_failure_logs_the_chain_once_as_a_message_free_exception(
     error = _raised(KeyError(_SENTENCE))
 
     with caplog.at_level(logging.ERROR, logger=logger.name):
-        log_failure(logger, "speaking.failed", error)
+        logger.error(
+            "speaking.failed",
+            extra=failure_fields(error),
+            exc_info=payload_free_chain(error),
+        )
 
     (record,) = caplog.records
     assert isinstance(record.exc_info, tuple)

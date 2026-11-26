@@ -43,7 +43,7 @@ from speech_client.realtime_wire import (
     parse_client_event,
 )
 from speech_client.wire import DRAIN_CLOSE_CODE, Language, RefusalCode
-from speech_service.failures import log_failure
+from speech_service.failures import failure_fields, payload_free_chain
 from speech_service.hearing_session import (
     DEFAULT_SUSTAINED_SPEECH_MS,
     MAX_TURN_SECONDS,
@@ -255,8 +255,12 @@ class LiveSession:
     ) -> None:
         try:
             scores = await asyncio.wrap_future(future)
-        except Exception as error:  # noqa: BLE001 - logged by type and never by message
-            log_failure(logger, "sound.failed", error)
+        except Exception as error:  # logged by type and never by message
+            logger.exception(
+                "sound.failed",
+                extra=failure_fields(error),
+                exc_info=payload_free_chain(error),
+            )
             await self._end(RefusalCode.UNAVAILABLE)
             return
         async with self._lock:
@@ -460,7 +464,11 @@ class LiveSession:
             except Exception as error:
                 if error is not decode_failure:
                     raise
-                log_failure(logger, "hearing.failed", error, level=logging.WARNING)
+                logger.warning(
+                    "hearing.failed",
+                    extra=failure_fields(error),
+                    exc_info=payload_free_chain(error),
+                )
                 refusal = RefusalCode.UNAVAILABLE
         if refusal is not None:
             await self._end(refusal)
@@ -505,8 +513,12 @@ class LiveSession:
     async def _run_partial(self, future: Future[Heard], turn_number: int) -> None:
         try:
             heard = await asyncio.wrap_future(future)
-        except Exception as error:  # noqa: BLE001 - logged by type and never by message
-            log_failure(logger, "hearing.failed", error)
+        except Exception as error:  # logged by type and never by message
+            logger.exception(
+                "hearing.failed",
+                extra=failure_fields(error),
+                exc_info=payload_free_chain(error),
+            )
             await self._end(RefusalCode.UNAVAILABLE)
             return
         async with self._lock:
