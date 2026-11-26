@@ -254,7 +254,7 @@ def test_an_entry_outside_probe_run_exits_with_the_status_of_its_reexec(
     proved: list[bool] = []
 
     with pytest.raises(SystemExit) as exit_request:
-        PROVE.enter_proof(lambda _: status, lambda: proved.append(True))
+        PROVE.enter_proof(lambda _: status, lambda _arguments: proved.append(True))
 
     assert exit_request.value.code == status
     assert proved == []
@@ -268,7 +268,9 @@ def test_an_entry_inside_probe_run_runs_the_proof_not_the_reexec(
     monkeypatch.setenv(PROVE.UNDER_PROBE_RUN_ENV, "1")
     proved: list[bool] = []
 
-    PROVE.enter_proof(Mock(side_effect=AssertionError), lambda: proved.append(True))
+    PROVE.enter_proof(
+        Mock(side_effect=AssertionError), lambda _arguments: proved.append(True)
+    )
 
     assert proved == [True]
 
