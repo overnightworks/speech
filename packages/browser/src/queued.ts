@@ -32,6 +32,11 @@ export class Scheduled {
     return playedBy(this.chunks, until);
   }
 
+  /** Whether the output has fallen silent at the hold point by `now` of the context's clock. */
+  heldBy(now: number): boolean {
+    return this.held !== undefined && now >= this.held.at;
+  }
+
   /** Whether the sound's sources run out after its hold point, so that a late page can end it before `resume()`. */
   runsOutHeld(): boolean {
     const endsAt = this.chunks.reduce((latest, { start, seconds }) => Math.max(latest, start + seconds), -Infinity);

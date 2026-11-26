@@ -303,16 +303,24 @@ class SteppedStage(Stage):
             seconds * self.stepping.sample_rate / self.stepping.quantum_frames
         )
 
-    async def step(self, quanta: int) -> int:
-        """Render `quanta` render quanta, then run the page's timers over their time.
+    async def render(self, quanta: int) -> dict[str, int]:
+        """Render `quanta` render quanta and leave the page's timers where they were.
 
-        Returns the frames the context has rendered so far. A page that does not
-        report the quanta in `WAIT_SECONDS` fails the step.
+        The page is as late as a loaded one: the sources that end in these quanta have
+        reported, its timers run with the next step. A page that does not report the
+        quanta in `WAIT_SECONDS` fails the step.
         """
-        reply = await asyncio.wait_for(
+        return await asyncio.wait_for(
             self.page.evaluate("quanta => window.playerPage.step(quanta)", quanta),
             WAIT_SECONDS,
         )
+
+    async def step(self, quanta: int) -> int:
+        """Render `quanta` render quanta, then run the page's timers over their time.
+
+        Returns the frames the context has rendered so far.
+        """
+        reply = await self.render(quanta)
         frames, rate = reply["frames"], reply["sampleRate"]
         # The clock takes whole milliseconds, so it lags the audio by less than one.
         milliseconds = frames * 1000 // rate

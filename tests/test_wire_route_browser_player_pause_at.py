@@ -739,3 +739,79 @@ def test_resume_in_the_edge_of_a_hold_after_the_end_overtakes_the_call_and_plays
     assert result_of(seen) == {"kind": "overtaken"}
     assert ends(seen) == ["played", "played"]
     assert seen["contextStates"][0] == "running"
+
+
+LATE_HOLD_AT = 0.2
+
+
+async def into_the_late_window(stage: SteppedStage) -> None:
+    """Hold the short sound at `LATE_HOLD_AT`, then render the context past its end.
+
+    The page is late: its timers have not run, so the player still waits for the fade
+    that has ended on the audio clock, and the sound's sources have run out held.
+    """
+    await stage.hear_decoded(SHORT, OTHER)
+    await stage.pause_at(0, LATE_HOLD_AT)
+    thrown = await stage.snapshot()
+    sound_end = start_of(thrown) + SOUND_SECONDS["short.wav"]
+    await stage.render(
+        stage.quanta_for(sound_end + STRETCH_SECONDS - thrown["contextNow"])
+    )
+    assert ends(await stage.snapshot()) == [None, None]
+
+
+@pytest.mark.parametrize("switch", ["stop", "mute", "close"])
+def test_a_switch_in_the_late_window_ends_the_held_sound_at_its_hold_point(
+    tmp_path: Path, switch: str
+) -> None:
+    throw, end_kind = SWITCHES[switch]
+
+    async def scenario() -> dict[str, object]:
+        async with stepped(tmp_path) as stage:
+            await into_the_late_window(stage)
+            await throw(stage)
+            await stage.until("s.pauseAts[0].result !== null")
+            await stage.finish()
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    assert result_of(seen) == {"kind": "overtaken"}
+    assert ends(seen)[0] == end_kind
+    assert seen["sounds"][0]["playedSeconds"] == pytest.approx(LATE_HOLD_AT)
+
+
+def test_resume_in_the_late_window_ends_the_held_sound_played_and_starts_the_next(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with stepped(tmp_path) as stage:
+            await into_the_late_window(stage)
+            await stage.act("resume")
+            await stage.until_resolved()
+            await stage.finish()
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    assert result_of(seen) == {"kind": "overtaken"}
+    assert ends(seen) == ["played", "played"]
+    assert seen["sounds"][0]["playedSeconds"] == pytest.approx(
+        SOUND_SECONDS["short.wav"]
+    )
+
+
+def test_pause_in_the_late_window_keeps_the_hold_point_of_the_call(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with stepped(tmp_path) as stage:
+            await into_the_late_window(stage)
+            await stage.act("pause")
+            await stage.until_resolved()
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    assert result_of(seen) == held_at(LATE_HOLD_AT)
+    assert ends(seen) == [None, None]

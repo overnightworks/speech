@@ -241,9 +241,6 @@ class PlayerRun {
     if (this.#flow === "running") {
       return;
     }
-    if (this.#playing !== undefined) {
-      this.#playing.held = undefined;
-    }
     this.#flow = "running";
     void this.#resumeAndFadeIn(++this.#fade);
   }
@@ -354,7 +351,8 @@ class PlayerRun {
   #holdNow(): void {
     this.#flow = "pausing";
     const endsAt = this.#rampTo(0);
-    if (this.#playing !== undefined) {
+    // A hold point that has passed stays: the output fell silent there, a late page notices it only now.
+    if (this.#playing !== undefined && !this.#playing.heldBy(this.#context.currentTime)) {
       this.#playing.held = { at: endsAt };
     }
     if (this.#call !== undefined) {
@@ -387,17 +385,24 @@ class PlayerRun {
 
   /**
    * Ends the waiting call, and takes its fade off the gain's timeline if it is on it, ramping the volume back up unless
-   * the switch that overtakes it sets the volume itself.
+   * the switch that overtakes it sets the volume itself. A fade that has ended on the audio clock cannot be taken off:
+   * the sound is held at its point, which stays, and a switch that restores the volume holds it for good.
    */
   #overtake(call: HoldCall, { restoreVolume }: { readonly restoreVolume: boolean }): void {
     if (call.scheduled) {
       call.scheduled = false;
-      if (this.#playing?.item === call.item) {
-        this.#playing.held = undefined;
+      const playing = this.#playing?.item === call.item ? this.#playing : undefined;
+      const faded = playing?.heldBy(this.#context.currentTime) === true;
+      if (playing !== undefined && !faded) {
+        playing.held = undefined;
       }
       this.#fade += 1;
       if (restoreVolume && this.#flow === "running") {
-        this.#rampTo(1);
+        if (faded) {
+          this.#holdNow();
+        } else {
+          this.#rampTo(1);
+        }
       }
     }
     this.#settleCall(call, { kind: "overtaken" });
@@ -475,6 +480,8 @@ class PlayerRun {
     }
     if (fade === this.#fade) {
       if (this.#playing !== undefined) {
+        // The hold ends once the context runs: a refused resume leaves the sound held at its point.
+        this.#playing.held = undefined;
         this.#announceStart(this.#playing);
         this.#settle(this.#playing);
       }
