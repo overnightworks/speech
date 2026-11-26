@@ -1,8 +1,0 @@
-claim_id = "25e4606191424a36838d0eb591f282d5"
-agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
-role = "builder"
-base = "d549cbd3f561bd9f33398bc6c143cdb91e1a3f3e"
-branch = "claude/issue-718-the-voice-slot-s-and-provider-process-s"
-scope = ["src/speech_service/provider_process.py", "src/speech_service/voice_slot.py", "tests/support/fake_launcher.py", "tests/support/fakes_support.py", "tests/support/launcher_support.py", "tests/test_provider_process.py", "tests/test_provider_process_close.py", "tests/test_voice_slot_close.py"]
-opened_commit = "e9abb456db320feb1e22f801fc05c9e3eb550a1a"
-whole_reason = "One coverage claim over the voice slot and the process it owns, whose close and load races share one gated engine fake and one launcher; split per file the second would rebuild the first's fake."
