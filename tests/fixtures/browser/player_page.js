@@ -55,6 +55,7 @@ const seen = {
   actions: [],
   ramps: [],
   stateChanges: [],
+  pauseAts: [],
 };
 const contexts = [];
 const clockReads = new Map();
@@ -217,7 +218,7 @@ Page.AudioBufferSourceNode.prototype.start = function (...parameters) {
 AudioNode.prototype.connect = function (target, ...parameters) {
   const toOutput = target instanceof Page.AudioDestinationNode;
   seen.edges.push({ from: idOf(this), fromKind: kindOf(this), to: target instanceof AudioNode ? idOf(target) : null, toKind: kindOf(target) });
-  if (toOutput) {
+  if (toOutput && outputGain === null) {
     outputGain = this;
     listenTo(this);
   }
@@ -346,6 +347,17 @@ async function act(name, action) {
   }
 }
 
+function throwPauseAt(target, seconds) {
+  const call = { target, seconds, result: null, resolvedAt: null };
+  seen.pauseAts.push(call);
+  const playback = target === "foreign" ? entry.createPlayer().play(argumentOf({})) : playbacks[target];
+  player.pauseAt(playback, seconds).then((result) => {
+    call.result = result;
+    call.resolvedAt = Page.clock.get.call(contexts[0]);
+    notePlayed();
+  });
+}
+
 window.playerPage = {
   seen,
   play: (...specs) => specs.map(handOver),
@@ -364,6 +376,14 @@ window.playerPage = {
   // The switch `name` and the rest of the fed body `key`, in one task.
   feedWhile: (key, name) => act(`${name}+feed`, () => { player[name](); feeders.get(key)(); }),
   mute: (muted) => act("mute", () => player.setMuted(muted)),
+  // `pauseAt` of the sound `target` (its id, or "foreign" for a playback of another player, made here), recorded with its result.
+  pauseAt: (target, seconds) => act("pauseAt", () => throwPauseAt(target, seconds)),
+  // A resume, then `pauseAt` of the sound `target` at `seconds`, in one task: the call comes while the resume is in flight.
+  resumeThenPauseAt: (target, seconds) =>
+    act("resume+pauseAt", () => {
+      player.resume();
+      throwPauseAt(target, seconds);
+    }),
   close: () => act("close", () => player.close()),
   // A stop, then `cut` once the context clock reads `secondsLater` on: the cut comes after the stop's edge, before the
   // player's own end of the sound.
@@ -374,6 +394,17 @@ window.playerPage = {
       try {
         if (cut === "mute") player.setMuted(true);
         else player.close();
+      } finally {
+        frozenClocks.clear();
+      }
+    }),
+  // A stop, then what the first sound reads once the context clock reads `secondsLater` on: the read in the stop's edge.
+  readAfterStopPast: (secondsLater) =>
+    act("stop+read", () => {
+      player.stop();
+      frozenClocks.set(contexts[0], contexts[0].currentTime + secondsLater);
+      try {
+        seen.readPastStop = playbacks[0].playedSeconds();
       } finally {
         frozenClocks.clear();
       }

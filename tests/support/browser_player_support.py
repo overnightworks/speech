@@ -303,16 +303,24 @@ class SteppedStage(Stage):
             seconds * self.stepping.sample_rate / self.stepping.quantum_frames
         )
 
-    async def step(self, quanta: int) -> int:
-        """Render `quanta` render quanta, then run the page's timers over their time.
+    async def render(self, quanta: int) -> dict[str, int]:
+        """Render `quanta` render quanta and leave the page's timers where they were.
 
-        Returns the frames the context has rendered so far. A page that does not
-        report the quanta in `WAIT_SECONDS` fails the step.
+        The page is as late as a loaded one: the sources that end in these quanta have
+        reported, its timers run with the next step. A page that does not report the
+        quanta in `WAIT_SECONDS` fails the step.
         """
-        reply = await asyncio.wait_for(
+        return await asyncio.wait_for(
             self.page.evaluate("quanta => window.playerPage.step(quanta)", quanta),
             WAIT_SECONDS,
         )
+
+    async def step(self, quanta: int) -> int:
+        """Render `quanta` render quanta, then run the page's timers over their time.
+
+        Returns the frames the context has rendered so far.
+        """
+        reply = await self.render(quanta)
         frames, rate = reply["frames"], reply["sampleRate"]
         # The clock takes whole milliseconds, so it lags the audio by less than one.
         milliseconds = frames * 1000 // rate
@@ -385,6 +393,24 @@ class SteppedStage(Stage):
         [sound] = await self.hand_over(bytes_of(route))
         await self.until(f"s.decodesSettled > {decoded}")
         return sound
+
+    async def hear_decoded(self, *routes: str) -> None:
+        """Hand over the sounds of `routes` as decoded bytes and hear the first."""
+        for route in routes:
+            await self.prepare_bytes(route, route)
+        await self.hear(*(bytes_of(route) for route in routes))
+
+    async def pause_at(self, target: int | str, seconds: float) -> None:
+        """Throw the app's `pauseAt` of sound `target` (or "foreign") at `seconds`."""
+        await self.act("pauseAt", target, seconds)
+
+    async def until_resolved(self, call: int = 0) -> None:
+        """Step until the app's `call`-th `pauseAt` has its result."""
+        await self.step_until(
+            f"s.pauseAts[{call}].result !== null",
+            within_seconds=FINISH_WITHIN_SECONDS,
+            quanta=FINISH_QUANTA,
+        )
 
     async def paused(self) -> None:
         """Throw the app's pause and step until the context is suspended."""
@@ -505,9 +531,38 @@ def reversal_peaks(seen: dict[str, object], first: str, second: str) -> list[flo
     return peaks_between(seen, began - quantum_seconds(seen), turned + EDGE_SECONDS)
 
 
+def result_of(seen: dict[str, object], call: int = 0) -> dict[str, object]:
+    """What the app's `call`-th `pauseAt` resolved with."""
+    return seen["pauseAts"][call]["result"]
+
+
+def hold_point_of(seen: dict[str, object], sound: int = 0) -> float:
+    """The seconds of sound number `sound` at which the last fade to silence ended.
+
+    That is the context time the output fell silent, less the sound's announced start.
+    """
+    return last_ramp_end(seen, 0) - start_of(seen, sound)
+
+
+def ramp_ends(seen: dict[str, object], target: float) -> list[float]:
+    """The context times the player's ramps of the volume to `target` end, in order."""
+    return [ramp["endsAt"] for ramp in seen["ramps"] if ramp["target"] == target]
+
+
+def last_ramp_end(seen: dict[str, object], target: float) -> float:
+    """The context time the player's last ramp of the volume to `target` ends."""
+    return ramp_ends(seen, target)[-1]
+
+
+def audible_throughout(seen: dict[str, object], since: float, until: float) -> bool:
+    """Whether every render quantum wholly inside [`since`, `until`] was audible."""
+    peaks = peaks_wholly_between(seen, since, until)
+    return bool(peaks) and all(peak > SILENT_PEAK for peak in peaks)
+
+
 def ramp_end(seen: dict[str, object], target: float) -> float:
     """The context time the player's first ramp of the volume to `target` ends."""
-    return next(ramp["endsAt"] for ramp in seen["ramps"] if ramp["target"] == target)
+    return ramp_ends(seen, target)[0]
 
 
 def edge_peaks(

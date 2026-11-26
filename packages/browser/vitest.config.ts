@@ -7,7 +7,7 @@ export default defineConfig({
     include: ["src/**/*.test.ts"],
     coverage: {
       provider: "v8",
-      include: ["src/resampler.ts", "src/hop.ts", "src/wav-stream.ts"],
+      include: ["src/resampler.ts", "src/hop.ts", "src/wav-stream.ts", "src/timeline.ts"],
       // Vitest empties its reports directory, so it is never the repository root.
       reportsDirectory: "coverage",
       reporter: ["text", ["lcovonly", { file: "coverage-browser-unit.lcov", projectRoot: "../.." }]],
