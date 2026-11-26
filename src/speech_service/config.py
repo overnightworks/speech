@@ -177,8 +177,10 @@ class IdentityConfig(_FileModel):
     @field_validator("service_group")
     @classmethod
     def _service_group_is_a_group_path(cls, group: str) -> str:
-        if not group.startswith("/") or "" in group[1:].split("/"):
-            raise ValueError(_SERVICE_GROUP_ERROR)
+        try:
+            GroupPath(group)
+        except ValueError:
+            raise ValueError(_SERVICE_GROUP_ERROR) from None
         return group
 
 

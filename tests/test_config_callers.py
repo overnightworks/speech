@@ -91,8 +91,26 @@ def test_a_bad_file_fails_naming_the_field_and_not_its_value(
 
 @pytest.mark.parametrize(
     "malformed",
-    ["", "/", "speech-service", "/services/", "//services", "/services//speech"],
-    ids=["empty", "root", "no slash", "trailing slash", "double lead", "double mid"],
+    [
+        "",
+        "/",
+        "speech-service",
+        "/services/",
+        "//services",
+        "/services//speech",
+        "/services/ speech",
+        "/services/speech\u0007",
+    ],
+    ids=[
+        "empty",
+        "root",
+        "no slash",
+        "trailing slash",
+        "double lead",
+        "double mid",
+        "space around a segment",
+        "control character",
+    ],
 )
 def test_a_service_group_that_is_not_a_group_path_fails_at_startup(
     tmp_path: Path, malformed: str
