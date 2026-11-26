@@ -696,14 +696,19 @@ def print_teardown(outcome: Teardown, project: str) -> None:
         print("torn_down", project)
 
 
-def hearing_cells(
-    session: Session,
-    plain: Compose,
-    wav: bytes,
-    started_after: float,
-    model_name: str,
-) -> None:
-    """Cells 13 to 19 and 24: hearing in the image, after a start of `started_after`."""
+def drive_cells(session: Session, plain: Compose, names: list[str]) -> None:
+    """Drive every cell of the image proof against the started stack."""
+    environment = image_environment(plain.project)
+    model_name = environment[HEARING_MODEL_SETTING]
+    cell_contents(plain, environment)
+    cell_absent_networks(plain, names)
+    started_after = cell_start(session)
+    wav = cell_speak(session)
+    cell_refusals(session)
+    cell_gpu_voice_not_offered(session)
+    cell_key_server_stopped(session)
+    cell_restart(session)
+    cell_no_egress(session)
     model = HearingModel(model_name)
     cell_hearing_ready(session, plain, started_after, model_name)
     cell_recording(session, wav)
@@ -713,6 +718,11 @@ def hearing_cells(
     cell_live_sounds(session)
     cell_recording_limit(session, wav)
     cell_hearing_restart(session, wav, plain, model_name)
+    cell_hearing_negatives(session, wav, model_name)
+    cell_negatives(session, wav)
+    cell_gpu_voice_offered(session, wav)
+    cell_log(session)
+    cell_hearing_log(session)
 
 
 def prove() -> None:
@@ -743,28 +753,7 @@ def prove() -> None:
                     fetch_key_set(identity.jwks_url, identity.ca_path),
                 )
                 session = Session(compose, config, baked, signing, [], [], [])
-                environment = image_environment(plain.project)
-                cell_contents(plain, environment)
-                cell_absent_networks(plain, names)
-                started_after = cell_start(session)
-                wav = cell_speak(session)
-                cell_refusals(session)
-                cell_gpu_voice_not_offered(session)
-                cell_key_server_stopped(session)
-                cell_restart(session)
-                cell_no_egress(session)
-                hearing_cells(
-                    session,
-                    plain,
-                    wav,
-                    started_after,
-                    environment[HEARING_MODEL_SETTING],
-                )
-                cell_hearing_negatives(session, wav, environment[HEARING_MODEL_SETTING])
-                cell_negatives(session, wav)
-                cell_gpu_voice_offered(session, wav)
-                cell_log(session)
-                cell_hearing_log(session)
+                drive_cells(session, plain, names)
             failed = False
         finally:
             outcome = teardown(compose, failed=failed)

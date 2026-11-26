@@ -202,7 +202,7 @@ def test_an_image_environment_is_read_from_the_image_itself(
 ) -> None:
     fake = tmp_path / "docker"
     fake.write_text(
-        '#!/bin/sh\necho \'["PATH=/bin:/usr/bin","SPEECH_SETTING=a=b"]\'\n',
+        '#!/bin/sh\necho \'["PATH=/bin:/usr/bin","IMAGE_SETTING=a=b"]\'\n',
         encoding="utf-8",
     )
     fake.chmod(0o755)
@@ -210,4 +210,4 @@ def test_an_image_environment_is_read_from_the_image_itself(
 
     environment = image_stack.image_environment("image-under-proof")
 
-    assert environment == {"PATH": "/bin:/usr/bin", "SPEECH_SETTING": "a=b"}
+    assert environment == {"PATH": "/bin:/usr/bin", "IMAGE_SETTING": "a=b"}
