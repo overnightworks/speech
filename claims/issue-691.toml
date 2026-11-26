@@ -1,0 +1,8 @@
+claim_id = "57086526f8ca46cfa4e2930a4df70c77"
+agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
+role = "builder"
+base = "9e405b39639e897a1fb736b7377742f80f945a4b"
+branch = "claude/issue-691-the-proof-identity-calls-app-group-and-a"
+scope = ["scripts/proof_identity.py", "tests/scripts/test_speaking_figures.py", "tests/support/browser_support.py", "tests/support/identity_support.py"]
+opened_commit = "64fca583b8c918c39558c76488c8605e7b292b61"
+whole_reason = "One owner's three remaining hand-built copies and one missing test of a property the last slice added, each a few lines."
