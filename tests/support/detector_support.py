@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from speech_service.voice_activity import WINDOW_SAMPLES
+from speech_service.voice_activity import WINDOW_SAMPLES, WINDOW_SECONDS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -14,6 +14,15 @@ if TYPE_CHECKING:
 _BYTES_PER_WINDOW = WINDOW_SAMPLES * 2
 LOUD_LEVEL = 5000
 _SPEECH_LEVEL = 1000
+# The ruled arithmetic: 0.4 s is 13 windows of 32 ms, and a pause of 5 windows is
+# longer than the 0.15 s bound where 4 are not.
+FOUR_TENTHS_MS = 400
+THRESHOLD_WINDOWS = 13
+
+
+def end_of_window(index: int) -> int:
+    """The millisecond at which the window of this index ends."""
+    return round((index + 1) * WINDOW_SECONDS * 1000)
 
 
 class LevelDetector:

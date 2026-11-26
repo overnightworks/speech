@@ -123,21 +123,37 @@ class SoundDetection(_SessionPart):
     type: Literal["audioset"]
 
 
+class SustainedSpeech(_SessionPart):
+    """The ask for an event once a person's voice has lasted `duration_ms`.
+
+    An ask without a duration takes the service's default; the echo carries the
+    duration that applies.
+    """
+
+    duration_ms: int | None = Field(None, ge=1, exclude_if=absent)
+
+    @field_validator("duration_ms")
+    @classmethod
+    def _is_not_null(cls, value: object) -> object:
+        return _refuse_null(value, "a duration")
+
+
 class SessionInput(_SessionPart):
     """The input side of a session.
 
-    `sound_detection` is dumped only when it was asked for.
+    `sound_detection` and `sustained_speech` are dumped only when asked for.
     """
 
     format: PcmFormat = PcmFormat(type="audio/pcm", rate=24000)
     transcription: TranscriptionSetting = TranscriptionSetting()
     turn_detection: ServerVad = ServerVad(type="server_vad")
     sound_detection: SoundDetection | None = Field(None, exclude_if=absent)
+    sustained_speech: SustainedSpeech | None = Field(None, exclude_if=absent)
 
-    @field_validator("sound_detection")
+    @field_validator("sound_detection", "sustained_speech")
     @classmethod
     def _is_not_null(cls, value: object) -> object:
-        return _refuse_null(value, "a sound detection")
+        return _refuse_null(value, "an ask")
 
 
 class SessionAudio(_SessionPart):
@@ -157,7 +173,16 @@ class TranscriptionSession(_SessionPart):
 
     def without_sound_detection(self) -> TranscriptionSession:
         """This session as it is applied when its sound detection is not."""
-        audio_input = self.audio.input.model_copy(update={"sound_detection": None})
+        return self._with_input(sound_detection=None)
+
+    def with_sustained_duration(self, duration_ms: int) -> TranscriptionSession:
+        """This session as applied, its sustained speech lasting `duration_ms`."""
+        return self._with_input(
+            sustained_speech=SustainedSpeech(duration_ms=duration_ms)
+        )
+
+    def _with_input(self, **changes: object) -> TranscriptionSession:
+        audio_input = self.audio.input.model_copy(update=changes)
         audio = self.audio.model_copy(update={"input": audio_input})
         return self.model_copy(update={"audio": audio})
 
@@ -272,6 +297,16 @@ class SpeechStopped(_ServerEvent):
 
     type: Literal["input_audio_buffer.speech_stopped"] = (
         "input_audio_buffer.speech_stopped"
+    )
+    item_id: str
+    audio_end_ms: int
+
+
+class SpeechSustained(_ServerEvent):
+    """`input_audio_buffer.speech_sustained`: a turn's voice lasted the duration."""
+
+    type: Literal["input_audio_buffer.speech_sustained"] = (
+        "input_audio_buffer.speech_sustained"
     )
     item_id: str
     audio_end_ms: int
@@ -424,6 +459,7 @@ ServerEvent = (
     SessionCreated
     | SessionUpdated
     | SpeechStarted
+    | SpeechSustained
     | TranscriptDelta
     | SpeechStopped
     | AudioCommitted
