@@ -338,6 +338,17 @@ def test_started_resolves_after_the_hop_opened_and_before_the_first_frame(
         # listener of the page, so the failure value is what the page sees.
         ({"source": "tone", "worklet": "blob"}, "worklet-refused"),
         ({"source": "tone", "start": "load"}, "context-failed"),
+        ({"source": "tone", "context": "throws"}, "context-failed"),
+        ({"source": "tone", "context": "rejects"}, "context-failed"),
+        ({"source": "tone", "worklet": "ear"}, "worklet-refused"),
+    ],
+    ids=[
+        "no-audio-track",
+        "worklet-blob-refused-by-policy",
+        "suspended-without-activation",
+        "context-constructor-throws",
+        "resume-rejects",
+        "worklet-registers-no-such-processor",
     ],
 )
 def test_a_local_failure_ends_as_its_value_and_leaves_nothing_open(
@@ -358,6 +369,54 @@ def test_a_local_failure_ends_as_its_value_and_leaves_nothing_open(
     assert seen["errors"] == []
     assert set(seen["socketStatesAtEnd"]) <= {CLOSED}
     assert set(seen["contextStatesAtEnd"]) <= {"closed"}
+
+
+def test_a_hop_url_the_websocket_refuses_throws_and_closes_the_packages_context(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with capture_stage(tmp_path) as stage:
+            await stage.open(source="tone", hop="ftp://hop.invalid/hear")
+            await stage.switch()
+            await stage.until("seen.contextStatesAfterThrow !== null")
+            return await stage.seen()
+
+    seen = asyncio.run(scenario())
+
+    assert seen["started"] is None
+    assert seen["ended"] is None
+    assert seen["socketsOpened"] == 0
+    assert seen["startThrew"] is True
+    assert seen["contextStatesAfterThrow"] == ["closed"]
+
+
+def test_a_suspended_start_resumes_the_context_and_streams(tmp_path: Path) -> None:
+    async def scenario() -> dict[str, object]:
+        async with capture_stage(tmp_path) as stage:
+            await stage.switch_on_until_streaming(source="tone", context="suspended")
+            return await stage.switch_off()
+
+    seen = asyncio.run(scenario())
+
+    assert seen["started"] == "streaming"
+    assert seen["contextStatesAtStart"] == ["running"]
+
+
+def test_a_statechange_while_the_context_runs_leaves_the_capture_streaming(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> tuple[dict[str, object], int]:
+        async with capture_stage(tmp_path) as stage:
+            await stage.switch_on_until_streaming(source="tone")
+            await stage.page.evaluate("window.dispatchStateChange()")
+            before = len(await stage.page.evaluate("window.capturePage.sentBytes"))
+            await stage.until(f"seen.sentBytes.length >= {before + FRAMES_BEFORE_STOP}")
+            return await stage.seen(), before
+
+    seen, before = asyncio.run(scenario())
+
+    assert seen["ended"] is None
+    assert len(seen["sentBytes"]) > before
 
 
 def test_an_app_route_that_refuses_the_upgrade_ends_as_socket_1006(

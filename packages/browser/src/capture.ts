@@ -59,6 +59,9 @@ function endOfSocket(code: number): CaptureEnd {
  * The package opens no device, never stops the app's track and interprets no message of the hop; it hands each one to
  * `onMessage` as it came and sends the app's own text through `send`. Audio is taken only once the hop is open, and
  * everything is sent: there is no loudness gate.
+ *
+ * It throws, after closing the context it opened, on a `hopUrl` the WebSocket constructor refuses, such as one with a
+ * scheme other than `ws:`, `wss:`, `http:` or `https:`: a caller's programming error.
  */
 export function startCapture(options: CaptureOptions): Capture {
   const run = new CaptureRun(options);
