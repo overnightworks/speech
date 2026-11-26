@@ -306,8 +306,10 @@ class SteppedStage(Stage):
     async def step(self, quanta: int) -> int:
         """Render `quanta` render quanta, then run the page's timers over their time.
 
-        Returns the frames the context has rendered so far. A page that does not
-        report the quanta in `WAIT_SECONDS` fails the step.
+        Returns the frames the context has rendered so far. The page ends its step
+        once the ear's reports have arrived, whatever they say, so a repeated or
+        missing report shows as a marker and never stalls the step; a page that does
+        not answer in `WAIT_SECONDS` fails it.
         """
         reply = await asyncio.wait_for(
             self.page.evaluate("quanta => window.playerPage.step(quanta)", quanta),

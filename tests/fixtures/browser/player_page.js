@@ -90,13 +90,26 @@ function kindOf(node) {
 }
 
 const earsReady = [];
-// The first frame of the latest render quantum the ear has reported, and who waits for a later one.
-let heardFrame = -1;
-const earWaiters = [];
+const ears = new Map();
+const fenceEchoes = new Map();
+// The next quantum report to arrive that a cell garbles on purpose: its kind and the index of the report it takes.
+let garbledReport = null;
 
-function heardThrough(frame) {
-  if (heardFrame >= frame) return Promise.resolve();
-  return new Promise((resolve) => earWaiters.push({ frame, resolve }));
+// Resolves once every report the ear posted before this call has arrived: the ear echoes the fence on the port the
+// reports travel, which keeps their order, so the wait does not read what the reports say.
+function earReported(context) {
+  const fence = fenceEchoes.size;
+  const echoed = new Promise((resolve) => fenceEchoes.set(fence, resolve));
+  ears.get(context).port.postMessage({ fence });
+  return echoed;
+}
+
+// A report as the cell garbles it: "stale" carries the frame of the report before, "dropped" never arrives.
+function garbled(report) {
+  if (garbledReport?.at !== seen.heardPeaks.length) return report;
+  const { kind } = garbledReport;
+  garbledReport = null;
+  return kind === "stale" ? [seen.heardPeaks.at(-1)[0], report[1]] : null;
 }
 
 // The page's own ear: a worklet in the graph (`ear_processor.js`) that notes the context time of the first sample
@@ -106,12 +119,13 @@ function listenTo(output) {
   earsReady.push(
     context.audioWorklet.addModule("/ear_processor.js").then(() => {
       const ear = new AudioWorkletNode(context, "ear");
+      ears.set(context, ear);
       ear.port.onmessage = ({ data }) => {
-        if (data.onset !== undefined) seen.heardOnsets.push(data.onset);
+        if (data.fence !== undefined) fenceEchoes.get(data.fence)();
+        else if (data.onset !== undefined) seen.heardOnsets.push(data.onset);
         else {
-          seen.heardPeaks.push([data.quantum, data.peak]);
-          heardFrame = Math.round(data.quantum * context.sampleRate);
-          earWaiters.splice(0).forEach((waiter) => (waiter.frame <= heardFrame ? waiter.resolve() : earWaiters.push(waiter)));
+          const report = garbled([data.quantum, data.peak]);
+          if (report !== null) seen.heardPeaks.push(report);
         }
       };
       Page.connect.call(output, ear);
@@ -379,10 +393,11 @@ window.playerPage = {
       }
     }),
   listening: () => Promise.all(earsReady),
-  // Renders `quanta` render quanta of a stepped context, once the ear has reported them; the frames rendered so far.
+  // Renders `quanta` render quanta of a stepped context, once the ear's reports of them have arrived; the frames
+  // rendered so far.
   step: async (quanta) => {
     const frames = await contexts[0].step(quanta);
-    await heardThrough(frames - contexts[0].renderQuantumSize);
+    await earReported(contexts[0]);
     notePlayed();
     noteTap();
     return { frames, sampleRate: contexts[0].sampleRate };
@@ -395,6 +410,9 @@ window.playerPage = {
   hold: (kind) => held[kind].push(Promise.withResolvers()),
   release: () => heldNow.splice(0).forEach((gate) => gate.resolve()),
   rejectNextResume: () => (rejectNextResume = true),
+  // The ear's report number `at` (counted from 0) arrives stale or not at all, as a render thread under load may
+  // deliver it.
+  garbleReport: (kind, at) => (garbledReport = { kind, at }),
   // The next source's start finds the page stalled: `where` is "before" the start reaches the render thread, which then
   // plays the source from the quantum it is on, or "after" it, which leaves the start asked for.
   stallNextStart: (where) => (stallNextStart = where),
