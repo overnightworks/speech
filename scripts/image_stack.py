@@ -166,7 +166,9 @@ def image_environment(image: str) -> dict[str, str]:
     entries = json.loads(
         docker("image", "inspect", "--format", "{{json .Config.Env}}", image)
     )
-    return dict(entry.split("=", 1) for entry in entries)
+    return {
+        name: value for name, _, value in (entry.partition("=") for entry in entries)
+    }
 
 
 def container_of(compose: Compose, service: str) -> str:
@@ -455,9 +457,11 @@ def oom_kills(events: str) -> int:
 
 
 def service_config(compose: Compose) -> dict[str, Any]:
-    """The service as `compose` renders it."""
+    """The service as it runs: compose's rendering over its image's environment."""
     rendered = json.loads(compose.run("config", "--format", "json").stdout)
-    return rendered["services"][SERVICE]
+    service = rendered["services"][SERVICE]
+    environment = {**image_environment(compose.project), **service["environment"]}
+    return {**service, "environment": environment}
 
 
 def speak_marked(session: Session, voice: VoiceId | None = None) -> bytes:

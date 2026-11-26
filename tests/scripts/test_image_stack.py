@@ -197,17 +197,46 @@ def test_a_service_started_with_an_override_keeps_the_log_and_the_proofs_files(
     assert commands[-1][-1] == image_stack.SERVICE
 
 
-def test_an_image_environment_is_read_from_the_image_itself(
+@pytest.fixture
+def docker_with_image_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A docker whose image carries two settings and whose compose renders one."""
     fake = tmp_path / "docker"
     fake.write_text(
-        '#!/bin/sh\necho \'["PATH=/bin:/usr/bin","IMAGE_SETTING=a=b"]\'\n',
+        "#!/bin/sh\n"
+        'if [ "$1" = compose ]; then\n'
+        '  echo \'{"services": {"speech": {"environment": {"IMAGE_SETTING": "c"}}}}\'\n'
+        "else\n"
+        '  echo \'["PATH=/bin:/usr/bin","IMAGE_SETTING=a=b","OTHER_SETTING=d"]\'\n'
+        "fi\n",
         encoding="utf-8",
     )
     fake.chmod(0o755)
     monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
 
+
+@pytest.mark.usefixtures("docker_with_image_environment")
+def test_an_image_environment_is_read_from_the_image_itself() -> None:
     environment = image_stack.image_environment("image-under-proof")
 
-    assert environment == {"PATH": "/bin:/usr/bin", "IMAGE_SETTING": "a=b"}
+    assert environment == {
+        "PATH": "/bin:/usr/bin",
+        "IMAGE_SETTING": "a=b",
+        "OTHER_SETTING": "d",
+    }
+
+
+@pytest.mark.usefixtures("docker_with_image_environment")
+def test_a_service_runs_with_its_image_environment_under_the_compose_settings() -> None:
+    compose = image_stack.Compose(
+        (REPOSITORY / "compose.yaml",), {}, "image-under-proof"
+    )
+
+    environment = image_stack.service_config(compose)["environment"]
+
+    assert environment == {
+        "PATH": "/bin:/usr/bin",
+        "IMAGE_SETTING": "c",
+        "OTHER_SETTING": "d",
+    }
