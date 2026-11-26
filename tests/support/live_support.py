@@ -6,8 +6,17 @@ import asyncio
 import base64
 import json
 import struct
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, get_args
 
+from speech_client.realtime_wire import (
+    AudioAppend,
+    AudioCommit,
+    ErrorEvent,
+    ServerEvent,
+    SessionUpdate,
+    TranscriptFailed,
+    parse_server_event,
+)
 from speech_service.config import DEFAULT_LIVE_SILENCE_SECONDS
 from speech_service.live_session import LiveSession
 from speech_service.pcm import HEARING_SAMPLE_RATE
@@ -16,35 +25,36 @@ from speech_service.voice_activity import WINDOW_SAMPLES
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from pydantic import BaseModel
+
     from speech_service.hearing import Hearing
 
 SPEECH_LEVEL = 5000
 INPUT_RATE = 24_000
 WAIT_SECONDS = 5.0
-SPEECH_STOPPED = "input_audio_buffer.speech_stopped"
-SOUND_DETECTED = "input_audio_buffer.sound_detected"
-SPEECH_SUSTAINED = "input_audio_buffer.speech_sustained"
 ASK_FOR_SOUNDS = {"type": "audioset"}
-COMPLETED = "conversation.item.input_audio_transcription.completed"
-FAILED = "conversation.item.input_audio_transcription.failed"
 NOT_ASKED = object()
 _INPUT_SAMPLES_PER_WINDOW = WINDOW_SAMPLES * INPUT_RATE // HEARING_SAMPLE_RATE
 
 
 class FakeSocket:
-    """The events a session sent, parsed, and whether it closed the socket."""
+    """The events a session sent, as the client reads them, and whether it closed."""
 
     def __init__(self) -> None:
         """Start empty and open."""
-        self.events: list[dict[str, object]] = []
+        self.events: list[ServerEvent] = []
         self.closed = False
         self.close_code: int | None = None
         self._changed = asyncio.Condition()
 
     async def send(self, text: str) -> None:
-        """Record one event."""
+        """Record one event; one the client cannot read fails the session."""
+        event = parse_server_event(text)
+        assert json.loads(event.model_dump_json()) == json.loads(text), (
+            "the client reads every field the service sent"
+        )
         async with self._changed:
-            self.events.append(json.loads(text))
+            self.events.append(event)
             self._changed.notify_all()
 
     async def close(self, code: int) -> None:
@@ -64,20 +74,20 @@ class FakeSocket:
         """Wait until the session closed the socket."""
         await self.until(lambda: self.closed)
 
-    def types(self) -> list[object]:
-        """The `type` of every event sent, in order."""
-        return [event["type"] for event in self.events]
+    def types(self) -> list[type[ServerEvent]]:
+        """The class of every event sent, in order."""
+        return [type(event) for event in self.events]
 
-    def of_type(self, kind: str) -> list[dict[str, object]]:
-        """The events of one `type`, in order."""
-        return [event for event in self.events if event["type"] == kind]
+    def of_type[Event: ServerEvent](self, kind: type[Event]) -> list[Event]:
+        """The events of one class, in order."""
+        return [event for event in self.events if isinstance(event, kind)]
 
 
 class StallingSocket(FakeSocket):
-    """A socket whose send of one event of one `type` stalls until released."""
+    """A socket whose send of one event of one class stalls until released."""
 
-    def __init__(self, kind: str, occurrence: int = 1) -> None:
-        """Stall the `occurrence`th event of `kind`."""
+    def __init__(self, kind: type[ServerEvent], occurrence: int = 1) -> None:
+        """Stall the `occurrence`th event of class `kind`."""
         super().__init__()
         self._kind = kind
         self._skipped = occurrence - 1
@@ -86,13 +96,21 @@ class StallingSocket(FakeSocket):
 
     async def send(self, text: str) -> None:
         """Record the event, after the stall if it is the stalled kind."""
-        if not self.stalled.is_set() and json.loads(text)["type"] == self._kind:
+        if not self.stalled.is_set() and isinstance(
+            parse_server_event(text), self._kind
+        ):
             if self._skipped:
                 self._skipped -= 1
             else:
                 self.stalled.set()
                 await self.proceed.wait()
         await super().send(text)
+
+
+def _type_of(event: type[BaseModel]) -> str:
+    """The wire name a client event's `type` field is fixed to."""
+    (name,) = get_args(event.model_fields["type"].annotation)
+    return name
 
 
 def _samples(count: int, level: int) -> str:
@@ -111,7 +129,7 @@ def windows(count: int, level: int = SPEECH_LEVEL) -> str:
 
 def append(data: str, event_id: str | None = None) -> str:
     """An `input_audio_buffer.append` message."""
-    event: dict[str, object] = {"type": "input_audio_buffer.append", "audio": data}
+    event: dict[str, object] = {"type": _type_of(AudioAppend), "audio": data}
     if event_id:
         event["event_id"] = event_id
     return json.dumps(event)
@@ -119,7 +137,7 @@ def append(data: str, event_id: str | None = None) -> str:
 
 def commit(event_id: str | None = None) -> str:
     """An `input_audio_buffer.commit` message."""
-    event: dict[str, object] = {"type": "input_audio_buffer.commit"}
+    event: dict[str, object] = {"type": _type_of(AudioCommit)}
     if event_id:
         event["event_id"] = event_id
     return json.dumps(event)
@@ -150,7 +168,7 @@ def update(
     if sustained_speech is not NOT_ASKED:
         audio_input["sustained_speech"] = sustained_speech
     session = {"type": "transcription", "audio": {"input": audio_input}}
-    return json.dumps({"type": "session.update", "session": session})
+    return json.dumps({"type": _type_of(SessionUpdate), "session": session})
 
 
 async def started(
@@ -188,12 +206,11 @@ async def one_question(session: LiveSession) -> None:
 def end_is(socket: FakeSocket, code: str, failed: int) -> bool:
     """Whether the session failed `failed` items, sent `error` `code` and closed."""
     types = socket.types()
-    error = socket.of_type("error")[0]["error"]
-    assert isinstance(error, dict)
+    error = socket.of_type(ErrorEvent)[0].error
     return (
-        types[-1] == "error"
-        and types.count(FAILED) == failed
-        and types[-1 - failed : -1] == [FAILED] * failed
-        and error["code"] == code
+        types[-1] is ErrorEvent
+        and types.count(TranscriptFailed) == failed
+        and types[-1 - failed : -1] == [TranscriptFailed] * failed
+        and error.code == code
         and socket.closed
     )
