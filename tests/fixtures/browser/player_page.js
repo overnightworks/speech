@@ -20,9 +20,6 @@ const Page = {
   resume: AudioContext.prototype.resume,
   start: AudioBufferSourceNode.prototype.start,
 };
-const SAMPLE_MS = 20;
-const SILENCE_POLL_MS = 10;
-const SILENCE_GIVE_UP_MS = 5000;
 const JUNK_BYTES = 512;
 // How far past a start the real clock is let run in the stall around a source's start, in render quanta.
 const STALL_QUANTA = 6;
@@ -50,9 +47,7 @@ const seen = {
   decodesCalled: 0,
   decodesSettled: 0,
   resumesCalled: 0,
-  lastActionAt: null,
   endedAtAction: null,
-  peakRms: 0,
   playedSeries: [],
   heardOnsets: [],
   heardPeaks: [],
@@ -64,7 +59,6 @@ const seen = {
 const contexts = [];
 const clockReads = new Map();
 const frozenClocks = new Map();
-const meters = new WeakMap();
 const nodeIds = new WeakMap();
 const trackedSources = new WeakSet();
 const held = { decode: [], resume: [] };
@@ -93,11 +87,6 @@ function idOf(node) {
 
 function kindOf(node) {
   return KINDS.find(([, constructor]) => node instanceof constructor)?.[0] ?? node?.constructor?.name;
-}
-
-function meterOf(context) {
-  if (!meters.has(context)) meters.set(context, new Page.AnalyserNode(context));
-  return meters.get(context);
 }
 
 const earsReady = [];
@@ -230,7 +219,6 @@ AudioNode.prototype.connect = function (target, ...parameters) {
   seen.edges.push({ from: idOf(this), fromKind: kindOf(this), to: target instanceof AudioNode ? idOf(target) : null, toKind: kindOf(target) });
   if (toOutput) {
     outputGain = this;
-    Page.connect.call(this, meterOf(this.context));
     listenTo(this);
   }
   return Page.connect.call(this, target, ...parameters);
@@ -251,19 +239,21 @@ AudioContext.prototype.resume = function () {
   return gateFor("resume", Page.resume.call(this));
 };
 
-function rms() {
-  const meter = meters.get(contexts[0]);
-  if (meter === undefined) return 0;
-  const samples = new Float32Array(meter.fftSize);
-  meter.getFloatTimeDomainData(samples);
-  return Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
-}
-
 function tapRms() {
   if (tapMeter === null) return null;
   const samples = new Float32Array(tapMeter.fftSize);
   tapMeter.getFloatTimeDomainData(samples);
   return Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
+}
+
+// The loudest the tap's analyser read while each sound plays, after each step of the context: the analyser reflects
+// the last rendered quantum.
+function noteTap() {
+  const level = tapRms();
+  if (level === null) return;
+  for (const sound of seen.sounds) {
+    if (sound.startedValue === "playing" && sound.endedValue === null) sound.peakTapRms = Math.max(sound.peakTapRms, level);
+  }
 }
 
 // What the first sound's read shows after each step of the context, each switch of the app and each end: a read that
@@ -275,18 +265,6 @@ function notePlayed() {
     if (played !== seen.playedSeries.at(-1)) seen.playedSeries.push(played);
   }
 }
-
-setInterval(() => {
-  const level = rms();
-  const tapLevel = tapRms();
-  seen.peakRms = Math.max(seen.peakRms, level);
-  for (const sound of seen.sounds) {
-    if (sound.startedValue === "playing" && sound.endedValue === null) {
-      sound.peakRms = Math.max(sound.peakRms, level);
-      if (tapLevel !== null) sound.peakTapRms = Math.max(sound.peakTapRms, tapLevel);
-    }
-  }
-}, SAMPLE_MS);
 
 // A body the page feeds itself: its first `lead` bytes are there at once and `feedWhile` hands on the rest, so that
 // the first samples reach the player in the task of a switch, with no timing between them.
@@ -324,7 +302,7 @@ function argumentOf(spec) {
 }
 
 function handOver(spec) {
-  const sound = { id: seen.sounds.length, startedValue: null, startedCount: 0, endedValue: null, endedCount: 0, endedAt: null, peakRms: 0, peakTapRms: 0, playedSeconds: null, start: null };
+  const sound = { id: seen.sounds.length, startedValue: null, startedCount: 0, endedValue: null, endedCount: 0, endedAt: null, peakTapRms: 0, playedSeconds: null, start: null };
   seen.sounds.push(sound);
   const playback = player.play(argumentOf(spec));
   playbacks.push(playback);
@@ -351,7 +329,6 @@ function handOver(spec) {
 // is dropped first and the switch's time is the read the player made: a read from before, held across a slow page,
 // would start the player's volume ramp in the past, and the ear would hear a ramp shorter than the player's edge.
 async function act(name, action) {
-  seen.lastActionAt = performance.now();
   clockReads.clear();
   switchRunning = true;
   try {
@@ -407,6 +384,7 @@ window.playerPage = {
     const frames = await contexts[0].step(quanta);
     await heardThrough(frames - contexts[0].renderQuantumSize);
     notePlayed();
+    noteTap();
     return { frames, sampleRate: contexts[0].sampleRate };
   },
   // The app's reader: one analyser of the player's context, connected to `player.tap` from the outside.
@@ -442,13 +420,6 @@ window.playerPage = {
       switchRunning = false;
       clockReads.clear();
     }
-  },
-  async silentAfterAction(threshold) {
-    const start = performance.now();
-    while (rms() > threshold && performance.now() - start < SILENCE_GIVE_UP_MS) {
-      await new Promise((resolve) => setTimeout(resolve, SILENCE_POLL_MS));
-    }
-    return performance.now() - seen.lastActionAt;
   },
 };
 player = entry.createPlayer();

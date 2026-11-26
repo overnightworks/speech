@@ -13,10 +13,13 @@ from webauth.policies import default_content_security_policy
 
 from tests.support.browser_player_support import (
     ABSENT,
+    ALL_ENDED,
     AUDIBLE_RMS,
     CLOSED,
     CUT,
     CUT_LATE,
+    FINISH_QUANTA,
+    FINISH_WITHIN_SECONDS,
     HELD,
     JUNK,
     LONG,
@@ -24,17 +27,25 @@ from tests.support.browser_player_support import (
     OTHER,
     RESUMES_REJECTED_THEN_PASSED,
     SHORT,
+    SILENT_PEAK,
     SILENT_RMS,
-    STOP_BOUND_MS,
+    SOUND_SECONDS,
+    STARTED,
     STREAMED,
+    STRETCH_SECONDS,
     TAP_NAMES,
     VOICE_BYTES,
     WAIT_SECONDS,
     activated,
+    audible_after_edge,
     bytes_of,
     ends,
     events,
+    loudest_peak,
+    start_of,
     starts,
+    stepped,
+    stepped_through,
     unactivated,
     url,
 )
@@ -54,7 +65,7 @@ def test_three_sounds_play_in_the_order_handed_over(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.prepare_bytes()
             await stage.hand_over(url(SHORT), bytes_of(VOICE_BYTES), url(OTHER))
             return await stage.finish()
@@ -71,7 +82,7 @@ def test_a_sound_whose_answer_is_held_plays_before_the_later_one_that_decoded(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.prepare_bytes()
             await stage.hand_over(url(HELD), bytes_of(VOICE_BYTES))
             await stage.until("s.decodesSettled >= 1")
@@ -92,7 +103,7 @@ def test_bytes_from_the_service_play_with_their_ai_mark_and_are_heard(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> tuple[dict[str, object], AppSide]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.prepare_bytes()
             await stage.hand_over(bytes_of(VOICE_BYTES))
             return await stage.finish(), stage.side
@@ -101,7 +112,7 @@ def test_bytes_from_the_service_play_with_their_ai_mark_and_are_heard(
 
     assert info_comment_before_data(side.spoken[0]) is not None
     assert ends(seen) == ["played"]
-    assert seen["sounds"][0]["peakRms"] > AUDIBLE_RMS
+    assert loudest_peak(seen, start_of(seen)) > SILENT_PEAK
 
 
 @pytest.mark.parametrize("handed_as", ["url", "urlObject"])
@@ -109,51 +120,48 @@ def test_a_route_of_the_app_plays_once_whether_handed_as_text_or_as_a_url_object
     tmp_path: Path, handed_as: str
 ) -> None:
     async def scenario() -> tuple[dict[str, object], AppSide]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.hand_over({handed_as: VOICE_PATH})
             return await stage.finish(), stage.side
 
     seen, side = asyncio.run(scenario())
 
     assert ends(seen) == ["played"]
-    assert seen["sounds"][0]["peakRms"] > AUDIBLE_RMS
+    assert loudest_peak(seen, start_of(seen)) > SILENT_PEAK
     assert side.requests == [VOICE_PATH]
 
 
 def test_stop_ends_waiting_sounds_at_once_the_playing_one_after_its_edge_and_aborts(
     tmp_path: Path,
 ) -> None:
-    async def scenario() -> tuple[dict[str, object], float]:
-        async with activated(tmp_path) as stage:
-            await stage.hand_over(url(LONG), url(HELD), url(SHORT))
-            await stage.until("s.sounds[0].startedValue === 'playing'")
+    async def scenario() -> tuple[dict[str, object], list[str | None]]:
+        async with stepped(tmp_path) as stage:
+            await stage.hear(url(LONG), url(HELD), url(SHORT))
             await stage.side.arrival(HELD)
-            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
             await stage.act("stop")
             at_stop = (await stage.snapshot())["endedAtAction"]
-            silent_ms = await stage.silent_within()
             await asyncio.wait_for(stage.side.held_aborted.wait(), WAIT_SECONDS)
-            await stage.until("s.sounds[0].endedValue !== null")
-            return {**await stage.snapshot(), "atStop": at_stop}, silent_ms
+            await stage.finish()
+            await stage.step_for(STRETCH_SECONDS)
+            return await stage.snapshot(), at_stop
 
-    seen, silent_ms = asyncio.run(scenario())
+    seen, at_stop = asyncio.run(scenario())
 
-    assert seen["atStop"] == [None, "stopped", "stopped"]
+    assert at_stop == [None, "stopped", "stopped"]
     assert ends(seen) == ["stopped"] * 3
     assert starts(seen) == ["playing", "ended", "ended"]
-    assert silent_ms < STOP_BOUND_MS
+    assert audible_after_edge(seen, "stop") == 0
 
 
 def test_a_stopped_sound_reports_nothing_more_at_its_natural_end_and_starts_nothing(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
-            await stage.hand_over(url(NATURAL), url(SHORT))
-            await stage.until("s.sounds[0].startedValue === 'playing'")
+        async with stepped(tmp_path) as stage:
+            await stage.hear(url(NATURAL), url(SHORT))
             await stage.act("stop")
-            await stage.until("s.sounds[0].endedValue !== null")
-            await stage.settle()
+            await stage.finish()
+            await stage.step_for(SOUND_SECONDS["natural.wav"] + STRETCH_SECONDS)
             return await stage.snapshot()
 
     seen = asyncio.run(scenario())
@@ -167,13 +175,11 @@ def test_a_stopped_sound_reports_nothing_more_at_its_natural_end_and_starts_noth
 
 def test_a_sound_handed_over_after_stop_plays(tmp_path: Path) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
-            await stage.hand_over(url(LONG))
-            await stage.until("s.sounds[0].startedValue === 'playing'")
+        async with stepped(tmp_path) as stage:
+            await stage.hear(url(LONG))
             await stage.act("stop")
             await stage.hand_over(url(SHORT))
-            await stage.until("s.sounds[1].endedValue !== null")
-            return await stage.snapshot()
+            return await stage.finish()
 
     seen = asyncio.run(scenario())
 
@@ -182,8 +188,7 @@ def test_a_sound_handed_over_after_stop_plays(tmp_path: Path) -> None:
 
 def test_stop_twice_on_an_idle_player_reports_nothing(tmp_path: Path) -> None:
     async def scenario() -> dict[str, object]:
-        async with unactivated(tmp_path) as stage:
-            await stage.open()
+        async with stepped(tmp_path) as stage:
             await stage.act("stop")
             await stage.act("stop")
             return await stage.snapshot()
@@ -197,31 +202,30 @@ def test_stop_twice_on_an_idle_player_reports_nothing(tmp_path: Path) -> None:
 def test_muting_ends_the_playing_and_waiting_sounds_at_once_and_silences_the_output(
     tmp_path: Path,
 ) -> None:
-    async def scenario() -> tuple[dict[str, object], float]:
-        async with activated(tmp_path) as stage:
-            await stage.hand_over(url(LONG), url(SHORT))
-            await stage.until("s.sounds[0].startedValue === 'playing'")
-            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
-            await stage.set_muted(muted=True)
-            silent_ms = await stage.silent_within()
-            return await stage.snapshot(), silent_ms
-
-    seen, silent_ms = asyncio.run(scenario())
+    seen = asyncio.run(
+        stepped_through(
+            tmp_path,
+            lambda stage: stage.hear(url(LONG), url(SHORT)),
+            lambda stage: stage.set_muted(muted=True),
+            lambda stage: stage.step_for(STRETCH_SECONDS),
+        )
+    )
 
     assert seen["endedAtAction"] == ["muted", "muted"]
     assert starts(seen) == ["playing", "ended"]
     assert seen["gainValue"] == 0
-    assert silent_ms < STOP_BOUND_MS
+    assert audible_after_edge(seen, "mute") == 0
 
 
 def test_a_sound_handed_over_while_muted_ends_muted_and_is_not_fetched(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> tuple[dict[str, object], AppSide]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.set_muted(muted=True)
             await stage.hand_over(url(SHORT), url(OTHER))
-            return await stage.finish(), stage.side
+            await stage.until(ALL_ENDED)
+            return await stage.snapshot(), stage.side
 
     seen, side = asyncio.run(scenario())
 
@@ -234,21 +238,21 @@ def test_a_sound_handed_over_while_muted_ends_muted_and_is_not_fetched(
 def test_unmuting_plays_the_next_sound_and_none_handed_over_before(
     tmp_path: Path,
 ) -> None:
-    async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
-            await stage.hand_over(url(LONG), url(SHORT))
-            await stage.until("s.sounds[0].startedValue === 'playing'")
-            await stage.set_muted(muted=True)
-            await stage.set_muted(muted=False)
-            await stage.hand_over(url(OTHER))
-            return await stage.finish()
-
-    seen = asyncio.run(scenario())
+    seen = asyncio.run(
+        stepped_through(
+            tmp_path,
+            lambda stage: stage.hear(url(LONG), url(SHORT)),
+            lambda stage: stage.set_muted(muted=True),
+            lambda stage: stage.set_muted(muted=False),
+            lambda stage: stage.hand_over(url(OTHER)),
+            lambda stage: stage.finish(),
+        )
+    )
 
     assert ends(seen) == ["muted", "muted", "played"]
     assert starts(seen) == ["playing", "ended", "playing"]
     assert seen["gainValue"] == 1
-    assert seen["sounds"][2]["peakRms"] > AUDIBLE_RMS
+    assert loudest_peak(seen, start_of(seen, 2)) > SILENT_PEAK
 
 
 @pytest.mark.parametrize(
@@ -259,7 +263,7 @@ def test_a_sound_that_cannot_load_fails_and_the_next_one_plays(
     tmp_path: Path, broken: dict[str, str], failure: str
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.hand_over(broken, url(SHORT))
             return await stage.finish()
 
@@ -273,11 +277,8 @@ def test_a_streamed_wav_starts_before_its_body_has_ended_and_plays_through_to_it
     tmp_path: Path,
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
-        async with activated(tmp_path) as stage:
-            await stage.hand_over(url(STREAMED))
-            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
-            while_streaming = await stage.snapshot()
-            stage.side.held_release.set()
+        async with stepped(tmp_path) as stage:
+            while_streaming = await stage.hear_then_release(url(STREAMED))
             return while_streaming, await stage.finish()
 
     while_streaming, seen = asyncio.run(scenario())
@@ -291,27 +292,26 @@ def test_a_streamed_wav_starts_before_its_body_has_ended_and_plays_through_to_it
 def test_stop_silences_a_streamed_wav_at_once_and_aborts_its_fetch(
     tmp_path: Path,
 ) -> None:
-    async def scenario() -> tuple[dict[str, object], float]:
-        async with activated(tmp_path) as stage:
-            await stage.hand_over(url(STREAMED))
-            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
+    async def scenario() -> dict[str, object]:
+        async with stepped(tmp_path) as stage:
+            await stage.hear(url(STREAMED))
             await stage.act("stop")
-            silent_ms = await stage.silent_within()
             await asyncio.wait_for(stage.side.held_aborted.wait(), WAIT_SECONDS)
-            await stage.until("s.sounds[0].endedValue !== null")
-            return await stage.snapshot(), silent_ms
+            await stage.finish()
+            await stage.step_for(STRETCH_SECONDS)
+            return await stage.snapshot()
 
-    seen, silent_ms = asyncio.run(scenario())
+    seen = asyncio.run(scenario())
 
     assert ends(seen) == ["stopped"]
-    assert silent_ms < STOP_BOUND_MS
+    assert audible_after_edge(seen, "stop") == 0
 
 
 def test_a_route_that_aborts_mid_body_fails_and_the_next_one_plays(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.hand_over(url(CUT), url(SHORT))
             return await stage.finish()
 
@@ -324,10 +324,8 @@ def test_a_streamed_wav_that_breaks_off_stops_playing_where_it_broke_and_fails(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
-        async with activated(tmp_path) as stage:
-            await stage.hand_over(url(CUT_LATE), url(SHORT))
-            await stage.until(f"s.sounds[0].peakRms > {AUDIBLE_RMS}")
-            stage.side.held_release.set()
+        async with stepped(tmp_path) as stage:
+            await stage.hear_then_release(url(CUT_LATE), url(SHORT))
             await stage.until("s.sounds[0].endedValue !== null")
             at_break = await stage.snapshot()
             return at_break, await stage.finish()
@@ -366,7 +364,7 @@ def test_a_rejected_resume_refuses_the_sound_and_the_next_one_plays(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.act("rejectNextResume")
             await stage.hand_over(url(SHORT))
             await stage.until("s.sounds[0].endedValue !== null")
@@ -383,7 +381,7 @@ def test_every_source_connects_only_to_the_one_gain_that_is_the_outputs_only_inp
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.hand_over(url(SHORT), url(OTHER), url(SHORT))
             return await stage.finish()
 
@@ -403,11 +401,11 @@ def test_an_analyser_on_the_tap_reads_energy_while_a_sentence_plays_and_none_aft
     tmp_path: Path,
 ) -> None:
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.act("readTap")
-            await stage.hand_over(url(SHORT))
+            await stage.hear(url(SHORT))
             seen = await stage.finish()
-            await stage.settle()
+            await stage.step_for(STRETCH_SECONDS)
             return seen, await stage.snapshot()
 
     while_playing, after = asyncio.run(scenario())
@@ -419,7 +417,7 @@ def test_an_analyser_on_the_tap_reads_energy_while_a_sentence_plays_and_none_aft
 
 def test_the_package_builds_no_reader_and_exports_none(tmp_path: Path) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.hand_over(url(SHORT))
             return await stage.finish()
 
@@ -434,7 +432,7 @@ def test_the_page_holds_none_of_the_tokens_the_apps_server_spoke_with(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> tuple[str, tuple[str, str]]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.hand_over(url(VOICE_PATH))
             await stage.finish()
             held = await stage.page.evaluate(
@@ -467,12 +465,11 @@ def test_close_ends_every_sound_closes_the_context_and_later_sounds_end_stopped(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.hand_over(url(LONG), url(SHORT))
-            await stage.until("s.sounds[0].startedValue === 'playing'")
+            await stage.until(STARTED)
             await stage.act("close")
             at_close = await stage.snapshot()
-            await stage.until(f"s.contextStates.every(state => state === '{CLOSED}')")
             await stage.hand_over(url(SHORT))
             await stage.act("close")
             seen = await stage.finish()
@@ -488,7 +485,7 @@ def test_close_ends_every_sound_closes_the_context_and_later_sounds_end_stopped(
 
 def test_the_bytes_handed_over_keep_their_length(tmp_path: Path) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.prepare_bytes()
             await stage.hand_over(bytes_of(VOICE_BYTES))
             return await stage.finish()
@@ -503,11 +500,11 @@ def test_a_stop_in_the_task_of_a_natural_end_gives_one_report_and_starts_nothing
     tmp_path: Path,
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.act("stopOnNextSourceEnd")
             await stage.hand_over(url(SHORT), url(OTHER))
             await stage.finish()
-            await stage.settle()
+            await stage.step_for(STRETCH_SECONDS)
             return await stage.snapshot()
 
     seen = asyncio.run(scenario())
@@ -524,7 +521,7 @@ def test_a_switch_while_the_head_is_held_leaves_it_ended_and_the_new_sound_plays
     tmp_path: Path, held: str, switch: str
 ) -> None:
     async def scenario() -> dict[str, object]:
-        async with activated(tmp_path) as stage:
+        async with stepped(tmp_path) as stage:
             await stage.prepare_bytes()
             await stage.act("hold", held)
             await stage.hand_over(bytes_of(VOICE_BYTES))
@@ -535,9 +532,14 @@ def test_a_switch_while_the_head_is_held_leaves_it_ended_and_the_new_sound_plays
                 await stage.set_muted(muted=True)
                 await stage.set_muted(muted=False)
             await stage.hand_over(bytes_of(VOICE_BYTES))
-            await stage.until("s.sounds[1].endedValue !== null")
+            await stage.until("s.decodesSettled >= 2")
+            await stage.step_until(
+                "s.sounds[1].endedValue !== null",
+                within_seconds=FINISH_WITHIN_SECONDS,
+                quanta=FINISH_QUANTA,
+            )
             await stage.act("release")
-            await stage.settle()
+            await stage.step_for(STRETCH_SECONDS)
             return await stage.snapshot()
 
     seen = asyncio.run(scenario())

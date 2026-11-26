@@ -57,7 +57,7 @@ from tests.support.fakes_support import (
 from tests.support.tcp_server_support import serving_asgi, serving_over_tcp
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Mapping
+    from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 
     from playwright.async_api import Page
 
@@ -65,8 +65,6 @@ FAILURE_DIRECTORY_VARIABLE = "SPEECH_BROWSER_FAILURE_DIR"
 STEPPED_CONTEXT = PAGE_FILES / "stepped_context.js"
 WAIT_MS = 20_000
 WAIT_SECONDS = 20
-STOP_BOUND_MS = 1000
-SETTLE_MS = 300
 SOUND_SECONDS = {
     "short.wav": 0.4,
     "other.wav": 0.4,
@@ -243,12 +241,6 @@ class Stage:
         """Wait until `condition` holds on `s`, what the page saw."""
         await self.page.wait_for_function(_on_snapshot(condition), timeout=WAIT_MS)
 
-    async def settle(self) -> None:
-        """Let a bounded stretch of page time pass, to show nothing more happens."""
-        await self.page.evaluate(
-            "ms => new Promise(resolve => setTimeout(resolve, ms))", SETTLE_MS
-        )
-
     async def snapshot(self) -> dict[str, object]:
         """What the page saw, after the checks that hold in every cell.
 
@@ -271,12 +263,6 @@ class Stage:
         await self.until(ALL_ENDED)
         return await self.snapshot()
 
-    async def silent_within(self) -> float:
-        """Milliseconds from the last switch of the app until the output read silent."""
-        return await self.page.evaluate(
-            "threshold => window.playerPage.silentAfterAction(threshold)", SILENT_RMS
-        )
-
 
 @dataclass
 class Stepping:
@@ -295,7 +281,7 @@ class SteppedStage(Stage):
     when asked, and the page's timers run on Playwright's clock, which the stage
     advances by the time the quanta took. Waiting is for what the page does without
     time (a body that arrives, a promise that settles), never for page time: a wait
-    on a timer, `settle()` included, does not end.
+    on a timer does not end.
     """
 
     stepping: Stepping = field(default_factory=Stepping)
@@ -377,6 +363,15 @@ class SteppedStage(Stage):
         await self.step_until(HEARD, within_seconds=EDGE_SECONDS)
         await self.step_for(for_seconds)
 
+    async def hear_then_release(
+        self, *sounds: Mapping[str, str | int]
+    ) -> dict[str, object]:
+        """Hear the sounds, then let the app's held body go; the page's view before."""
+        await self.hear(*sounds)
+        before = await self.snapshot()
+        self.side.held_release.set()
+        return before
+
     async def hand_over_decoded(self, route: str) -> int:
         """Hand over the sound of the app's `route` as bytes the page decodes.
 
@@ -428,6 +423,17 @@ def frames_of(seen: dict[str, object], seconds: float) -> int:
 def peaks_between(seen: dict[str, object], since: float, until: float) -> list[float]:
     """The peaks of the quanta that start in [`since`, `until`) of the context clock."""
     return [peak for at, peak in seen["heardPeaks"] if since <= at < until]
+
+
+def loudest_peak(seen: dict[str, object], since: float) -> float:
+    """The loudest quantum the ear reported from `since` of the context clock on."""
+    return max(peaks_between(seen, since, math.inf), default=0.0)
+
+
+def audible_after_edge(seen: dict[str, object], name: str) -> float:
+    """The seconds the output was audible after the edge of the first switch `name`."""
+    [at, *_] = action_times(seen, name)
+    return audible_seconds(seen, at + EDGE_SECONDS, math.inf)
 
 
 def peaks_wholly_between(
@@ -664,6 +670,16 @@ async def activated(tmp_path: Path) -> AsyncIterator[Stage]:
     async with unactivated(tmp_path) as stage:
         await _listening(stage)
         yield stage
+
+
+async def stepped_through(
+    tmp_path: Path, *steps: Callable[[SteppedStage], Awaitable[object]]
+) -> dict[str, object]:
+    """Each of the `steps` taken in turn on a stepped stage, then what the page saw."""
+    async with stepped(tmp_path) as stage:
+        for step in steps:
+            await step(stage)
+        return await stage.snapshot()
 
 
 @asynccontextmanager
