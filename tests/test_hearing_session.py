@@ -9,6 +9,7 @@ from speech_service.hearing_session import (
     MAX_TURN_SECONDS,
     HearingSession,
     SpeechStart,
+    SpeechSustain,
     TurnEnd,
     TurnEndedBy,
 )
@@ -332,3 +333,205 @@ def test_a_turn_ended_by_the_client_leaves_the_next_to_start_at_its_end() -> Non
     assert isinstance(first, TurnEnd)
     assert isinstance(second, TurnEnd)
     assert second.start_ms == first.end_ms
+
+
+# One character is one 32 ms window: voiced speech, a faint voiced window that only
+# the pre-roll can hold, or a window that is not voiced.
+_WINDOW_PROBABILITY = {"v": 0.9, "f": 0.4, ".": 0.0}
+# The ruled arithmetic: 0.4 s is 13 windows, and a pause of 5 windows (160 ms) is
+# longer than the 0.15 s bound where 4 (128 ms) are not.
+FOUR_TENTHS_MS = 400
+THRESHOLD_WINDOWS = 13
+SHORT_PAUSE = "." * 4
+LONG_PAUSE = "." * 5
+PRE_ROLL_WINDOWS = int(PRE_ROLL_SECONDS / WINDOW_SECONDS)
+
+
+def _heard(
+    windows: str, sustained_ms: int | None = FOUR_TENTHS_MS
+) -> list[SpeechStart | SpeechSustain | TurnEnd]:
+    """Every event of a session that is fed `windows` and asked for `sustained_ms`."""
+    detector = ScriptedDetector(_WINDOW_PROBABILITY[window] for window in windows)
+    session = HearingSession(_Clock(), detector, DEFAULT_LIVE_SILENCE_SECONDS)
+    if sustained_ms is not None:
+        session.sustain_after(sustained_ms)
+    return session.add(_quiet(len(windows)))
+
+
+def _sustained_ends(
+    windows: str, sustained_ms: int | None = FOUR_TENTHS_MS
+) -> list[int]:
+    """The position of each `SpeechSustain` of `windows`, in milliseconds."""
+    return [
+        event.audio_ms
+        for event in _heard(windows, sustained_ms)
+        if isinstance(event, SpeechSustain)
+    ]
+
+
+def _end_of_window(index: int) -> int:
+    return round((index + 1) * WINDOW_SECONDS * 1000)
+
+
+@pytest.mark.parametrize(
+    ("windows", "reached_at"),
+    [
+        pytest.param("v" * (THRESHOLD_WINDOWS - 1), None, id="one-window-short"),
+        pytest.param(
+            "." * 4 + "v" * THRESHOLD_WINDOWS,
+            4 + THRESHOLD_WINDOWS - 1,
+            id="exactly-the-threshold",
+        ),
+        pytest.param("." * 4 + "v" * 60, 4 + THRESHOLD_WINDOWS - 1, id="longer"),
+        pytest.param(
+            "v" * 8 + SHORT_PAUSE + "v" * 8,
+            8 + len(SHORT_PAUSE) + (THRESHOLD_WINDOWS - 8) - 1,
+            id="a-pause-within-the-bound-adds-nothing-and-restarts-nothing",
+        ),
+        pytest.param(
+            "v" * 8 + LONG_PAUSE + "v" * 8, None, id="a-longer-pause-restarts-the-count"
+        ),
+        pytest.param(
+            "v" * 8 + LONG_PAUSE + "v" * THRESHOLD_WINDOWS,
+            8 + len(LONG_PAUSE) + THRESHOLD_WINDOWS - 1,
+            id="a-voice-after-a-long-pause-reaches-the-threshold-on-its-own",
+        ),
+        pytest.param(
+            "v" * 4 + SHORT_PAUSE + "v" * 4 + LONG_PAUSE + "v" * 12,
+            None,
+            id="the-count-before-a-long-pause-is-forgotten",
+        ),
+    ],
+)
+def test_one_event_comes_where_the_voice_since_the_last_long_pause_reaches_the_count(
+    windows: str, reached_at: int | None
+) -> None:
+    """WIRE-171, WIRE-173: one event at the end of the window that reaches the count."""
+    expected = [] if reached_at is None else [_end_of_window(reached_at)]
+
+    assert _sustained_ends(windows + "." * SILENT_WINDOWS) == expected
+
+
+def test_a_session_that_did_not_ask_hears_no_event() -> None:
+    """WIRE-172: without the ask the scheduler raises no event."""
+    assert _sustained_ends("v" * 60, sustained_ms=None) == []
+
+
+def test_the_event_comes_after_the_start_and_before_the_end_of_its_turn() -> None:
+    """WIRE-175: the event lies between its turn's start and its end."""
+    events = _heard("." * 4 + "v" * 30 + "." * SILENT_WINDOWS)
+
+    assert [type(event) for event in events] == [
+        SpeechStart,
+        SpeechSustain,
+        TurnEnd,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("windows", "sustained_ms", "reached_at"),
+    [
+        pytest.param(
+            "f" * PRE_ROLL_WINDOWS + "v" * START_WINDOWS,
+            FOUR_TENTHS_MS,
+            PRE_ROLL_WINDOWS + START_WINDOWS - 1,
+            id="a-pre-roll-that-is-all-voiced-reaches-the-default-at-the-start",
+        ),
+        pytest.param(
+            "f" * PRE_ROLL_WINDOWS + "v" * START_WINDOWS,
+            200,
+            PRE_ROLL_WINDOWS + START_WINDOWS - 1,
+            id="a-duration-the-pre-roll-already-holds-is-reached-at-the-start",
+        ),
+        pytest.param(
+            "f" * 3 + SHORT_PAUSE + "f" * 4 + "v" * START_WINDOWS,
+            250,
+            3 + len(SHORT_PAUSE) + 4 + START_WINDOWS - 1,
+            id="a-short-pause-in-the-pre-roll-counts-on",
+        ),
+        pytest.param(
+            "f" * 3 + LONG_PAUSE + "f" * 4 + "v" * START_WINDOWS,
+            250,
+            None,
+            id="a-long-pause-in-the-pre-roll-counts-only-the-windows-since-it",
+        ),
+    ],
+)
+def test_the_pre_roll_windows_count_under_the_same_rule(
+    windows: str, sustained_ms: int, reached_at: int | None
+) -> None:
+    """WIRE-173: pre-roll windows count since the last pause longer than the bound."""
+    events = _heard(windows, sustained_ms)
+
+    if reached_at is None:
+        assert [type(event) for event in events] == [SpeechStart]
+    else:
+        assert events == [
+            SpeechStart(audio_ms=events[0].audio_ms),
+            SpeechSustain(audio_ms=_end_of_window(reached_at)),
+        ]
+
+
+def test_a_voice_that_stops_first_sends_no_event_and_the_next_item_counts_afresh() -> (
+    None
+):
+    """WIRE-173: silence ends an item before its count; the next item starts at zero."""
+    first_short = "v" * 8 + "." * SILENT_WINDOWS
+    second_short = "v" * 8 + "." * SILENT_WINDOWS
+
+    assert _sustained_ends(first_short + second_short) == []
+
+
+def test_each_item_gets_its_own_event() -> None:
+    """WIRE-171, WIRE-175: a second item is sustained once on its own."""
+    first = "v" * 20 + "." * SILENT_WINDOWS
+    second = "v" * 20 + "." * SILENT_WINDOWS
+
+    ends = _sustained_ends(first + second)
+
+    second_start = len(first)
+    assert ends == [
+        _end_of_window(THRESHOLD_WINDOWS - 1),
+        _end_of_window(second_start + THRESHOLD_WINDOWS - 1),
+    ]
+
+
+def test_a_duration_the_turn_cap_reaches_first_sends_no_event() -> None:
+    """WIRE-172, WIRE-173: a capped item ends before a duration of the cap's length."""
+    session, _ = _session()
+    session.sustain_after(round(MAX_TURN_SECONDS * 1000))
+
+    events = session.add(_seconds(MAX_TURN_SECONDS + 1, LOUD_LEVEL))
+
+    assert not any(isinstance(event, SpeechSustain) for event in events)
+    assert _ends(events)[0].ended_by is TurnEndedBy.CAP
+
+
+@pytest.mark.parametrize("ends", ["commit", "cut"])
+def test_a_client_commit_or_a_drain_cut_before_the_count_sends_no_event(
+    ends: str,
+) -> None:
+    """WIRE-173: an item ended by the client or a drain before the count has none."""
+    session, _ = _session()
+    session.sustain_after(FOUR_TENTHS_MS)
+    heard = session.add(_speech(THRESHOLD_WINDOWS - 1))
+
+    ended = session.commit() if ends == "commit" else session.cut()
+    later = session.add(_speech(THRESHOLD_WINDOWS - 1))
+
+    assert not any(isinstance(event, SpeechSustain) for event in heard + later)
+    assert isinstance(ended, TurnEnd)
+
+
+def test_a_commit_after_the_event_leaves_the_event_standing() -> None:
+    """WIRE-175: an event sent before the item ends stays sent."""
+    session, _ = _session()
+    session.sustain_after(FOUR_TENTHS_MS)
+
+    heard = session.add(_speech(THRESHOLD_WINDOWS + 3))
+    ended = session.commit()
+
+    assert [event.audio_ms for event in heard if isinstance(event, SpeechSustain)] == [
+        _end_of_window(THRESHOLD_WINDOWS - 1)
+    ]
+    assert isinstance(ended, TurnEnd)

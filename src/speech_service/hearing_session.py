@@ -32,15 +32,31 @@ PARTIAL_PERIOD_SECONDS: Final = 0.4
 MIN_AUDIO_SECONDS: Final = 0.4
 POLL_WAIT_SECONDS: Final = 0.3
 MAX_TURN_SECONDS: Final = 30.0
+DEFAULT_SUSTAINED_SPEECH_MS: Final = 400
+SUSTAINED_PAUSE_SECONDS: Final = 0.15
 _SAMPLES_PER_MILLISECOND: Final = HEARING_SAMPLE_RATE // 1000
 _MAX_TURN_SAMPLES: Final = int(MAX_TURN_SECONDS * HEARING_SAMPLE_RATE)
 _MIN_PARTIAL_SAMPLES: Final = int(MIN_AUDIO_SECONDS * HEARING_SAMPLE_RATE)
 _PRE_ROLL_SAMPLES: Final = int(PRE_ROLL_SECONDS * HEARING_SAMPLE_RATE)
+# A pause restarts the sustained count once it is longer than the bound.
+_PAUSE_WINDOWS: Final = (
+    int(SUSTAINED_PAUSE_SECONDS * HEARING_SAMPLE_RATE) // WINDOW_SAMPLES + 1
+)
 
 
 @dataclass(frozen=True, slots=True)
 class SpeechStart:
     """C2 first heard speech in the open turn, `audio_ms` into the session."""
+
+    audio_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class SpeechSustain:
+    """The open turn's voice has lasted the duration, `audio_ms` into the session.
+
+    `audio_ms` is the end of the window that completed the count.
+    """
 
     audio_ms: int
 
@@ -79,6 +95,21 @@ class OpenTurn:
     voiced_seconds: float
 
 
+def _voiced_since_last_pause(starts: deque[int]) -> int:
+    """How many of the voiced windows, by their starts, follow the last long pause."""
+    count = 0
+    newer: int | None = None
+    for start in reversed(starts):
+        if (
+            newer is not None
+            and (newer - start) // WINDOW_SAMPLES - 1 >= _PAUSE_WINDOWS
+        ):
+            break
+        count += 1
+        newer = start
+    return count
+
+
 class HearingSession:
     """One session's open turn, and the schedule of its partials.
 
@@ -110,15 +141,29 @@ class HearingSession:
         self._run_start = 0
         self._silent_windows = 0
         self._voiced_windows = 0
+        self._sustained_windows_to_send: int | None = None
+        self._sustained_windows = 0
+        self._sustained_sent = False
         self._waiting_voiced: deque[int] = deque()
         self._last_partial_at: float | None = None
         self._last_partial_samples = 0
         self._last_turn = False
 
-    def add(self, pcm: bytes) -> list[SpeechStart | TurnEnd]:
+    def sustain_after(self, duration_ms: int) -> None:
+        """Raise `SpeechSustain` once a turn's voice has lasted `duration_ms`.
+
+        The voice that counts is the voiced windows since the turn's last pause
+        longer than `SUSTAINED_PAUSE_SECONDS`, its pre-roll's included. Call it before
+        the first `add`.
+        """
+        self._sustained_windows_to_send = math.ceil(
+            duration_ms * _SAMPLES_PER_MILLISECOND / WINDOW_SAMPLES
+        )
+
+    def add(self, pcm: bytes) -> list[SpeechStart | SpeechSustain | TurnEnd]:
         """Take 16 kHz mono 16-bit audio; a turn that reaches the cap ends there."""
         self._pcm.extend(pcm)
-        events: list[SpeechStart | TurnEnd] = []
+        events: list[SpeechStart | SpeechSustain | TurnEnd] = []
         for probability in self._detector.probabilities(pcm):
             events += self._take_window(probability)
         return events
@@ -176,7 +221,9 @@ class HearingSession:
     def _held_end(self) -> int:
         return self._held_from + len(self._pcm) // BYTES_PER_SAMPLE
 
-    def _take_window(self, probability: float) -> list[SpeechStart | TurnEnd]:
+    def _take_window(
+        self, probability: float
+    ) -> list[SpeechStart | SpeechSustain | TurnEnd]:
         start = self._windows * WINDOW_SAMPLES
         self._windows += 1
         if self._speaking:
@@ -187,7 +234,7 @@ class HearingSession:
 
     def _wait_for_speech(
         self, probability: float, start: int
-    ) -> list[SpeechStart | TurnEnd]:
+    ) -> list[SpeechStart | SpeechSustain | TurnEnd]:
         if probability < START_THRESHOLD or (
             self._last_turn and not self._speech_windows
         ):
@@ -197,15 +244,16 @@ class HearingSession:
                 self._run_start = start
             self._speech_windows += 1
             if self._speech_windows >= START_WINDOWS:
-                return self._open_turn()
+                return self._open_turn(start + WINDOW_SAMPLES)
         newest = self._run_start if self._speech_windows else start + WINDOW_SAMPLES
         self._drop_before(newest - _PRE_ROLL_SAMPLES)
         return []
 
-    def _open_turn(self) -> list[SpeechStart | TurnEnd]:
+    def _open_turn(self, end: int) -> list[SpeechStart | SpeechSustain | TurnEnd]:
         self._drop_before(self._run_start - _PRE_ROLL_SAMPLES)
         self._speaking = True
         self._voiced_windows = len(self._waiting_voiced)
+        self._sustained_windows = _voiced_since_last_pause(self._waiting_voiced)
         self._waiting_voiced.clear()
         self._silent_windows = 0
         self._speech_windows = 0
@@ -213,11 +261,17 @@ class HearingSession:
             SpeechStart(
                 audio_ms=max(self._run_start, self._held_from)
                 // _SAMPLES_PER_MILLISECOND
-            )
+            ),
+            *self._sustained_when_reached(end),
         ]
 
-    def _continue_turn(self, probability: float, end: int) -> list[TurnEnd]:
+    def _continue_turn(
+        self, probability: float, end: int
+    ) -> list[SpeechSustain | TurnEnd]:
         if is_voiced(probability):
+            if self._silent_windows >= _PAUSE_WINDOWS:
+                self._sustained_windows = 0
+            self._sustained_windows += 1
             self._voiced_windows += 1
             self._silent_windows = 0
         else:
@@ -229,7 +283,18 @@ class HearingSession:
                 self._silent_windows * WINDOW_SAMPLES // _SAMPLES_PER_MILLISECOND
             )
             return self._end(end, TurnEndedBy.SILENCE, silence_ms=silence_ms)
-        return []
+        return self._sustained_when_reached(end)
+
+    def _sustained_when_reached(self, end: int) -> list[SpeechSustain]:
+        """The turn's one event, once the window ending at `end` completes the count."""
+        if (
+            self._sustained_windows_to_send is None
+            or self._sustained_sent
+            or self._sustained_windows < self._sustained_windows_to_send
+        ):
+            return []
+        self._sustained_sent = True
+        return [SpeechSustain(audio_ms=end // _SAMPLES_PER_MILLISECOND)]
 
     def _drop_before(self, sample: int) -> None:
         dropped = min(sample, self._held_end) - self._held_from
@@ -258,6 +323,8 @@ class HearingSession:
         self._speech_windows = 0
         self._silent_windows = 0
         self._voiced_windows = 0
+        self._sustained_windows = 0
+        self._sustained_sent = False
         self._waiting_voiced.clear()
         self._last_partial_at = None
         self._last_partial_samples = 0
