@@ -642,6 +642,33 @@ def test_a_reconnect_reaches_on_reconnected_and_forgets_the_old_items() -> None:
 
 
 @pytest.mark.usefixtures("quick_reconnect")
+def test_a_reconnect_without_on_reconnected_forgets_the_old_items() -> None:
+    recorder = Recorder()
+    first = says(
+        started("a", 100).model_dump_json(),
+        delta("a", "hel").model_dump_json(),
+        then_close=DRAIN_CLOSE_CODE,
+    )
+    second = says(
+        delta("a", "lo").model_dump_json(),
+        completed("a", "lo").model_dump_json(),
+        then_close=1000,
+    )
+
+    outcome = asyncio.run(
+        hear(
+            functools.partial(_playing, first, second),
+            None,
+            recorder,
+            reconnects=False,
+        )
+    )
+
+    assert outcome == Closed()
+    assert recorder.got == [Partial("hel"), Partial("lo"), utterance_of("lo")]
+
+
+@pytest.mark.usefixtures("quick_reconnect")
 def test_a_hearing_that_cannot_reopen_closes_the_browser_as_a_service_failure() -> None:
     browser = Browser()
     refusing = functools.partial(_playing, drains, Refusal(RefusalCode.UNAVAILABLE))
