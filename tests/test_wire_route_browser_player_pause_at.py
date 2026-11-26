@@ -411,7 +411,7 @@ def test_a_held_sound_that_runs_out_in_a_late_page_does_not_end_played(
         assert after["sounds"][0]["playedSeconds"] == pytest.approx(
             hold_point(held, hold, 0.2)
         )
-        assert starts(after) == ["playing", None]
+        assert starts(after) == ["playing", "ended"]
 
 
 def test_the_read_while_paused_is_where_the_pause_fade_ended(tmp_path: Path) -> None:
@@ -450,11 +450,7 @@ async def mute(stage: SteppedStage) -> None:
 async def mute_during_the_fade(stage: SteppedStage) -> None:
     thrown = await stage.snapshot()
     two_quanta = 2 * quantum_seconds(thrown)
-    await stage.step_until(
-        f"s.contextNow >= {last_ramp_end(thrown, 0) - two_quanta}",
-        within_seconds=HOLD_AT,
-        quanta=8,
-    )
+    await stage.step_for(last_ramp_end(thrown, 0) - two_quanta - thrown["contextNow"])
     await mute(stage)
 
 
