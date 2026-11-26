@@ -741,6 +741,39 @@ def test_resume_in_the_edge_of_a_hold_after_the_end_overtakes_the_call_and_plays
     assert seen["contextStates"][0] == "running"
 
 
+def test_a_call_thrown_as_the_resume_fades_in_fades_out_from_where_the_volume_is(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with stepped(tmp_path) as stage:
+            await stage.hear_decoded(LONG)
+            await stage.paused()
+            await stage.stand_still_for(STRETCH_SECONDS)
+            await stage.act("resume")
+            resumed = await stage.snapshot()
+            # One and a half of the resume's edges ahead: the fade starts inside it.
+            edge = last_ramp_end(resumed, 1) - resumed["contextNow"]
+            await stage.pause_at(
+                0, resumed["contextNow"] - start_of(resumed) + 1.5 * edge
+            )
+            await stage.until_resolved()
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    [resumed_at] = action_times(seen, "resume")
+    assert result_of(seen)["kind"] == "held"
+    assert (
+        largest_step(
+            peaks_between(
+                seen, resumed_at - quantum_seconds(seen), last_ramp_end(seen, 0)
+            )
+        )
+        < CLICK_STEP
+    )
+    assert silent_from(seen, last_ramp_end(seen, 0))
+
+
 LATE_HOLD_AT = 0.2
 
 

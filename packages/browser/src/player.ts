@@ -146,11 +146,17 @@ type Interruption = "stopped" | "muted";
 /** "pausing": the volume ramps to 0 and the context is not yet suspended; "paused": the context suspends or is suspended. */
 type Flow = "running" | "pausing" | "paused";
 
-/** The ramp the gain is on: where it ends up, and when on the context's clock it starts and ends. */
+/** The ramp the gain is on: where it starts and ends up, and when on the context's clock it starts and ends. */
 interface Ramp {
+  readonly from: number;
   readonly target: number;
   readonly startsAt: number;
   readonly endsAt: number;
+}
+
+/** Where the linear ramp is at `time` of the context's clock. */
+function levelAt(ramp: Ramp, time: number): number {
+  return ramp.from + ((ramp.target - ramp.from) * (time - ramp.startsAt)) / (ramp.endsAt - ramp.startsAt);
 }
 
 const NONE = -1;
@@ -307,7 +313,7 @@ class PlayerRun {
     param.cancelScheduledValues(now);
     param.setValueAtTime(from, now);
     param.linearRampToValueAtTime(target, endsAt);
-    this.#ramp = { target, startsAt: now, endsAt };
+    this.#ramp = { from, target, startsAt: now, endsAt };
     return endsAt;
   }
 
@@ -453,16 +459,27 @@ class PlayerRun {
     }
   }
 
-  /** The fade to 0 that ends exactly at the position on the audio clock, then the suspend. */
+  /**
+   * The fade to 0 that ends exactly at the position on the audio clock, then the suspend. It starts from full volume, or
+   * from where a ramp up that is still on its way reaches at its start: a step to 1 inside that ramp would click.
+   */
   #fadeAhead(call: HoldCall, playing: Scheduled): void {
     const endsAt = contextTimeAt(playing.chunks, call.position);
     if (endsAt === undefined) {
       return;
     }
     const startsAt = endsAt - FADE_SECONDS;
-    this.#gain.gain.setValueAtTime(1, startsAt);
-    this.#gain.gain.linearRampToValueAtTime(0, endsAt);
-    this.#ramp = { target: 0, startsAt, endsAt };
+    const param = this.#gain.gain;
+    const rising = this.#ramp?.target === 1 && this.#ramp.endsAt > startsAt ? this.#ramp : undefined;
+    const from = rising === undefined ? 1 : levelAt(rising, startsAt);
+    if (rising === undefined) {
+      param.setValueAtTime(from, startsAt);
+    } else {
+      param.cancelScheduledValues(startsAt);
+      param.linearRampToValueAtTime(from, startsAt);
+    }
+    param.linearRampToValueAtTime(0, endsAt);
+    this.#ramp = { from, target: 0, startsAt, endsAt };
     playing.held = { at: endsAt, seconds: call.position };
     call.scheduled = true;
     void this.#suspendOnceFaded(endsAt, this.#fade);
