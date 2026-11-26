@@ -50,6 +50,11 @@ class Spoken:
     rate: int
 
     @property
+    def is_silent(self) -> bool:
+        """Whether the audio is too quiet to be speech."""
+        return self.level < SILENCE_RMS
+
+    @property
     def real_time_factor(self) -> float:
         """Seconds the answer took per second of audio it holds."""
         return self.total_seconds / self.audio_seconds if self.audio_seconds else 0.0
@@ -104,7 +109,7 @@ def prove_one_speak(
         f"rate={spoken.rate}",
         f"bytes={len(spoken.wav)}",
     )
-    if spoken.level < SILENCE_RMS:
+    if spoken.is_silent:
         message = f"{label} produced silence"
         raise SystemExit(message)
     if spoken.audio_seconds < MIN_SENTENCE_SECONDS:
@@ -235,7 +240,7 @@ def run_during[T, U](
 
 def require_complete(label: str, spoken: Spoken, single: VoiceFigures) -> None:
     """Fail unless an answer given beside another is audible and whole."""
-    if spoken.level < SILENCE_RMS:
+    if spoken.is_silent:
         message = f"{label} produced silence"
         raise SystemExit(message)
     if spoken.audio_seconds < COMPLETE_FRACTION * single.audio_seconds:
@@ -332,7 +337,7 @@ def prove_hearing_beside_speaking(
     (busy_seconds, busy_text), answers = run_during(speaks, hear)
     busy_rate = require_heard("hearing beside speaking", reference, busy_text)
     for answer in answers:
-        if spoken_of(answer).level < SILENCE_RMS:
+        if spoken_of(answer).is_silent:
             message = "a speak beside the hearing produced silence"
             raise SystemExit(message)
     print(

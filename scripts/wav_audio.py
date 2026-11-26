@@ -10,6 +10,7 @@ from array import array
 from typing import TYPE_CHECKING, Final
 
 from speech_client.realtime_wire import PcmFormat
+from speech_client.wire import ResponseFormat
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -31,7 +32,9 @@ def riff_chunks(wav: bytes) -> Iterator[tuple[bytes, int, int]]:
 
 def pcm_from_wav(data: bytes) -> tuple[int, bytes]:
     """Sample rate and PCM payload of a 16-bit mono WAV, ignoring a streaming size."""
-    if len(data) < WAV_HEADER_BYTES or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+    if len(data) < WAV_HEADER_BYTES or not ResponseFormat.WAV.begins_like_container(
+        data
+    ):
         message = "not a WAV body"
         raise ValueError(message)
     for chunk_id, start, _ in riff_chunks(data):

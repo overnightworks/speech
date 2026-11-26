@@ -59,7 +59,7 @@ from speech_client.wire import (
 )
 from speech_service.config import load_settings, setting_variable
 from speech_service.onnxruntime_telemetry import disable_onnxruntime_telemetry
-from wav_audio import SILENCE_RMS, pcm_from_wav
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
@@ -499,7 +499,7 @@ def _prove_concurrent_speak(base_url: str, voice: VoiceId, minting: Minting) -> 
             f"rms={spoken.level:.4f}",
             f"rate={spoken.rate}",
         )
-        if spoken.level < SILENCE_RMS:
+        if spoken.is_silent:
             message = f"concurrent {key} produced silence"
             raise SystemExit(message)
         if spoken.audio_seconds < figures.MIN_SPEECH_SECONDS:
@@ -727,21 +727,22 @@ def _prove() -> None:
 
 def enter_proof(
     reexec: Callable[[list[str]], int],
-    prove: Callable[[], None],
+    prove: Callable[[argparse.Namespace], None],
+    parse: Callable[[list[str]], argparse.Namespace] = parse_arguments,
 ) -> None:
-    """Read the command line; run `reexec` outside `probe-run`, `prove` inside it."""
+    """Parse the command line; run `reexec` outside `probe-run`, `prove` inside it."""
     arguments = sys.argv[1:]
-    parse_arguments(arguments)
+    parsed = parse(arguments)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
     if UNDER_PROBE_RUN_ENV not in os.environ:
         raise SystemExit(reexec(arguments))
-    prove_under_probe_run(prove)
+    prove_under_probe_run(functools.partial(prove, parsed))
 
 
 def main() -> None:
     """Run the stage proof, driving it through the fleet's `probe-run` form."""
-    enter_proof(run_under_probe_run, _prove)
+    enter_proof(run_under_probe_run, lambda _arguments: _prove())
 
 
 if __name__ == "__main__":

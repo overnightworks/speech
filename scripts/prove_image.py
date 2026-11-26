@@ -786,7 +786,7 @@ def build_then_drive(
 
 def main() -> None:
     """Run the image proof, driving it through the fleet's `probe-run` form."""
-    enter_proof(build_then_drive, prove)
+    enter_proof(build_then_drive, lambda _arguments: prove())
 
 
 if __name__ == "__main__":

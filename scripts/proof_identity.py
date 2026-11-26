@@ -28,6 +28,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
 
 from speech_client.hearing import SessionTokens
+from speech_service.config import app_group
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -337,7 +338,7 @@ def proof_identity(directory: Path) -> Iterator[ProofIdentity]:
             client_id="proof-app",
             workload_role="workload",
             group_claim="groups",
-            app_group=f"/apps/{APP}",
+            app_group=str(app_group(APP)),
             service_group="/services/speech",
             workload_subject="proof-service-account",
             person_subject="proof-person",

@@ -27,6 +27,7 @@ from speech_service.config import (
     AppConfig,
     CallerConfig,
     IdentityConfig,
+    app_group,
     load_caller_config,
 )
 
@@ -143,7 +144,7 @@ def minting_for(key: SigningKey) -> Minting:
         client_id="quiz-client",
         workload_role="workload",
         group_claim="groups",
-        app_group=f"/apps/{APP}",
+        app_group=str(app_group(APP)),
         service_group="/services/speech-service",
         workload_subject="quiz-service-account",
         person_subject="quiz-player",
@@ -155,7 +156,7 @@ MINTING = minting_for(DEFAULT_KEY)
 
 
 OTHER_MINTING = replace(
-    MINTING, client_id="other-client", app_group=f"/apps/{OTHER_APP}"
+    MINTING, client_id="other-client", app_group=str(app_group(OTHER_APP))
 )
 
 

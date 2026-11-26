@@ -25,9 +25,11 @@ from speech_client.wire import (
     Refusal,
     RefusalCode,
     RequestField,
+    ResponseFormat,
     Transcription,
     VoiceId,
 )
+from speech_service.config import app_group
 from speech_service.hearing_models import HearingModel, voiced_floor
 from speech_service.pcm import AI_MARK
 from wav_audio import pcm_from_wav, riff_chunks
@@ -132,7 +134,7 @@ def minting_for(config: CallerConfig, baked: BakedCaller, signing: Minting) -> M
         client_id=config.apps[baked.app].workload_client,
         workload_role=identity.workload_role,
         group_claim=identity.group_claim,
-        app_group=f"/apps/{baked.app}",
+        app_group=str(app_group(baked.app)),
         service_group=identity.service_group,
         workload_subject=signing.workload_subject,
         person_subject=signing.person_subject,
@@ -169,7 +171,7 @@ def _audio_bytes(wav: bytes, data_start: int) -> int:
 
 def require_marked_wav(wav: bytes) -> None:
     """Fail unless `wav` is a WAV that carries the AI mark and some audio."""
-    if wav[:4] != b"RIFF" or wav[8:12] != b"WAVE":
+    if not ResponseFormat.WAV.begins_like_container(wav):
         message = "the answer is not a WAV"
         raise SystemExit(message)
     if ai_mark_of(wav) != AI_MARK:

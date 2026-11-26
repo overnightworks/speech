@@ -21,10 +21,8 @@ import functools
 import hashlib
 import io
 import json
-import os
 import re
 import shutil
-import sys
 import tempfile
 import time
 import wave
@@ -57,10 +55,9 @@ from prove_speech import (
     LOOPBACK_HOST,
     PIPER_PROOF_VOICE,
     READY_TIMEOUT_SECONDS,
-    UNDER_PROBE_RUN_ENV,
+    enter_proof,
     free_local_port,
     nvidia_memory,
-    prove_under_probe_run,
     read_health,
     require_running,
     run_under_probe_run,
@@ -732,12 +729,11 @@ def prove(arguments: argparse.Namespace) -> None:
 
 def main() -> None:
     """Run the stage proof, driving it through the fleet's `probe-run` form."""
-    arguments = parse_arguments(sys.argv[1:])
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(line_buffering=True)
-    if UNDER_PROBE_RUN_ENV not in os.environ:
-        raise SystemExit(run_under_probe_run(sys.argv[1:], script=THIS_SCRIPT))
-    prove_under_probe_run(functools.partial(prove, arguments))
+    enter_proof(
+        functools.partial(run_under_probe_run, script=THIS_SCRIPT),
+        prove,
+        parse_arguments,
+    )
 
 
 if __name__ == "__main__":
