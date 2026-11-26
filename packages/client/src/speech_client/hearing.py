@@ -18,6 +18,13 @@ socket's logger above debug; no outcome and no repr carries a token or heard tex
 - `sound_detection` (default false) asks the service for sounds in the session
   update, so `events()` yields `SoundDetected` with its positions on the hearing's
   audio timeline, as for speech. Without it the session update carries no ask.
+- `sustained_speech` (default `None`), a `SustainedSpeech`, asks the service in
+  the session update for a `SpeechSustained` once a person's voice has lasted its
+  `duration_ms` (the service's default when it names none), so `events()` yields
+  it with its `audio_end_ms` on the hearing's audio timeline, after that item's
+  `SpeechStarted` and before its `SpeechStopped`. `None` asks nothing and the
+  update's bytes carry no ask. The ask needs service release `v2026.11.26.1`: an
+  older service refuses the field and the session ends `invalid_request`.
 - `send(pcm)` queues PCM16 audio at 24 kHz. Audio queued before a session is
   open, or faster than it is written, is held up to `held_limit_bytes`; one byte
   over ends the session with `OverCap`, at any moment. A chunk leaves the held
@@ -129,26 +136,21 @@ from speech_client.realtime_wire import (
     ErrorEvent,
     PcmFormat,
     ServerEventError,
-    SessionAudio,
     SessionCreated,
     SessionInput,
-    SessionUpdate,
     SessionUpdated,
     SoundDetected,
-    SoundDetection,
     SpeechStarted,
     SpeechStopped,
+    SpeechSustained,
     TranscriptCompleted,
     TranscriptFailed,
-    TranscriptionSession,
-    TranscriptionSetting,
     parse_server_event,
+    realtime_url,
+    session_update,
 )
 from speech_client.wire import (
     DRAIN_CLOSE_CODE,
-    REALTIME_INTENT,
-    REALTIME_INTENT_PARAM,
-    REALTIME_PATH,
     Language,
     Refusal,
     RefusalCode,
@@ -159,7 +161,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
     from types import TracebackType
 
-    from speech_client.realtime_wire import ServerEvent
+    from speech_client.realtime_wire import ServerEvent, SustainedSpeech
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,40 +293,6 @@ class _Wire:
     answered: bool = False
 
 
-def realtime_url(base_url: str) -> str:
-    """The Realtime transcription WebSocket of the service at `base_url`."""
-    return (
-        f"ws{base_url.removeprefix('http')}{REALTIME_PATH}"
-        f"?{REALTIME_INTENT_PARAM}={REALTIME_INTENT}"
-    )
-
-
-def session_update(
-    languages: tuple[Language, ...], *, sound_detection: bool = False
-) -> str:
-    """The one `session.update` that sets the languages of a session.
-
-    It asks for sounds only when `sound_detection` is true; without it the bytes
-    carry no `sound_detection` key.
-    """
-    asked = (
-        {"sound_detection": SoundDetection(type="audioset")} if sound_detection else {}
-    )
-    update = SessionUpdate(
-        type="session.update",
-        session=TranscriptionSession(
-            type="transcription",
-            audio=SessionAudio(
-                input=SessionInput(
-                    transcription=TranscriptionSetting(languages=languages),
-                    **asked,
-                )
-            ),
-        ),
-    )
-    return update.model_dump_json(exclude_none=True)
-
-
 def _refusal_code(body: bytes) -> RefusalCode | None:
     try:
         return Refusal.model_validate_json(body).error.code
@@ -412,6 +380,7 @@ class HearingSession:
         opening_seconds: float = OPENING_SECONDS,
         traceparent: str | None = None,
         sound_detection: bool = False,
+        sustained_speech: SustainedSpeech | None = None,
     ) -> None:
         """Take every input; nothing is opened before `__aenter__`."""
         base_origin(base_url)
@@ -421,7 +390,11 @@ class HearingSession:
         self._url = realtime_url(base_url)
         self._traceparent_headers = traceparent_headers(traceparent)
         self._token_source = token_source
-        self._update = session_update(languages, sound_detection=sound_detection)
+        self._update = session_update(
+            languages,
+            sound_detection=sound_detection,
+            sustained_speech=sustained_speech,
+        )
         self._deadline_seconds = deadline_seconds
         self._opening_seconds = opening_seconds
         self._held_limit_bytes = held_limit_bytes
@@ -762,6 +735,10 @@ class HearingSession:
             case SpeechStarted():
                 return event.model_copy(
                     update={"audio_start_ms": event.audio_start_ms + wire.offset_ms}
+                )
+            case SpeechSustained():
+                return event.model_copy(
+                    update={"audio_end_ms": event.audio_end_ms + wire.offset_ms}
                 )
             case SoundDetected():
                 return event.model_copy(
