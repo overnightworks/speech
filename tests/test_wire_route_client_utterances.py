@@ -20,6 +20,7 @@ from speech_client.utterances import (
     Partial,
     SpeechStart,
     SpeechStop,
+    SustainedVoice,
     TurnEnd,
     Utterance,
     hear_utterances,
@@ -47,9 +48,9 @@ class _Hop:
     """What the app side of one hearing saw."""
 
     utterances: list[Utterance] = field(default_factory=list)
-    calls: list[SpeechStart | SpeechStop | Partial | Utterance | TurnEnd] = field(
-        default_factory=list
-    )
+    calls: list[
+        SpeechStart | SpeechStop | SustainedVoice | Partial | Utterance | TurnEnd
+    ] = field(default_factory=list)
     turn_ends: asyncio.Queue[TurnEnd] = field(default_factory=asyncio.Queue)
     outcome: asyncio.Future[UtteranceOutcome] = field(
         default_factory=lambda: asyncio.get_running_loop().create_future()
@@ -58,7 +59,7 @@ class _Hop:
     heard: asyncio.Event = field(default_factory=asyncio.Event)
 
 
-def _app_host(service_url: str, hop: _Hop) -> FastAPI:
+def _app_host(service_url: str, hop: _Hop, *, sustained: bool) -> FastAPI:
     """A minimal app: the helper on a route, hearing both languages."""
     host = FastAPI()
 
@@ -77,6 +78,9 @@ def _app_host(service_url: str, hop: _Hop) -> FastAPI:
 
         async def take_stop(stop: SpeechStop) -> None:
             hop.calls.append(stop)
+
+        async def take_sustained(voice: SustainedVoice) -> None:
+            hop.calls.append(voice)
 
         async def take_turn_end(turn: TurnEnd) -> None:
             hop.calls.append(turn)
@@ -100,6 +104,7 @@ def _app_host(service_url: str, hop: _Hop) -> FastAPI:
                     on_speech_started=take_start,
                     on_speech_stopped=take_stop,
                     on_turn_ended=take_turn_end,
+                    on_speech_sustained=take_sustained if sustained else None,
                 ),
             )
         )
@@ -130,12 +135,14 @@ async def _service_takes_a_session(service_url: str) -> bool:
 
 @asynccontextmanager
 async def _browser_at_service(
-    engine: FakeHearing,
+    engine: FakeHearing, *, sustained: bool = False
 ) -> AsyncIterator[tuple[_Hop, str, str]]:
     """The real service, an app hearing through it, and the app's hop."""
     async with serving_over_tcp(hear_runtime(engine)) as service:
         hop = _Hop()
-        async with serving_asgi(_app_host(service.base_url, hop)) as base_url:
+        async with serving_asgi(
+            _app_host(service.base_url, hop, sustained=sustained)
+        ) as base_url:
             yield hop, f"ws{base_url.removeprefix('http')}/hear", service.base_url
 
 
@@ -219,6 +226,33 @@ def test_speech_started_reaches_the_app_before_the_items_partials_and_utterance(
     partials = [i for i, call in enumerate(calls) if isinstance(call, Partial)]
     assert all(calls.index(starts[0]) < i for i in partials)
     assert isinstance(calls[-2], Utterance)
+
+
+def test_sustained_speech_reaches_the_app_once_before_the_utterance() -> None:
+    async def scenario() -> list[
+        SpeechStart | SpeechStop | SustainedVoice | Partial | Utterance | TurnEnd
+    ]:
+        async with (
+            _browser_at_service(FakeHearing("Good day everyone"), sustained=True) as (
+                hop,
+                url,
+                _,
+            ),
+            connect(url) as browser,
+        ):
+            await _speak_then_fall_silent(browser)
+            await asyncio.wait_for(hop.heard.wait(), WAIT_SECONDS)
+            hop.ended.set()
+            await asyncio.wait_for(hop.outcome, well_before(WAIT_SECONDS))
+            return hop.calls
+
+    calls = asyncio.run(scenario())
+
+    (voice,) = [call for call in calls if isinstance(call, SustainedVoice)]
+    utterance_at = next(
+        i for i, call in enumerate(calls) if isinstance(call, Utterance)
+    )
+    assert calls.index(voice) < utterance_at
 
 
 def test_turn_ended_reaches_the_app_for_a_turn_with_words_and_for_an_empty_one() -> (

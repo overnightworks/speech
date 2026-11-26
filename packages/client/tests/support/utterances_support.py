@@ -24,6 +24,7 @@ from speech_client.realtime_wire import (
     SoundName,
     SpeechStarted,
     SpeechStopped,
+    SpeechSustained,
     TranscriptCompleted,
     TranscriptDelta,
     TranscriptLanguage,
@@ -33,6 +34,9 @@ from speech_client.utterances import (
     HeardSound,
     HearingCallbacks,
     Partial,
+    SpeechStart,
+    SpeechStop,
+    SustainedVoice,
     TurnEnd,
     Utterance,
     hear_utterances,
@@ -79,6 +83,10 @@ def started(item_id: str, at_ms: int) -> SpeechStarted:
 
 def stopped(item_id: str, at_ms: int) -> SpeechStopped:
     return SpeechStopped(item_id=item_id, audio_end_ms=at_ms)
+
+
+def sustained(item_id: str, at_ms: int) -> SpeechSustained:
+    return SpeechSustained(item_id=item_id, audio_end_ms=at_ms)
 
 
 def sound_detected(name: SoundName, start_ms: int, end_ms: int) -> SoundDetected:
@@ -149,7 +157,9 @@ class Recorder:
     ended: asyncio.Event = field(default_factory=asyncio.Event)
     ends_after_first: bool = False
     raises: Exception | None = None
-    got: list[Utterance | Partial | HeardSound] = field(default_factory=list)
+    got: list[
+        Utterance | Partial | HeardSound | SpeechStart | SpeechStop | SustainedVoice
+    ] = field(default_factory=list)
     turn_ends: list[TurnEnd] = field(default_factory=list)
     reconnected: list[Reconnected] = field(default_factory=list)
 
@@ -173,7 +183,27 @@ class Recorder:
         """Take a heard sound."""
         await self._take(sound)
 
-    async def _take(self, heard: Utterance | Partial | HeardSound) -> None:
+    async def on_speech_started(self, start: SpeechStart) -> None:
+        """Take a speech start."""
+        await self._take(start)
+
+    async def on_speech_stopped(self, stop: SpeechStop) -> None:
+        """Take a speech stop."""
+        await self._take(stop)
+
+    async def on_speech_sustained(self, voice: SustainedVoice) -> None:
+        """Take a sustained voice."""
+        await self._take(voice)
+
+    async def _take(
+        self,
+        heard: Utterance
+        | Partial
+        | HeardSound
+        | SpeechStart
+        | SpeechStop
+        | SustainedVoice,
+    ) -> None:
         self.got.append(heard)
         if self.ends_after_first:
             self.ended.set()
@@ -245,6 +275,9 @@ async def hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
     *,
     partials: bool = True,
     sounds: bool = False,
+    speech_marks: bool = False,
+    sustained: bool = False,
+    sustained_speech_ms: int | None = None,
     reconnects: bool = True,
     languages: tuple[Language, ...] = (Language.DE,),
     bounds: Bounds = Bounds(),
@@ -260,6 +293,7 @@ async def hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
                 f"http://{LOOPBACK}:{port}",
                 token_source=token_source,
                 traceparent=traceparent,
+                sustained_speech_ms=sustained_speech_ms,
                 languages=languages,
                 deadline_seconds=bounds.deadline_seconds,
                 held_limit_bytes=bounds.held_limit_bytes,
@@ -269,7 +303,16 @@ async def hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
                     on_utterance=recorder.on_utterance,
                     on_partial=recorder.on_partial if partials else None,
                     on_turn_ended=recorder.on_turn_ended,
+                    on_speech_started=recorder.on_speech_started
+                    if speech_marks
+                    else None,
+                    on_speech_stopped=recorder.on_speech_stopped
+                    if speech_marks
+                    else None,
                     on_sound=recorder.on_sound if sounds else None,
+                    on_speech_sustained=recorder.on_speech_sustained
+                    if sustained
+                    else None,
                     on_reconnected=recorder.on_reconnected if reconnects else None,
                     on_text=on_text,
                 ),

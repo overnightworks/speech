@@ -59,6 +59,7 @@ from speech_client.realtime_wire import (
     SoundDetected,
     SoundName,
     SpeechStarted,
+    SpeechSustained,
 )
 from speech_client.wire import DRAIN_CLOSE_CODE
 
@@ -243,6 +244,32 @@ def test_a_sound_after_a_reconnect_is_on_the_hearings_timeline() -> None:
     (heard,) = asyncio.run(scenario())
 
     assert (heard.audio_start_ms, heard.audio_end_ms) == (340, 540)
+
+
+def test_sustained_speech_after_a_reconnect_is_on_the_hearings_timeline() -> None:
+    sustained = SpeechSustained(item_id="item", audio_end_ms=240)
+    first = reads(3, closes_with=DRAIN_CLOSE_CODE)
+    second = says(sustained.model_dump_json(), then_close=1000)
+
+    async def scenario() -> list[SpeechSustained]:
+        tokens = Tokens(2)
+        async with scripted(first, second) as (port, _):
+            session = session_to(port, 30, 3 * len(CHUNK) + 1, 5, tokens)
+            async with session:
+                for _ in range(3):
+                    session.send(CHUNK)
+                await tokens.reached(2)
+                tokens.release(2)
+                async with asyncio.timeout(WHOLE_RUN_SECONDS):
+                    return [
+                        event
+                        async for event in session.events()
+                        if isinstance(event, SpeechSustained)
+                    ]
+
+    (heard,) = asyncio.run(scenario())
+
+    assert heard == SpeechSustained(item_id="item", audio_end_ms=540)
 
 
 def test_positions_stay_on_one_timeline_across_two_reconnects() -> None:
