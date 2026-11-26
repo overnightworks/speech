@@ -1,8 +1,0 @@
-claim_id = "1664c0dff885452da780603e7e7c384a"
-agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
-role = "builder"
-base = "0f76c45ca01c5258ead3f7b2e83d08a37f91f02f"
-branch = "claude/issue-704-stepped-stage-never-stalls-on-reports"
-scope = ["tests/fixtures/browser", "tests/support/browser_player_support.py", "tests/test_wire_route_browser_player.py"]
-opened_commit = "57dd3adb640c1159bff1d44c62c47de4e43dcfbf"
-whole_reason = "The ear's processor, the shim's render step and the stage's wait on the reports are one mechanism; a fix in one is proven only with the others."
