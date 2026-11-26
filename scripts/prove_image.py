@@ -601,7 +601,7 @@ def cell_hearing_negatives(session: Session, wav: bytes) -> None:
 
 
 def require_hearing_model_negatives(session: Session) -> None:
-    """A compose file without the model and an image without it each fail."""
+    """A start without the model and an image without it each fail."""
     plain = session.compose.with_files(session.compose.files[:1])
     model = service_config(plain)["environment"][HEARING_MODEL_SETTING]
     without = start_with(session, NO_MODEL_OVERRIDE)
@@ -611,7 +611,7 @@ def require_hearing_model_negatives(session: Session) -> None:
         lambda: require_hearing_ready(
             session.health(), model, healthcheck_passes=passes
         ),
-        "a compose file without the model",
+        "a start without the model",
         naming="hearing is not ready",
     )
     if passes:

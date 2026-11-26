@@ -1,6 +1,6 @@
-# The proof's negative: a compose file that names no hearing model, which the
-# service starts with and its healthcheck must not call healthy.
+# The proof's negative: a start that gives the service no hearing model, which
+# the service starts with and its healthcheck must not call healthy. The image
+# sets the model, so the command removes it from the service's environment.
 services:
   speech:
-    environment:
-      SPEECH_HEARING_MODEL: !reset null
+    command: [env, -u, SPEECH_HEARING_MODEL, speech-service]

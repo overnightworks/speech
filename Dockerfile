@@ -3,6 +3,9 @@
 # only FROM lines, so uv is a stage of its own. The last stage is the small
 # image, the default target; the gpu image is the `gpu` target.
 
+# The hearing model the small image fetches and names; both stages read it.
+ARG HEARING_MODEL=small
+
 FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS python-base
 ENV PATH=/opt/venv/bin:$PATH
@@ -41,12 +44,13 @@ RUN uv sync --locked --no-dev --no-editable
 # pinned revision (Piper's voices also checked against their hashes). The Hub's
 # own cache and logs stay in this stage.
 FROM dependencies AS weights
+ARG HEARING_MODEL
 COPY deploy/catalogue.toml /app/deploy/catalogue.toml
 ENV HF_HOME=/tmp/huggingface \
     SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml \
     SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing
-RUN speech-fetch-voice && speech-fetch-hearing-model small
+RUN speech-fetch-voice && speech-fetch-hearing-model "$HEARING_MODEL"
 
 # The sound model is converted to ONNX here and only its four files leave: this
 # stage's torch stays in it, so neither final image takes torch from it. The
@@ -140,13 +144,19 @@ USER 1001
 CMD ["speech-service"]
 
 FROM python-base
+ARG HEARING_MODEL
 COPY --from=dependencies /opt/venv /opt/venv
 COPY --from=weights /opt/voices /opt/voices
 COPY --from=weights /opt/hearing /opt/hearing
 COPY --from=sound-model /opt/sound-model /opt/sound-model
 COPY deploy/speech.toml deploy/speech.toml
 COPY deploy/catalogue.toml /app/deploy/catalogue.toml
-ENV SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml
+ENV SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml \
+    SPEECH_VOICE_CACHE=/opt/voices \
+    SPEECH_HUGGINGFACE_CACHE=/opt/hearing \
+    SPEECH_SOUND_MODEL_DIRECTORY=/opt/sound-model \
+    SPEECH_DEVICE=cpu \
+    SPEECH_HEARING_MODEL=$HEARING_MODEL
 RUN useradd --no-create-home --uid 1001 speech
 USER 1001
 
