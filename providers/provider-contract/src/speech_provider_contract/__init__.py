@@ -1,6 +1,6 @@
 """The Qwen pins the service and its Qwen environment share.
 
-It also owns the payload-free failure renderer the service's `log_failure` uses.
+It also owns the payload-free failure renderer the service's failure lines use.
 """
 
 from __future__ import annotations

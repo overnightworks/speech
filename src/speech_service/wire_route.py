@@ -38,7 +38,7 @@ from speech_client.wire import (
 )
 from speech_service.admission_gate import Lease
 from speech_service.audio_response import ClosingAudioResponse
-from speech_service.failures import log_failure
+from speech_service.failures import failure_fields, payload_free_chain
 from speech_service.live_session import LiveSession, poll_forever
 from speech_service.recording import (
     RecordingTooLongError,
@@ -540,8 +540,12 @@ class _TranscriptionRoute:
             return _refused(RefusalCode.TOO_LARGE, "file")
         except UndecodableRecordingError:
             return _refused(RefusalCode.INVALID_REQUEST, "file")
-        except Exception as error:  # noqa: BLE001 - logged by type and never by message
-            log_failure(logger, "hearing.failed", error)
+        except Exception as error:
+            logger.exception(
+                "hearing.failed",
+                extra=failure_fields(error),
+                exc_info=payload_free_chain(error),
+            )
             return _refused(RefusalCode.UNAVAILABLE)
         return JSONResponse(Transcription(text=text).model_dump())
 

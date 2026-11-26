@@ -11,10 +11,26 @@ from speech_service.failures import (
     PayloadFreeError,
     PayloadFreeFailure,
     SpeakingFailedError,
-    log_failure,
+    failure_fields,
+    payload_free_chain,
 )
 
 _SENTENCE = "Ein Satz, den nur der Aufrufer kennt"
+
+
+def _log_failure(
+    logger: logging.Logger,
+    error: BaseException,
+    *,
+    level: int = logging.ERROR,
+    **fields: str,
+) -> None:
+    logger.log(
+        level,
+        "speaking.failed",
+        extra={**failure_fields(error), **fields},
+        exc_info=payload_free_chain(error),
+    )
 
 
 def _raise_at_depth(depth: int, error: Exception, cause: Exception | None) -> None:
@@ -34,7 +50,7 @@ def _raised(error: Exception, cause: Exception | None = None) -> Exception:
 def _logged(caplog: pytest.LogCaptureFixture, error: Exception) -> str:
     logger = logging.getLogger("tests.failures")
     with caplog.at_level(logging.ERROR, logger=logger.name):
-        log_failure(logger, "speaking.failed", error)
+        _log_failure(logger, error)
     (record,) = caplog.records
     assert not hasattr(record, "failure_chain")
     assert record.getMessage() == "speaking.failed"
@@ -162,7 +178,7 @@ def test_a_failure_logs_the_chain_once_as_a_message_free_exception(
     error = _raised(KeyError(_SENTENCE))
 
     with caplog.at_level(logging.ERROR, logger=logger.name):
-        log_failure(logger, "speaking.failed", error)
+        _log_failure(logger, error)
 
     (record,) = caplog.records
     assert isinstance(record.exc_info, tuple)
@@ -172,3 +188,23 @@ def test_a_failure_logs_the_chain_once_as_a_message_free_exception(
     assert _SENTENCE not in formatted
     assert _SENTENCE not in vars(record).get("exc_text", "")
     assert record.error_type == "KeyError"
+
+
+@pytest.mark.parametrize(
+    ("level", "fields"),
+    [(logging.ERROR, {}), (logging.WARNING, {"voice": "piper"})],
+    ids=["error-level", "warning-level-with-field"],
+)
+def test_a_failure_line_keeps_its_level_and_fields_beside_the_error_class(
+    caplog: pytest.LogCaptureFixture, level: int, fields: dict[str, str]
+) -> None:
+    logger = logging.getLogger("tests.failures")
+
+    with caplog.at_level(logging.WARNING, logger=logger.name):
+        _log_failure(logger, _raised(KeyError(_SENTENCE)), level=level, **fields)
+
+    (record,) = caplog.records
+    assert record.levelno == level
+    assert record.getMessage() == "speaking.failed"
+    assert record.error_type == "KeyError"
+    assert {key: getattr(record, key) for key in fields} == fields

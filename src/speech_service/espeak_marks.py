@@ -21,7 +21,7 @@ from enum import IntEnum, StrEnum
 from typing import TYPE_CHECKING, Final
 
 from speech_client.wire import SentenceMarks, Sound, Word
-from speech_service.failures import log_failure
+from speech_service.failures import failure_fields, payload_free_chain
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -234,8 +234,12 @@ class EspeakEvents:
                 finally:
                     self._settle()
                     self._library.espeak_SetSynthCallback(_Callback(0))
-        except Exception as error:  # noqa: BLE001 - marks are optional; the audio goes on
-            log_failure(logger, "marks.pass_failed", error, level=logging.WARNING)
+        except Exception as error:
+            logger.warning(
+                "marks.pass_failed",
+                extra=failure_fields(error),
+                exc_info=payload_free_chain(error),
+            )
             return None
         if status != 0 or collector.failed:
             return None

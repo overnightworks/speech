@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from speech_client.wire import VoiceHealth
 from speech_service.admission_gate import AdmissionGate
-from speech_service.failures import log_failure
+from speech_service.failures import failure_fields, payload_free_chain
 from speech_service.speaking import gives_marks
 
 if TYPE_CHECKING:
@@ -203,8 +203,12 @@ class VoiceSlot:
         try:
             if self._retire_dead_engine():
                 self.load()
-        except Exception as error:  # noqa: BLE001 - its waiters read the outcome as the slot's readiness
-            log_failure(logger, "voice_load.failed", error, voice=self.voice.value)
+        except Exception as error:
+            logger.exception(
+                "voice_load.failed",
+                extra={**failure_fields(error), "voice": self.voice.value},
+                exc_info=payload_free_chain(error),
+            )
         finally:
             with self._state_changed:
                 self.loading = False
