@@ -1,8 +1,0 @@
-claim_id = "9b1ade3940974204b5a6432311c1b5d4"
-agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
-role = "builder"
-base = "82b67319287dfa634569fdef57cf3634011c21ae"
-branch = "claude/issue-709-race-outcomes-driven-by-gates"
-scope = ["packages/client/src/speech_client/hearing.py", "packages/client/tests/support/hearing_support.py", "packages/client/tests/test_hearing.py", "packages/client/tests/test_hearing_opening.py", "src/speech_service/live_session.py", "tests/support", "tests/test_admission_gate.py", "tests/test_live_session.py", "tests/test_live_session_drain.py", "tests/test_live_session_sounds.py"]
-opened_commit = "864a7dce008b0ac845a30b94270792d128d97279"
-whole_reason = "One coverage claim over three owners' race windows, each test a few lines with the existing gating fakes; split per owner it would be three lanes of one or two tests each."
