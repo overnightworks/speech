@@ -1,8 +1,0 @@
-claim_id = "eace63d01e854cefa75721cd3799ed9f"
-agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
-role = "builder"
-base = "d549cbd3f561bd9f33398bc6c143cdb91e1a3f3e"
-branch = "claude/issue-714-the-speech-client-hears-the-sustained-sp"
-scope = ["packages/client/src/speech_client/hearing.py", "packages/client/src/speech_client/realtime_wire.py", "packages/client/src/speech_client/utterances.py", "packages/client/tests/support", "packages/client/tests/test_hearing_opening.py", "packages/client/tests/test_hearing_timeline.py", "packages/client/tests/test_utterances.py", "packages/client/tests/test_utterances_sustained.py", "tests/test_wire_route_client_utterances.py"]
-opened_commit = "84fd1e1e48d61d3e4ee4b9377a737396b4e272b6"
-whole_reason = "The ask, the event's place on the timeline, the callback that receives it and the refusal of an unasked one are one client surface; a callback without the ask hears nothing, an ask without the callback is refused."
