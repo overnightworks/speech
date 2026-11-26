@@ -1,7 +1,0 @@
-claim_id = "3f748859eecd403683f903321b7a41cd"
-agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
-role = "builder"
-base = "2c06e34cec7e7cb15a85da124903176f64dfca39"
-branch = "claude/issue-683-coverage-floors-at-the-measured-totals"
-scope = ["providers/qwen/pyproject.toml", "pyproject.toml"]
-opened_commit = "3da84c4f3d0b343a0623c92767f04bcab0ad9fc9"
