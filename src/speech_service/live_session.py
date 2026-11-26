@@ -230,9 +230,10 @@ class LiveSession:
 
     async def _start_sound_hop(self) -> None:
         """Score the latest due hop, unless one is in flight or the session ended."""
-        window = (
-            None if self._sounds is None or self._ended else self._sounds.next_window()
-        )
+        sounds = self._sounds
+        if sounds is None or self._ended:
+            return
+        window = sounds.next_window()
         if window is None:
             return
         try:
@@ -240,10 +241,12 @@ class LiveSession:
         except RuntimeError:
             await self._end_locked(RefusalCode.UNAVAILABLE)
             return
-        task = self._spawn(self._run_sound_hop(future, window))
+        task = self._spawn(self._run_sound_hop(sounds, future, window))
         task.add_done_callback(lambda _done: future.cancel())
 
-    async def _run_sound_hop(self, future: Future[Scores], window: SoundWindow) -> None:
+    async def _run_sound_hop(
+        self, sounds: SoundStream, future: Future[Scores], window: SoundWindow
+    ) -> None:
         try:
             scores = await asyncio.wrap_future(future)
         except Exception as error:  # noqa: BLE001 - logged by type and never by message
@@ -251,9 +254,7 @@ class LiveSession:
             await self._end(RefusalCode.UNAVAILABLE)
             return
         async with self._lock:
-            if self._ended or self._sounds is None:
-                return
-            for sound in self._sounds.scored(window, scores):
+            for sound in sounds.scored(window, scores):
                 logger.info(
                     "sound.detected",
                     extra={
@@ -269,8 +270,6 @@ class LiveSession:
                         audio_end_ms=sound.audio_end_ms,
                     )
                 )
-                if self._ended:
-                    return
             await self._start_sound_hop()
 
     async def _on_update(self, event: SessionUpdate) -> None:
