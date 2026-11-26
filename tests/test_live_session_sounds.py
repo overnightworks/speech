@@ -17,6 +17,7 @@ from tests.support.live_support import (
     FakeSocket,
     append,
     audio,
+    commit_a_turn,
     end_is,
     one_question,
     started,
@@ -234,6 +235,33 @@ def test_a_hop_in_flight_when_the_session_ends_by_error_sends_nothing(
 
     assert end_is(socket, "invalid_request", failed=0)
     assert _sound_events(socket) == []
+
+
+def test_a_hop_falling_due_on_the_audio_that_ends_the_session_busy_is_never_scored(
+    tmp_path: Path,
+) -> None:
+    """WIRE-168: no sound is scored after the session ended."""
+
+    async def scenario() -> tuple[FakeSocket, FakeSoundModel]:
+        taggers, model = loaded_taggers(tmp_path)
+        engine = FakeHearing(hold=True)
+        session, socket = await started(loaded(engine, FakeClock(), sounds=taggers))
+        model.windows.clear()
+        await session.on_message(update(sound_detection=ASK_FOR_SOUNDS))
+        await commit_a_turn(session, 0.6)
+        await commit_a_turn(session, 0.6)
+        await session.on_message(append(audio(0.5)))
+        assert not model.windows
+        await session.on_message(append(audio(0.8, 0)))
+        await session.settled()
+        engine.release.set()
+        await session.on_disconnect()
+        return socket, model
+
+    socket, model = asyncio.run(scenario())
+
+    assert end_is(socket, "busy", failed=3)
+    assert model.windows == []
 
 
 def test_a_hop_in_flight_when_the_client_leaves_sends_nothing(tmp_path: Path) -> None:
