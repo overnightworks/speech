@@ -15,16 +15,17 @@ import pytest
 
 from hearing_figures import LiveTurn, wav_of
 from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, PIPER_VOICES, first_language
-from speech_client.wire import Language
+from speech_client.wire import Language, VoiceId
+from speech_service.hearing_models import HearingModel
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
-    from speech_client.wire import VoiceId
 
 LINES = script_module("voice_lines")
+PROVE = script_module("prove_speech")
 RATE = 24000
 LOUD = 8000
 VOICE = PIPER_VOICES[0]
@@ -451,3 +452,31 @@ def test_a_language_the_voice_does_not_offer_is_refused_before_a_service_starts(
 
     assert raised.value.code != 0
     assert all(language in capsys.readouterr().err for language in offered)
+
+
+def test_the_entry_outside_probe_run_hands_its_arguments_to_the_reexec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status = 5
+    arguments = [
+        "--voice",
+        next(iter(VoiceId)).value,
+        "--hearing-model",
+        next(iter(HearingModel)).value,
+        "--device",
+        "cpu",
+    ]
+    seen: list[list[str]] = []
+    monkeypatch.setattr(sys, "argv", ["voice_lines", *arguments])
+    monkeypatch.delenv(PROVE.UNDER_PROBE_RUN_ENV, raising=False)
+    monkeypatch.setattr(
+        LINES,
+        "run_under_probe_run",
+        lambda received, **_: seen.append(received) or status,
+    )
+
+    with pytest.raises(SystemExit) as exit_request:
+        LINES.main()
+
+    assert exit_request.value.code == status
+    assert seen == [arguments]
