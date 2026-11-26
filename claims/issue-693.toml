@@ -1,7 +1,0 @@
-claim_id = "da151d89f7b14cd2bbdb54bbf99aa091"
-agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
-role = "builder"
-base = "746eb706c12c4cfbbd7f8272044e1c26ca058288"
-branch = "claude/issue-693-readme-agent-dispatches-release"
-scope = ["README.md"]
-opened_commit = "84f32926591b3292d52cb84c0d8bce59a1b4d218"
