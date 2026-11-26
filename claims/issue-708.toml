@@ -3,6 +3,6 @@ agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
 role = "builder"
 base = "3e912b7fa96817854d0f1481ff11d177f795c5a8"
 branch = "claude/issue-708-every-player-outcome-a-flow-can-reach-is"
-scope = ["packages/browser/scripts/page-coverage-report.js", "packages/browser/src/player.ts", "packages/browser/src/queued.ts", "packages/browser/vitest.config.ts", "tests/fixtures/browser/player_page.js", "tests/support/browser_pause_at_support.py", "tests/support/browser_player_support.py", "tests/support/browser_support.py", "tests/test_wire_route_browser_player.py", "tests/test_wire_route_browser_player_hold.py", "tests/test_wire_route_browser_player_pause_at.py"]
+scope = ["packages/browser/scripts/page-coverage-report.js", "packages/browser/src/player.ts", "packages/browser/src/queued.ts", "packages/browser/src/timeline.test.ts", "packages/browser/src/timeline.ts", "packages/browser/vitest.config.ts", "tests/fixtures/browser/player_page.js", "tests/support/browser_pause_at_support.py", "tests/support/browser_player_support.py", "tests/support/browser_support.py", "tests/test_wire_route_browser_player.py", "tests/test_wire_route_browser_player_hold.py", "tests/test_wire_route_browser_player_pause_at.py"]
 opened_commit = "fa060a33bc8a9a2be54a98d0bad6a43c99662615"
 whole_reason = "The measurement that makes the gaps visible, the cells that close them and the deletions of what no flow reaches are one coverage claim; measuring without closing leaves CI's floor red, closing without measuring leaves queued.ts unseen."
