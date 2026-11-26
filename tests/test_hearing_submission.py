@@ -113,17 +113,43 @@ def test_the_engine_is_freed_only_after_the_running_decode_returns() -> None:
     assert engine.entered.wait(WAIT_SECONDS)
     closing = threading.Thread(target=hearing.close)
 
-    late_lease = _CountedLease().lease
+    late = _CountedLease()
 
     closing.start()
     with pytest.raises(RuntimeError):
-        hearing.submit(late_lease, _transcribe)
+        hearing.submit(late.lease, _transcribe)
     freed_while_running = engine.closed
     engine.release.set()
     closing.join(WAIT_SECONDS)
 
     assert future.result(timeout=WAIT_SECONDS) == "Guten Tag"
     assert (freed_while_running, engine.closed) == (0, 1)
+    assert late.released == 1
+
+
+def test_a_waiting_submission_never_runs_when_hearing_closes_and_closes_its_lease() -> (
+    None
+):
+    blocker = FakeHearing(hold=True)
+    hearing = loaded(blocker)
+    running = _CountedLease()
+    waiting = _CountedLease()
+    first = hearing.submit(running.lease, _transcribe)
+    assert blocker.entered.wait(WAIT_SECONDS)
+    second = hearing.submit(waiting.lease, _transcribe)
+    cancelled = threading.Event()
+    second.add_done_callback(lambda _done: cancelled.set())
+    closing = threading.Thread(target=hearing.close)
+
+    closing.start()
+    assert cancelled.wait(WAIT_SECONDS)
+    blocker.release.set()
+    closing.join(WAIT_SECONDS)
+
+    assert first.result(timeout=WAIT_SECONDS) == "Guten Tag"
+    assert second.cancelled()
+    assert (running.released, waiting.released) == (1, 1)
+    assert len(blocker.heard) == 1
 
 
 def test_a_file_request_cancelled_before_its_decode_starts_frees_the_gate() -> None:
