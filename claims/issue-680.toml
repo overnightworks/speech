@@ -1,0 +1,8 @@
+claim_id = "4aa7ac7793c544b482d381b3387137e2"
+agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
+role = "builder"
+base = "2c06e34cec7e7cb15a85da124903176f64dfca39"
+branch = "claude/issue-680-the-speech-client-s-speak-call-carries-t"
+scope = ["docs/wire.md", "packages/client/pyproject.toml", "packages/client/src/speech_client/_traceparent.py", "packages/client/src/speech_client/speak.py", "packages/client/tests/test_speak.py", "pyproject.toml", "tests/test_wire_route_client_speak.py", "uv.lock"]
+opened_commit = "adfd8bae5ee0f268c0966aff6cc32d8ea8597dea"
+whole_reason = "One carrier in the speak call, its two tests, the wire sentence that names its default and the pins of the client and the service with the lock."
