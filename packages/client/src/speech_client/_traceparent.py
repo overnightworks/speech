@@ -1,4 +1,8 @@
-"""The `traceparent` header a call sends, which joins the service's lines to a trace."""
+"""The `traceparent` header that joins the service's lines to a trace.
+
+A speaking call sends only the caller's explicit value; the running trace is the
+default of the hearing's websocket handshake alone.
+"""
 
 from __future__ import annotations
 

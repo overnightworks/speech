@@ -546,10 +546,10 @@ def _stream_spoken(base_url: str, traceparent: str | None) -> object:
     )
 
 
-def _sent_traceparents(request: bytes) -> list[str]:
+def _sent_header_values(request: bytes, header: str) -> list[str]:
     head, _, _ = request.partition(b"\r\n\r\n")
     pairs = (line.partition(": ") for line in head.decode().split("\r\n")[1:])
-    return [value for name, _, value in pairs if name.lower() == TRACEPARENT_HEADER]
+    return [value for name, _, value in pairs if name.lower() == header]
 
 
 @pytest.mark.parametrize(
@@ -587,7 +587,8 @@ def test_a_speaking_call_sends_the_callers_traceparent_over_the_ambient_one_or_n
             expected = {"caller's": [given], "ambient": [ambient]}.get(trace, [])
 
     (request,) = requests
-    assert _sent_traceparents(request) == expected
+    assert _sent_header_values(request, TRACEPARENT_HEADER) == expected
+    assert _sent_header_values(request, "tracestate") == []
 
 
 def test_a_429_with_a_whole_second_wait_is_busy(raw_listener: RawListener) -> None:
