@@ -313,15 +313,14 @@ def _install_sounds(
         side.spoken.append(outcome.audio)
         return Response(outcome.audio, media_type=WAV_MEDIA_TYPE)
 
-    @app.get(f"{SOUNDS_PATH}/{{name}}")
-    async def sound(name: str, request: Request) -> FileResponse:
-        side.record_request(request.url.path)
-        return FileResponse(recordings / name, media_type=WAV_MEDIA_TYPE)
+    def serve_recordings(path: str, media_type: str) -> None:
+        @app.get(f"{path}/{{name}}")
+        async def recording(name: str, request: Request) -> FileResponse:
+            side.record_request(request.url.path)
+            return FileResponse(recordings / name, media_type=media_type)
 
-    @app.get(f"{UNSTREAMED_PATH}/{{name}}")
-    async def unstreamed(name: str, request: Request) -> FileResponse:
-        side.record_request(request.url.path)
-        return FileResponse(recordings / name, media_type=UNSTREAMED_MEDIA_TYPE)
+    serve_recordings(SOUNDS_PATH, WAV_MEDIA_TYPE)
+    serve_recordings(UNSTREAMED_PATH, UNSTREAMED_MEDIA_TYPE)
 
     @app.get(f"{HELD_PATH}/{{name}}")
     async def held(name: str, request: Request) -> Response:
