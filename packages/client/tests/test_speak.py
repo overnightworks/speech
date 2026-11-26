@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from logline import current_traceparent, unit_trace
+from logline.testing import configured
 from pydantic import ValidationError
 
 from packages.client.tests.support.elapsed_support import well_before
@@ -561,12 +562,16 @@ def test_a_speaking_call_sends_the_callers_traceparent_over_the_ambient_one_or_n
 ) -> None:
     """WIRE-149: the header is the caller's, else the running trace's, else absent.
 
-    The caller's is given inside a running trace, which it must win over.
+    The caller's is given inside a running trace, which it must win over; the
+    running trace reaches the request through the host's configured logline.
     """
     given = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-    with raw_listener(_WAV_HEAD + chunk(_WAV_BODY) + chunk(b"")) as (
-        base_url,
-        requests,
+    with (
+        configured("speech"),
+        raw_listener(_WAV_HEAD + chunk(_WAV_BODY) + chunk(b"")) as (
+            base_url,
+            requests,
+        ),
     ):
         if trace == "none":
             call(base_url, None)
