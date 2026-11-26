@@ -218,8 +218,6 @@ class ProviderProcess:
         with self._state_lock:
             if self._failed or self._closing:
                 raise ProviderFailedError
-            if self.ready:
-                return
             if self._owner is None:
                 self._owner = threading.Thread(
                     target=self._run_owner,

@@ -99,8 +99,11 @@ if "stale-socket" in behaviors:
     (cache / "scenario-begun").touch()
     while True:
         time.sleep(1)
-if "with-stage" in behaviors:
-    stage = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
+if "with-stage" in behaviors or "detached-stage" in behaviors:
+    stage = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(600)"],
+        start_new_session="detached-stage" in behaviors,
+    )
     (cache / "stage").write_text(str(stage.pid), encoding="utf-8")
 
 
@@ -118,7 +121,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """Keep the output free of access logs."""
 
     def do_GET(self) -> None:
-        """Answer the health check."""
+        """Answer the health check; a spoiling server spoils its first answer only."""
+        spoil = behaviors & {"health-dropped", "health-garbled"}
+        if spoil and not (cache / "health-spoiled").exists():
+            (cache / "health-spoiled").touch()
+            if "health-garbled" in spoil:
+                self.wfile.write(b"not an http answer\r\n\r\n")
+            self.close_connection = True
+            return
         self.send_response(200)
         self.send_header("Content-Length", "0")
         self.end_headers()

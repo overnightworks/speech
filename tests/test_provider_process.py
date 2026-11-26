@@ -42,6 +42,8 @@ from tests.support.launcher_support import (
     numba_cache,
     observed,
     provider_launcher,
+    provider_process,
+    provider_server,
     qwen_voice,
     release_load,
     wait_for_starts,
@@ -53,20 +55,6 @@ if TYPE_CHECKING:
 
 _SCRATCH_VARIABLES = ("NUMBA_CACHE_DIR", "TMPDIR", "HOME")
 _OWNER = "speech_service.provider_process"
-
-
-def _process(root: Path, cache: Path) -> ProviderProcess:
-    return ProviderProcess(
-        ProviderLaunch(
-            executable=provider_launcher(root),
-            arguments=("--cache", str(cache)),
-        )
-    )
-
-
-def _server(tmp_path: Path, behavior: str = "normal") -> ProviderProcess:
-    root, cache = closed_provider(tmp_path, behavior)
-    return _process(root, cache)
 
 
 def _runtime(factory: Callable[[VoiceId], QwenSpeaking]) -> Runtime:
@@ -131,7 +119,7 @@ def test_the_server_starts_from_a_load_thread_that_ends_and_keeps_serving(
         return real_popen(arguments, **keywords)
 
     monkeypatch.setattr(f"{_OWNER}.subprocess.Popen", recording_popen)
-    server = _process(root, cache)
+    server = provider_process(root, cache)
 
     assert _finishes_within_timeout(server.load)
 
@@ -163,7 +151,7 @@ def test_each_server_keeps_its_state_in_a_private_directory_gone_once_reaped(
     servers = []
     for name in ("first", "second"):
         root, cache = closed_provider(tmp_path / name, behavior)
-        servers.append(_process(root, cache))
+        servers.append(provider_process(root, cache))
         caches.append(cache)
         _load_quietly(servers[-1])
     for server in servers:
@@ -183,7 +171,7 @@ def test_each_start_listens_on_a_fresh_socket_in_a_directory_only_its_user_enter
     root, cache = closed_provider(tmp_path)
     sockets = []
     for _ in range(2):
-        server = _process(root, cache)
+        server = provider_process(root, cache)
         server.load()
         sockets.append(Path(observed(cache)[3]["socket"]))
         assert (cache / "socket-directory-mode").read_text(encoding="utf-8") == str(
@@ -200,7 +188,7 @@ def test_a_socket_nothing_listens_on_never_counts_as_ready(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(f"{_OWNER}.HEALTH_DEADLINE_SECONDS", 0.5)
-    server = _server(tmp_path, "stale-socket")
+    server = provider_server(tmp_path, "stale-socket")
     health_deadline_from_scenario(monkeypatch, _OWNER, tmp_path / "cache")
 
     with pytest.raises(ProviderFailedError):
@@ -217,7 +205,7 @@ def test_the_health_deadline_fails_the_load_and_reaps_a_term_resistant_server(
 ) -> None:
     monkeypatch.setattr(f"{_OWNER}.HEALTH_DEADLINE_SECONDS", 0.3)
     monkeypatch.setattr(f"{_OWNER}.TERMINATE_GRACE_SECONDS", 0.05)
-    server = _server(tmp_path, "stale-socket term-resistant")
+    server = provider_server(tmp_path, "stale-socket term-resistant")
     health_deadline_from_scenario(monkeypatch, _OWNER, tmp_path / "cache")
 
     loading, failures = _load_in_thread(server)
@@ -236,7 +224,7 @@ def test_a_stop_during_the_health_wait_does_not_wait_out_the_health_deadline(
     tmp_path: Path,
 ) -> None:
     root, cache = closed_provider(tmp_path, "held-ready")
-    server = _process(root, cache)
+    server = provider_process(root, cache)
     loading, refused = _load_in_thread(server)
     (pid,) = wait_for_starts(cache, 1)
 
@@ -251,7 +239,7 @@ def test_a_stop_during_the_health_wait_does_not_wait_out_the_health_deadline(
 
 
 def test_an_exit_after_ready_ends_readiness_at_once(tmp_path: Path) -> None:
-    server = _server(tmp_path, "idle-exit")
+    server = provider_server(tmp_path, "idle-exit")
     server.load()
     (tmp_path / "cache/exit-now").touch()
 
@@ -268,7 +256,7 @@ def test_an_exit_after_ready_ends_readiness_at_once(tmp_path: Path) -> None:
 def test_a_marked_failure_stops_the_server_and_refuses_a_new_load(
     tmp_path: Path,
 ) -> None:
-    server = _server(tmp_path)
+    server = provider_server(tmp_path)
     server.load()
     _, _, pid, _ = observed(tmp_path / "cache")
 
@@ -285,7 +273,7 @@ def test_a_marked_failure_stops_the_server_and_refuses_a_new_load(
 def test_a_server_that_ends_before_it_answers_fails_without_an_owned_process(
     tmp_path: Path, behavior: str
 ) -> None:
-    server = _server(tmp_path, behavior)
+    server = provider_server(tmp_path, behavior)
     with pytest.raises(RuntimeError, match="speech provider failed"):
         server.load()
     _, _, pid, _ = observed(tmp_path / "cache")
@@ -294,7 +282,7 @@ def test_a_server_that_ends_before_it_answers_fails_without_an_owned_process(
 
 
 def test_load_after_a_failed_startup_is_refused(tmp_path: Path) -> None:
-    server = _server(tmp_path, "startup-exit")
+    server = provider_server(tmp_path, "startup-exit")
     with pytest.raises(ProviderFailedError):
         server.load()
     with pytest.raises(ProviderFailedError):
@@ -303,7 +291,7 @@ def test_load_after_a_failed_startup_is_refused(tmp_path: Path) -> None:
 
 
 def test_a_request_before_load_is_refused_as_not_ready(tmp_path: Path) -> None:
-    server = _server(tmp_path)
+    server = provider_server(tmp_path)
     with pytest.raises(ProviderNotReadyError):
         server.connect(1)
 
@@ -312,7 +300,7 @@ def test_a_server_without_a_private_directory_is_refused_and_closes_cleanly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fatal = threading.Event()
-    server = _server(tmp_path)
+    server = provider_server(tmp_path)
     server.set_fatal_callback(fatal.set)
     monkeypatch.setattr("tempfile.tempdir", str(tmp_path / "no-temporary-root"))
     loader, refused = _load_in_thread(server)
@@ -386,7 +374,7 @@ def test_a_real_child_is_reaped_when_the_owner_fails_after_the_spawn(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fatal = threading.Event()
-    server = _server(tmp_path, "term-resistant")
+    server = provider_server(tmp_path, "term-resistant")
     server.set_fatal_callback(fatal.set)
     real_popen = subprocess.Popen
     started: list[int] = []
@@ -420,7 +408,7 @@ def test_a_cleanup_failure_reaps_and_reports_a_fatal_lifecycle(
 ) -> None:
     fatal = threading.Event()
     started = fail_every_reap(monkeypatch)
-    server = _server(tmp_path)
+    server = provider_server(tmp_path)
     server.set_fatal_callback(fatal.set)
     server.load()
 
@@ -436,7 +424,7 @@ def test_a_term_resistant_server_reaches_kill_and_reap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(f"{_OWNER}.TERMINATE_GRACE_SECONDS", 0.05)
-    server = _server(tmp_path, "term-resistant")
+    server = provider_server(tmp_path, "term-resistant")
     server.load()
     _, _, pid, _ = observed(tmp_path / "cache")
     server.close()
@@ -446,7 +434,7 @@ def test_a_term_resistant_server_reaches_kill_and_reap(
 def test_a_term_resistant_server_is_reaped_inside_the_stops_grace(
     tmp_path: Path,
 ) -> None:
-    server = _server(tmp_path, "term-resistant")
+    server = provider_server(tmp_path, "term-resistant")
     server.load()
     _, _, pid, _ = observed(tmp_path / "cache")
     started = time.monotonic()
@@ -462,7 +450,7 @@ def test_the_whole_close_bound_is_below_the_stops_grace() -> None:
 def test_a_stage_process_that_outlives_its_server_ends_with_the_service_stop(
     tmp_path: Path,
 ) -> None:
-    server = _server(tmp_path, "with-stage")
+    server = provider_server(tmp_path, "with-stage")
     server.load()
     cache = tmp_path / "cache"
     _, _, pid, _ = observed(cache)
@@ -482,7 +470,7 @@ def test_a_server_whose_start_ends_by_exit_is_reaped_before_the_load_is_refused(
     tmp_path: Path,
 ) -> None:
     root, cache = closed_provider(tmp_path, "held-ready")
-    server = _process(root, cache)
+    server = provider_process(root, cache)
     loading = threading.Thread(target=_load_quietly, args=(server,))
     loading.start()
     (pid,) = wait_for_starts(cache, 1)
