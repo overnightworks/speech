@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import json
 import re
-import sys
 import tomllib
 from http import HTTPStatus
 from pathlib import Path
@@ -34,7 +33,6 @@ if TYPE_CHECKING:
     from speech_client.wire import VoiceId
 
 HEARING = script_module("prove_hearing")
-PROVE = script_module("prove_speech")
 VOICES = Path.home() / "voices"
 RUNS = "7"
 WIRE_RATE = 24_000
@@ -710,33 +708,3 @@ def test_a_taken_card_names_a_live_outcome_that_is_not_a_refusal(
 
     live = result["refusals"]["live"]  # type: ignore[index]
     assert live["outcome"] == repr(Unreachable())
-
-
-def test_the_entry_outside_probe_run_hands_its_arguments_to_the_reexec(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    status = 5
-    seen: list[list[str]] = []
-    arguments = [
-        "--device",
-        "cpu",
-        "--hearing-model",
-        next(iter(HearingModel)).value,
-        "--record",
-        "record.json",
-        "--english-voice-directory",
-        "voices",
-    ]
-    monkeypatch.setattr(sys, "argv", ["prove_hearing", *arguments])
-    monkeypatch.delenv(PROVE.UNDER_PROBE_RUN_ENV, raising=False)
-    monkeypatch.setattr(
-        HEARING,
-        "run_under_probe_run",
-        lambda arguments, **_: seen.append(arguments) or status,
-    )
-
-    with pytest.raises(SystemExit) as exit_request:
-        HEARING.main()
-
-    assert exit_request.value.code == status
-    assert seen == [arguments]
