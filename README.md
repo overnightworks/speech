@@ -86,7 +86,7 @@ Every setting is read from `SPEECH_*`. The wire's settings are in
 | --- | --- | --- |
 | `SPEECH_HOST` | `127.0.0.1` | Address the listener binds; a container sets `0.0.0.0` |
 | `SPEECH_PORT` | `8080` | TCP port |
-| `SPEECH_DEVICE` | `cuda` | Hearing's device, `cuda` or `cpu`; Piper stays on the CPU, Qwen on `cuda` |
+| `SPEECH_DEVICE` | `cuda` | Hearing's device, `cuda` or `cpu`; Piper stays on the CPU, Qwen on `cuda`; the CPU image sets `cpu`, the gpu stage `cuda` |
 | `SPEECH_CATALOGUE_FILE` | none, required | Absolute path of [`deploy/catalogue.toml`](deploy/catalogue.toml); the images set it |
 | `SPEECH_VOICE_CACHE` | `~/.cache/piper` | Where Piper's files are kept and fetched to; the images set `/opt/voices` |
 | `SPEECH_HUGGINGFACE_CACHE` | the Hub cache | Where hearing's and Qwen's files are kept and fetched to; the images set `/opt/hearing` |

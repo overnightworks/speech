@@ -180,9 +180,8 @@ def _locked_set() -> set[str]:
     return locked_distributions(export, _project_name)
 
 
-def cell_contents(plain: Compose) -> None:
+def cell_contents(plain: Compose, environment: dict[str, str]) -> None:
     """Cell 2: the image holds the locked set, the pinned voices and hearing model."""
-    environment = image_environment(plain.project)
     voice_hashes = {
         Path(file.path).name: file.sha256
         for voice in CATALOGUE.values()
@@ -352,13 +351,14 @@ def cell_no_egress(session: Session) -> None:
     )
 
 
-def cell_hearing_ready(session: Session, plain: Compose, seconds: float) -> None:
+def cell_hearing_ready(
+    session: Session, plain: Compose, seconds: float, model: str
+) -> None:
     """Cell 13: hearing is ready, the healthcheck passes, and it did so in time.
 
     `seconds` is cell 3's measure of the first start.
     """
     service = service_config(plain)
-    model = image_environment(plain.project)[HEARING_MODEL_SETTING]
     passes = healthcheck_passes(session.compose, service["healthcheck"])
     require_hearing_ready(session.health(), model, healthcheck_passes=passes)
     start_period = service["healthcheck"]["start_period"]
@@ -515,7 +515,9 @@ def cell_recording_limit(session: Session, wav: bytes) -> None:
     )
 
 
-def cell_hearing_restart(session: Session, wav: bytes, plain: Compose) -> None:
+def cell_hearing_restart(
+    session: Session, wav: bytes, plain: Compose, model: str
+) -> None:
     """Cell 19: a restart with no way to a hub ends with both ready and hearing."""
     compose = session.compose
     peak_before = session.memory_peak_mib()
@@ -525,7 +527,7 @@ def cell_hearing_restart(session: Session, wav: bytes, plain: Compose) -> None:
     service = service_config(plain)
     require_hearing_ready(
         session.health(),
-        image_environment(plain.project)[HEARING_MODEL_SETTING],
+        model,
         healthcheck_passes=healthcheck_passes(compose, service["healthcheck"]),
     )
     health = session.health()
@@ -556,7 +558,7 @@ def wait_until_speaking_alone(session: Session) -> None:
     raise SystemExit(message)
 
 
-def cell_hearing_negatives(session: Session, wav: bytes) -> None:
+def cell_hearing_negatives(session: Session, wav: bytes, model: str) -> None:
     """Cell 20: each hearing check fails, for its own reason, on a wrong subject."""
     require_fails(
         lambda: require_heard("Guten Tag zusammen", SENTENCE),
@@ -597,14 +599,12 @@ def cell_hearing_negatives(session: Session, wav: bytes) -> None:
         "a live turn without tokens",
         naming=REFUSED_UPGRADE,
     )
-    require_hearing_model_negatives(session)
+    require_hearing_model_negatives(session, model)
     print("cell 20: held; each check failed on the wrong subject it was shown")
 
 
-def require_hearing_model_negatives(session: Session) -> None:
+def require_hearing_model_negatives(session: Session, model: str) -> None:
     """A start without the model and an image without it each fail."""
-    plain = session.compose.with_files(session.compose.files[:1])
-    model = image_environment(plain.project)[HEARING_MODEL_SETTING]
     without = start_with(session, NO_MODEL_OVERRIDE)
     wait_until_speaking_alone(session)
     passes = healthcheck_passes(without, service_config(without)["healthcheck"])
@@ -697,18 +697,22 @@ def print_teardown(outcome: Teardown, project: str) -> None:
 
 
 def hearing_cells(
-    session: Session, plain: Compose, wav: bytes, started_after: float
+    session: Session,
+    plain: Compose,
+    wav: bytes,
+    started_after: float,
+    model_name: str,
 ) -> None:
     """Cells 13 to 19 and 24: hearing in the image, after a start of `started_after`."""
-    model = HearingModel(image_environment(plain.project)[HEARING_MODEL_SETTING])
-    cell_hearing_ready(session, plain, started_after)
+    model = HearingModel(model_name)
+    cell_hearing_ready(session, plain, started_after, model_name)
     cell_recording(session, wav)
     cell_english_voice(session, model)
     cell_hearing_refusals(session, wav)
     cell_live_turn(session, wav, model)
     cell_live_sounds(session)
     cell_recording_limit(session, wav)
-    cell_hearing_restart(session, wav, plain)
+    cell_hearing_restart(session, wav, plain, model_name)
 
 
 def prove() -> None:
@@ -739,7 +743,8 @@ def prove() -> None:
                     fetch_key_set(identity.jwks_url, identity.ca_path),
                 )
                 session = Session(compose, config, baked, signing, [], [], [])
-                cell_contents(plain)
+                environment = image_environment(plain.project)
+                cell_contents(plain, environment)
                 cell_absent_networks(plain, names)
                 started_after = cell_start(session)
                 wav = cell_speak(session)
@@ -748,8 +753,14 @@ def prove() -> None:
                 cell_key_server_stopped(session)
                 cell_restart(session)
                 cell_no_egress(session)
-                hearing_cells(session, plain, wav, started_after)
-                cell_hearing_negatives(session, wav)
+                hearing_cells(
+                    session,
+                    plain,
+                    wav,
+                    started_after,
+                    environment[HEARING_MODEL_SETTING],
+                )
+                cell_hearing_negatives(session, wav, environment[HEARING_MODEL_SETTING])
                 cell_negatives(session, wav)
                 cell_gpu_voice_offered(session, wav)
                 cell_log(session)
