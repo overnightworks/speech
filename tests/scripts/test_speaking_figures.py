@@ -11,6 +11,7 @@ import pytest
 import hearing_figures
 import speaking_figures as figures
 from shipped_catalogue import PIPER_VOICES, first_language
+from speech_client.realtime_wire import PcmFormat
 from speech_client.wire import Language
 from wav_audio import SILENCE_RMS
 
@@ -24,7 +25,6 @@ LOUD = 8000
 LIMIT_SECONDS = 0.5
 SENTENCES = {Language.DE: "ein deutscher Satz", Language.EN: "an english sentence"}
 SINE_PEAK_PER_RMS = 2**0.5
-FULL_SCALE = 2**15
 REFERENCE = "wie spät ist es und wann beginnt die nächste sitzung"
 
 
@@ -98,34 +98,40 @@ def test_a_repetition_that_is_silent_short_or_late_fails_the_voice(
         )
 
 
+def amplitude_at(level_against_threshold: float) -> int:
+    return round(
+        SILENCE_RMS * level_against_threshold * SINE_PEAK_PER_RMS * PcmFormat.full_scale
+    )
+
+
+def prove_speak(heard: tuple[bytes, float, float]) -> figures.VoiceFigures:
+    return figures.prove_speak_medians(
+        lambda *_: heard,
+        "text",
+        PIPER_VOICES[0],
+        limit=LIMIT_SECONDS,
+        label="speak",
+    )
+
+
 @pytest.mark.parametrize(
     ("level_against_threshold", "silent"),
     [(0.9, True), (1.1, False)],
     ids=["below the silence level", "above the silence level"],
 )
-def test_audio_is_silent_below_the_silence_level_and_a_silent_repetition_is_refused(
+def test_audio_is_silent_only_below_the_silence_level(
     level_against_threshold: float, *, silent: bool
 ) -> None:
-    amplitude = round(
-        SILENCE_RMS * level_against_threshold * SINE_PEAK_PER_RMS * FULL_SCALE
-    )
-    heard = answer(amplitude=amplitude)
-
-    def prove() -> figures.VoiceFigures:
-        return figures.prove_speak_medians(
-            lambda *_: heard,
-            "text",
-            PIPER_VOICES[0],
-            limit=LIMIT_SECONDS,
-            label="speak",
-        )
+    heard = answer(amplitude=amplitude_at(level_against_threshold))
 
     assert figures.spoken_of(heard).is_silent is silent
-    if silent:
-        with pytest.raises(SystemExit, match="speak_rep1 produced silence"):
-            prove()
-    else:
-        assert prove().first_audio_seconds == pytest.approx(heard[1])
+
+
+def test_a_silent_repetition_is_refused() -> None:
+    heard = answer(amplitude=amplitude_at(0.9))
+
+    with pytest.raises(SystemExit, match="speak_rep1 produced silence"):
+        prove_speak(heard)
 
 
 def test_the_medians_of_a_voice_are_those_of_its_repetitions() -> None:

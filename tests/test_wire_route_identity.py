@@ -35,6 +35,7 @@ from tests.support.identity_support import (
     ABSENT,
     DEFAULT_KEY,
     MINTING,
+    OTHER_MINTING,
     Clocks,
     FakeKeySet,
     altered,
@@ -264,10 +265,10 @@ def test_a_person_group_claim_of_null_is_unauthorized() -> None:
     [
         ("person", _set(azp="elsewhere-client")),
         ("person", _remove("azp")),
-        ("person", _set(groups=["/apps/other", "/services/speech-service"])),
-        ("person", _set(groups=["/apps/quiz"])),
-        ("person", _set(groups=["/apps/quiz", "/services/speech-service/sub"])),
-        ("person", _set(groups=["/apps/quiz", "/services/speech-service2"])),
+        ("person", _set(groups=[OTHER_MINTING.app_group, "/services/speech-service"])),
+        ("person", _set(groups=[MINTING.app_group])),
+        ("person", _set(groups=[MINTING.app_group, "/services/speech-service/sub"])),
+        ("person", _set(groups=[MINTING.app_group, "/services/speech-service2"])),
         ("person", _set(sub=MINTING.workload_subject)),
         ("workload", _without_role),
         ("workload", _set(azp="elsewhere-client")),
@@ -328,7 +329,7 @@ def test_a_person_in_a_subgroup_of_the_app_group_is_served() -> None:
 
     response = issuer.speak(
         workload,
-        altered(person, groups=["/apps/quiz/players", MINTING.service_group]),
+        altered(person, groups=[f"{MINTING.app_group}/players", MINTING.service_group]),
     )
 
     assert response.status_code == HTTP_200_OK
@@ -527,7 +528,7 @@ def _forbidden_causes() -> list[Response]:
     workload, person = issuer.tokens()
     return [
         issuer.speak(person, person),
-        issuer.speak(workload, altered(person, groups=["/apps/quiz"])),
+        issuer.speak(workload, altered(person, groups=[MINTING.app_group])),
     ]
 
 
