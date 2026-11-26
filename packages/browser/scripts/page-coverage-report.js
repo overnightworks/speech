@@ -15,9 +15,11 @@ const LCOV_FILE = "coverage-browser-flow.lcov";
 // that a new file lands in one of the two reports and, if no flow loads it, fails the check below.
 const UNIT_MEASURED = new Set(vitestConfig.test.coverage.include);
 const sources = await readdir("src", { recursive: true });
+// A source is any file in an extension the package's tsconfig compiles, unless vitest runs it as a test.
+const SOURCE_EXTENSION = /\.[cm]?tsx?$/;
 const MEASURED = sources
-  .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
   .map((name) => path.join("src", name))
+  .filter((name) => SOURCE_EXTENSION.test(name) && !vitestConfig.test.include.some((pattern) => path.matchesGlob(name, pattern)))
   .filter((name) => !UNIT_MEASURED.has(name));
 const BUILD_PATH = "/dist/";
 const repositoryRoot = path.resolve("../..");
