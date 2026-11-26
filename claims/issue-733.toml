@@ -1,8 +1,0 @@
-claim_id = "e057b729cea748d8a904f2248549064a"
-agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
-role = "builder"
-base = "b092b11993fd6e07587d3c34a92fa294b3fed7a7"
-branch = "claude/issue-733-the-live-tests-read-the-services-events"
-scope = ["tests/support/live_support.py", "tests/test_live_session.py", "tests/test_live_session_drain.py", "tests/test_live_session_log.py", "tests/test_live_session_queue.py", "tests/test_live_session_sounds.py", "tests/test_live_session_sustained.py", "tests/test_service_drain.py", "tests/test_voice_slot_load.py", "tests/test_wire_route_realtime.py"]
-opened_commit = "fdaaded846c0d79ddb5d36599a8b04d029ce9a03"
-whole_reason = "One fake socket's event reading changes, and every test that reads its events moves with it."
