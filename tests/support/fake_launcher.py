@@ -104,7 +104,7 @@ if "stale-socket" in behaviors:
 # The stage keeps the stderr it inherited; once `stage-probe` exists it writes to it
 # until a write fails or its tries run out, and records which came first.
 STAGE_SCRIPT = """
-import sys, time
+import os, sys, time
 from pathlib import Path
 cache = Path(sys.argv[1])
 while not (cache / "stage-probe").exists():
@@ -118,7 +118,8 @@ for _ in range(500):
         outcome = "stderr-closed"
         break
     time.sleep(0.01)
-(cache / "stage-stderr").write_text(outcome, encoding="utf-8")
+(cache / "stage-stderr.staged").write_text(outcome, encoding="utf-8")
+os.replace(cache / "stage-stderr.staged", cache / "stage-stderr")
 time.sleep(600)
 """
 if "with-stage" in behaviors or "detached-stage" in behaviors:
