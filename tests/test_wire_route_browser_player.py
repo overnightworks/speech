@@ -42,6 +42,7 @@ from tests.support.browser_player_support import (
     ends,
     events,
     loudest_peak,
+    markers,
     start_of,
     starts,
     stepped,
@@ -375,6 +376,27 @@ def test_a_rejected_resume_refuses_the_sound_and_the_next_one_plays(
 
     assert ends(seen) == ["refused", "played"]
     assert seen["resumesCalled"] == RESUMES_REJECTED_THEN_PASSED
+
+
+@pytest.mark.parametrize(
+    ("garbling", "marked"),
+    [("stale", ["duplicate", "gap"]), ("dropped", ["gap"])],
+    ids=["a_stale_report", "a_report_that_never_arrives"],
+)
+def test_an_ear_report_that_is_stale_or_missing_is_marked_and_the_stepped_cell_finishes(
+    tmp_path: Path, garbling: str, marked: list[str]
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with stepped(tmp_path) as stage:
+            # The last report of the first step, the one that step has to see.
+            await stage.act("garbleReport", garbling, FINISH_QUANTA - 1)
+            await stage.hand_over(url(SHORT))
+            return await stage.finish()
+
+    seen = asyncio.run(scenario())
+
+    assert ends(seen) == ["played"]
+    assert [fault["kind"] for fault in markers(seen)["quantumReports"]] == marked
 
 
 def test_every_source_connects_only_to_the_one_gain_that_is_the_outputs_only_input(
