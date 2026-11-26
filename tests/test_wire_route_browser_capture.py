@@ -374,24 +374,20 @@ def test_a_local_failure_ends_as_its_value_and_leaves_nothing_open(
 def test_a_hop_url_the_websocket_refuses_throws_and_closes_the_packages_context(
     tmp_path: Path,
 ) -> None:
-    async def scenario() -> tuple[dict[str, object], list[str]]:
+    async def scenario() -> dict[str, object]:
         async with capture_stage(tmp_path) as stage:
             await stage.open(source="tone", hop="ftp://hop.invalid/hear")
             await stage.switch()
-            await stage.until("seen.startThrew")
-            await stage.page.wait_for_function(
-                "() => window.contextStates().every(state => state === 'closed')"
-            )
-            return await stage.seen(), await stage.page.evaluate(
-                "window.contextStates()"
-            )
+            await stage.until("seen.contextStatesAfterThrow !== null")
+            return await stage.seen()
 
-    seen, context_states = asyncio.run(scenario())
+    seen = asyncio.run(scenario())
 
     assert seen["started"] is None
     assert seen["ended"] is None
     assert seen["socketsOpened"] == 0
-    assert context_states == ["closed"]
+    assert seen["startThrew"] is True
+    assert seen["contextStatesAfterThrow"] == ["closed"]
 
 
 def test_a_suspended_start_resumes_the_context_and_streams(tmp_path: Path) -> None:

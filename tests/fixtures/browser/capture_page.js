@@ -8,8 +8,8 @@
 // `context` makes the package's context misbehave: `throws` (the constructor throws), `suspended` (it
 // starts suspended, runs once `resume()` is called) or `rejects` (it starts suspended, `resume()` rejects).
 // `worklet=ear` serves a module that registers another processor than the package's.
-// `window.contextStates()` lists the package's contexts' states, `window.dispatchStateChange()` fires
-// `statechange` on the first, and `seen.startThrew` says `startCapture` itself threw.
+// `window.dispatchStateChange()` fires `statechange` on the first context, and `seen.startThrew` says `startCapture` itself threw (only the `hop` cell expects it),
+// then `seen.contextStatesAfterThrow` lists the contexts' states once they closed.
 import { startCapture } from "/dist/index.js";
 
 const query = new URLSearchParams(location.search);
@@ -37,6 +37,7 @@ const seen = {
   startedAt: null,
   firstSendAt: null,
   contextStatesAtStart: [],
+  contextStatesAfterThrow: null,
   stopToEndedMs: null,
   socketStatesAtEnd: [],
   contextStatesAtEnd: [],
@@ -158,6 +159,13 @@ let capture = null;
 let track = null;
 let stoppedAt = null;
 
+const closes = (context) =>
+  context.state === "closed"
+    ? null
+    : new Promise((resolve) =>
+        context.addEventListener("statechange", () => context.state === "closed" && resolve()),
+      );
+
 async function switchOn() {
   const { stream, onStreaming } = await prepareSource();
   track = stream.getAudioTracks()[0] ?? null;
@@ -168,8 +176,11 @@ async function switchOn() {
       workletUrl: await workletUrl(),
       ...(query.has("messages") ? { onMessage } : {}),
     });
-  } catch {
+  } catch (error) {
+    if (!query.has("hop")) throw error;
     seen.startThrew = true;
+    await Promise.all(contexts.map(closes));
+    seen.contextStatesAfterThrow = contexts.map((context) => context.state);
     return;
   }
   if (query.has("sendWhileConnecting")) seen.sendWhileConnecting = capture.send("too early");
@@ -210,7 +221,6 @@ window.endTrack = () => {
 
 // The context stops underneath the capture, as a failing sound server does: not through the app's stop().
 window.stopContext = (how) => contexts[0][how]();
-window.contextStates = () => contexts.map((context) => context.state);
 window.dispatchStateChange = () => contexts[0].dispatchEvent(new Event("statechange"));
 
 document.getElementById("switch").addEventListener("click", () => (capture === null ? switchOn() : switchOff()));
