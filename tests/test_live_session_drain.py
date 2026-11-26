@@ -25,6 +25,7 @@ from tests.support.live_support import (
     COMPLETED,
     FAILED,
     FakeSocket,
+    StallingSocket,
     append,
     audio,
     commit,
@@ -112,6 +113,30 @@ def test_a_final_unfinished_at_the_bound_fails_its_item_and_closes_1012() -> Non
     assert socket.types()[-2:] == [FAILED, "error"]
     assert COMPLETED not in socket.types()
     assert socket.close_code == WS_1012_SERVICE_RESTART
+
+
+def test_a_client_that_leaves_while_the_drain_cuts_its_turn_gets_no_close() -> None:
+    """WIRE-146: a drain whose session ended while it cut closes nothing."""
+
+    async def scenario() -> FakeSocket:
+        clock = FakeClock()
+        hearing = loaded(FakeHearing(hold=True), clock)
+        socket = StallingSocket("input_audio_buffer.committed")
+        session, _ = await started(hearing, socket=socket)
+        await session.on_message(append(audio(0.5)))
+        hearing.begin_drain()
+        clock.jump(DRAIN_TURN_SECONDS)
+        draining = asyncio.create_task(session.on_tick())
+        await socket.stalled.wait()
+        await session.on_disconnect()
+        socket.proceed.set()
+        await draining
+        return socket
+
+    socket = asyncio.run(scenario())
+
+    assert not socket.closed
+    assert "conversation.item.created" not in socket.types()
 
 
 def test_a_session_waits_for_a_final_in_the_queue_before_it_closes() -> None:
