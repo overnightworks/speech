@@ -16,19 +16,22 @@ import pytest
 
 from shipped_catalogue import ON_DEMAND_VOICES, PIPER_VOICES, first_language
 from speech_client.outcomes import Unreachable
-from speech_client.wire import Health
+from speech_client.wire import Health, VoiceId
 from speech_service.config import Settings
+from speech_service.hearing_models import HearingModel
 from speech_service.onnxruntime_telemetry import ONNXRUNTIME_TELEMETRY_SWITCH
 from tests.support.clock_support import FakeClock
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+    from types import ModuleType
 
     from speech_client.health import HealthOutcome
-    from speech_client.wire import VoiceId
 
 PROVE = script_module("prove_speech")
+HEARING = script_module("prove_hearing")
+LINES = script_module("voice_lines")
 PIPE_BYTES = 65536
 
 
@@ -64,6 +67,11 @@ def terminate_handler() -> Iterator[None]:
     PROVE.exit_on_terminate()
     yield
     signal.signal(signal.SIGTERM, previous)
+
+
+FAKE_PROBE_RUN_STATUS = 5
+HEARING_MODEL = next(iter(HearingModel)).value
+VOICE = next(iter(VoiceId)).value
 
 
 def run_returning(
@@ -254,10 +262,71 @@ def test_an_entry_outside_probe_run_exits_with_the_status_of_its_reexec(
     proved: list[bool] = []
 
     with pytest.raises(SystemExit) as exit_request:
-        PROVE.enter_proof(lambda _: status, lambda: proved.append(True))
+        PROVE.enter_proof(lambda _: status, lambda _arguments: proved.append(True))
 
     assert exit_request.value.code == status
     assert proved == []
+
+
+@pytest.fixture
+def fake_probe_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A `probe-run` first on PATH that records its command line and exits 5."""
+    bin_directory = tmp_path / "bin"
+    bin_directory.mkdir()
+    record = tmp_path / "probe-run-argv"
+    fake = bin_directory / PROVE.PROBE_RUN
+    fake.write_text(
+        f'#!/bin/sh\nprintf "%s\\n" "$@" > "{record}"\nexit {FAKE_PROBE_RUN_STATUS}\n',
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_directory}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.delenv(PROVE.UNDER_PROBE_RUN_ENV, raising=False)
+    return record
+
+
+@pytest.mark.parametrize(
+    ("script", "arguments"),
+    [
+        pytest.param(
+            HEARING,
+            [
+                "--device",
+                "cpu",
+                "--hearing-model",
+                HEARING_MODEL,
+                "--record",
+                "r.json",
+                "--english-voice-directory",
+                "voices",
+            ],
+            id="prove_hearing",
+        ),
+        pytest.param(
+            LINES,
+            ["--voice", VOICE, "--hearing-model", HEARING_MODEL, "--device", "cpu"],
+            id="voice_lines",
+        ),
+    ],
+)
+def test_an_entry_outside_probe_run_reexecutes_its_own_script_with_its_arguments(
+    fake_probe_run: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    script: ModuleType,
+    arguments: list[str],
+) -> None:
+    monkeypatch.setattr(sys, "argv", [script.__file__, *arguments])
+
+    with pytest.raises(SystemExit) as exit_request:
+        script.main()
+
+    assert exit_request.value.code == FAKE_PROBE_RUN_STATUS
+    command = fake_probe_run.read_text(encoding="utf-8").splitlines()
+    assert command[-len(arguments) - 2 :] == [
+        sys.executable,
+        str(Path(script.__file__).resolve()),
+        *arguments,
+    ]
 
 
 @pytest.mark.usefixtures("restored_terminate_handler")
@@ -268,7 +337,9 @@ def test_an_entry_inside_probe_run_runs_the_proof_not_the_reexec(
     monkeypatch.setenv(PROVE.UNDER_PROBE_RUN_ENV, "1")
     proved: list[bool] = []
 
-    PROVE.enter_proof(Mock(side_effect=AssertionError), lambda: proved.append(True))
+    PROVE.enter_proof(
+        Mock(side_effect=AssertionError), lambda _arguments: proved.append(True)
+    )
 
     assert proved == [True]
 

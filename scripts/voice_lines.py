@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import functools
 import json
 import os
 import select
@@ -38,8 +39,7 @@ from hearing_figures import LIVE_INPUT_RATE, LiveTurn, final_after_speech_stoppe
 from prove_hearing import GERMAN_LONG_TURN, german_clip, hearing_service
 from prove_speech import (
     SENTENCES,
-    UNDER_PROBE_RUN_ENV,
-    prove_under_probe_run,
+    enter_proof,
     run_under_probe_run,
     speak_measured,
 )
@@ -389,10 +389,11 @@ def prove(  # noqa: PLR0913 - each port is one boundary the tests replace
 
 def main() -> None:
     """Run the command under `probe-run` unless the caller is already inside it."""
-    arguments = parse_arguments(sys.argv[1:])
-    if UNDER_PROBE_RUN_ENV not in os.environ:
-        raise SystemExit(run_under_probe_run(sys.argv[1:], script=Path(__file__)))
-    prove_under_probe_run(lambda: prove(arguments))
+    enter_proof(
+        functools.partial(run_under_probe_run, script=Path(__file__)),
+        prove,
+        parse_arguments,
+    )
 
 
 if __name__ == "__main__":
