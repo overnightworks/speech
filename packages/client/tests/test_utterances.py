@@ -24,6 +24,7 @@ from packages.client.tests.support.scripted_hearing_support import (
     scripted,
 )
 from packages.client.tests.support.utterances_support import (
+    UNASKED_SESSION_UPDATE_DE,
     Bounds,
     Browser,
     Recorder,
@@ -53,7 +54,6 @@ from speech_client.hearing import (
     ReconnectFailed,
     Refused,
     SessionTokens,
-    session_update,
 )
 from speech_client.outcomes import (
     Busy,
@@ -120,7 +120,11 @@ def test_one_session_goes_to_the_origin_with_both_tokens_and_the_languages() -> 
         token_headers(workload_token=WORKLOAD_TOKEN, person_token=PERSON_TOKEN).items()
         <= {name.title(): value for name, value in headers.items()}.items()
     )
-    assert first == session_update(languages)
+    assert first == (
+        '{"type":"session.update","session":{"type":"transcription","audio":{"input":'
+        '{"format":{"type":"audio/pcm","rate":24000},"transcription":{"model":"speech",'
+        '"languages":["en","de"]},"turn_detection":{"type":"server_vad"}}}}}'
+    )
 
 
 @pytest.mark.parametrize("asked", [True, False], ids=["with-on-sound", "without"])
@@ -138,7 +142,7 @@ def test_the_session_asks_for_sounds_only_when_the_app_passes_on_sound(
     asked_for = parse_client_event(first).session.audio.input.sound_detection
     assert (asked_for is not None) is asked
     if not asked:
-        assert first == session_update((Language.DE,))
+        assert first == UNASKED_SESSION_UPDATE_DE
 
 
 def test_the_texts_of_the_browser_reach_on_text_in_order() -> None:
