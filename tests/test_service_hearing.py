@@ -2,8 +2,10 @@
 
 from typing import TYPE_CHECKING
 
+import ctranslate2
 import pytest
 from fastapi.testclient import TestClient
+from faster_whisper import WhisperModel
 from starlette.status import HTTP_200_OK, HTTP_503_SERVICE_UNAVAILABLE
 
 from shipped_catalogue import CATALOGUE
@@ -15,6 +17,7 @@ from speech_service.hearing import (
     Hearing,
     ResourceUnavailableError,
     hearing_from_settings,
+    installed_libraries,
 )
 from speech_service.hearing_models import (
     HearingModel,
@@ -183,6 +186,30 @@ def test_a_start_with_sounds_off_needs_no_sound_model(tmp_path: Path) -> None:
     Runtime.from_settings(settings)
 
 
+def test_a_start_with_sounds_on_and_the_sound_model_present_starts_hearing_unloaded(
+    tmp_path: Path,
+) -> None:
+    """WIRE-169: with sounds on and the model present the start goes on."""
+    settings = _fetched_settings(
+        tmp_path, sound_model_directory=write_model_directory(tmp_path / "sounds")
+    )
+
+    runtime = Runtime.from_settings(settings)
+
+    assert runtime.hearing.health() == {
+        "model": HearingModel.SMALL.value,
+        "ready": False,
+    }
+    runtime.close()
+
+
+def test_the_installed_libraries_are_faster_whispers_and_ctranslate2s() -> None:
+    libraries = installed_libraries()
+
+    assert libraries.model_factory is WhisperModel
+    assert libraries.cuda_device_count is ctranslate2.get_cuda_device_count
+
+
 def test_a_start_without_hearing_never_reads_the_sound_settings(
     tmp_path: Path,
 ) -> None:
@@ -231,6 +258,17 @@ def test_the_sound_model_loads_only_after_the_engine_is_ready(tmp_path: Path) ->
 
     assert opened == []
     assert hearing.open_sound_stream() is None
+
+
+def test_a_closed_hearing_opens_no_detector() -> None:
+    hearing = Hearing(FakeHearing(), LoopClock())
+    hearing.load()
+    assert hearing.open_detector() is not None
+
+    hearing.close()
+
+    with pytest.raises(RuntimeError, match="hearing is unavailable"):
+        hearing.open_detector()
 
 
 def test_a_loaded_hearing_opens_a_sound_stream_and_closing_it_stops_the_scoring(

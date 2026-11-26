@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import gc
 import logging
+import math
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -403,7 +404,8 @@ class Hearing:
         self._no_sessions.set()
         self._recordings = 0
         self._recordings_guard = threading.Lock()
-        self._drain_began_at: float | None = None
+        self._ready_guard = threading.Lock()
+        self._drain_began_at = math.inf
 
     def load(self) -> None:
         """Load the engine, then the sound model.
@@ -460,13 +462,13 @@ class Hearing:
 
     def begin_drain(self) -> None:
         """Admit no new session or recording; the ones admitted run on."""
-        if self._drain_began_at is None:
+        if not self.draining:
             self._drain_began_at = self.gate.clock.now()
 
     @property
     def draining(self) -> bool:
         """Whether the drain began."""
-        return self._drain_began_at is not None
+        return self._drain_began_at != math.inf
 
     def drain_turn_over(self) -> bool:
         """Whether an open turn is due to be cut: the drain's turn bound has passed."""
@@ -478,8 +480,7 @@ class Hearing:
         return max(0.0, bound - self._drain_age())
 
     def _drain_age(self) -> float:
-        if self._drain_began_at is None:
-            return 0.0
+        """Seconds since the drain began; every caller runs once it did."""
         return self.gate.clock.now() - self._drain_began_at
 
     async def sessions_ended(self) -> None:
@@ -509,11 +510,9 @@ class Hearing:
     def submit_sound(self, window: SoundWindow) -> Future[Scores]:
         """Score `window` on the sound worker, apart from the decode worker.
 
-        Raises `RuntimeError` while sound events are unavailable or after the close.
+        Only a session that holds a sound stream calls it, and a stream exists only
+        with sound taggers. Raises `RuntimeError` after the close.
         """
-        if self._sounds is None:
-            message = "sound events are unavailable"
-            raise RuntimeError(message)
         return self._sounds.submit(window)
 
     def open_session(self, limit: int) -> Lease | None:
@@ -556,32 +555,29 @@ class Hearing:
 
         The worker closes the lease when the job returns; a future cancelled before
         it started closes it in its done-callback; a submission that cannot be made
-        closes it here. Raises `RuntimeError` for the last two causes: no engine, or
-        hearing already shut down.
+        closes it here. Raises `RuntimeError` when there is no engine, a closed
+        hearing's included: the hand-over to the worker and the close's removal of
+        the engine are decided under one lock, so a submission is handed over before
+        the close or refused.
         """
-        engine = self._ready
-
-        def run() -> Result:
-            try:
-                return job(engine)
-            finally:
-                lease.close()
-
-        if engine is None:
+        with self._ready_guard:
+            engine = self._ready
+            future = (
+                None
+                if engine is None
+                else self._worker.submit(_run_job, engine, job, lease)
+            )
+        if future is None:
             lease.close()
             message = "hearing is unavailable"
             raise RuntimeError(message)
-        try:
-            future = self._worker.submit(run)
-        except RuntimeError:
-            lease.close()
-            raise
         future.add_done_callback(lambda _done: lease.close())
         return future
 
     def close(self) -> None:
         """Take no new decode, wait for the running one, then free the engine."""
-        self._ready = None
+        with self._ready_guard:
+            self._ready = None
         self._worker.shutdown(wait=True, cancel_futures=True)
         if self._sounds is not None:
             self._sounds.close()
@@ -594,6 +590,15 @@ class Hearing:
             "model": self._engine.model_name if self._engine else "unavailable",
             "ready": self.capture() is not None,
         }
+
+
+def _run_job[Result](
+    engine: HearingEngine, job: Callable[[HearingEngine], Result], lease: Lease
+) -> Result:
+    try:
+        return job(engine)
+    finally:
+        lease.close()
 
 
 def hearing_from_settings(settings: Settings, clock: Clock) -> Hearing:
