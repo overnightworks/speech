@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import gc
 import logging
+import math
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -404,7 +405,7 @@ class Hearing:
         self._recordings = 0
         self._recordings_guard = threading.Lock()
         self._ready_guard = threading.Lock()
-        self._drain_began_at: float | None = None
+        self._drain_began_at = math.inf
 
     def load(self) -> None:
         """Load the engine, then the sound model.
@@ -461,13 +462,13 @@ class Hearing:
 
     def begin_drain(self) -> None:
         """Admit no new session or recording; the ones admitted run on."""
-        if self._drain_began_at is None:
+        if not self.draining:
             self._drain_began_at = self.gate.clock.now()
 
     @property
     def draining(self) -> bool:
         """Whether the drain began."""
-        return self._drain_began_at is not None
+        return self._drain_began_at != math.inf
 
     def drain_turn_over(self) -> bool:
         """Whether an open turn is due to be cut: the drain's turn bound has passed."""
