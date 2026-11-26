@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from packages.client.tests.support.utterances_support import (
+    UNASKED_SESSION_UPDATE_DE,
     Recorder,
     completed,
     hear,
@@ -62,11 +63,7 @@ def test_the_session_asks_for_sustained_speech_only_when_the_app_passes_the_call
     (first,) = arrived
     assert parse_client_event(first).session.audio.input.sustained_speech == ask
     if not callback:
-        assert first == (
-            '{"type":"session.update","session":{"type":"transcription","audio":{"input":'
-            '{"format":{"type":"audio/pcm","rate":24000},"transcription":{"model":"speech",'
-            '"languages":["de"]},"turn_detection":{"type":"server_vad"}}}}}'
-        )
+        assert first == UNASKED_SESSION_UPDATE_DE
     elif duration_ms is None:
         assert b"duration_ms" not in first.encode()
 

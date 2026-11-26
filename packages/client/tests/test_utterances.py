@@ -24,6 +24,7 @@ from packages.client.tests.support.scripted_hearing_support import (
     scripted,
 )
 from packages.client.tests.support.utterances_support import (
+    UNASKED_SESSION_UPDATE_DE,
     Bounds,
     Browser,
     Recorder,
@@ -100,11 +101,6 @@ type Peer = Callable[[], contextlib.AbstractAsyncContextManager[int]]
 DISCONNECT = {"type": "websocket.disconnect", "code": 1001}
 # Far below the session deadline, so a stalled opening is told from a late one.
 STALLED_OPENING_SECONDS = 0.3
-UNASKED_SESSION_UPDATE_DE = (
-    '{"type":"session.update","session":{"type":"transcription","audio":{"input":'
-    '{"format":{"type":"audio/pcm","rate":24000},"transcription":{"model":"speech",'
-    '"languages":["de"]},"turn_detection":{"type":"server_vad"}}}}}'
-)
 
 
 def test_one_session_goes_to_the_origin_with_both_tokens_and_the_languages() -> None:

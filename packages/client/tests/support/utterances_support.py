@@ -57,6 +57,11 @@ if TYPE_CHECKING:
 type Peer = Callable[[], contextlib.AbstractAsyncContextManager[int]]
 
 WAIT_SECONDS = 10
+UNASKED_SESSION_UPDATE_DE = (
+    '{"type":"session.update","session":{"type":"transcription","audio":{"input":'
+    '{"format":{"type":"audio/pcm","rate":24000},"transcription":{"model":"speech",'
+    '"languages":["de"]},"turn_detection":{"type":"server_vad"}}}}}'
+)
 
 
 def ended_already() -> asyncio.Event:
