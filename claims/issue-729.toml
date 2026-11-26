@@ -1,7 +1,0 @@
-claim_id = "3d899e09ce19480a8bbefffaa1180e36"
-agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
-role = "builder"
-base = "126199e9efa09558d690dea758fdb9d3f2af0fa1"
-branch = "claude/issue-729-the-capture-flows-open-their-page-throug"
-scope = ["tests/support/browser_capture_support.py", "tests/support/browser_support.py"]
-opened_commit = "85f471c0de30894c0963353bae5d1ed669d058a7"
