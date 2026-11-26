@@ -65,8 +65,6 @@ FAILURE_DIRECTORY_VARIABLE = "SPEECH_BROWSER_FAILURE_DIR"
 STEPPED_CONTEXT = PAGE_FILES / "stepped_context.js"
 WAIT_MS = 20_000
 WAIT_SECONDS = 20
-STOP_BOUND_MS = 1000
-SETTLE_MS = 300
 SOUND_SECONDS = {
     "short.wav": 0.4,
     "other.wav": 0.4,
@@ -243,12 +241,6 @@ class Stage:
         """Wait until `condition` holds on `s`, what the page saw."""
         await self.page.wait_for_function(_on_snapshot(condition), timeout=WAIT_MS)
 
-    async def settle(self) -> None:
-        """Let a bounded stretch of page time pass, to show nothing more happens."""
-        await self.page.evaluate(
-            "ms => new Promise(resolve => setTimeout(resolve, ms))", SETTLE_MS
-        )
-
     async def snapshot(self) -> dict[str, object]:
         """What the page saw, after the checks that hold in every cell.
 
@@ -270,12 +262,6 @@ class Stage:
         """Wait until every sound has ended, then what the page saw."""
         await self.until(ALL_ENDED)
         return await self.snapshot()
-
-    async def silent_within(self) -> float:
-        """Milliseconds from the last switch of the app until the output read silent."""
-        return await self.page.evaluate(
-            "threshold => window.playerPage.silentAfterAction(threshold)", SILENT_RMS
-        )
 
 
 @dataclass
@@ -428,6 +414,17 @@ def frames_of(seen: dict[str, object], seconds: float) -> int:
 def peaks_between(seen: dict[str, object], since: float, until: float) -> list[float]:
     """The peaks of the quanta that start in [`since`, `until`) of the context clock."""
     return [peak for at, peak in seen["heardPeaks"] if since <= at < until]
+
+
+def loudest_peak(seen: dict[str, object], since: float = 0.0) -> float:
+    """The loudest quantum the ear reported from `since` of the context clock on."""
+    return max(peaks_between(seen, since, math.inf), default=0.0)
+
+
+def audible_after_edge(seen: dict[str, object], name: str) -> float:
+    """The seconds the output was audible after the edge of the first switch `name`."""
+    [at, *_] = action_times(seen, name)
+    return audible_seconds(seen, at + EDGE_SECONDS, math.inf)
 
 
 def peaks_wholly_between(
