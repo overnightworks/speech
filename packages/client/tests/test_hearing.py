@@ -39,8 +39,16 @@ from packages.client.tests.support.hearing_support import (
     stalled_service,
     takes_every_event,
 )
+from packages.client.tests.support.reconnect_support import WHOLE_RUN_SECONDS
+from packages.client.tests.support.scripted_hearing_support import Visit, scripted
 from speech_client._failures import settled
-from speech_client.hearing import OPENING_SECONDS, Closed, HearingSession, Refused
+from speech_client.hearing import (
+    OPENING_SECONDS,
+    Closed,
+    HearingSession,
+    Refused,
+    SessionTokens,
+)
 from speech_client.outcomes import (
     Busy,
     BusyWait,
@@ -494,6 +502,41 @@ def test_an_end_before_the_connection_opens_ends_the_session_at_once(
 
     assert ended == outcome
     assert elapsed < well_before(CLOSE_TIMEOUT_SECONDS)
+
+
+def test_a_connection_that_opens_after_the_session_ended_is_aborted() -> None:
+    async def scenario() -> tuple[HearingOutcome | None, int | None]:
+        asked = asyncio.Event()
+
+        async def answers_only_once_cancelled() -> SessionTokens:
+            asked.set()
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.Event().wait()
+            return await fixed_tokens()
+
+        closed_with: list[int | None] = []
+        closed = asyncio.Event()
+
+        async def waits_for_the_client_to_go(
+            connection: ServerConnection, _: Visit
+        ) -> None:
+            await connection.wait_closed()
+            closed_with.append(connection.close_code)
+            closed.set()
+
+        async with scripted(waits_for_the_client_to_go) as (port, _):
+            session = session_to(port, 30, 1, 5, answers_only_once_cancelled)
+            async with session:
+                await asked.wait()
+                session.send(b"over the held limit")
+                async with asyncio.timeout(WHOLE_RUN_SECONDS):
+                    await closed.wait()
+        return session.outcome, closed_with[0]
+
+    outcome, close_code = asyncio.run(scenario())
+
+    assert outcome == OverCap()
+    assert close_code == CloseCode.ABNORMAL_CLOSURE
 
 
 def test_a_caller_timeout_during_a_stalled_opening_leaves_no_task_behind() -> None:
