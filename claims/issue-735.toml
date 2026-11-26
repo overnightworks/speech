@@ -1,0 +1,7 @@
+claim_id = "a3e7467fd062490fa586cb04b5aafc88"
+agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
+role = "builder"
+base = "1b2f3229bbb57bae2ead1fc09b0efcb3b5212e08"
+branch = "claude/issue-735-the-speak-stream-tests-take-the-sse-even"
+scope = ["tests/scripts/test_speaking_marks.py", "tests/support/speak_support.py", "tests/test_wire_route_sse.py"]
+opened_commit = "f76374f0cc7ff7fc36d91596ea50c177c2f3cfd3"
