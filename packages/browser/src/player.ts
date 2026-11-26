@@ -362,7 +362,7 @@ class PlayerRun {
       this.#playing.held = { at: endsAt };
     }
     if (this.#call !== undefined) {
-      this.#call.scheduled = false;
+      this.#call.scheduledOn = undefined;
     }
     void this.#suspendOnceFaded(endsAt, ++this.#fade);
   }
@@ -382,9 +382,7 @@ class PlayerRun {
   }
 
   #settleCall(call: HoldCall, held: Held): void {
-    if (this.#call === call) {
-      this.#call = undefined;
-    }
+    this.#call = undefined;
     call.item.onEnd = undefined;
     call.result.resolve(held);
   }
@@ -395,11 +393,11 @@ class PlayerRun {
    * the sound is held at its point, which stays: a newer `pauseAt` holds the player there, and a `resume()` plays on from it.
    */
   #overtake(call: HoldCall, { restoreVolume }: { readonly restoreVolume: boolean }): void {
-    if (call.scheduled) {
-      call.scheduled = false;
-      const playing = this.#playing?.item === call.item ? this.#playing : undefined;
-      const faded = playing?.heldBy(this.#context.currentTime) === true;
-      if (playing !== undefined && !faded) {
+    const playing = call.scheduledOn;
+    if (playing !== undefined) {
+      call.scheduledOn = undefined;
+      const faded = playing.heldBy(this.#context.currentTime);
+      if (!faded) {
         playing.held = undefined;
       }
       this.#fade += 1;
@@ -415,9 +413,6 @@ class PlayerRun {
   }
 
   #targetEnded(call: HoldCall, end: PlaybackEnd): void {
-    if (this.#call !== call) {
-      return;
-    }
     if (end.kind === "stopped" || end.kind === "muted") {
       this.#settleCall(call, { kind: "overtaken" });
       return;
@@ -433,7 +428,7 @@ class PlayerRun {
   /** Looks at the waiting call again: the target may now be playing, have more chunks, or have ended. */
   #advanceCall(): void {
     const call = this.#call;
-    if (call === undefined || call.scheduled) {
+    if (call === undefined || call.scheduledOn !== undefined) {
       return;
     }
     const ended = call.item.endedAs;
@@ -465,9 +460,6 @@ class PlayerRun {
    */
   #fadeAhead(call: HoldCall, playing: Scheduled): void {
     const endsAt = contextTimeAt(playing.chunks, call.position);
-    if (endsAt === undefined) {
-      return;
-    }
     const startsAt = endsAt - FADE_SECONDS;
     const param = this.#gain.gain;
     const rising = this.#ramp?.target === 1 && this.#ramp.endsAt > startsAt ? this.#ramp : undefined;
@@ -481,7 +473,7 @@ class PlayerRun {
     param.linearRampToValueAtTime(0, endsAt);
     this.#ramp = { from, target: 0, startsAt, endsAt };
     playing.held = { at: endsAt, seconds: call.position };
-    call.scheduled = true;
+    call.scheduledOn = playing;
     void this.#suspendOnceFaded(endsAt, this.#fade);
   }
 
@@ -666,10 +658,8 @@ class PlayerRun {
       }
       return;
     }
-    if (generation === this.#generation) {
-      scheduled.bodyScheduled = true;
-      this.#settle(scheduled);
-    }
+    scheduled.bodyScheduled = true;
+    this.#settle(scheduled);
   }
 
   async #scheduleChunks(

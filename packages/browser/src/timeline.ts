@@ -34,9 +34,9 @@ export function endOf(chunks: readonly Chunk[]): number {
 
 /**
  * The inverse of `playedBy`: the earliest context time at which it reaches `position` (above 0), inside the chunks'
- * content and never into a gap between them. Undefined past the chunks.
+ * content and never into a gap between them. A position past the chunks is reached where they end.
  */
-export function contextTimeAt(chunks: readonly Chunk[], position: number): number | undefined {
+export function contextTimeAt(chunks: readonly Chunk[], position: number): number {
   const bounds = [...new Set(chunks.flatMap(({ start, seconds }) => [start, start + seconds]))].sort((a, b) => a - b);
   for (let index = 1; index < bounds.length; index += 1) {
     const from = bounds[index - 1] as number;
@@ -47,7 +47,7 @@ export function contextTimeAt(chunks: readonly Chunk[], position: number): numbe
       return from + ((position - before) / (reached - before)) * (to - from);
     }
   }
-  return undefined;
+  return endOf(chunks);
 }
 
 /**

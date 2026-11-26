@@ -41,6 +41,7 @@ from tests.support.browser_support import (
     PAGE_FILES,
     SOUNDS_PATH,
     STREAMED_PATH,
+    UNSTREAMED_PATH,
     VOICE_PATH,
     AppSide,
     chromium_page,
@@ -98,6 +99,8 @@ SUSPENDED = "s.contextStates[0] === 'suspended'"
 # What the stepped stage plays of a sound before the cell's first switch: inside the
 # first chunk of a streamed sound, which is the shortest sound a cell hears.
 HEARD_FOR_SECONDS = 0.1
+# A switch thrown this many quanta after the one before turns the volume mid-edge.
+INTO_THE_EDGE_QUANTA = 4
 # A stretch the stepped stage steps to show nothing more happens: longer than an edge.
 STRETCH_SECONDS = 2 * EDGE_SECONDS
 # How long the stepped stage steps for a sound to end; stepping costs no page time.
@@ -107,6 +110,7 @@ SHORT = f"{SOUNDS_PATH}/short.wav"
 OTHER = f"{SOUNDS_PATH}/other.wav"
 LONG = f"{SOUNDS_PATH}/long.wav"
 NATURAL = f"{SOUNDS_PATH}/natural.wav"
+UNSTREAMED = f"{UNSTREAMED_PATH}/short.wav"
 HELD = f"{HELD_PATH}/short.wav"
 HEADED = f"{HEADED_PATH}/short.wav"
 CUT = f"{CUT_PATH}/short.wav"

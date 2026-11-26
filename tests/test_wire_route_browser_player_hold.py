@@ -20,6 +20,7 @@ from tests.support.browser_player_support import (
     EDGE_SECONDS,
     FULL_PEAK,
     HEADED,
+    INTO_THE_EDGE_QUANTA,
     LONG,
     MARKER,
     MARKER_SECONDS,
@@ -37,6 +38,7 @@ from tests.support.browser_player_support import (
     TONE_PEAK,
     SteppedStage,
     action_times,
+    audible_after_edge,
     audible_seconds,
     bytes_of,
     edge_peaks,
@@ -51,6 +53,7 @@ from tests.support.browser_player_support import (
     peaks_wholly_between,
     quantum_seconds,
     ramp_end,
+    result_of,
     reversal_peaks,
     start_of,
     starts,
@@ -98,8 +101,6 @@ def switch(
 
 # What of the tone the output plays before the pause, which lies well inside it.
 PLAYED_BEFORE_PAUSE_SECONDS = 0.5
-# A switch thrown this many quanta after the one before turns the volume mid-edge.
-INTO_THE_EDGE_QUANTA = 4
 # The streamed sound's first bytes have played out and its body has not come.
 OUTPUT_SILENT = (
     f"s.heardPeaks.some(([, peak]) => peak > {SILENT_PEAK})"
@@ -112,6 +113,8 @@ RUNNING = "s.contextStates[0] === 'running'"
 STREAMED_WITHIN_SECONDS = 1.0
 # A first chunk this long outlasts what is played before a stop and its edge.
 LEAD_SECONDS = 1.0
+# A position the sound has played long since: a call for it holds at once.
+PASSED_POSITION = 0.01
 
 
 @pytest.mark.parametrize("sound", [MARKER, MARKER_STREAMED], ids=["whole", "streamed"])
@@ -458,6 +461,23 @@ def test_a_sound_handed_over_as_the_stopped_one_ends_early_starts_at_full_volume
     assert min(heard) >= FULL_PEAK
 
 
+def test_a_streamed_body_that_arrives_after_a_stop_is_not_scheduled(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with stepped(tmp_path) as stage:
+            await stage.prepare_bytes("long", LONG)
+            await stage.hear(fed("long", lead_seconds=LEAD_SECONDS))
+            await stage.act("feedWhile", "long", "stop")
+            return await stage.finish()
+
+    seen = asyncio.run(scenario())
+
+    assert ends(seen) == ["stopped"]
+    assert len(seen["scheduledChunks"]) == 1
+    assert seen["sounds"][0]["playedSeconds"] < LEAD_SECONDS
+
+
 def test_stop_while_paused_ends_every_sound_at_once_and_a_later_one_waits_for_resume(
     tmp_path: Path,
 ) -> None:
@@ -554,6 +574,125 @@ def test_pause_while_the_resume_is_still_ramping_up_holds_the_sound_without_a_cl
     assert ends(seen) == ["played"]
     assert largest_step([peak for _, peak in tone_quanta(seen, start)]) < CLICK_STEP
     assert min(peaks_outside_edges(seen, start)) >= FULL_PEAK
+
+
+def test_resume_while_a_stop_fades_the_sound_out_does_not_fade_it_in(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with stepped(tmp_path) as stage:
+            await stage.hear(url(LONG))
+            await stage.act("inOneTask", "pause", "stop", "resume")
+            await stage.finish()
+            await stage.step_for(STRETCH_SECONDS)
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    edge = edge_peaks(seen, "pause+stop+resume")
+    assert ends(seen) == ["stopped"]
+    assert largest_step(edge) < CLICK_STEP
+    assert edge[-1] < SILENT_PEAK
+    assert audible_after_edge(seen, "pause+stop+resume") == 0
+
+
+def test_a_resume_the_context_refuses_leaves_the_player_paused_until_the_next_resume(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> tuple[
+        dict[str, object], dict[str, object], dict[str, object]
+    ]:
+        async with stepped(tmp_path) as stage:
+            await stage.hear(url(LONG))
+            await stage.paused()
+            before = await stage.snapshot()
+            await stage.act("rejectNextResume")
+            await stage.act("resume")
+            await stage.stand_still_for(STRETCH_SECONDS)
+            refused = await stage.snapshot()
+            await stage.act("resume")
+            return before, refused, await stage.finish()
+
+    before, refused, seen = asyncio.run(scenario())
+
+    assert refused["resumesCalled"] == before["resumesCalled"] + 1
+    assert refused["contextStates"] == ["suspended"]
+    assert ends(refused) == [None]
+    assert refused["playedNow"] == before["playedNow"]
+    assert ends(seen) == ["played"]
+
+
+def test_a_refused_resume_that_a_mute_came_before_leaves_the_flow_to_the_mute(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with stepped(tmp_path) as stage:
+            await stage.hear(url(LONG))
+            await stage.paused()
+            await stage.act("hold", "resume")
+            await stage.act("rejectNextResume")
+            await stage.act("resume")
+            await stage.set_muted(muted=True)
+            await stage.act("release")
+            await stage.set_muted(muted=False)
+            await stage.hand_over(url(SHORT))
+            return await stage.finish()
+
+    seen = asyncio.run(scenario())
+
+    assert ends(seen) == ["muted", "played"]
+
+
+def test_a_resume_that_settles_after_a_later_pause_applies_nothing(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> tuple[dict[str, object], dict[str, object]]:
+        async with stepped(tmp_path) as stage:
+            await stage.hand_over(url(HEADED))
+            await stage.until(RUNNING)
+            await stage.paused()
+            stage.side.held_release.set()
+            await stage.until(f"s.sourcesStarted > 0 && {SUSPENDED}")
+            await stage.act("hold", "resume")
+            await stage.act("resume")
+            await stage.act("pause")
+            await stage.act("release")
+            await stage.step_until(SUSPENDED, within_seconds=EDGE_SECONDS)
+            await stage.stand_still_for(STRETCH_SECONDS)
+            while_paused = await stage.snapshot()
+            await stage.act("resume")
+            return while_paused, await stage.finish()
+
+    while_paused, seen = asyncio.run(scenario())
+
+    assert starts(while_paused) == [None]
+    assert ends(while_paused) == [None]
+    assert (starts(seen), ends(seen)) == (["playing"], ["played"])
+
+
+def test_a_hold_asked_while_an_earlier_suspend_is_awaited_lands_with_its_own_suspend(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> tuple[dict[str, object], dict[str, object]]:
+        async with stepped(tmp_path) as stage:
+            await stage.hear(url(LONG))
+            await stage.act("hold", "suspend")
+            await stage.paused()
+            await stage.act("resumeThenPauseAt", 0, PASSED_POSITION)
+            await stage.act("release")
+            awaiting = await stage.snapshot()
+            await stage.until_resolved()
+            await stage.stand_still_for(STRETCH_SECONDS)
+            return awaiting, await stage.snapshot()
+
+    awaiting, seen = asyncio.run(scenario())
+
+    assert result_of(awaiting) is None
+    assert seen["contextStates"] == ["suspended"]
+    assert result_of(seen) == {
+        "kind": "held",
+        "playedSeconds": pytest.approx(seen["playedNow"][0]),
+    }
 
 
 def test_resume_after_stop_changes_nothing_and_the_next_sound_plays_at_full_volume(

@@ -26,6 +26,7 @@ from tests.support.browser_player_support import (
     CLICK_STEP,
     CUT_LATE,
     EDGE_SECONDS,
+    JUNK,
     LONG,
     OTHER,
     SHORT,
@@ -650,17 +651,23 @@ def test_a_queued_target_is_held_at_the_position_once_it_plays(tmp_path: Path) -
     assert seen["playedNow"][1] == HOLD_AT
 
 
+@pytest.mark.parametrize("call_first", [False, True], ids=["pause_first", "call_first"])
 def test_a_queued_target_while_paused_is_held_after_the_resume(
-    tmp_path: Path,
+    tmp_path: Path, *, call_first: bool
 ) -> None:
     position = 0.2
 
     async def scenario() -> tuple[dict[str, object], dict[str, object]]:
         async with stepped(tmp_path) as stage:
             await stage.hear_decoded(OTHER)
-            await stage.paused()
-            await stage.hand_over_decoded(SHORT)
-            await stage.pause_at(1, position)
+            if call_first:
+                await stage.hand_over_decoded(SHORT)
+                await stage.pause_at(1, position)
+                await stage.paused()
+            else:
+                await stage.paused()
+                await stage.hand_over_decoded(SHORT)
+                await stage.pause_at(1, position)
             await stage.stand_still_for(STRETCH_SECONDS)
             await stage.act("resume")
             waiting = await stage.snapshot()
@@ -692,6 +699,61 @@ def test_a_playback_of_another_player_is_overtaken_and_the_sound_plays_on(
     assert result_of(seen) == {"kind": "overtaken"}
     assert ends(seen) == ["played"]
     assert seen["contextStates"][0] == "running"
+
+
+@pytest.mark.parametrize("switch", ["stop", "mute", "close"])
+def test_a_target_that_ended_stopped_or_muted_overtakes_the_call(
+    tmp_path: Path, switch: str
+) -> None:
+    throw, end_kind = SWITCHES[switch]
+
+    async def scenario() -> dict[str, object]:
+        async with stepped(tmp_path) as stage:
+            await stage.hear_decoded(LONG)
+            await throw(stage)
+            await stage.finish()
+            await stage.pause_at(0, HOLD_AT)
+            await stage.until("s.pauseAts[0].result !== null")
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    assert result_of(seen) == {"kind": "overtaken"}
+    assert ends(seen) == [end_kind]
+    assert seen["contextStates"] == ["closed" if switch == "close" else "running"]
+
+
+@pytest.mark.parametrize(
+    ("flow", "result_at_release"),
+    [("pausing", None), ("paused", {"kind": "held_after_end"})],
+)
+def test_a_queued_target_that_fails_while_the_player_pauses_ends_the_call_after_its_end(
+    tmp_path: Path, flow: str, result_at_release: dict[str, str] | None
+) -> None:
+    async def scenario() -> tuple[dict[str, object], dict[str, object]]:
+        async with stepped(tmp_path) as stage:
+            await stage.hear(url(LONG))
+            await stage.act("hold", "decode")
+            await stage.hand_over(JUNK)
+            await stage.until("s.decodesCalled >= 1")
+            await stage.pause_at(1, HOLD_AT)
+            if flow == "paused":
+                await stage.paused()
+            else:
+                await stage.act("pause")
+            await stage.act("release")
+            await stage.until("s.sounds[1].endedValue === 'failed'")
+            failed = await stage.snapshot()
+            await stage.until_resolved()
+            await stage.stand_still_for(STRETCH_SECONDS)
+            return failed, await stage.snapshot()
+
+    failed, seen = asyncio.run(scenario())
+
+    assert result_of(failed) == result_at_release
+    assert result_of(seen) == {"kind": "held_after_end"}
+    assert ends(seen) == [None, "failed"]
+    assert seen["contextStates"] == ["suspended"]
 
 
 def test_a_call_while_a_stops_edge_is_in_flight_is_overtaken(tmp_path: Path) -> None:

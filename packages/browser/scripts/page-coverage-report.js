@@ -5,13 +5,22 @@ import { existsSync } from "node:fs";
 import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { CoverageReport } from "monocart-coverage-reports";
+import vitestConfig from "../vitest.config.ts";
 
 const [rawDirectory] = process.argv.slice(2);
 // The report empties its directory before it writes, so the directory is its own.
 const REPORT_DIRECTORY = "coverage/flow";
 const LCOV_FILE = "coverage-browser-flow.lcov";
-// The unit lcov measures the resampler and the generated module; this one measures the rest.
-const MEASURED = ["src/capture.ts", "src/capture-worklet.ts", "src/player.ts", "src/index.ts"];
+// The unit lcov measures the sources vitest's coverage names; this one measures every other source of the package, so
+// that a new file lands in one of the two reports and, if no flow loads it, fails the check below.
+const UNIT_MEASURED = new Set(vitestConfig.test.coverage.include);
+const sources = await readdir("src", { recursive: true });
+// A source is any file in an extension the package's tsconfig compiles, unless vitest runs it as a test.
+const SOURCE_EXTENSION = /\.[cm]?tsx?$/;
+const MEASURED = sources
+  .map((name) => path.join("src", name))
+  .filter((name) => SOURCE_EXTENSION.test(name) && !vitestConfig.test.include.some((pattern) => path.matchesGlob(name, pattern)))
+  .filter((name) => !UNIT_MEASURED.has(name));
 const BUILD_PATH = "/dist/";
 const repositoryRoot = path.resolve("../..");
 const lcovPath = path.join(REPORT_DIRECTORY, LCOV_FILE);
@@ -58,6 +67,8 @@ const missing = MEASURED.map((name) => path.relative(repositoryRoot, path.resolv
   (name) => !reported.has(name),
 );
 if (missing.length > 0) {
-  console.error(`Sources with no browser coverage record:\n  ${missing.join("\n  ")}`);
+  console.error(
+    `Sources with no browser coverage record (a flow must load each, or vitest's coverage.include must name it):\n  ${missing.join("\n  ")}`,
+  );
   process.exitCode = 1;
 }
