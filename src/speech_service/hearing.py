@@ -479,8 +479,7 @@ class Hearing:
         return max(0.0, bound - self._drain_age())
 
     def _drain_age(self) -> float:
-        if self._drain_began_at is None:
-            return 0.0
+        """Seconds since the drain began; every caller runs once it did."""
         return self.gate.clock.now() - self._drain_began_at
 
     async def sessions_ended(self) -> None:
@@ -510,11 +509,9 @@ class Hearing:
     def submit_sound(self, window: SoundWindow) -> Future[Scores]:
         """Score `window` on the sound worker, apart from the decode worker.
 
-        Raises `RuntimeError` while sound events are unavailable or after the close.
+        Only a session that holds a sound stream calls it, and a stream exists only
+        with sound taggers. Raises `RuntimeError` after the close.
         """
-        if self._sounds is None:
-            message = "sound events are unavailable"
-            raise RuntimeError(message)
         return self._sounds.submit(window)
 
     def open_session(self, limit: int) -> Lease | None:
