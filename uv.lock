@@ -724,7 +724,7 @@ dependencies = [
 
 [[package]]
 name = "overnightworks-speech-client"
-version = "0.25.0"
+version = "0.26.0"
 source = { editable = "packages/client" }
 dependencies = [
     { name = "overnightworks-logline" },
@@ -749,12 +749,12 @@ dev = [{ name = "overnightworks-logline", git = "https://github.com/overnightwor
 
 [[package]]
 name = "overnightworks-speech-provider-contract"
-version = "0.25.0"
+version = "0.26.0"
 source = { editable = "providers/provider-contract" }
 
 [[package]]
 name = "overnightworks-speech-service"
-version = "0.25.0"
+version = "0.26.0"
 source = { editable = "." }
 dependencies = [
     { name = "av" },
