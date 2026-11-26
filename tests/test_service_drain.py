@@ -36,7 +36,6 @@ from speech_client.realtime_wire import (
     SpeechStopped,
     TranscriptCompleted,
     TranscriptFailed,
-    parse_server_event,
 )
 from speech_client.relay import HOP_FRAME_BYTES
 from speech_client.utterances import (
@@ -66,6 +65,7 @@ from tests.support.live_support import (
     SPEECH_LEVEL,
     append,
     audio,
+    read_event,
 )
 from tests.support.speak_support import speak_body
 from tests.support.tcp_server_support import free_loopback_port, wait_until_listening
@@ -152,7 +152,7 @@ def pair(tmp_path: Path) -> Iterator[_Pair]:
 
 
 async def _received(connection: ClientConnection) -> ServerEvent:
-    return parse_server_event(await asyncio.wait_for(connection.recv(), _WAIT_SECONDS))
+    return read_event(await asyncio.wait_for(connection.recv(), _WAIT_SECONDS))
 
 
 async def _until_closed(
@@ -427,7 +427,7 @@ def test_a_hearing_goes_on_at_the_other_process_after_a_stopped_one_finished_its
     speech_stopped_at: dict[int, float] = {}
 
     def noting_speech_stopped(port: int, message: str) -> None:
-        if isinstance(parse_server_event(message), SpeechStopped):
+        if isinstance(read_event(message), SpeechStopped):
             speech_stopped_at.setdefault(port, time.monotonic())
 
     async def scenario() -> tuple[_Hearing, int, dict[int, float], float]:

@@ -289,6 +289,12 @@ def test_a_registered_app_with_no_hearing_key_opens_a_live_session() -> None:
         assert isinstance(_received(socket), SessionCreated)
 
 
+def _with_null_languages(message: str) -> str:
+    parsed = json.loads(message)
+    parsed["session"]["audio"]["input"]["transcription"]["languages"] = None
+    return json.dumps(parsed)
+
+
 @pytest.mark.parametrize(
     ("setup", "param"),
     [
@@ -300,7 +306,7 @@ def test_a_registered_app_with_no_hearing_key_opens_a_live_session() -> None:
             update(None, languages=["de", "fr"]), "languages.1", id="fr-in-set"
         ),
         pytest.param(
-            update(None, languages=[]).replace("[]", "null"),
+            _with_null_languages(update(None, languages=[])),
             "languages",
             id="null-languages",
         ),
