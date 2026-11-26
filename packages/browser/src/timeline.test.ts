@@ -64,12 +64,8 @@ describe("contextTimeAt", () => {
     expect(contextTimeAt(WITH_GAP, position)).toBeCloseTo(time, 12);
   });
 
-  it("gives no time for a position beyond the arrived chunks", () => {
-    expect(contextTimeAt(WITH_GAP, 2.01)).toBeUndefined();
-  });
-
-  it("gives no time for no chunks", () => {
-    expect(contextTimeAt([], 0.5)).toBeUndefined();
+  it("gives the end of the arrived chunks for a position beyond them", () => {
+    expect(contextTimeAt(WITH_GAP, 2.01)).toBe(endOf(WITH_GAP));
   });
 
   it("is the earliest time at which two overlapping chunks have played the position", () => {
@@ -83,7 +79,7 @@ describe("contextTimeAt", () => {
   });
 
   it.each([0.1, 0.9, 1.0, 1.7, 2.0])("inverts playedBy at %s", (position) => {
-    const time = contextTimeAt(WITH_GAP, position) as number;
+    const time = contextTimeAt(WITH_GAP, position);
     expect(playedBy(WITH_GAP, time)).toBeCloseTo(position, 9);
     expect(playedBy(WITH_GAP, time - 1e-6)).toBeLessThan(position);
   });

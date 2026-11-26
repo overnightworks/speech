@@ -83,9 +83,7 @@ export class Queued {
 
   /** From now on, `playback.playedSeconds()` reads `playedSeconds`, until the sound ends. */
   follow(playedSeconds: () => number): void {
-    if (!this.#over) {
-      this.#playedSeconds = playedSeconds;
-    }
+    this.#playedSeconds = playedSeconds;
   }
 
   /** Only the first call counts: a streamed sound begins with its first chunk. */
@@ -111,8 +109,8 @@ export class Queued {
 /** A `pauseAt` waiting for its hold, with the call's result once it has one. */
 export class HoldCall {
   readonly result = Promise.withResolvers<Held>();
-  /** The fade to the position is on the gain's timeline. */
-  scheduled = false;
+  /** The sound whose fade to the position is on the gain's timeline, once it is. */
+  scheduledOn: Scheduled | undefined;
   /** The target ended on its own: the hold comes at the next point. */
   afterEnd = false;
   constructor(
