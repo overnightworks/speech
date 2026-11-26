@@ -96,7 +96,7 @@ class OpenTurn:
 
 
 def _restarts_count(unvoiced_run: int) -> bool:
-    """Whether a run of this many unvoiced windows is a pause that restarts the count."""
+    """Whether a run of `unvoiced_run` unvoiced windows restarts the sustained count."""
     return unvoiced_run >= _PAUSE_WINDOWS
 
 
@@ -105,9 +105,7 @@ def _voiced_since_last_pause(starts: deque[int]) -> int:
     count = 0
     newer: int | None = None
     for start in reversed(starts):
-        if newer is not None and _restarts_count(
-            (newer - start) // WINDOW_SAMPLES - 1
-        ):
+        if newer is not None and _restarts_count((newer - start) // WINDOW_SAMPLES - 1):
             break
         count += 1
         newer = start

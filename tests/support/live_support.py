@@ -95,17 +95,18 @@ class StallingSocket(FakeSocket):
         await super().send(text)
 
 
+def _samples(count: int, level: int) -> str:
+    return base64.b64encode(struct.pack("<h", level) * count).decode()
+
+
 def audio(seconds: float, level: int = SPEECH_LEVEL) -> str:
     """The base64 PCM16 at 24 kHz of a constant level `seconds` long."""
-    count = int(seconds * INPUT_RATE)
-    return base64.b64encode(struct.pack("<h", level) * count).decode()
+    return _samples(int(seconds * INPUT_RATE), level)
 
 
 def windows(count: int, level: int = SPEECH_LEVEL) -> str:
     """The base64 PCM16 at 24 kHz of `count` whole 32 ms windows of one level."""
-    return base64.b64encode(
-        struct.pack("<h", level) * (count * _INPUT_SAMPLES_PER_WINDOW)
-    ).decode()
+    return _samples(count * _INPUT_SAMPLES_PER_WINDOW, level)
 
 
 def append(data: str, event_id: str | None = None) -> str:

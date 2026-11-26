@@ -21,7 +21,13 @@ from speech_service.voice_activity import (
     WINDOW_SAMPLES,
     WINDOW_SECONDS,
 )
-from tests.support.detector_support import LOUD_LEVEL, LevelDetector, ScriptedDetector
+from tests.support.detector_support import (
+    LOUD_LEVEL,
+    THRESHOLD_WINDOWS,
+    LevelDetector,
+    ScriptedDetector,
+    end_of_window,
+)
 
 BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE
 SILENT_WINDOWS = round(DEFAULT_LIVE_SILENCE_SECONDS / WINDOW_SECONDS + 0.5)
@@ -338,10 +344,7 @@ def test_a_turn_ended_by_the_client_leaves_the_next_to_start_at_its_end() -> Non
 # One character is one 32 ms window: voiced speech, a faint voiced window that only
 # the pre-roll can hold, or a window that is not voiced.
 _WINDOW_PROBABILITY = {"v": 0.9, "f": 0.4, ".": 0.0}
-# The ruled arithmetic: 0.4 s is 13 windows, and a pause of 5 windows (160 ms) is
-# longer than the 0.15 s bound where 4 (128 ms) are not.
 FOUR_TENTHS_MS = 400
-THRESHOLD_WINDOWS = 13
 SHORT_PAUSE = "." * 4
 LONG_PAUSE = "." * 5
 PRE_ROLL_WINDOWS = int(PRE_ROLL_SECONDS / WINDOW_SECONDS)
@@ -367,10 +370,6 @@ def _sustained_ends(
         for event in _heard(windows, sustained_ms)
         if isinstance(event, SpeechSustain)
     ]
-
-
-def _end_of_window(index: int) -> int:
-    return round((index + 1) * WINDOW_SECONDS * 1000)
 
 
 @pytest.mark.parametrize(
@@ -407,7 +406,7 @@ def test_one_event_comes_where_the_voice_since_the_last_long_pause_reaches_the_c
     windows: str, reached_at: int | None
 ) -> None:
     """WIRE-171, WIRE-173: one event at the end of the window that reaches the count."""
-    expected = [] if reached_at is None else [_end_of_window(reached_at)]
+    expected = [] if reached_at is None else [end_of_window(reached_at)]
 
     assert _sustained_ends(windows + "." * SILENT_WINDOWS) == expected
 
@@ -468,7 +467,7 @@ def test_the_pre_roll_windows_count_under_the_same_rule(
     else:
         assert events == [
             SpeechStart(audio_ms=events[0].audio_ms),
-            SpeechSustain(audio_ms=_end_of_window(reached_at)),
+            SpeechSustain(audio_ms=end_of_window(reached_at)),
         ]
 
 
@@ -491,8 +490,8 @@ def test_each_item_gets_its_own_event() -> None:
 
     second_start = len(first)
     assert ends == [
-        _end_of_window(THRESHOLD_WINDOWS - 1),
-        _end_of_window(second_start + THRESHOLD_WINDOWS - 1),
+        end_of_window(THRESHOLD_WINDOWS - 1),
+        end_of_window(second_start + THRESHOLD_WINDOWS - 1),
     ]
 
 
@@ -532,6 +531,6 @@ def test_a_commit_after_the_event_leaves_the_event_standing() -> None:
     ended = session.commit()
 
     assert [event.audio_ms for event in heard if isinstance(event, SpeechSustain)] == [
-        _end_of_window(THRESHOLD_WINDOWS - 1)
+        end_of_window(THRESHOLD_WINDOWS - 1)
     ]
     assert isinstance(ended, TurnEnd)
