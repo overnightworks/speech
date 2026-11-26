@@ -136,28 +136,21 @@ from speech_client.realtime_wire import (
     ErrorEvent,
     PcmFormat,
     ServerEventError,
-    SessionAudio,
     SessionCreated,
     SessionInput,
-    SessionUpdate,
     SessionUpdated,
     SoundDetected,
-    SoundDetection,
     SpeechStarted,
     SpeechStopped,
     SpeechSustained,
-    SustainedSpeech,
     TranscriptCompleted,
     TranscriptFailed,
-    TranscriptionSession,
-    TranscriptionSetting,
     parse_server_event,
+    realtime_url,
+    session_update,
 )
 from speech_client.wire import (
     DRAIN_CLOSE_CODE,
-    REALTIME_INTENT,
-    REALTIME_INTENT_PARAM,
-    REALTIME_PATH,
     Language,
     Refusal,
     RefusalCode,
@@ -168,7 +161,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
     from types import TracebackType
 
-    from speech_client.realtime_wire import ServerEvent
+    from speech_client.realtime_wire import ServerEvent, SustainedSpeech
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,46 +291,6 @@ class _Wire:
     opening: asyncio.Timeout | None = None
     carried: _Interrupted | None = None
     answered: bool = False
-
-
-def realtime_url(base_url: str) -> str:
-    """The Realtime transcription WebSocket of the service at `base_url`."""
-    return (
-        f"ws{base_url.removeprefix('http')}{REALTIME_PATH}"
-        f"?{REALTIME_INTENT_PARAM}={REALTIME_INTENT}"
-    )
-
-
-def session_update(
-    languages: tuple[Language, ...],
-    *,
-    sound_detection: bool = False,
-    sustained_speech: SustainedSpeech | None = None,
-) -> str:
-    """The one `session.update` that sets the languages of a session.
-
-    It asks for sounds only when `sound_detection` is true and for sustained
-    speech only when `sustained_speech` is given; without them the bytes carry
-    neither key.
-    """
-    asked: dict[str, SoundDetection | SustainedSpeech] = {}
-    if sound_detection:
-        asked["sound_detection"] = SoundDetection(type="audioset")
-    if sustained_speech is not None:
-        asked["sustained_speech"] = sustained_speech
-    update = SessionUpdate(
-        type="session.update",
-        session=TranscriptionSession(
-            type="transcription",
-            audio=SessionAudio(
-                input=SessionInput(
-                    transcription=TranscriptionSetting(languages=languages),
-                    **asked,
-                )
-            ),
-        ),
-    )
-    return update.model_dump_json(exclude_none=True)
 
 
 def _refusal_code(body: bytes) -> RefusalCode | None:
