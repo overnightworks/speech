@@ -123,7 +123,9 @@ describe("classify", () => {
     expect(streaming(Infinity)).toBe("beyond");
   });
 
-  it("calls a position at the arrived length of a streamed sound ahead, not the end", () => {
-    expect(streaming(2)).toBe("ahead");
+  it("calls a position within one edge of the arrived length of a streamed sound beyond, not the end", () => {
+    expect(streaming(2)).toBe("beyond");
+    expect(streaming(2 - EDGE / 2)).toBe("beyond");
+    expect(streaming(2 - 2 * EDGE)).toBe("ahead");
   });
 });

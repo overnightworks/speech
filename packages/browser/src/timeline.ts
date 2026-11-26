@@ -8,7 +8,8 @@ export interface Chunk {
  * What a position of a sound's own seconds is, against the sound as scheduled:
  * - `passed`: the output has played it, or will have within one edge, or it is NaN or negative;
  * - `ahead`: inside the scheduled chunks, past one edge;
- * - `beyond`: past the chunks that have arrived, on a sound whose body is still to come;
+ * - `beyond`: within one edge of the chunks that have arrived or past them, on a sound whose body is still to come: more
+ *   may arrive, or the sound may end there;
  * - `end`: at or past the sound's length, or within one edge of it, on a sound whose body has arrived whole.
  */
 export type PositionKind = "passed" | "ahead" | "beyond" | "end";
@@ -63,5 +64,5 @@ export function classify(
   if (!(position > playedBy(chunks, now + edge))) {
     return "passed";
   }
-  return position > length ? "beyond" : "ahead";
+  return position >= length - edge ? "beyond" : "ahead";
 }

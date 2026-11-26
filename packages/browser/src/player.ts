@@ -639,8 +639,8 @@ class PlayerRun {
           this.#playing = scheduled;
           head.follow(() => scheduled.read(this.#context.currentTime));
           if (loaded.kind === "buffer") {
-            scheduled.bodyScheduled = true;
             this.#schedule(scheduled, loaded.buffer, 0);
+            scheduled.bodyScheduled = true;
           } else {
             void this.#playStream(scheduled, loaded.stream, generation);
           }
@@ -750,7 +750,6 @@ class PlayerRun {
     }
     if (generation === this.#generation) {
       scheduled.bodyScheduled = true;
-      this.#advanceCall();
       this.#settle(scheduled);
     }
   }
