@@ -46,7 +46,7 @@ from tests.support.hear_support import (
     recording,
 )
 from tests.support.identity_support import (
-    APP,
+    MINTING,
     OTHER_MINTING,
     altered,
     callers_of_two_apps,
@@ -263,7 +263,7 @@ def test_a_person_outside_the_service_group_is_forbidden() -> None:
     pair = valid_pair()
     headers = token_headers(
         workload_token=pair.workload,
-        person_token=altered(pair.person, groups=[f"/apps/{APP}"]),
+        person_token=altered(pair.person, groups=[MINTING.app_group]),
     )
 
     response = post_recording(_client(), _valid(), headers)
