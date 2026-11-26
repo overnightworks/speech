@@ -5,6 +5,7 @@ from __future__ import annotations
 import socket
 import struct
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -556,18 +557,21 @@ def _sent_traceparents(request: bytes) -> list[str]:
     [lambda url, traceparent: _speak(url, traceparent=traceparent), _stream_spoken],
     ids=["speak", "speak-stream"],
 )
-@pytest.mark.parametrize("trace", ["caller's", "ambient", "none"])
+@pytest.mark.parametrize(
+    "trace", ["caller's", "ambient", "ambient-unconfigured", "none"]
+)
 def test_a_speaking_call_sends_the_callers_traceparent_over_the_ambient_one_or_none(
     call: Callable[[str, str | None], object], trace: str, raw_listener: RawListener
 ) -> None:
     """WIRE-149: the header is the caller's, else the running trace's, else absent.
 
     The caller's is given inside a running trace, which it must win over; the
-    running trace reaches the request through the host's configured logline.
+    running trace reaches the request through the host's configured logline, so
+    a host that never configured it sends none.
     """
     given = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
     with (
-        configured("speech"),
+        nullcontext() if trace == "ambient-unconfigured" else configured("speech"),
         raw_listener(_WAV_HEAD + chunk(_WAV_BODY) + chunk(b"")) as (
             base_url,
             requests,
@@ -580,7 +584,7 @@ def test_a_speaking_call_sends_the_callers_traceparent_over_the_ambient_one_or_n
             with unit_trace(None):
                 ambient = current_traceparent()
                 call(base_url, given if trace == "caller's" else None)
-            expected = [given if trace == "caller's" else ambient]
+            expected = {"caller's": [given], "ambient": [ambient]}.get(trace, [])
 
     (request,) = requests
     assert _sent_traceparents(request) == expected
