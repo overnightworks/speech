@@ -46,6 +46,8 @@ from tests.support.browser_player_support import (
     last_ramp_end,
     loudest_peak,
     markers,
+    ramp_end,
+    ramp_ends,
     start_of,
     starts,
     stepped,
@@ -243,6 +245,28 @@ def test_a_second_stop_while_the_first_ones_edge_runs_changes_nothing(
         last_ramp_end(seen, 0) - start_of(seen)
     )
     assert audible_after_edge(seen, "stop") == 0
+
+
+def test_a_second_stop_in_the_task_where_the_edges_source_ends_changes_nothing(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> dict[str, object]:
+        async with stepped(tmp_path) as stage:
+            await stage.hear(url(LONG))
+            await stage.act("stop")
+            await stage.act("stopOnNextSourceEnd")
+            await stage.finish()
+            await stage.step_for(STRETCH_SECONDS)
+            return await stage.snapshot()
+
+    seen = asyncio.run(scenario())
+
+    assert seen["instrumentStops"] == 1
+    assert ends(seen) == ["stopped"]
+    assert ramp_ends(seen, 0) == [ramp_end(seen, 0)]
+    assert seen["sounds"][0]["playedSeconds"] == pytest.approx(
+        ramp_end(seen, 0) - start_of(seen)
+    )
 
 
 def test_muting_ends_the_playing_and_waiting_sounds_at_once_and_silences_the_output(
