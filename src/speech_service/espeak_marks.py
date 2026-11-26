@@ -234,7 +234,7 @@ class EspeakEvents:
                 finally:
                     self._settle()
                     self._library.espeak_SetSynthCallback(_Callback(0))
-        except Exception as error:
+        except Exception as error:  # marks are optional; the audio goes on
             logger.warning(
                 "marks.pass_failed",
                 extra=failure_fields(error),

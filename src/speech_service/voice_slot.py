@@ -203,6 +203,7 @@ class VoiceSlot:
         try:
             if self._retire_dead_engine():
                 self.load()
+        # its waiters read the outcome as the slot's readiness
         except Exception as error:
             logger.exception(
                 "voice_load.failed",

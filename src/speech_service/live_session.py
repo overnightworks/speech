@@ -255,7 +255,7 @@ class LiveSession:
     ) -> None:
         try:
             scores = await asyncio.wrap_future(future)
-        except Exception as error:
+        except Exception as error:  # logged by type and never by message
             logger.exception(
                 "sound.failed",
                 extra=failure_fields(error),
@@ -513,7 +513,7 @@ class LiveSession:
     async def _run_partial(self, future: Future[Heard], turn_number: int) -> None:
         try:
             heard = await asyncio.wrap_future(future)
-        except Exception as error:
+        except Exception as error:  # logged by type and never by message
             logger.exception(
                 "hearing.failed",
                 extra=failure_fields(error),

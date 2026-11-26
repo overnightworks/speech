@@ -540,7 +540,7 @@ class _TranscriptionRoute:
             return _refused(RefusalCode.TOO_LARGE, "file")
         except UndecodableRecordingError:
             return _refused(RefusalCode.INVALID_REQUEST, "file")
-        except Exception as error:
+        except Exception as error:  # logged by type and never by message
             logger.exception(
                 "hearing.failed",
                 extra=failure_fields(error),
