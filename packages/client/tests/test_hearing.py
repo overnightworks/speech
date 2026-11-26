@@ -516,7 +516,7 @@ async def no_token() -> None:
     ],
 )
 def test_an_opening_that_settles_after_the_session_ended_leaves_its_outcome(
-    late_answer: Callable[[], Awaitable[SessionTokens | None]], connects: bool
+    late_answer: Callable[[], Awaitable[SessionTokens | None]], *, connects: bool
 ) -> None:
     async def scenario() -> tuple[HearingOutcome | None, list[int | None]]:
         asked = asyncio.Event()
