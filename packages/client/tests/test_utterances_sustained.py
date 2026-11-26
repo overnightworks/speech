@@ -21,16 +21,15 @@ from packages.client.tests.support.utterances_support import (
 )
 from speech_client.realtime_wire import (
     ServerEventError,
+    SoundDetection,
     SustainedSpeech,
     parse_client_event,
-    session_update,
 )
 from speech_client.utterances import (
     SpeechStart,
     SpeechStop,
     SustainedVoice,
 )
-from speech_client.wire import Language
 
 if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection
@@ -63,9 +62,34 @@ def test_the_session_asks_for_sustained_speech_only_when_the_app_passes_the_call
     (first,) = arrived
     assert parse_client_event(first).session.audio.input.sustained_speech == ask
     if not callback:
-        assert first == session_update((Language.DE,))
+        assert first == (
+            '{"type":"session.update","session":{"type":"transcription","audio":{"input":'
+            '{"format":{"type":"audio/pcm","rate":24000},"transcription":{"model":"speech",'
+            '"languages":["de"]},"turn_detection":{"type":"server_vad"}}}}}'
+        )
     elif duration_ms is None:
         assert b"duration_ms" not in first.encode()
+
+
+def test_a_session_with_both_callbacks_asks_for_sounds_and_sustained_speech() -> None:
+    arrived: list[str | bytes] = []
+
+    async def records(connection: ServerConnection) -> None:
+        arrived.append(await connection.recv())
+
+    asyncio.run(
+        hear(
+            functools.partial(service_saying, records),
+            sounds=True,
+            sustained=True,
+            sustained_speech_ms=2500,
+        )
+    )
+
+    (first,) = arrived
+    asked = parse_client_event(first).session.audio.input
+    assert asked.sound_detection == SoundDetection(type="audioset")
+    assert asked.sustained_speech == SustainedSpeech(duration_ms=2500)
 
 
 @pytest.mark.parametrize(
