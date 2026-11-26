@@ -140,7 +140,8 @@ def test_a_dropped_or_garbled_health_answer_is_not_ready_and_the_poll_goes_on(
 
 
 def test_a_health_request_that_gets_no_answer_in_time_is_not_healthy(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(f"{_OWNER}._HEALTH_REQUEST_SECONDS", _SMALL_SECONDS)
     socket_path = tmp_path / "silent.sock"
