@@ -99,8 +99,34 @@ if "stale-socket" in behaviors:
     (cache / "scenario-begun").touch()
     while True:
         time.sleep(1)
-if "with-stage" in behaviors:
-    stage = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
+
+
+# The stage keeps the stderr it inherited; once `stage-probe` exists it writes to it
+# until a write fails or its tries run out, and records which came first.
+STAGE_SCRIPT = """
+import os, sys, time
+from pathlib import Path
+cache = Path(sys.argv[1])
+while not (cache / "stage-probe").exists():
+    time.sleep(0.01)
+outcome = "stderr-open"
+for _ in range(500):
+    try:
+        sys.stderr.write("x")
+        sys.stderr.flush()
+    except BrokenPipeError:
+        outcome = "stderr-closed"
+        break
+    time.sleep(0.01)
+(cache / "stage-stderr.staged").write_text(outcome, encoding="utf-8")
+os.replace(cache / "stage-stderr.staged", cache / "stage-stderr")
+time.sleep(600)
+"""
+if "with-stage" in behaviors or "detached-stage" in behaviors:
+    stage = subprocess.Popen(
+        [sys.executable, "-c", STAGE_SCRIPT, str(cache)],
+        start_new_session="detached-stage" in behaviors,
+    )
     (cache / "stage").write_text(str(stage.pid), encoding="utf-8")
 
 
@@ -118,7 +144,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """Keep the output free of access logs."""
 
     def do_GET(self) -> None:
-        """Answer the health check."""
+        """Answer the health check; a spoiling server spoils its first answer only."""
+        spoil = behaviors & {"health-dropped", "health-garbled"}
+        if spoil and not (cache / "health-spoiled").exists():
+            (cache / "health-spoiled").touch()
+            if "health-garbled" in spoil:
+                self.wfile.write(b"not an http answer\r\n\r\n")
+            self.close_connection = True
+            return
         self.send_response(200)
         self.send_header("Content-Length", "0")
         self.end_headers()

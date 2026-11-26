@@ -40,15 +40,7 @@ def qwen_voice(
     root: Path, cache: Path, speaker: QwenSpeaker, languages: tuple[Language, ...]
 ) -> QwenSpeaking:
     """Build the Qwen voice over the fake launcher under `root`, not yet loaded."""
-    return QwenSpeaking(
-        ProviderProcess(
-            ProviderLaunch(
-                executable=provider_launcher(root), arguments=("--cache", str(cache))
-            )
-        ),
-        speaker,
-        languages,
-    )
+    return QwenSpeaking(provider_process(root, cache), speaker, languages)
 
 
 def closed_provider(tmp_path: Path, behavior: str = "normal") -> tuple[Path, Path]:
@@ -65,6 +57,21 @@ def closed_provider(tmp_path: Path, behavior: str = "normal") -> tuple[Path, Pat
     cache.mkdir(parents=True, exist_ok=True)
     (cache / "behavior").write_text(behavior, encoding="utf-8")
     return root, cache
+
+
+def provider_process(root: Path, cache: Path) -> ProviderProcess:
+    """A process over the fake launcher under `root`, not yet loaded."""
+    return ProviderProcess(
+        ProviderLaunch(
+            executable=provider_launcher(root), arguments=("--cache", str(cache))
+        )
+    )
+
+
+def provider_server(tmp_path: Path, behavior: str = "normal") -> ProviderProcess:
+    """A process over a fake launcher of `behavior` under `tmp_path`, not yet loaded."""
+    root, cache = closed_provider(tmp_path, behavior)
+    return provider_process(root, cache)
 
 
 class LoadOutcome(StrEnum):
@@ -136,6 +143,20 @@ def wait_for_held_exit(cache: Path, pid: int) -> None:
 def release_exit(cache: Path, pid: int) -> None:
     """Let the held server `pid` exit on the SIGTERM it waits on."""
     _write_atomically(cache / f"release-exit-{pid}", "")
+
+
+def stage_stderr_outcome(cache: Path) -> str:
+    """Whether the stage's inherited stderr is `stderr-closed` or still `stderr-open`.
+
+    Asks the `with-stage` or `detached-stage` stage to write to it until a write
+    fails, and waits, bounded, for what it met.
+    """
+    _write_atomically(cache / "stage-probe", "")
+    deadline = time.monotonic() + SERVER_WAIT_SECONDS
+    while not (cache / "stage-stderr").exists():
+        assert time.monotonic() < deadline, "the stage never wrote to its stderr"
+        time.sleep(0.01)
+    return (cache / "stage-stderr").read_text(encoding="utf-8")
 
 
 def _write_atomically(path: Path, text: str) -> None:
