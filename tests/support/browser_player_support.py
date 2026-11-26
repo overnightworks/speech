@@ -281,7 +281,7 @@ class SteppedStage(Stage):
     when asked, and the page's timers run on Playwright's clock, which the stage
     advances by the time the quanta took. Waiting is for what the page does without
     time (a body that arrives, a promise that settles), never for page time: a wait
-    on a timer, `settle()` included, does not end.
+    on a timer does not end.
     """
 
     stepping: Stepping = field(default_factory=Stepping)
