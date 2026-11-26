@@ -335,8 +335,7 @@ class ProviderProcess:
                 logger.exception("provider_scratch_cleanup.failed")
         if drain is not None and child is not None and child.stderr is not None:
             drain.join(timeout=_STDERR_DRAIN_JOIN_SECONDS)
-            if not drain.is_alive():
-                child.stderr.close()
+            child.stderr.close()
         return reaping_failed
 
     def _serve_owner(
