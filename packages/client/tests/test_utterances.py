@@ -618,19 +618,24 @@ def quick_reconnect(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-@pytest.mark.usefixtures("quick_reconnect")
-def test_a_reconnect_reaches_on_reconnected_and_forgets_the_old_items() -> None:
-    recorder = Recorder()
-    first = says(
+def _drain_then_finish() -> tuple[Script, Script]:
+    drained = says(
         started("a", 100).model_dump_json(),
         delta("a", "hel").model_dump_json(),
         then_close=DRAIN_CLOSE_CODE,
     )
-    second = says(
+    finished = says(
         delta("a", "lo").model_dump_json(),
         completed("a", "lo").model_dump_json(),
         then_close=1000,
     )
+    return drained, finished
+
+
+@pytest.mark.usefixtures("quick_reconnect")
+def test_a_reconnect_reaches_on_reconnected_and_forgets_the_old_items() -> None:
+    recorder = Recorder()
+    first, second = _drain_then_finish()
 
     outcome = asyncio.run(
         hear(functools.partial(_playing, first, second), None, recorder)
@@ -638,6 +643,24 @@ def test_a_reconnect_reaches_on_reconnected_and_forgets_the_old_items() -> None:
 
     assert outcome == Closed()
     assert recorder.reconnected == [Reconnected(ReconnectCause.DRAIN, 0, 0)]
+    assert recorder.got == [Partial("hel"), Partial("lo"), utterance_of("lo")]
+
+
+@pytest.mark.usefixtures("quick_reconnect")
+def test_a_reconnect_without_on_reconnected_forgets_the_old_items() -> None:
+    recorder = Recorder()
+    first, second = _drain_then_finish()
+
+    outcome = asyncio.run(
+        hear(
+            functools.partial(_playing, first, second),
+            None,
+            recorder,
+            reconnects=False,
+        )
+    )
+
+    assert outcome == Closed()
     assert recorder.got == [Partial("hel"), Partial("lo"), utterance_of("lo")]
 
 
