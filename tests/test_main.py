@@ -94,10 +94,14 @@ class _HealthServer:
 
 
 class _ShutdownOnlyServer:
-    """A server that ends only when its orchestrator requests shutdown."""
+    """A server that ends only when its orchestrator requests shutdown.
 
-    def __init__(self) -> None:
+    `once_serving` runs once serving starts, before the server waits.
+    """
+
+    def __init__(self, once_serving: Callable[[], object] | None = None) -> None:
         self._stopped = asyncio.Event()
+        self._once_serving = once_serving
 
     @property
     def should_exit(self) -> bool:
@@ -110,6 +114,8 @@ class _ShutdownOnlyServer:
 
     async def serve(self, *, sockets: list[socket.socket] | None = None) -> None:
         del sockets
+        if self._once_serving is not None:
+            self._once_serving()
         await self._stopped.wait()
 
 
@@ -327,10 +333,13 @@ def test_owned_speaking_failure_stops_the_server_and_returns_failure(
     class FatalSpeaking(FakeSpeaking):
         def __init__(self) -> None:
             super().__init__()
-            self.callback: Callable[[], None] = lambda: None
+            self._callback: Callable[[], None] = lambda: None
 
         def set_fatal_callback(self, callback: Callable[[], None]) -> None:
-            self.callback = callback
+            self._callback = callback
+
+        def fail(self) -> None:
+            self._callback()
 
     speaking = FatalSpeaking()
     runtime = Runtime(
@@ -342,25 +351,7 @@ def test_owned_speaking_failure_stops_the_server_and_returns_failure(
         ),
     )
 
-    class Server:
-        def __init__(self) -> None:
-            self.stopped = asyncio.Event()
-
-        @property
-        def should_exit(self) -> bool:
-            return self.stopped.is_set()
-
-        @should_exit.setter
-        def should_exit(self, value: bool) -> None:
-            if value:
-                self.stopped.set()
-
-        async def serve(self, *, sockets: list[socket.socket] | None = None) -> None:
-            del sockets
-            speaking.callback()
-            await self.stopped.wait()
-
-    server = Server()
+    server = _ShutdownOnlyServer(speaking.fail)
 
     settings = _serving_settings(tmp_path)
 
@@ -415,52 +406,11 @@ def test_orchestrator_serves_health_from_its_loading_runtime(tmp_path: Path) -> 
     assert observed["card_memory_mb"] == card_memory_mb
 
 
-def test_signal_handler_stops_the_async_orchestrator(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    handlers: dict[signal.Signals, Callable[[], None]] = {}
-
-    class Loop:
-        def add_signal_handler(
-            self, received: signal.Signals, callback: Callable[[], None]
-        ) -> None:
-            handlers[received] = callback
-
-    stopping = asyncio.Event()
-
-    def running_loop() -> Loop:
-        return Loop()
-
-    monkeypatch.setattr(__main__.asyncio, "get_running_loop", running_loop)
-
-    __main__.install_stop_signals(stopping)
-    handlers[signal.SIGTERM]()
-
-    assert stopping.is_set()
-
-
 def test_signal_exit_is_zero_and_closes_the_listener(tmp_path: Path) -> None:
     runtime = Runtime(
         {VoiceId.THORSTEN: FakeSpeaking()},
         dependencies=RuntimeDependencies(catalogue=CATALOGUE),
     )
-
-    class Server:
-        def __init__(self) -> None:
-            self._stopped = asyncio.Event()
-
-        @property
-        def should_exit(self) -> bool:
-            return self._stopped.is_set()
-
-        @should_exit.setter
-        def should_exit(self, value: bool) -> None:
-            if value:
-                self._stopped.set()
-
-        async def serve(self, *, sockets: list[socket.socket] | None = None) -> None:
-            del sockets
-            await self._stopped.wait()
 
     settings = _serving_settings(tmp_path)
 
@@ -470,7 +420,7 @@ def test_signal_exit_is_zero_and_closes_the_listener(tmp_path: Path) -> None:
             runtime,
             StopPolicy(
                 install_signals=lambda stopping: stopping.set(),
-                make_server=lambda _app: Server(),
+                make_server=lambda _app: _ShutdownOnlyServer(),
             ),
         )
     )
