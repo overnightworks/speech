@@ -92,7 +92,7 @@ function kindOf(node) {
 
 const earsReady = [];
 const ears = new Map();
-const fenceEchoes = new Map();
+const fenceEchoes = [];
 // The next quantum report to arrive that a cell garbles on purpose: its kind and the index of the report it takes.
 let garbledReport = null;
 
@@ -100,8 +100,8 @@ let garbledReport = null;
 // reports travel, which keeps their order, so the wait does not read what the reports say. The ear exists only once
 // `listening` has resolved, so a cell steps after it.
 function earReported(context) {
-  const fence = fenceEchoes.size;
-  const echoed = new Promise((resolve) => fenceEchoes.set(fence, resolve));
+  const fence = fenceEchoes.length;
+  const echoed = new Promise((resolve) => fenceEchoes.push(resolve));
   ears.get(context).port.postMessage({ fence });
   return echoed;
 }
@@ -123,7 +123,7 @@ function listenTo(output) {
       const ear = new AudioWorkletNode(context, "ear");
       ears.set(context, ear);
       ear.port.onmessage = ({ data }) => {
-        if (data.fence !== undefined) fenceEchoes.get(data.fence)();
+        if (data.fence !== undefined) fenceEchoes[data.fence]();
         else if (data.onset !== undefined) seen.heardOnsets.push(data.onset);
         else {
           const report = garbled([data.quantum, data.peak]);
