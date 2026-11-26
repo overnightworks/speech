@@ -5,10 +5,12 @@ from __future__ import annotations
 import math
 import struct
 import threading
+import types
 from typing import TYPE_CHECKING
 
 from shipped_catalogue import CATALOGUE
 from speech_client.wire import SentenceMarks, VoiceId, Word
+from speech_service import voice_slot
 from speech_service.config import Settings
 from speech_service.control import create_control_app
 from speech_service.pcm import BYTES_PER_SAMPLE
@@ -18,6 +20,7 @@ from tests.support.identity_support import valid_callers
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
+    import pytest
     from fastapi import FastAPI
 
     from speech_service.service import SpeakingEngine
@@ -166,6 +169,83 @@ class GatedSpeaking:
         finally:
             with self._lock:
                 self.active_syntheses -= 1
+
+
+class GatedEngine:
+    """An engine whose load and close each wait for a gate, and whose close may fail."""
+
+    model_name = "gated-engine"
+    sample_rate = SPEAK_SAMPLE_RATE
+
+    def __init__(
+        self,
+        *,
+        hold_load: bool = False,
+        hold_close: bool = False,
+        close_fails: bool = False,
+    ) -> None:
+        """Start with every gate open unless held; `close_fails` makes `close` raise."""
+        self.ready = False
+        self.entered_load = threading.Event()
+        self.release_load = threading.Event()
+        self.entered_close = threading.Event()
+        self.release_close = threading.Event()
+        self.closed = threading.Event()
+        self._close_fails = close_fails
+        if not hold_load:
+            self.release_load.set()
+        if not hold_close:
+            self.release_close.set()
+
+    def release_all(self) -> None:
+        """Open every gate so a call blocked by a failed test can finish."""
+        self.release_load.set()
+        self.release_close.set()
+
+    def load(self) -> None:
+        """Become ready once the load gate opens."""
+        self.entered_load.set()
+        _pass_gate(self.release_load)
+        self.ready = True
+
+    def pcm_chunks(
+        self, text: str, language: str, instructions: str | None = None
+    ) -> Iterator[bytes]:
+        """Speak nothing."""
+        del text, language, instructions
+        return iter(())
+
+    def close(self) -> None:
+        """End once the close gate opens, then raise when built to fail."""
+        self.entered_close.set()
+        _pass_gate(self.release_close)
+        self.closed.set()
+        if self._close_fails:
+            message = "close failed"
+            raise RuntimeError(message)
+
+
+def noting_slot_waits(monkeypatch: pytest.MonkeyPatch) -> threading.Event:
+    """An event set when a voice slot built from now on waits on its state condition.
+
+    The slot holds its lock from the check it waits on until the wait releases
+    it, so a test that resumes on the event finds the slot waiting.
+    """
+    waited = threading.Event()
+
+    class NotingCondition(threading.Condition):
+        def wait(self, timeout: float | None = None) -> bool:
+            waited.set()
+            return super().wait(timeout)
+
+    monkeypatch.setattr(
+        voice_slot,
+        "threading",
+        types.SimpleNamespace(
+            Lock=threading.Lock, Condition=NotingCondition, Thread=threading.Thread
+        ),
+    )
+    return waited
 
 
 def an_app(
