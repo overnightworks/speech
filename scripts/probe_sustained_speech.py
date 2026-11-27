@@ -59,6 +59,7 @@ if TYPE_CHECKING:
 
 MISSED_EXIT: Final = 3
 NITE_ID: Final = "{http://nite.sourceforge.net/}id"
+MAJOR_ACT_CLASSES: Final = frozenset({"task", "elicit", "other"})
 _FLOAT_WAV_FORMAT: Final = 3
 _PCM_WAV_FORMAT: Final = 1
 _FIXED_WAV_FIELDS: Final = (("<HH", 20), ("<H", 34))
@@ -438,10 +439,11 @@ def excerpt(
 
 @dataclass(frozen=True)
 class SpeakerAnnotation:
-    """A wearer's timed words and vocal sounds, and where their backchannels lie."""
+    """A wearer's timed words and vocal sounds, their dialogue acts and backchannels."""
 
     timed: list[Timed]
     backchannels: list[range]
+    acts: list[figures.Act]
 
 
 def _timed(element: ET.Element) -> Timed | None:
@@ -458,9 +460,11 @@ def _timed(element: ET.Element) -> Timed | None:
 def ami_annotation(
     archive: zipfile.ZipFile, meeting: str, speaker: str
 ) -> SpeakerAnnotation:
-    """The speaker's timed items and the dialogue acts of type `bck` over them.
+    """The speaker's timed items and the dialogue acts over them.
 
-    Each act is the range of items from its first to its last child.
+    Each act is the range of items from its first to its last child; the
+    backchannels are those of type `bck`, and an act is minor unless its type
+    lies in class task, elicit or other.
     """
     timed: list[Timed] = []
     before: dict[str, int] = {}
@@ -475,16 +479,27 @@ def ami_annotation(
     backchannel_type = next(
         kind.get(NITE_ID) for kind in kinds.iter("da-type") if kind.get("name") == "bck"
     )
+    major_types = {
+        leaf.get(NITE_ID)
+        for kind in kinds.iter("da-type")
+        if kind.get("name") in MAJOR_ACT_CLASSES
+        for leaf in kind
+    }
     acts = parse_xml(archive.read(f"dialogueActs/{meeting}.{speaker}.dialog-act.xml"))
-    ranges = []
+    backchannels, found = [], []
     for act in acts:
-        types = [p.get("href", "") for p in act if p.tag.endswith("pointer")]
-        if not any(href.endswith(f"#id({backchannel_type})") for href in types):
-            continue
+        types = {
+            p.get("href", "").partition("#id(")[2].removesuffix(")")
+            for p in act
+            if p.tag.endswith("pointer")
+        }
         child = next(c for c in act if c.tag.endswith("child")).get("href", "")
         ids = re.findall(r"id\(([^)]+)\)", child.partition("#")[2])
-        ranges.append(range(before[ids[0]], after[ids[-1]]))
-    return SpeakerAnnotation(timed, ranges)
+        words = range(before[ids[0]], after[ids[-1]])
+        if backchannel_type in types:
+            backchannels.append(words)
+        found.append(figures.Act(words, minor=types.isdisjoint(major_types)))
+    return SpeakerAnnotation(timed, backchannels, found)
 
 
 def ami_segments(archive: zipfile.ZipFile, meeting: str, speaker: str) -> list[Segment]:
@@ -535,8 +550,11 @@ def collect_ami(collection: Collection, cache: Path, sources: Sources) -> None:
             _take_backchannel(
                 collection, samples, rate, span, f"{headset.meeting}.{wearer}"
             )
-        for onset in figures.speech_onsets(annotation.timed, others):
-            _take_ami_onset(collection, samples, rate, onset)
+        for onset in figures.speech_onsets(annotation.timed, annotation.acts, others):
+            if onset.minor:
+                collection.tally.add(DelayCorpus.AMI, Fate.MINOR_ACT)
+            else:
+                _take_ami_onset(collection, samples, rate, onset)
 
 
 def _take_ami_onset(

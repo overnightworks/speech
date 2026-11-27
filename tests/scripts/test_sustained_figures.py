@@ -9,6 +9,7 @@ import pytest
 import sustained_figures as figures
 from speech_service.voice_activity import WINDOW_SAMPLES
 from sustained_figures import (
+    Act,
     Backchannel,
     Cell,
     CellFigures,
@@ -41,6 +42,15 @@ def word(start: float, end: float) -> Timed:
 
 def vocal_sound(start: float, end: float) -> Timed:
     return Timed(start, end, spoken=False)
+
+
+def an_act_per_word(timed: list[Timed]) -> list[Act]:
+    """Each spoken item is an act of its own, none of them minor."""
+    return [
+        Act(range(index, index + 1), minor=False)
+        for index, item in enumerate(timed)
+        if item.spoken
+    ]
 
 
 @pytest.mark.parametrize(
@@ -261,17 +271,49 @@ def test_a_backchannel_is_overlapped_when_another_speaker_talks_during_its_span(
 def test_an_onset_is_a_word_after_a_second_of_quiet_that_goes_on(
     timed: list[Timed], onsets: list[float]
 ) -> None:
-    assert [onset.at for onset in figures.speech_onsets(timed, others=[])] == onsets
+    found = figures.speech_onsets(timed, an_act_per_word(timed), others=[])
+
+    assert [onset.at for onset in found] == onsets
 
 
 def test_an_onset_is_overlapped_when_another_speakers_segment_spans_it() -> None:
     timed = [word(5.0, 5.5), word(5.5, 6.5)]
 
-    spans = figures.speech_onsets(timed, [Segment(4.0, 5.0)])
-    clear = figures.speech_onsets(timed, [Segment(4.0, 4.75)])
+    acts = an_act_per_word(timed)
+    spans = figures.speech_onsets(timed, acts, [Segment(4.0, 5.0)])
+    clear = figures.speech_onsets(timed, acts, [Segment(4.0, 4.75)])
 
     assert spans == [Onset(5.0, overlapped=True)]
     assert clear == [Onset(5.0, overlapped=False)]
+
+
+def test_the_first_word_of_a_minor_act_is_no_onset_and_that_of_a_task_act_is() -> None:
+    timed = [word(5.0, 5.5), word(5.5, 6.5), word(10.0, 10.5), word(10.5, 11.5)]
+    acts = [Act(range(2), minor=True), Act(range(2, 4), minor=False)]
+
+    found = figures.speech_onsets(timed, acts, others=[])
+
+    assert found == [
+        Onset(5.0, overlapped=False, minor=True),
+        Onset(10.0, overlapped=False, minor=False),
+    ]
+
+
+def test_a_start_that_no_act_holds_is_minor() -> None:
+    timed = [word(5.0, 5.5), word(5.5, 6.5)]
+
+    found = figures.speech_onsets(timed, [], others=[])
+
+    assert found == [Onset(5.0, overlapped=False, minor=True)]
+
+
+def test_a_word_inside_an_act_after_a_pause_is_no_onset() -> None:
+    timed = [word(1.0, 1.25), word(3.0, 3.5), word(3.5, 4.5)]
+    acts = [Act(range(3), minor=False)]
+
+    found = figures.speech_onsets(timed, acts, others=[])
+
+    assert found == []
 
 
 def clip(fills: str) -> HeardClip:

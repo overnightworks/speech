@@ -122,6 +122,7 @@ class Fate(StrEnum):
     NO_LEAD_IN = "no lead-in"
     NOT_ISOLATED = "not isolated"
     TOO_LONG = "too long"
+    MINOR_ACT = "minor act"
 
     @property
     def kept(self) -> bool:
@@ -234,6 +235,17 @@ class Segment:
 
 
 @dataclass(frozen=True)
+class Act:
+    """A dialogue act's words (indices into the wearer's timed items) and its class.
+
+    `minor` is an act of class minor (`bck`, `stl`, `fra`) or without a class.
+    """
+
+    words: range
+    minor: bool
+
+
+@dataclass(frozen=True)
 class Backchannel:
     """A backchannel's annotated span in seconds, and whether another spoke in it."""
 
@@ -244,10 +256,15 @@ class Backchannel:
 
 @dataclass(frozen=True)
 class Onset:
-    """The start of a stretch of the wearer's speech, and whether another spoke."""
+    """The start of a stretch of the wearer's speech, and whether another spoke.
+
+    `minor` is a start that opens a minor or unlabelled act: what the false-hold
+    rows count, never a start the service must hold for.
+    """
 
     at: float
     overlapped: bool
+    minor: bool = False
 
 
 def backchannel_spans(
@@ -280,12 +297,17 @@ def backchannel_spans(
     return found
 
 
-def speech_onsets(timed: Sequence[Timed], others: Sequence[Segment]) -> list[Onset]:
-    """The words that start the wearer's speech after a quiet that is long enough.
+def speech_onsets(
+    timed: Sequence[Timed], acts: Iterable[Act], others: Sequence[Segment]
+) -> list[Onset]:
+    """The starts of the wearer's speech after a long quiet, those of minor acts marked.
 
-    An onset is the first word after 1.0 s without any own word or vocal sound
-    that continues for at least 1.5 s with no own gap of 0.5 s or more.
+    A start is the first spoken word of an act (or a word that no act holds) after
+    1.0 s without any own word or vocal sound, that continues for at least 1.5 s
+    with no own gap of 0.5 s or more. It is an onset unless its act is minor or
+    missing, which is returned as `minor`.
     """
+    act_of = {index: act for act in acts for index in act.words}
     found = []
     previous_end = -math.inf
     for index, item in enumerate(timed):
@@ -294,11 +316,21 @@ def speech_onsets(timed: Sequence[Timed], others: Sequence[Segment]) -> list[Ons
             and item.start - previous_end >= ONSET_QUIET_SECONDS
             and _continues(timed, index)
         ):
-            found.append(
-                Onset(item.start, _spoken_over(others, item.start, item.start))
-            )
+            act = act_of.get(index)
+            if act is None or index == _first_spoken(timed, act):
+                found.append(
+                    Onset(
+                        item.start,
+                        _spoken_over(others, item.start, item.start),
+                        minor=act is None or act.minor,
+                    )
+                )
         previous_end = max(previous_end, item.end)
     return found
+
+
+def _first_spoken(timed: Sequence[Timed], act: Act) -> int:
+    return next(index for index in act.words if timed[index].spoken)
 
 
 def _continues(timed: Sequence[Timed], index: int) -> bool:

@@ -120,7 +120,10 @@ def vocal_sound(number: int, start: float, end: float) -> str:
 
 
 def annotations() -> bytes:
-    """A wearer who says "mhm" alone at 30 s and 50 s and speaks on from 10 s, 45 s."""
+    """A wearer who says "mhm" alone at 30 s and 50 s and speaks on from 10 s, 45 s.
+
+    The speech at 55 s is a stall (a minor act), the other speech a task act.
+    """
     words = "".join(
         [
             word(0, 10.0, 10.5, "hello"),
@@ -132,6 +135,8 @@ def annotations() -> bytes:
             word(6, 45.0, 45.5, "well"),
             word(7, 45.5, 46.75, "then"),
             word(8, 50.0, 50.5),
+            word(9, 55.0, 55.5, "so"),
+            word(10, 55.5, 56.75, "yes"),
         ]
     )
 
@@ -144,7 +149,13 @@ def annotations() -> bytes:
         )
 
     acts = "".join(
-        [act("ami_da_4", 0, 1), act("ami_da_1", 3, 4), act("ami_da_1", 8, 8)]
+        [
+            act("ami_da_4", 0, 1),
+            act("ami_da_1", 3, 4),
+            act("ami_da_4", 6, 7),
+            act("ami_da_1", 8, 8),
+            act("ami_da_2", 9, 10),
+        ]
     )
     files = {
         "corpusResources/meetings.xml": (
@@ -153,8 +164,11 @@ def annotations() -> bytes:
             '<speaker channel="1" nxt_agent="B"/></meeting></nite:root>'
         ),
         "ontologies/da-types.xml": (
-            f'<da-type {NITE} nite:id="root"><da-type nite:id="ami_da_1"'
-            ' name="bck"/><da-type nite:id="ami_da_4" name="inf"/></da-type>'
+            f'<da-type {NITE} nite:id="root">'
+            '<da-type name="minor"><da-type nite:id="ami_da_1" name="bck"/>'
+            '<da-type nite:id="ami_da_2" name="stl"/></da-type>'
+            '<da-type name="task"><da-type nite:id="ami_da_4" name="inf"/></da-type>'
+            "</da-type>"
         ),
         f"words/{MEETING}.A.words.xml": f"<nite:root {NITE}>{words}</nite:root>",
         f"dialogueActs/{MEETING}.A.dialog-act.xml": (
@@ -176,7 +190,14 @@ def headset() -> bytes:
     return pcm_wav(
         tone(
             60.0,
-            [(10.0, 11.75), (30.0, 30.5), (43.0, 43.25), (45.0, 46.5), (50.0, 50.5)],
+            [
+                (10.0, 11.75),
+                (30.0, 30.5),
+                (43.0, 43.25),
+                (45.0, 46.5),
+                (50.0, 50.5),
+                (55.0, 56.5),
+            ],
         )
     )
 
@@ -290,7 +311,7 @@ def test_the_probe_prints_a_row_for_every_cell_with_the_counts_of_what_it_read(
     counts = table["counts"]
     assert counts[Sound.BACKCHANNEL]["kept"] == CLIPS_PER_SOUND
     assert counts[DelayCorpus.AMI]["kept"] == 1
-    assert counts[DelayCorpus.AMI]["dropped"] == {"not isolated": 1}
+    assert counts[DelayCorpus.AMI]["dropped"] == {"not isolated": 1, "minor act": 1}
     assert counts[Sound.LAUGHTER]["kept"] == CLIPS_PER_SOUND
     assert counts[Sound.THROAT_CLEARING]["dropped"] == {"too long": 1}
     assert counts[DelayCorpus.FLEURS]["dropped"] == {"no lead-in": 1}
