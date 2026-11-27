@@ -14,6 +14,7 @@ from shipped_catalogue import CATALOGUE
 from speech_client.wire import (
     SPEECH_PATH,
     VOICES,
+    AudioEventType,
     Language,
     RefusalCode,
     ResponseFormat,
@@ -182,11 +183,11 @@ def sse_events(body: bytes) -> list[dict[str, object]]:
 
 
 def sse_audio(events: list[dict[str, object]]) -> bytes:
-    """The audio the `speech.audio.delta` events carry, in order."""
+    """The audio the `AudioEventType.DELTA` events carry, in order."""
     return b"".join(
         base64.b64decode(str(event["audio"]))
         for event in events
-        if event["type"] == "speech.audio.delta"
+        if event["type"] == AudioEventType.DELTA
     )
 
 
