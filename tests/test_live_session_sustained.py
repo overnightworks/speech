@@ -13,6 +13,8 @@ from speech_client.realtime_wire import (
     ItemCreated,
     SessionCreated,
     SessionUpdated,
+    SoundDetected,
+    SoundName,
     SpeechStarted,
     SpeechStopped,
     SpeechSustained,
@@ -29,6 +31,7 @@ from tests.support.detector_support import (
 )
 from tests.support.hear_support import FakeHearing, loaded
 from tests.support.live_support import (
+    ASK_FOR_SOUNDS,
     SPEECH_LEVEL,
     WAIT_SECONDS,
     FakeSocket,
@@ -39,6 +42,7 @@ from tests.support.live_support import (
     update,
     windows,
 )
+from tests.support.sound_support import FakeSoundModel, loaded_taggers
 
 FOUR_TENTHS = {"duration_ms": FOUR_TENTHS_MS}
 SILENCE_WINDOWS = 16
@@ -47,9 +51,12 @@ ITEMS = 4
 LEVELS = {"v": SPEECH_LEVEL, ".": 0}
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from speech_client.realtime_wire import ServerEvent
     from speech_service.hearing import Hearing
     from speech_service.live_session import LiveSession
+    from speech_service.sound_events import SoundTaggers
 
 
 def _voice(pattern: str) -> str:
@@ -64,12 +71,18 @@ def _voice(pattern: str) -> str:
 
 
 async def _asking(
-    ask: object = FOUR_TENTHS, engine: FakeHearing | None = None
+    ask: object = FOUR_TENTHS,
+    engine: FakeHearing | None = None,
+    *,
+    sounds: SoundTaggers | None = None,
+    sound_detection: dict[str, str] | None = None,
 ) -> tuple[LiveSession, FakeSocket, Hearing, FakeClock]:
     clock = FakeClock()
-    hearing = loaded(engine or FakeHearing(), clock)
+    hearing = loaded(engine or FakeHearing(), clock, sounds=sounds)
     session, socket = await started(hearing)
-    await session.on_message(update(sustained_speech=ask))
+    await session.on_message(
+        update(sound_detection=sound_detection, sustained_speech=ask)
+    )
     return session, socket, hearing, clock
 
 
@@ -351,3 +364,76 @@ def test_the_event_is_sent_while_a_decode_is_held() -> None:
 
     assert before == []
     assert len(during) == 1
+
+
+LAUGH = {"Laughter": 0.4}
+# Two seconds and a little more of voice: the first sound hop is due.
+VOICED_WINDOWS_OF_A_HOP = 70
+
+
+def test_one_echo_carries_the_sound_ask_and_the_applied_duration(
+    tmp_path: Path,
+) -> None:
+    """WIRE-163, WIRE-172: one `session.update` for both is echoed once, whole."""
+
+    async def scenario() -> FakeSocket:
+        taggers, _ = loaded_taggers(tmp_path)
+        _, socket, _, _ = await _asking(sounds=taggers, sound_detection=ASK_FOR_SOUNDS)
+        return socket
+
+    socket = asyncio.run(scenario())
+
+    (echo,) = socket.of_type(SessionUpdated)
+    assert echo.session.audio.input.sound_detection.model_dump() == ASK_FOR_SOUNDS
+    assert echo.session.audio.input.sustained_speech == SustainedSpeech(
+        duration_ms=FOUR_TENTHS_MS
+    )
+
+
+def test_a_voice_with_a_sound_gets_its_sustained_event_before_its_sound_event(
+    tmp_path: Path,
+) -> None:
+    """WIRE-167, WIRE-175: the count's event comes with the voice, the sound after."""
+
+    async def scenario() -> FakeSocket:
+        taggers, model = loaded_taggers(tmp_path, FakeSoundModel())
+        session, socket, _, _ = await _asking(
+            sounds=taggers, sound_detection=ASK_FOR_SOUNDS
+        )
+        model.script(LAUGH)
+        await session.on_message(append(_voice("v" * VOICED_WINDOWS_OF_A_HOP)))
+        await session.settled()
+        return socket
+
+    socket = asyncio.run(scenario())
+
+    assert socket.types() == [
+        SessionCreated,
+        SessionUpdated,
+        SpeechStarted,
+        SpeechSustained,
+        SoundDetected,
+    ]
+    (heard,) = socket.of_type(SoundDetected)
+    assert heard.sound == SoundName.LAUGHTER
+
+
+def test_without_a_sound_model_the_echo_keeps_the_duration_and_the_event_comes() -> (
+    None
+):
+    """WIRE-165, WIRE-172: the sound ask is dropped, the sustained speech is not."""
+
+    async def scenario() -> FakeSocket:
+        session, socket, _, _ = await _asking(sound_detection=ASK_FOR_SOUNDS)
+        await session.on_message(append(_voice("v" * THRESHOLD_WINDOWS)))
+        return socket
+
+    socket = asyncio.run(scenario())
+
+    (echo,) = socket.of_type(SessionUpdated)
+    assert echo.session.audio.input.sound_detection is None
+    assert echo.session.audio.input.sustained_speech == SustainedSpeech(
+        duration_ms=FOUR_TENTHS_MS
+    )
+    assert len(_sustained(socket)) == 1
+    assert socket.of_type(SoundDetected) == []
