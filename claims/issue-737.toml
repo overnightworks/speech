@@ -3,6 +3,6 @@ agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
 role = "builder"
 base = "6b99eab99b08a2e2358f1912b84a9757278fd985"
 branch = "claude/issue-737-the-tests-deadline-polls-call-one-shared"
-scope = ["tests/scripts/test_hearing_card.py", "tests/support/drain_server_support.py", "tests/support/gpu_voice_support.py", "tests/support/launcher_support.py", "tests/support/poll_support.py", "tests/support/process_state.py", "tests/support/tcp_server_support.py", "tests/test_main_serve_lifecycle.py", "tests/test_provider_process.py", "tests/test_service_drain.py", "tests/test_speaking_qwen.py", "tests/test_voice_slot_load.py", "tests/test_voice_slot_stop.py", "tests/test_voices_configured.py"]
+scope = ["tests/scripts/test_hearing_card.py", "tests/support/drain_server_support.py", "tests/support/gpu_voice_support.py", "tests/support/launcher_support.py", "tests/support/poll_support.py", "tests/support/process_state.py", "tests/support/tcp_server_support.py", "tests/test_main_serve_lifecycle.py", "tests/test_poll_support.py", "tests/test_provider_process.py", "tests/test_service_drain.py", "tests/test_speaking_qwen.py", "tests/test_voice_slot_load.py", "tests/test_voice_slot_stop.py", "tests/test_voices_configured.py"]
 opened_commit = "1aadb47933c53932ebea276ca41c974fed40903a"
 whole_reason = "One shared poll replaces the same hand-written loop in every file that writes it; a split would leave two owners of the bounded wait."
