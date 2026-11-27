@@ -351,23 +351,29 @@ PRE_ROLL_WINDOWS = int(PRE_ROLL_SECONDS / WINDOW_SECONDS)
 
 
 def _heard(
-    windows: str, sustained_ms: int | None = FOUR_TENTHS_MS
+    windows: str,
+    sustained_ms: int | None = FOUR_TENTHS_MS,
+    **session_settings: float,
 ) -> list[SpeechStart | SpeechSustain | TurnEnd]:
     """Every event of a session that is fed `windows` and asked for `sustained_ms`."""
     detector = ScriptedDetector(_WINDOW_PROBABILITY[window] for window in windows)
-    session = HearingSession(_Clock(), detector, DEFAULT_LIVE_SILENCE_SECONDS)
+    session = HearingSession(
+        _Clock(), detector, DEFAULT_LIVE_SILENCE_SECONDS, **session_settings
+    )
     if sustained_ms is not None:
         session.sustain_after(sustained_ms)
     return session.add(_quiet(len(windows)))
 
 
 def _sustained_ends(
-    windows: str, sustained_ms: int | None = FOUR_TENTHS_MS
+    windows: str,
+    sustained_ms: int | None = FOUR_TENTHS_MS,
+    **session_settings: float,
 ) -> list[int]:
     """The position of each `SpeechSustain` of `windows`, in milliseconds."""
     return [
         event.audio_ms
-        for event in _heard(windows, sustained_ms)
+        for event in _heard(windows, sustained_ms, **session_settings)
         if isinstance(event, SpeechSustain)
     ]
 
@@ -409,6 +415,31 @@ def test_one_event_comes_where_the_voice_since_the_last_long_pause_reaches_the_c
     expected = [] if reached_at is None else [end_of_window(reached_at)]
 
     assert _sustained_ends(windows + "." * SILENT_WINDOWS) == expected
+
+
+@pytest.mark.parametrize(
+    ("pause_windows", "reached_at"),
+    [
+        pytest.param(3, None, id="a-pause-of-the-bound-restarts-the-count"),
+        pytest.param(
+            5,
+            8 + len(SHORT_PAUSE) + (THRESHOLD_WINDOWS - 8) - 1,
+            id="a-pause-short-of-the-bound-adds-nothing-and-restarts-nothing",
+        ),
+    ],
+)
+def test_the_pause_keyword_moves_the_bound_a_pause_restarts_the_count_at(
+    pause_windows: int, reached_at: int | None
+) -> None:
+    """WIRE-173: the keyword sets the session's own pause bound."""
+    windows = "v" * 8 + SHORT_PAUSE + "v" * 8 + "." * SILENT_WINDOWS
+    expected = [] if reached_at is None else [end_of_window(reached_at)]
+
+    heard = _sustained_ends(
+        windows, pause_seconds=(pause_windows - 0.5) * WINDOW_SECONDS
+    )
+
+    assert heard == expected
 
 
 def test_a_session_that_did_not_ask_hears_no_event() -> None:

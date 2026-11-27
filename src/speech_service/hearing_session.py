@@ -38,10 +38,6 @@ _SAMPLES_PER_MILLISECOND: Final = HEARING_SAMPLE_RATE // 1000
 _MAX_TURN_SAMPLES: Final = int(MAX_TURN_SECONDS * HEARING_SAMPLE_RATE)
 _MIN_PARTIAL_SAMPLES: Final = int(MIN_AUDIO_SECONDS * HEARING_SAMPLE_RATE)
 _PRE_ROLL_SAMPLES: Final = int(PRE_ROLL_SECONDS * HEARING_SAMPLE_RATE)
-# A pause restarts the sustained count once it is longer than the bound.
-_PAUSE_WINDOWS: Final = (
-    int(SUSTAINED_PAUSE_SECONDS * HEARING_SAMPLE_RATE) // WINDOW_SAMPLES + 1
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,17 +91,17 @@ class OpenTurn:
     voiced_seconds: float
 
 
-def _restarts_count(unvoiced_run: int) -> bool:
-    """Whether a run of `unvoiced_run` unvoiced windows restarts the sustained count."""
-    return unvoiced_run >= _PAUSE_WINDOWS
+def _pause_windows(pause_seconds: float) -> int:
+    """The run of unvoiced windows that restarts the count: a pause past the bound."""
+    return int(pause_seconds * HEARING_SAMPLE_RATE) // WINDOW_SAMPLES + 1
 
 
-def _voiced_since_last_pause(starts: deque[int]) -> int:
+def _voiced_since_last_pause(starts: deque[int], pause_windows: int) -> int:
     """How many of the voiced windows, by their starts, follow the last long pause."""
     count = 0
     newer: int | None = None
     for start in reversed(starts):
-        if newer is not None and _restarts_count((newer - start) // WINDOW_SAMPLES - 1):
+        if newer is not None and (newer - start) // WINDOW_SAMPLES - 1 >= pause_windows:
             break
         count += 1
         newer = start
@@ -125,13 +121,17 @@ class HearingSession:
         clock: Callable[[], float],
         detector: SpeechDetector,
         silence_seconds: float,
+        *,
+        pause_seconds: float = SUSTAINED_PAUSE_SECONDS,
     ) -> None:
         """Count time with `clock`, in seconds; read the speech from `detector`.
 
-        A turn ends after `silence_seconds` without speech.
+        A turn ends after `silence_seconds` without speech. A pause longer than
+        `pause_seconds` restarts the sustained count.
         """
         self._clock = clock
         self._detector = detector
+        self._pause_windows = _pause_windows(pause_seconds)
         self._silent_windows_to_end = math.ceil(
             silence_seconds * HEARING_SAMPLE_RATE / WINDOW_SAMPLES
         )
@@ -155,7 +155,7 @@ class HearingSession:
         """Raise `SpeechSustain` once a turn's voice has lasted `duration_ms`.
 
         The voice that counts is the voiced windows since the turn's last pause
-        longer than `SUSTAINED_PAUSE_SECONDS`, its pre-roll's included. Call it before
+        longer than the session's pause bound, its pre-roll's included. Call it before
         the first `add`.
         """
         self._sustained_windows_to_send = math.ceil(
@@ -255,7 +255,9 @@ class HearingSession:
         self._drop_before(self._run_start - _PRE_ROLL_SAMPLES)
         self._speaking = True
         self._voiced_windows = len(self._waiting_voiced)
-        self._sustained_windows = _voiced_since_last_pause(self._waiting_voiced)
+        self._sustained_windows = _voiced_since_last_pause(
+            self._waiting_voiced, self._pause_windows
+        )
         self._waiting_voiced.clear()
         self._silent_windows = 0
         self._speech_windows = 0
@@ -271,7 +273,7 @@ class HearingSession:
         self, probability: float, end: int
     ) -> list[SpeechSustain | TurnEnd]:
         if is_voiced(probability):
-            if _restarts_count(self._silent_windows):
+            if self._silent_windows >= self._pause_windows:
                 self._sustained_windows = 0
             self._sustained_windows += 1
             self._voiced_windows += 1
