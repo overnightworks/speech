@@ -199,18 +199,18 @@ def fate_of(
 ) -> Fate:
     """Whether an excerpt is heard, not heard, or dropped, and why.
 
-    It is dropped for less than `LEAD_IN_SECONDS` unvoiced before its first
-    voiced window, for a voiced window outside `inside` (seconds from the
-    excerpt's start), or for a span from its first to its last voiced window
-    longer than `max_windows`.
+    It is dropped, for the first reason that holds, for a voiced window outside
+    `inside` (seconds from the excerpt's start), for less than `LEAD_IN_SECONDS`
+    unvoiced before its first voiced window, or for a span from its first to its
+    last voiced window longer than `max_windows`.
     """
     voiced = voiced_indices(probabilities)
     if not voiced:
         return Fate.NOT_HEARD
-    if voiced[0] * WINDOW_SECONDS < LEAD_IN_SECONDS:
-        return Fate.NO_LEAD_IN
     if inside is not None and lies_outside(probabilities, *inside):
         return Fate.NOT_ISOLATED
+    if voiced[0] * WINDOW_SECONDS < LEAD_IN_SECONDS:
+        return Fate.NO_LEAD_IN
     if max_windows is not None and voiced[-1] - voiced[0] + 1 > max_windows:
         return Fate.TOO_LONG
     return Fate.HEARD

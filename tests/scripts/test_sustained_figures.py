@@ -117,8 +117,14 @@ def test_the_ruled_cell_is_the_ruled_pair() -> None:
         pytest.param(
             "." * 5 + "v" * 40,
             {"inside": (0.0, 0.5), "max_windows": 31},
+            Fate.NOT_ISOLATED,
+            id="isolation-is-judged-before-the-lead-in",
+        ),
+        pytest.param(
+            "." * 5 + "v" * 40,
+            {"max_windows": 31},
             Fate.NO_LEAD_IN,
-            id="the-lead-in-is-judged-first",
+            id="the-lead-in-is-judged-before-the-length",
         ),
     ],
 )
