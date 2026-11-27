@@ -79,7 +79,6 @@ include = ["src/*", "packages/*/src/*", "providers/*/src/*", "scripts/*"]
 
 [tool.coverage.report]
 exclude_also = ["assert_never\\(", 'if __name__ == "__main__":']
-fail_under = 91
 
 [tool.ruff]
 target-version = "py314"

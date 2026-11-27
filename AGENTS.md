@@ -22,6 +22,7 @@ Run each in its project's own directory (the root, or `providers/qwen`).
 - A new root entry is declared in `quality/config.toml` with a reason, or lives in its owner's directory.
 - An advisory no relock reaches is allowlisted in `quality/config.toml` with its owning item and the model-library cap that holds it.
 - `sonar-project.properties` carries only the keys the quality gate allows.
+- The root floor is `coverage report --fail-under` in `Speech: coverage reports`, the Qwen floor `--cov-fail-under` on its job; no pyproject sets `fail_under`.
 - Coverage reports are `coverage-<job>.xml` with paths relative to the repository root, as `[tool.coverage.run]` in the root `pyproject.toml` sets, and the browser package's `coverage-<job>.lcov`, with paths from the repository root too.
 - The GPU providers are live code: do not delete them as unused.
 

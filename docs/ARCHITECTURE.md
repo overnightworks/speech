@@ -173,6 +173,14 @@ Tests beside the code drive real entry points, the README's proof scripts and
 Chromium browser flows prove the rest. A GPU voice is proven in CI with a fake
 launcher; the image's speaking and hearing on the card by a GPU run.
 
+Python branch coverage of the root project is measured over four layers
+together: the unit tests, the Chromium browser flows, the Keycloak token shapes
+and the image proof each write their own data file, and `Speech: coverage
+reports` combines them into `coverage-root.xml` and judges the root floor in its
+`coverage report --fail-under`. The Qwen project runs on its own interpreter, so
+it is its own layer with its own report, and its job judges its floor. A floor
+lives in the one CI command that judges it and only rises.
+
 ## Constraints and reasons
 
 - **The operator owns the card.** The service arbitrates nothing; `SPEECH_VOICES`
