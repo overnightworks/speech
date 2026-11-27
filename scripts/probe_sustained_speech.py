@@ -114,6 +114,9 @@ VOCALSOUND_SHA256: Final = {
     "wds-audio-valid-000005.tar": (
         "5f36d3fc8d2129043619186c9aa2da5bbd1f9bf80a7b88a81248672cc1927c81"
     ),
+    "wds-audio-valid-000006.tar": (
+        "0719cc7f5c035e42b0ebac27bf20dd062fc4b02c234748583bbec11e28d7a4d0"
+    ),
 }
 VOCALSOUND_SPLIT_SIZE: Final = 20
 FLEURS_URL: Final = (
