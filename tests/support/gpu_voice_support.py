@@ -11,7 +11,6 @@ import socket
 import subprocess
 import sys
 import threading
-import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -394,16 +393,10 @@ class Serving:
                 listener=self.listener,
             )
         )
-        deadline = time.monotonic() + SERVER_WAIT_SECONDS
         await wait_until_async(
-            lambda: answers_http(self.port),
+            lambda: answers_http(self.port) and not self._stage.runtime.loading,
             within=SERVER_WAIT_SECONDS,
-            waited_for="the service never answered",
-        )
-        await wait_until_async(
-            lambda: not self._stage.runtime.loading,
-            within=max(0.0, deadline - time.monotonic()),
-            waited_for="the start load never ended",
+            waited_for="the service never answered or its start load never ended",
         )
         return httpx2.AsyncClient(
             base_url=f"http://{LOOPBACK}:{self.port}",
