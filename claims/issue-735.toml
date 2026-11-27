@@ -3,5 +3,6 @@ agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
 role = "builder"
 base = "1b2f3229bbb57bae2ead1fc09b0efcb3b5212e08"
 branch = "claude/issue-735-the-speak-stream-tests-take-the-sse-even"
-scope = ["tests/scripts/test_speaking_marks.py", "tests/support/speak_support.py", "tests/test_wire_route_sse.py"]
+scope = ["packages/client/tests/test_wire.py", "tests/scripts/test_speaking_marks.py", "tests/support/speak_support.py", "tests/test_wire_route_sse.py"]
 opened_commit = "f76374f0cc7ff7fc36d91596ea50c177c2f3cfd3"
+whole_reason = "Once the service tests take the three tokens from their owner, only the owner's own test pins their values, so both move together."
