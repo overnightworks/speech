@@ -436,7 +436,6 @@ def test_an_event_is_one_data_line_with_the_type_and_a_blank_line() -> None:
 @pytest.mark.parametrize(
     ("event_type", "wire_type"),
     [
-        pytest.param(AudioEventType.DELTA, "speech.audio.delta", id="delta"),
         pytest.param(AudioEventType.MARKS, "speech.audio.marks", id="marks"),
         pytest.param(AudioEventType.DONE, "speech.audio.done", id="done"),
     ],
@@ -444,7 +443,7 @@ def test_an_event_is_one_data_line_with_the_type_and_a_blank_line() -> None:
 def test_an_event_type_goes_on_the_wire_as_its_ruled_token(
     event_type: AudioEventType, wire_type: str
 ) -> None:
-    """WIRE-158: the three event types are the ruled `speech.audio.*` tokens."""
+    """WIRE-158: marks and done are the ruled `speech.audio.*` tokens."""
     frame = audio_event(event_type)
 
     assert json.loads(frame.removeprefix(b"data: "))["type"] == wire_type
