@@ -220,3 +220,68 @@ def test_a_destination_inside_the_working_directory_resolves_under_it(
     assert design_voice.confined_destination(Path("out/sub"), tmp_path) == (
         tmp_path.resolve() / "out" / "sub"
     )
+
+
+def _run_main(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *options: str
+) -> list[tuple[str, str, int, Path, Path]]:
+    """Run the console script on `options`; the calls its `design_voices` got."""
+    calls: list[tuple[str, str, int, Path, Path]] = []
+
+    def designed(
+        description: str, language: str, count: int, destination: Path, cache: Path
+    ) -> list[Path]:
+        calls.append((description, language, count, destination, cache))
+        return [destination / "candidate-01.wav", destination / "candidate-02.wav"]
+
+    monkeypatch.setattr(design_voice, "design_voices", designed)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "speech-qwen-design-voice",
+            "--description",
+            DESCRIPTION,
+            "--cache",
+            "hub",
+            *options,
+        ],
+    )
+    design_voice.main()
+    return calls
+
+
+def test_the_console_script_prints_each_designed_path_on_its_own_line(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    [call] = _run_main(
+        monkeypatch, tmp_path, "--language", "de", "--destination", "out"
+    )
+
+    destination = tmp_path.resolve() / "out"
+    assert call[1:4] == ("de", 4, destination)
+    assert capsys.readouterr().out.splitlines() == [
+        str(destination / "candidate-01.wav"),
+        str(destination / "candidate-02.wav"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("options", "refusal"),
+    [
+        (["--language", "en", "--destination", "../escape"], ValueError),
+        (["--language", "fr", "--destination", "out"], SystemExit),
+    ],
+    ids=["destination outside the working directory", "language outside de and en"],
+)
+def test_the_console_script_refuses_what_the_design_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    options: list[str],
+    refusal: type[BaseException],
+) -> None:
+    with pytest.raises(refusal):
+        _run_main(monkeypatch, tmp_path, *options)

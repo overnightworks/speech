@@ -7,7 +7,6 @@ import contextlib
 import io
 import json
 import os
-import subprocess
 import wave
 from http import HTTPStatus
 from pathlib import Path
@@ -15,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from speech_provider_contract import QWEN_ARTIFACTS, QWEN_LANGUAGE_NAMES
 
-from speech_qwen.server import Server, start_server
+from speech_qwen.server import Server, start_server, stop_process
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -155,12 +154,7 @@ def _stopped(server: Server) -> Iterator[None]:
     try:
         yield
     finally:
-        server.process.terminate()
-        try:
-            server.process.wait(timeout=_STOP_GRACE_SECONDS)
-        except subprocess.TimeoutExpired:
-            server.process.kill()
-            server.process.wait()
+        stop_process(server.process, _STOP_GRACE_SECONDS)
 
 
 def confined_destination(requested: Path, base: Path) -> Path:

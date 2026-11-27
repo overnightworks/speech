@@ -125,6 +125,23 @@ def test_with_every_place_kept_a_body_over_the_cap_is_still_too_large() -> None:
     assert_call_refusal(fits, HTTP_429_TOO_MANY_REQUESTS, RefusalCode.BUSY, None)
 
 
+def _first_call(app: FastAPI, ending: str) -> SpeakCall:
+    """The request that `ending` brings to its end."""
+    match ending:
+        case "too-large":
+            return hear_call(app, b"x" * (len(_valid()) + 1))
+        case "malformed":
+            return hear_call(app, b"x" * 9)
+        case "leaves":
+            return hear_call_begun(app)
+        case "leaves-while-refused":
+            leaver = hear_call(app)
+            leaver.disconnect()
+            return leaver
+        case _:
+            return hear_call(app)
+
+
 @pytest.mark.parametrize(
     "ending",
     [
@@ -153,18 +170,7 @@ def test_a_kept_place_is_freed_when_its_request_ends(ending: str) -> None:
         taken = None
         if ending in {"busy", "cancelled-waiting", "leaves-while-refused"}:
             taken = runtime.hearing.gate.try_acquire()
-        match ending:
-            case "too-large":
-                first = hear_call(app, b"x" * (len(_valid()) + 1))
-            case "malformed":
-                first = hear_call(app, b"x" * 9)
-            case "leaves":
-                first = hear_call_begun(app)
-            case "leaves-while-refused":
-                first = hear_call(app)
-                first.disconnect()
-            case _:
-                first = hear_call(app)
+        first = _first_call(app, ending)
         if ending == "leaves-mid-decode":
             await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
         if ending in {"leaves", "cancelled-waiting", "leaves-mid-decode"}:
