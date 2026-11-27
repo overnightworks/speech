@@ -1,7 +1,6 @@
 """The start setting is the one source of the offer."""
 
 import asyncio
-import time
 from typing import TYPE_CHECKING
 
 import pytest
@@ -29,6 +28,7 @@ from tests.support.identity_support import (
     valid_headers,
 )
 from tests.support.launcher_support import SERVER_WAIT_SECONDS, received_requests
+from tests.support.poll_support import wait_until_async
 from tests.support.speak_support import (
     SpeakCall,
     app_over,
@@ -240,10 +240,11 @@ def test_ryans_first_chunk_reaches_the_caller_before_the_server_sends_the_second
     async def scenario(stage: GpuVoiceStage) -> tuple[bytes, bool, bytes]:
         call = SpeakCall(stage.app(), speak_body(VoiceId.RYAN, "gate"))
         assert await call.status() == HTTP_200_OK
-        deadline = time.monotonic() + SERVER_WAIT_SECONDS
-        while not wav_body(call.messages).endswith(b"\x00\x01"):
-            assert time.monotonic() < deadline
-            await asyncio.sleep(0.01)
+        await wait_until_async(
+            lambda: wav_body(call.messages).endswith(b"\x00\x01"),
+            within=SERVER_WAIT_SECONDS,
+            waited_for="the first chunk never reached the caller",
+        )
         before_second = wav_body(call.messages)
         running = not call.task.done()
         (stage.cache / "release-second").touch()

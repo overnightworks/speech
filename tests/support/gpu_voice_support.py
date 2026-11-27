@@ -11,7 +11,6 @@ import socket
 import subprocess
 import sys
 import threading
-import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,6 +47,7 @@ from tests.support.launcher_support import (
     server_starts,
     wait_for_starts,
 )
+from tests.support.poll_support import wait_until_async
 from tests.support.serve_support import RecordedStops, serve_runtime
 from tests.support.speak_support import ASGI_TIMEOUT_SECONDS, wav_body
 from tests.support.tcp_server_support import (
@@ -393,12 +393,11 @@ class Serving:
                 listener=self.listener,
             )
         )
-        deadline = time.monotonic() + SERVER_WAIT_SECONDS
-        while not await asyncio.to_thread(answers_http, self.port):
-            assert time.monotonic() < deadline
-        while self._stage.runtime.loading:
-            assert time.monotonic() < deadline
-            await asyncio.sleep(0.01)
+        await wait_until_async(
+            lambda: answers_http(self.port) and not self._stage.runtime.loading,
+            within=SERVER_WAIT_SECONDS,
+            waited_for="the service never answered or its start load never ended",
+        )
         return httpx2.AsyncClient(
             base_url=f"http://{LOOPBACK}:{self.port}",
             timeout=SERVER_WAIT_SECONDS,

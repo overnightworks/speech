@@ -18,6 +18,7 @@ from speech_service.provider_process import (
     provider_entrypoint,
 )
 from speech_service.speaking import QwenSpeaking
+from tests.support.poll_support import wait_until
 
 if TYPE_CHECKING:
     import pytest
@@ -101,11 +102,12 @@ def received_requests(cache: Path) -> list[dict[str, object]]:
 
 def wait_for_starts(cache: Path, count: int) -> list[int]:
     """The start log once it holds `count` starts; fails after a bounded wait."""
-    deadline = time.monotonic() + SERVER_WAIT_SECONDS
-    while len(started := server_starts(cache)) < count:
-        assert time.monotonic() < deadline, f"{count} server starts never came"
-        time.sleep(0.01)
-    return started
+    wait_until(
+        lambda: len(server_starts(cache)) >= count,
+        within=SERVER_WAIT_SECONDS,
+        waited_for=f"{count} server starts never came",
+    )
+    return server_starts(cache)
 
 
 def release_load(cache: Path, pid: int, outcome: LoadOutcome) -> None:
@@ -115,10 +117,11 @@ def release_load(cache: Path, pid: int, outcome: LoadOutcome) -> None:
 
 def wait_for_held_speech(cache: Path) -> None:
     """Return once a `hold-first-speech` server holds its first request."""
-    deadline = time.monotonic() + SERVER_WAIT_SECONDS
-    while not (cache / "speech-held").exists():
-        assert time.monotonic() < deadline, "no speech request was held"
-        time.sleep(0.01)
+    wait_until(
+        (cache / "speech-held").exists,
+        within=SERVER_WAIT_SECONDS,
+        waited_for="no speech request was held",
+    )
 
 
 def release_speech(cache: Path) -> None:
@@ -134,10 +137,11 @@ def hold_exits(cache: Path) -> None:
 
 def wait_for_held_exit(cache: Path, pid: int) -> None:
     """Return once the held server `pid` got its SIGTERM; fails after a bounded wait."""
-    deadline = time.monotonic() + SERVER_WAIT_SECONDS
-    while not (cache / f"exit-held-{pid}").exists():
-        assert time.monotonic() < deadline, f"server {pid} was never stopped"
-        time.sleep(0.01)
+    wait_until(
+        (cache / f"exit-held-{pid}").exists,
+        within=SERVER_WAIT_SECONDS,
+        waited_for=f"server {pid} was never stopped",
+    )
 
 
 def release_exit(cache: Path, pid: int) -> None:
@@ -152,10 +156,11 @@ def stage_stderr_outcome(cache: Path) -> str:
     fails, and waits, bounded, for what it met.
     """
     _write_atomically(cache / "stage-probe", "")
-    deadline = time.monotonic() + SERVER_WAIT_SECONDS
-    while not (cache / "stage-stderr").exists():
-        assert time.monotonic() < deadline, "the stage never wrote to its stderr"
-        time.sleep(0.01)
+    wait_until(
+        (cache / "stage-stderr").exists,
+        within=SERVER_WAIT_SECONDS,
+        waited_for="the stage never wrote to its stderr",
+    )
     return (cache / "stage-stderr").read_text(encoding="utf-8")
 
 
@@ -213,10 +218,11 @@ def debug_log(cache: Path) -> Path:
 
 def assert_reaped(pid: int, within_seconds: float = 0.0) -> None:
     """Assert the process `pid` is gone, waiting up to `within_seconds` for it."""
-    deadline = time.monotonic() + within_seconds
-    while is_running(pid):
-        assert time.monotonic() < deadline, f"process {pid} was not reaped"
-        time.sleep(0.01)
+    wait_until(
+        lambda: not is_running(pid),
+        within=within_seconds,
+        waited_for=f"process {pid} was not reaped",
+    )
 
 
 def is_running(pid: int) -> bool:

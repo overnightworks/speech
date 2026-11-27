@@ -3,7 +3,6 @@
 import asyncio
 import http.client
 import socket
-import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -16,6 +15,7 @@ from speech_service.config import Settings
 from speech_service.control import create_control_app
 from tests.support.fakes_support import GATE_TIMEOUT_SECONDS
 from tests.support.identity_support import valid_callers
+from tests.support.poll_support import wait_until
 
 if TYPE_CHECKING:
     import subprocess
@@ -57,11 +57,19 @@ def wait_until_listening(
     server: subprocess.Popen[bytes], port: int, timeout_seconds: float = 30
 ) -> None:
     """Return once the loopback port accepts; fail at once if the process exited."""
-    deadline = time.monotonic() + timeout_seconds
-    while not listens_on(port):
+
+    def listening() -> bool:
+        if listens_on(port):
+            return True
         assert server.poll() is None, "the process exited before it listened"
-        assert time.monotonic() < deadline, "the process never listened"
-        time.sleep(0.05)
+        return False
+
+    wait_until(
+        listening,
+        within=timeout_seconds,
+        waited_for="the process never listened",
+        interval=0.05,
+    )
 
 
 def answers_http(port: int) -> bool:

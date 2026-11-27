@@ -8,13 +8,13 @@ import select
 import signal
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
 
 from tests.support.clock_support import FakeClock
 from tests.support.nvidia_support import FakeNvidiaSmi
+from tests.support.process_state import has_ended
 from tests.support.script_support import script_module
 
 CARD = script_module("hearing_card")
@@ -50,20 +50,7 @@ with hearing_card.held_card():
 
 
 def holder_has_exited(pid_file: Path) -> bool:
-    return has_exited(int(pid_file.read_text()))
-
-
-def has_exited(pid: int) -> bool:
-    """Block until the process is a zombie or gone, within the test's deadline."""
-    deadline = time.monotonic() + DEADLINE_SECONDS
-    while time.monotonic() < deadline:
-        try:
-            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
-        except FileNotFoundError:
-            return True
-        if state in {"Z", "X"}:
-            return True
-    return False
+    return has_ended(int(pid_file.read_text()), within=DEADLINE_SECONDS)
 
 
 def holder_ends(lifeline: int) -> bool:

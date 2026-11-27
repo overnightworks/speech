@@ -48,6 +48,7 @@ from tests.support.launcher_support import (
     release_load,
     wait_for_starts,
 )
+from tests.support.poll_support import poll
 from tests.support.process_state import has_ended
 
 if TYPE_CHECKING:
@@ -243,9 +244,7 @@ def test_an_exit_after_ready_ends_readiness_at_once(tmp_path: Path) -> None:
     server.load()
     (tmp_path / "cache/exit-now").touch()
 
-    deadline = time.monotonic() + 5
-    while server.ready and time.monotonic() < deadline:
-        time.sleep(0.01)
+    poll(lambda: not server.ready, within=5)
 
     assert server.ready is False
     with pytest.raises(ProviderNotReadyError):
@@ -457,9 +456,7 @@ def test_a_stage_process_that_outlives_its_server_ends_with_the_service_stop(
     stage = int((cache / "stage").read_text())
 
     os.kill(pid, signal.SIGKILL)
-    deadline = time.monotonic() + 5
-    while server.ready and time.monotonic() < deadline:
-        time.sleep(0.01)
+    poll(lambda: not server.ready, within=5)
     server.close()
 
     assert not server.ready

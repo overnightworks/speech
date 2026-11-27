@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -22,6 +21,7 @@ from speech_service.hearing import Heard, Hearing
 from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import FakeSpeaking
 from tests.support.hear_support import FakeHearing
+from tests.support.poll_support import poll
 from tests.support.serve_support import serve_runtime
 
 if TYPE_CHECKING:
@@ -52,12 +52,14 @@ class HeldSpeaking(FakeSpeaking):
         """The first chunk at once, the rest once released."""
         chunks = super().pcm_chunks(text, language, instructions)
         yield next(chunks)
-        deadline = time.monotonic() + _RELEASE_WAIT_SECONDS
-        while not self._release_file.exists():
-            if self._closed.is_set() or time.monotonic() > deadline:
-                message = "the engine was closed under a running stream"
-                raise RuntimeError(message)
-            time.sleep(_RELEASE_POLL_SECONDS)
+        poll(
+            lambda: self._release_file.exists() or self._closed.is_set(),
+            within=_RELEASE_WAIT_SECONDS,
+            interval=_RELEASE_POLL_SECONDS,
+        )
+        if not self._release_file.exists():
+            message = "the engine was closed under a running stream"
+            raise RuntimeError(message)
         yield from chunks
 
     def close(self) -> None:
@@ -81,9 +83,11 @@ class HeldHearing(FakeHearing):
     ) -> Heard:
         """Note the decode, wait out the hold, then hear as the fake does."""
         self._hold_file.with_suffix(HEARING_ENTERED_SUFFIX).touch()
-        deadline = time.monotonic() + _RELEASE_WAIT_SECONDS
-        while self._hold_file.exists() and time.monotonic() < deadline:
-            time.sleep(_RELEASE_POLL_SECONDS)
+        poll(
+            lambda: not self._hold_file.exists(),
+            within=_RELEASE_WAIT_SECONDS,
+            interval=_RELEASE_POLL_SECONDS,
+        )
         return super().transcribe(pcm, languages, voiced_seconds)
 
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
@@ -25,6 +24,7 @@ from tests.support.launcher_support import (
     qwen_voice,
     received_requests,
 )
+from tests.support.poll_support import wait_until
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -180,10 +180,11 @@ def test_closing_the_stream_early_hangs_up_and_leaves_the_server_ready(
     chunks.close()
 
     observed_hang_up = tmp_path / "cache/disconnect-observed"
-    deadline = time.monotonic() + SERVER_WAIT_SECONDS
-    while not observed_hang_up.exists() and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert observed_hang_up.exists()
+    wait_until(
+        observed_hang_up.exists,
+        within=SERVER_WAIT_SECONDS,
+        waited_for="the server never observed the hang-up",
+    )
     assert voice.ready is True
     assert list(voice.pcm_chunks("Hallo", "de")) == [b"\x00\x01"]
 
