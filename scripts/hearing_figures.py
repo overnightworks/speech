@@ -235,10 +235,14 @@ def _silero() -> SileroDetectors:
     return detectors
 
 
+def speech_probabilities(pcm: bytes) -> list[float]:
+    """The shipped Silero's speech probability of each window of 24 kHz `pcm`."""
+    return _silero().open().probabilities(Resampler().feed(pcm))
+
+
 def _voiced_windows(pcm: bytes) -> list[bool]:
     """Whether each window of 24 kHz `pcm`, as the service hears it, is voiced."""
-    heard = Resampler().feed(pcm)
-    return [is_voiced(p) for p in _silero().open().probabilities(heard)]
+    return [is_voiced(p) for p in speech_probabilities(pcm)]
 
 
 def _turns(pcm: bytes) -> list[TurnEnd]:
