@@ -118,7 +118,7 @@ def start_server(
     try:
         _wait_until_healthy(server)
     except BaseException:
-        _stop(process)
+        stop_process(process)
         raise
     threading.Thread(
         target=_call_when_ended,
@@ -210,10 +210,13 @@ def _is_healthy(server: Server) -> bool:
         connection.close()
 
 
-def _stop(process: subprocess.Popen[bytes]) -> None:
+def stop_process(
+    process: subprocess.Popen[bytes], grace_seconds: float = _STOP_GRACE_SECONDS
+) -> None:
+    """Ask `process` to end, and kill it when it outlives `grace_seconds`."""
     process.terminate()
     try:
-        process.wait(timeout=_STOP_GRACE_SECONDS)
+        process.wait(timeout=grace_seconds)
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()

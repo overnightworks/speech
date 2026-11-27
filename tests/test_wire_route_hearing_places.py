@@ -125,6 +125,23 @@ def test_with_every_place_kept_a_body_over_the_cap_is_still_too_large() -> None:
     assert_call_refusal(fits, HTTP_429_TOO_MANY_REQUESTS, RefusalCode.BUSY, None)
 
 
+def _first_call(app: FastAPI, ending: str) -> SpeakCall:
+    """The request that `ending` brings to its end."""
+    match ending:
+        case "too-large":
+            return hear_call(app, b"x" * (len(_valid()) + 1))
+        case "malformed":
+            return hear_call(app, b"x" * 9)
+        case "leaves":
+            return hear_call_begun(app)
+        case "leaves-while-refused":
+            leaver = hear_call(app)
+            leaver.disconnect()
+            return leaver
+        case _:
+            return hear_call(app)
+
+
 @pytest.mark.parametrize(
     "ending",
     [
@@ -135,12 +152,17 @@ def test_with_every_place_kept_a_body_over_the_cap_is_still_too_large() -> None:
         "leaves",
         "cancelled-waiting",
         "leaves-mid-decode",
+        "leaves-while-refused",
     ],
 )
 def test_a_kept_place_is_freed_when_its_request_ends(ending: str) -> None:
     """WIRE-161: a place frees after a refusal, a leave, a cancel and the decode."""
 
-    async def scenario() -> int:
+    async def scenario() -> tuple[int, list[dict[str, object]]]:
+        unhandled: list[dict[str, object]] = []
+        asyncio.get_running_loop().set_exception_handler(
+            lambda _loop, context: unhandled.append(context)
+        )
         engine = FakeHearing(hold=ending == "leaves-mid-decode")
         runtime = hear_runtime(engine)
         app = hear_app(
@@ -150,17 +172,9 @@ def test_a_kept_place_is_freed_when_its_request_ends(ending: str) -> None:
             max_recording_bytes=len(_valid()),
         )
         taken = None
-        if ending in {"busy", "cancelled-waiting"}:
+        if ending in {"busy", "cancelled-waiting", "leaves-while-refused"}:
             taken = runtime.hearing.gate.try_acquire()
-        match ending:
-            case "too-large":
-                first = hear_call(app, b"x" * (len(_valid()) + 1))
-            case "malformed":
-                first = hear_call(app, b"x" * 9)
-            case "leaves":
-                first = hear_call_begun(app)
-            case _:
-                first = hear_call(app)
+        first = _first_call(app, ending)
         if ending == "leaves-mid-decode":
             await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
         if ending in {"leaves", "cancelled-waiting", "leaves-mid-decode"}:
@@ -176,9 +190,10 @@ def test_a_kept_place_is_freed_when_its_request_ends(ending: str) -> None:
             await _decode_over(runtime)
         next_one = hear_call(app)
         await next_one.finish()
-        return next_one.status_code
+        await asyncio.sleep(0)
+        return next_one.status_code, unhandled
 
-    assert asyncio.run(scenario()) == HTTP_200_OK
+    assert asyncio.run(scenario()) == (HTTP_200_OK, [])
 
 
 def test_a_caller_leaving_while_its_request_waits_for_the_decode_frees_its_place() -> (

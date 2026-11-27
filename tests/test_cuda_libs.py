@@ -58,8 +58,18 @@ def test_finds_the_cublas_and_cudnn_library_directories(
     assert cuda_library_dirs() == expected
 
 
-@pytest.mark.usefixtures("site")
-def test_a_missing_package_yields_no_directory() -> None:
+@pytest.mark.parametrize(
+    "package_present",
+    [False, True],
+    ids=["no_package", "package_without_lib_directory"],
+)
+def test_a_package_without_a_library_directory_yields_none(
+    site: Path, *, package_present: bool
+) -> None:
+    """A package without a lib directory yields none, as a missing package does."""
+    if package_present:
+        (site / "nvidia" / "cublas").mkdir(parents=True)
+
     assert cuda_library_dirs() == []
 
 
