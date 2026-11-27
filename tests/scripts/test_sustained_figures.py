@@ -407,9 +407,9 @@ def test_an_overlapped_ami_onset_counts_in_the_ami_row_and_its_own() -> None:
         onset_seconds=0.0,
     )
 
-    assert plain.rows == (DelayRow.AMI,)
-    assert overlapped.rows == (DelayRow.AMI, DelayRow.AMI_OVERLAPPED)
-    assert german.rows == (DelayRow.FLEURS,)
+    assert plain.rows == {DelayRow.AMI}
+    assert overlapped.rows == {DelayRow.AMI, DelayRow.AMI_OVERLAPPED}
+    assert german.rows == {DelayRow.FLEURS}
 
 
 def cell_figures(

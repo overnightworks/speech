@@ -411,13 +411,13 @@ class DelayTrial:
     onset_seconds: float
 
     @property
-    def rows(self) -> tuple[DelayRow, ...]:
+    def rows(self) -> frozenset[DelayRow]:
         """The delay rows it counts in."""
         if self.corpus is DelayCorpus.FLEURS:
-            return (DelayRow.FLEURS,)
+            return frozenset({DelayRow.FLEURS})
         if self.overlapped:
-            return (DelayRow.AMI, DelayRow.AMI_OVERLAPPED)
-        return (DelayRow.AMI,)
+            return frozenset({DelayRow.AMI, DelayRow.AMI_OVERLAPPED})
+        return frozenset({DelayRow.AMI})
 
 
 def delay_seconds(trial: DelayTrial, cell: Cell) -> float:
