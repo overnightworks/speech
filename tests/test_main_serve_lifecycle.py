@@ -44,9 +44,7 @@ if TYPE_CHECKING:
     import uvicorn
 
 _LOADABLE_RUNTIME = """
-import os
-from pathlib import Path
-from speech_service.catalogue import load_catalogue
+from speech_service.catalogue import PACKAGED_CATALOGUE, load_catalogue
 from speech_service.service import Runtime, RuntimeDependencies
 from speech_client.wire import VoiceId
 from tests.support.fakes_support import FakeSpeaking
@@ -56,7 +54,7 @@ def loadable_runtime():
     return Runtime(
         {VoiceId.THORSTEN: None},
         dependencies=RuntimeDependencies(
-            catalogue=load_catalogue(Path(os.environ["SPEECH_CATALOGUE_FILE"])),
+            catalogue=load_catalogue(PACKAGED_CATALOGUE),
             engine_factory=lambda _voice: FakeSpeaking(),
             missing_artifacts=lambda _voice: (),
         ),

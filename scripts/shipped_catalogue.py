@@ -1,15 +1,18 @@
 """The catalogue file the repository ships, loaded for scripts and tests."""
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
-from speech_service.catalogue import Engine, load_catalogue, offered_voices
+from speech_service.catalogue import (
+    PACKAGED_CATALOGUE,
+    Engine,
+    load_catalogue,
+    offered_voices,
+)
 
 if TYPE_CHECKING:
     from speech_client.wire import Language, VoiceId
 
-CATALOGUE_FILE: Final = Path(__file__).resolve().parents[1] / "deploy/catalogue.toml"
-CATALOGUE: Final = load_catalogue(CATALOGUE_FILE)
+CATALOGUE: Final = load_catalogue(PACKAGED_CATALOGUE)
 PIPER_VOICES: Final[tuple[VoiceId, ...]] = offered_voices(
     CATALOGUE, None, {Engine.PIPER}
 )

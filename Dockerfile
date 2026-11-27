@@ -45,9 +45,7 @@ RUN uv sync --locked --no-dev --no-editable
 # own cache and logs stay in this stage.
 FROM dependencies AS weights
 ARG HEARING_MODEL
-COPY deploy/catalogue.toml /app/deploy/catalogue.toml
 ENV HF_HOME=/tmp/huggingface \
-    SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml \
     SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing
 RUN speech-fetch-voice && speech-fetch-hearing-model "$HEARING_MODEL"
@@ -80,9 +78,7 @@ RUN uv sync --locked --no-dev --no-editable --extra gpu
 # root makes the offer every catalogue voice, as in the gpu stage. Qwen's files
 # and the hearing model share the Hub cache.
 FROM dependencies AS gpu-weights
-COPY deploy/catalogue.toml /app/deploy/catalogue.toml
 ENV HF_HOME=/tmp/huggingface \
-    SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml \
     SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing \
     SPEECH_PROVIDER_ROOT=/opt/providers
@@ -129,9 +125,7 @@ COPY --from=qwen-environment /opt/python /opt/python
 COPY --from=qwen-environment /opt/qwen-nvidia /opt/providers/qwen/.venv/lib/python3.12/site-packages/nvidia
 COPY --from=qwen-environment /opt/providers/qwen/.venv /opt/providers/qwen/.venv
 COPY deploy/speech.toml deploy/speech.toml
-COPY deploy/catalogue.toml /app/deploy/catalogue.toml
-ENV SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml \
-    SPEECH_VOICE_CACHE=/opt/voices \
+ENV SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing \
     SPEECH_PROVIDER_ROOT=/opt/providers \
     SPEECH_LOAD_GPU_VOICES_AT_START=true \
@@ -150,9 +144,7 @@ COPY --from=weights /opt/voices /opt/voices
 COPY --from=weights /opt/hearing /opt/hearing
 COPY --from=sound-model /opt/sound-model /opt/sound-model
 COPY deploy/speech.toml deploy/speech.toml
-COPY deploy/catalogue.toml /app/deploy/catalogue.toml
-ENV SPEECH_CATALOGUE_FILE=/app/deploy/catalogue.toml \
-    SPEECH_VOICE_CACHE=/opt/voices \
+ENV SPEECH_VOICE_CACHE=/opt/voices \
     SPEECH_HUGGINGFACE_CACHE=/opt/hearing \
     SPEECH_SOUND_MODEL_DIRECTORY=/opt/sound-model \
     SPEECH_DEVICE=cpu \

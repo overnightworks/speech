@@ -36,7 +36,7 @@ flowchart TB
     browser["packages/browser"] -->|frames via the app's relay| client
 ```
 
-- `src/speech_service`: `catalogue.py` loads `deploy/catalogue.toml` into typed
+- `src/speech_service`: `catalogue.py` loads the packaged `catalogue.toml` into typed
   records; `voice_slot.py` owns a voice's load job and `AdmissionGate`;
   `callers.py` decides who may call; `wire_route.py` serves the wire;
   `hearing.py` holds the engine, the language identifier (behind its own port),

@@ -1,4 +1,4 @@
-"""The gpu image offers the catalogue voices; each stage that needs it holds it."""
+"""The gpu image offers the catalogue voices."""
 
 import re
 
@@ -32,18 +32,3 @@ def test_a_gpu_stage_offers_every_catalogue_voice_by_its_own_settings(
     assert offered_voices(
         CATALOGUE, settings.voices, settings.carried_engines
     ) == tuple(CATALOGUE)
-
-
-def test_each_stage_that_fetches_or_serves_holds_the_file_the_setting_names() -> None:
-    needing = [
-        stage
-        for stage in _STAGES
-        if "speech-fetch-voice" in stage or 'CMD ["speech-service"]' in stage
-    ]
-    named = [re.search(r"SPEECH_CATALOGUE_FILE=(\S+)", stage) for stage in needing]
-
-    assert needing
-    assert all(
-        match and f"COPY deploy/catalogue.toml {match[1]}\n" in stage
-        for match, stage in zip(named, needing, strict=True)
-    )

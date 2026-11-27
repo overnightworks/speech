@@ -1,4 +1,4 @@
-"""The environment every test starts in: the catalogue setting, telemetry off.
+"""The environment every test starts in: telemetry off.
 
 A failed player browser cell leaves the record of what its page showed.
 """
@@ -9,18 +9,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from shipped_catalogue import CATALOGUE_FILE
 from speech_service.onnxruntime_telemetry import disable_onnxruntime_telemetry
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
 disable_onnxruntime_telemetry()
-
-
-@pytest.fixture(autouse=True)
-def _shipped_catalogue_file(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SPEECH_CATALOGUE_FILE", str(CATALOGUE_FILE))
 
 
 @pytest.hookimpl(wrapper=True)

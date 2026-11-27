@@ -18,14 +18,18 @@ from webauth.admission import GroupPath
 from webauth.https_client import is_https_url
 
 from speech_client.wire import VoiceId
-from speech_service.catalogue import Catalogue, CatalogueError, Engine, load_catalogue
+from speech_service.catalogue import (
+    PACKAGED_CATALOGUE,
+    Catalogue,
+    Engine,
+    load_catalogue,
+)
 from speech_service.hearing_models import HearingModel
 
 DEFAULT_LIVE_SILENCE_SECONDS: Final = 0.5
 _VOICES_ERROR = (
     "SPEECH_VOICES must list catalogue voice ids separated by commas, each at most once"
 )
-_CATALOGUE_FILE_UNSET_ERROR = "SPEECH_CATALOGUE_FILE must name the voice catalogue"
 _KEY_SET_URL_ERROR = "jwks_url must be an https URL"
 _SERVICE_GROUP_ERROR = "service_group must be a group path such as /services/name"
 _APP_NAME_ERROR = "an app name must be one group path segment"
@@ -145,10 +149,8 @@ def load_settings() -> Settings:
 
 
 def catalogue_of(settings: Settings) -> Catalogue:
-    """The catalogue `SPEECH_CATALOGUE_FILE` names; fails loud when unset or wrong."""
-    if settings.catalogue_file is None:
-        raise CatalogueError(_CATALOGUE_FILE_UNSET_ERROR)
-    return load_catalogue(settings.catalogue_file)
+    """The catalogue `SPEECH_CATALOGUE_FILE` names, else the packaged one."""
+    return load_catalogue(settings.catalogue_file or PACKAGED_CATALOGUE)
 
 
 class _FileModel(BaseModel):

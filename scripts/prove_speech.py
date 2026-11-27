@@ -42,7 +42,6 @@ from proof_identity import (
 )
 from shipped_catalogue import (
     CATALOGUE,
-    CATALOGUE_FILE,
     ON_DEMAND_VOICES,
     PIPER_VOICES,
     first_language,
@@ -647,7 +646,6 @@ def speech_environment(
     """
     env = os.environ.copy()
     env[setting_variable("config_file")] = str(identity.configuration_path)
-    env[setting_variable("catalogue_file")] = str(CATALOGUE_FILE)
     env["SSL_CERT_FILE"] = str(identity.ca_path)
     env[setting_variable("host")] = LOOPBACK_HOST
     env[setting_variable("port")] = str(port)

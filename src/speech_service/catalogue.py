@@ -1,10 +1,11 @@
-"""The voice catalogue: the typed records of `SPEECH_CATALOGUE_FILE`, and its loader."""
+"""The voice catalogue: the typed records of the packaged file, and its loader."""
 
 from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass
 from enum import StrEnum
+from importlib.resources import files
 from typing import TYPE_CHECKING, Annotated, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -14,10 +15,12 @@ from speech_client.wire import Language, SpeakingModel, VoiceId
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping
-    from pathlib import Path
+    from importlib.resources.abc import Traversable
 
 _SHA256_PATTERN: Final = r"^[0-9a-f]{64}$"
 _REVISION_PATTERN: Final = r"^[0-9a-f]{40}$"
+PACKAGED_CATALOGUE: Final = files("speech_service") / "catalogue.toml"
+"""The catalogue the service's package ships."""
 
 
 class CatalogueError(ValueError):
@@ -129,8 +132,8 @@ class _CatalogueFile(_Record):
     voices: dict[str, Annotated[CatalogueEntry, Field(discriminator="engine")]]
 
 
-def load_catalogue(path: Path) -> Catalogue:
-    """Read the catalogue at `path`, in the order of `VoiceId`.
+def load_catalogue(path: Traversable) -> Catalogue:
+    """Read the catalogue at `path` (a `Path` or the packaged file), in `VoiceId` order.
 
     Raises `CatalogueError` naming the file and, for an entry, the field.
     """
@@ -169,7 +172,7 @@ def offered_voices(
     return tuple(voice for voice in catalogue if voice in requested)
 
 
-def _with_ids(path: Path, raw: Mapping[str, object]) -> Mapping[str, object]:
+def _with_ids(path: Traversable, raw: Mapping[str, object]) -> Mapping[str, object]:
     voices = raw.get("voices")
     if not isinstance(voices, dict):
         return raw

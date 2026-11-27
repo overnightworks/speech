@@ -606,10 +606,10 @@ as for the audio, so a failure aborts the connection and no `done` follows.
   GPU voice on its first request (WIRE-09), or at start with WIRE-143. An unknown or
   repeated id, or a named Piper voice whose files are missing or fail to load, ends the
   start.
-- `SPEECH_CATALOGUE_FILE` (absolute path, set by the image): the TOML file that holds
+- `SPEECH_CATALOGUE_FILE` (absolute path; unset, the catalogue the service's package ships): the TOML file that holds
   the service's voices, one `[voices.<id>]` table each with its `engine`, `name`,
   `languages` and `pin`. The service does not start, and `speech-fetch-voice` does not
-  fetch, when the file is unset, unreadable or has an entry that names a wrong or unknown
+  fetch, when the file is unreadable or has an entry that names a wrong or unknown
   field; a voice `SPEECH_VOICES` names that the file lacks ends the start (WIRE-107).
   The ids the wire accepts stay the closed `VoiceId` set.
 - WIRE-143: `SPEECH_LOAD_GPU_VOICES_AT_START` (`true` or `false`, default `false`): with
