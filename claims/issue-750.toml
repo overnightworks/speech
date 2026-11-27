@@ -1,0 +1,8 @@
+claim_id = "d001049315624c87ab97628527aaa701"
+agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
+role = "builder"
+base = "da80704681aa9b50743aaf4eac80c31720d3231e"
+branch = "claude/issue-750-service-and-qwen-provider-branches"
+scope = [".github/workflows/ci.yml", "providers/qwen/src/speech_qwen/design_voice.py", "providers/qwen/src/speech_qwen/server.py", "providers/qwen/tests/test_design_voice.py", "src/speech_service/espeak_marks.py", "src/speech_service/voice_activity.py", "src/speech_service/wire_route.py", "tests/test_cuda_libs.py", "tests/test_espeak_marks.py", "tests/test_wire_route_hearing_places.py"]
+opened_commit = "2097a96e3f6d15e1c8b057672afd869a4112965e"
+whole_reason = "The floors rise only once every branch they count is reached or deleted, so the cases, the deletions and the two-decimal floors land together."
