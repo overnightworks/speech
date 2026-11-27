@@ -283,11 +283,11 @@ def test_an_onset_is_overlapped_when_another_speakers_segment_spans_it() -> None
     spans = figures.speech_onsets(timed, acts, [Segment(4.0, 5.0)])
     clear = figures.speech_onsets(timed, acts, [Segment(4.0, 4.75)])
 
-    assert spans == [Onset(5.0, overlapped=True)]
-    assert clear == [Onset(5.0, overlapped=False)]
+    assert spans == [Onset(5.0, overlapped=True, minor=False)]
+    assert clear == [Onset(5.0, overlapped=False, minor=False)]
 
 
-def test_the_first_word_of_a_minor_act_is_no_onset_and_that_of_a_task_act_is() -> None:
+def test_a_minor_acts_first_word_is_marked_minor_and_a_task_acts_is_not() -> None:
     timed = [word(5.0, 5.5), word(5.5, 6.5), word(10.0, 10.5), word(10.5, 11.5)]
     acts = [Act(range(2), minor=True), Act(range(2, 4), minor=False)]
 

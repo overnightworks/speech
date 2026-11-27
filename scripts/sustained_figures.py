@@ -264,7 +264,7 @@ class Onset:
 
     at: float
     overlapped: bool
-    minor: bool = False
+    minor: bool
 
 
 def backchannel_spans(
