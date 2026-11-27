@@ -74,6 +74,47 @@ AMI_AUDIO_URL: Final = (
     "{meeting}/audio/{meeting}.Headset-{channel}.wav"
 )
 VOCALSOUND_URL: Final = "https://zenodo.org/api/records/14650192/files/{name}/content"
+# The shards of the record, each at the sha256 of its first fetch (cross-checked
+# against the record's md5); a shard not listed is named but never read.
+VOCALSOUND_SHA256: Final = {
+    "wds-audio-test-000000.tar": (
+        "403a4bfdb265fc4bb3d9658c15af951e0feb37706e6e1a227d1b3545b483e03e"
+    ),
+    "wds-audio-test-000001.tar": (
+        "7e48be006c2cce156a05dc2c939912d3b01802033d10cf5b14d0e05f8e5a0e58"
+    ),
+    "wds-audio-test-000002.tar": (
+        "43242a7dfb04fef8458fa5e5040b41cdb89f8966ea08156e29867496d653bf41"
+    ),
+    "wds-audio-test-000003.tar": (
+        "7b47e62cc45439490a0e92a537aa5817ddb45ade0a84a5a4533ef1495d87eb58"
+    ),
+    "wds-audio-test-000004.tar": (
+        "6c01d25cc973a324428b414d34869e7900d030e82898bc9fe0466bc0ca1f50ac"
+    ),
+    "wds-audio-test-000005.tar": (
+        "1fb85fc7e8e078d2b13b4f0173435362214368ddf384f304a0534f144268e14f"
+    ),
+    "wds-audio-valid-000000.tar": (
+        "af07ebc9036b86e4112f9df824fe51971e42183ac118c00cabad88cff924b5c0"
+    ),
+    "wds-audio-valid-000001.tar": (
+        "1c18cff6b4e788d147838d328e6618253e3789ab3c2c3300114697b3432c8f63"
+    ),
+    "wds-audio-valid-000002.tar": (
+        "01e3b5ce0125d445e32007311b2bb88978737571d833f1ec5a2b6aae0c737aa3"
+    ),
+    "wds-audio-valid-000003.tar": (
+        "835702bdf7cff55a59a1322e25115de5f6ec45a7c7cb173759448e0c6b99051c"
+    ),
+    "wds-audio-valid-000004.tar": (
+        "33a85886fdaef81f61cf33d8505b26c8a57518f57758698bc98da6e20ebb02ae"
+    ),
+    "wds-audio-valid-000005.tar": (
+        "5f36d3fc8d2129043619186c9aa2da5bbd1f9bf80a7b88a81248672cc1927c81"
+    ),
+}
+VOCALSOUND_SPLIT_SIZE: Final = 20
 FLEURS_URL: Final = (
     "https://huggingface.co/datasets/google/fleurs/resolve/"
     "70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/de_de/audio/{name}"
@@ -117,10 +158,10 @@ def ami_headset(meeting: str, channel: int, sha256: str | None) -> AmiHeadset:
     return AmiHeadset(meeting, channel, Pinned(name, url, sha256))
 
 
-def vocalsound_shard(number: int, sha256: str | None) -> Pinned:
-    """The test shard of this number of the VocalSound WebDataset repack."""
-    name = f"wds-audio-test-{number:06d}.tar"
-    return Pinned(name, VOCALSOUND_URL.format(name=name), sha256)
+def vocalsound_shard(split: str, number: int) -> Pinned:
+    """A shard of the VocalSound WebDataset repack, at its checksum once fetched."""
+    name = f"wds-audio-{split}-{number:06d}.tar"
+    return Pinned(name, VOCALSOUND_URL.format(name=name), VOCALSOUND_SHA256.get(name))
 
 
 def fleurs_split(split: str, sha256: str) -> Pinned:
@@ -191,27 +232,11 @@ SOURCES: Final = Sources(
         ami_headset("ES2002b", 3, None),
         ami_headset("ES2006d", 2, None),
     ),
-    vocalsound_shards=(
-        vocalsound_shard(
-            0, "403a4bfdb265fc4bb3d9658c15af951e0feb37706e6e1a227d1b3545b483e03e"
-        ),
-        vocalsound_shard(
-            1, "7e48be006c2cce156a05dc2c939912d3b01802033d10cf5b14d0e05f8e5a0e58"
-        ),
-        vocalsound_shard(
-            2, "43242a7dfb04fef8458fa5e5040b41cdb89f8966ea08156e29867496d653bf41"
-        ),
-        vocalsound_shard(
-            3, "7b47e62cc45439490a0e92a537aa5817ddb45ade0a84a5a4533ef1495d87eb58"
-        ),
-    ),
+    vocalsound_shards=tuple(vocalsound_shard("test", number) for number in range(4)),
     vocalsound_extra_shards=(
-        vocalsound_shard(
-            4, "6c01d25cc973a324428b414d34869e7900d030e82898bc9fe0466bc0ca1f50ac"
-        ),
-        vocalsound_shard(
-            5, "1fb85fc7e8e078d2b13b4f0173435362214368ddf384f304a0534f144268e14f"
-        ),
+        *(vocalsound_shard("test", number) for number in range(4, 6)),
+        *(vocalsound_shard("valid", number) for number in range(VOCALSOUND_SPLIT_SIZE)),
+        *(vocalsound_shard("train", number) for number in range(VOCALSOUND_SPLIT_SIZE)),
     ),
     fleurs=fleurs_split(
         "dev", "72cac13bbddbddf674d8102a9e7b90a3b1db5d777ed92e88eccc5ae69cb8fc9d"
@@ -244,7 +269,10 @@ CORPORA: Final = {
             "CC BY-SA 4.0 (the authors, README of github.com/YuanGongND/vocalsound);"
             " the Zenodo repack, record 14650192, is CC BY 4.0"
         ),
-        "revision": "Zenodo record 14650192, test shards; md5 values are the record's",
+        "revision": (
+            "Zenodo record 14650192, test, validation and train shards;"
+            " md5 values are the record's"
+        ),
         "used_for": "laughter, cough and throat clearing",
         "gaps": [
             "recorded on request by crowdsourcing, not in conversation",
