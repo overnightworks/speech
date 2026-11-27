@@ -433,9 +433,10 @@ def test_a_wav_of_either_supported_format_decodes_to_pcm16(
 def test_a_wav_with_two_channels_is_refused() -> None:
     stereo = bytearray(pcm_wav(tone(0.1, [])))
     stereo[22:24] = struct.pack("<H", 2)
+    wav = bytes(stereo)
 
     with pytest.raises(ValueError, match="2 channels"):
-        PROBE.decode_wav(bytes(stereo))
+        PROBE.decode_wav(wav)
 
 
 def test_a_file_that_is_not_cached_is_downloaded_into_the_cache_once(
@@ -456,9 +457,10 @@ def test_a_file_that_is_not_cached_is_downloaded_into_the_cache_once(
 def test_a_wav_of_a_format_the_probe_does_not_read_is_refused() -> None:
     ulaw = bytearray(pcm_wav(tone(0.1, [])))
     ulaw[20:22] = struct.pack("<H", 7)
+    wav = bytes(ulaw)
 
     with pytest.raises(ValueError, match="format 7"):
-        PROBE.decode_wav(bytes(ulaw))
+        PROBE.decode_wav(wav)
 
 
 def test_a_tar_member_outside_its_directory_is_refused() -> None:
@@ -467,9 +469,10 @@ def test_a_tar_member_outside_its_directory_is_refused() -> None:
         member = tarfile.TarInfo("../escape")
         member.size = 1
         archive.addfile(member, io.BytesIO(b"x"))
+    archive_bytes = buffer.getvalue()
 
     with pytest.raises(tarfile.FilterError):
-        list(PROBE.tar_members(buffer.getvalue(), "r:"))
+        list(PROBE.tar_members(archive_bytes, "r:"))
 
 
 def test_the_command_line_names_the_cache_and_the_probe_runs_over_it(
