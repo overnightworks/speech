@@ -1,5 +1,5 @@
 claim_id = "a3e7467fd062490fa586cb04b5aafc88"
-agent = "Claude e3ba09e6-beb0-4666-9571-f9f3f256fde5"
+agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
 role = "builder"
 base = "1b2f3229bbb57bae2ead1fc09b0efcb3b5212e08"
 branch = "claude/issue-735-the-speak-stream-tests-take-the-sse-even"
