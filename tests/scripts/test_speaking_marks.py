@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 import speaking_marks as marks
-from speech_client.wire import Health, Language, ResponseFormat
+from speech_client.wire import AudioEventType, Health, Language, ResponseFormat
 from speech_service.ogg_opus import ogg_opus_chunks
 from speech_service.pcm import wav_header
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE, sine_pcm
@@ -41,7 +41,7 @@ def word(entry: tuple[str, int, int, float, float]) -> dict[str, object]:
 
 
 def delta(audio: bytes) -> dict[str, object]:
-    return {"type": "speech.audio.delta", "audio": base64.b64encode(audio).decode()}
+    return {"type": AudioEventType.DELTA, "audio": base64.b64encode(audio).decode()}
 
 
 SOUNDS = [
@@ -64,13 +64,13 @@ def sound(entry: tuple[str, float, float]) -> dict[str, object]:
 
 def sentence_marks(index: int) -> dict[str, object]:
     return {
-        "type": "speech.audio.marks",
+        "type": AudioEventType.MARKS,
         "words": [word(entry) for entry in WORDS[index]],
         "sounds": [sound(entry) for entry in SOUNDS[index]],
     }
 
 
-DONE = {"type": "speech.audio.done"}
+DONE = {"type": AudioEventType.DONE}
 
 
 def framed(events: list[dict[str, object]]) -> bytes:

@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from logline import StepTimer
 
 from speech_client.wire import (
+    AudioEventType,
     RefusalCode,
     ResponseFormat,
     SpeechRequest,
@@ -37,10 +38,6 @@ from tests.support.speak_support import (
     sse_events,
 )
 from wav_audio import pcm_from_wav
-
-AUDIO_TYPE = "speech.audio.delta"
-MARKS_TYPE = "speech.audio.marks"
-DONE_TYPE = "speech.audio.done"
 
 
 def _speak(
@@ -88,8 +85,14 @@ def test_each_sentence_is_its_audio_then_its_marks_and_the_stream_ends_with_done
     events = sse_events(_speak(FakeMarkingSpeaking(), StreamFormat.SSE))
 
     kinds = [event["type"] for event in events]
-    assert kinds == [AUDIO_TYPE, MARKS_TYPE, AUDIO_TYPE, MARKS_TYPE, DONE_TYPE]
-    marks = [event for event in events if event["type"] == MARKS_TYPE]
+    assert kinds == [
+        AudioEventType.DELTA,
+        AudioEventType.MARKS,
+        AudioEventType.DELTA,
+        AudioEventType.MARKS,
+        AudioEventType.DONE,
+    ]
+    marks = [event for event in events if event["type"] == AudioEventType.MARKS]
     assert [mark["words"] for mark in marks] == [
         [word.model_dump(mode="json")] for word in MARKED_SENTENCES
     ]
@@ -98,7 +101,7 @@ def test_each_sentence_is_its_audio_then_its_marks_and_the_stream_ends_with_done
 def test_a_done_event_carries_no_usage() -> None:
     events = sse_events(_speak(FakeMarkingSpeaking(), StreamFormat.SSE))
 
-    assert events[-1] == {"type": DONE_TYPE}
+    assert events[-1] == {"type": AudioEventType.DONE}
 
 
 def test_an_opus_event_stream_carries_the_ogg_and_the_marks() -> None:
@@ -108,9 +111,9 @@ def test_an_opus_event_stream_carries_the_ogg_and_the_marks() -> None:
 
     assert sse_audio(events)[:4] == b"OggS"
     kinds = [event["type"] for event in events]
-    assert kinds.count(MARKS_TYPE) == len(MARKED_SENTENCES)
-    assert kinds[-1] == DONE_TYPE
-    assert kinds.index(MARKS_TYPE) > kinds.index(AUDIO_TYPE)
+    assert kinds.count(AudioEventType.MARKS) == len(MARKED_SENTENCES)
+    assert kinds[-1] == AudioEventType.DONE
+    assert kinds.index(AudioEventType.MARKS) > kinds.index(AudioEventType.DELTA)
 
 
 def test_a_voice_that_gives_no_marks_ends_its_audio_with_one_marks_event_of_nulls() -> (
@@ -120,15 +123,15 @@ def test_a_voice_that_gives_no_marks_ends_its_audio_with_one_marks_event_of_null
     events = sse_events(_speak(FakeSpeaking(), StreamFormat.SSE))
 
     kinds = [event["type"] for event in events]
-    assert kinds[-2:] == [MARKS_TYPE, DONE_TYPE]
-    assert set(kinds[:-2]) == {AUDIO_TYPE}
-    assert events[-2] == {"type": MARKS_TYPE, "words": None, "sounds": None}
+    assert kinds[-2:] == [AudioEventType.MARKS, AudioEventType.DONE]
+    assert set(kinds[:-2]) == {AudioEventType.DELTA}
+    assert events[-2] == {"type": AudioEventType.MARKS, "words": None, "sounds": None}
 
 
 def test_a_marks_event_is_null_for_sounds_that_no_voice_gives() -> None:
     events = sse_events(_speak(FakeMarkingSpeaking(), StreamFormat.SSE))
 
-    marks = [event for event in events if event["type"] == MARKS_TYPE]
+    marks = [event for event in events if event["type"] == AudioEventType.MARKS]
     assert all(mark["sounds"] is None for mark in marks)
 
 
@@ -140,7 +143,7 @@ def test_the_first_audio_leaves_before_the_marks_of_its_sentence_are_made() -> N
     stream = audio_chunks(speaking, request, _step())
     first = next(stream)
 
-    assert json.loads(first.removeprefix(b"data: "))["type"] == AUDIO_TYPE
+    assert json.loads(first.removeprefix(b"data: "))["type"] == AudioEventType.DELTA
     assert speaking.produced == [f"audio {MARKED_SENTENCES[0].text}"]
     stream.close()
 
@@ -152,7 +155,7 @@ def test_the_marks_of_a_sentence_leave_before_the_next_sentence_is_made() -> Non
 
     marks = next(stream)
 
-    assert json.loads(marks.removeprefix(b"data: "))["type"] == MARKS_TYPE
+    assert json.loads(marks.removeprefix(b"data: "))["type"] == AudioEventType.MARKS
     assert speaking.produced[-1] == f"marks {MARKED_SENTENCES[0].text}"
     assert f"audio {MARKED_SENTENCES[1].text}" not in speaking.produced
     stream.close()
@@ -195,7 +198,9 @@ def test_a_stream_that_fails_is_cut_before_any_done() -> None:
         if message["type"] == "http.response.body"
     )
     assert isinstance(failure, SpeakingFailedError)
-    assert all(DONE_TYPE not in event["type"] for event in sse_events(sent_body))
+    assert all(
+        AudioEventType.DONE not in event["type"] for event in sse_events(sent_body)
+    )
     assert all(
         message.get("more_body") is True
         for message in messages
