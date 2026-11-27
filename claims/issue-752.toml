@@ -1,0 +1,8 @@
+claim_id = "13b91792e34a4501bf78513cb365c718"
+agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
+role = "builder"
+base = "da80704681aa9b50743aaf4eac80c31720d3231e"
+branch = "claude/issue-752-deploy-leaves-the-root-the-catalogue-and"
+scope = [".dockerignore", "Dockerfile", "README.md", "deploy/catalogue.toml", "docs/ARCHITECTURE.md", "docs/wire.md", "quality/config.toml", "scripts/prove_speech.py", "scripts/shipped_catalogue.py", "src/speech_service/catalogue.py", "src/speech_service/catalogue.toml", "src/speech_service/config.py", "src/speech_service/service.py", "tests/conftest.py", "tests/fixtures/image/inspect_image.py", "tests/test_catalogue.py", "tests/test_main_serve_lifecycle.py", "tests/test_voices_gpu_image.py"]
+opened_commit = "cad4ddcd0bd0fd8e9883af3b35850a1783b8fbbc"
+whole_reason = "The catalogue's file, its loader's default, the image stages that copied it, the proof's package check and the wire line move together; apart, the image either lacks the file or names one that is gone."
