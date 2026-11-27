@@ -1,8 +1,0 @@
-claim_id = "e4136310de7f49069cf30041dc49b754"
-agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
-role = "builder"
-base = "e9b6525da35909a92012e53b2d61f8cbedcdfe1a"
-branch = "claude/issue-747-ci-measures-every-root-layer-together"
-scope = [".github/workflows/ci.yml", "AGENTS.md", "docs/ARCHITECTURE.md", "providers/qwen/pyproject.toml", "pyproject.toml"]
-opened_commit = "cde0237dbcf8b2f2599e8f9f83358859f1eddf7b"
-whole_reason = "The combined measurement, the floors it judges and the documents that name them change together."
