@@ -1,0 +1,8 @@
+claim_id = "b345ba41287a474b93c6f08897cc9f6d"
+agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
+role = "builder"
+base = "e9b6525da35909a92012e53b2d61f8cbedcdfe1a"
+branch = "claude/issue-743-the-qwen-lock-s-opencv-check-lives-in-th"
+scope = ["providers/qwen/tests", "quality/config.toml", "tests/test_qwen_environment.py"]
+opened_commit = "3f1b1d48efff1c7b8438cb2f06299e132bddf70e"
+whole_reason = "The test moves and its exception goes in one change."
