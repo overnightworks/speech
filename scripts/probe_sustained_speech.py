@@ -173,9 +173,21 @@ SOURCES: Final = Sources(
         ),
     ),
     ami_extra_headsets=(
-        ami_headset("TS3012d", 2, None),
-        ami_headset("IS1000c", 0, None),
-        ami_headset("ES2014d", 3, None),
+        ami_headset(
+            "TS3012d",
+            2,
+            "1b07184b89ce18ab7e1207199acf004bf9dcce3e56dd8e72118bf8ab6bfe1740",
+        ),
+        ami_headset(
+            "IS1000c",
+            0,
+            "77321365da59d08398f078698f6ff19eb84430c510079a8b40d73995ba863afb",
+        ),
+        ami_headset(
+            "ES2014d",
+            3,
+            "f8e44c96f3a1aee3b3f8a13ebfbf6b0beb463dced9cf36386e970acd1552b636",
+        ),
         ami_headset("ES2002b", 3, None),
         ami_headset("ES2006d", 2, None),
     ),
@@ -193,7 +205,14 @@ SOURCES: Final = Sources(
             3, "7b47e62cc45439490a0e92a537aa5817ddb45ade0a84a5a4533ef1495d87eb58"
         ),
     ),
-    vocalsound_extra_shards=(vocalsound_shard(4, None), vocalsound_shard(5, None)),
+    vocalsound_extra_shards=(
+        vocalsound_shard(
+            4, "6c01d25cc973a324428b414d34869e7900d030e82898bc9fe0466bc0ca1f50ac"
+        ),
+        vocalsound_shard(
+            5, "1fb85fc7e8e078d2b13b4f0173435362214368ddf384f304a0534f144268e14f"
+        ),
+    ),
     fleurs=fleurs_split(
         "dev", "72cac13bbddbddf674d8102a9e7b90a3b1db5d777ed92e88eccc5ae69cb8fc9d"
     ),
