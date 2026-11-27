@@ -1,0 +1,8 @@
+claim_id = "09b449ddbd1a4007b98ca946fc2c2b14"
+agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
+role = "builder"
+base = "218a8c2c03b9c553e3d81dd973f061642e6e33ad"
+branch = "claude/issue-742-slice-3a-a-probe-on-real-recordings-meas"
+scope = ["AGENTS.md", "scripts/hearing_figures.py", "scripts/probe_sustained_speech.py", "scripts/sustained_figures.py", "src/speech_service/hearing_session.py", "tests/scripts/test_probe_sustained_speech.py", "tests/scripts/test_sustained_figures.py", "tests/test_hearing_session.py"]
+opened_commit = "a9a90a85b59137b5d0843cd3d874813e0ae6445c"
+whole_reason = "The probe, its figures module, the keyword it needs and the shared probabilities function change together, because the probe is the keyword's only caller and its table is the one proof."
