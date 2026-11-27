@@ -1,7 +1,0 @@
-claim_id = "e789776b663b4f4d98ddcf5582224d03"
-agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
-role = "builder"
-base = "6b99eab99b08a2e2358f1912b84a9757278fd985"
-branch = "claude/issue-739-one-live-session-that-asks-for-sounds-an"
-scope = ["tests/test_live_session_sustained.py"]
-opened_commit = "979b77e90a9cdc8317af5da4619caa3905ef7319"
