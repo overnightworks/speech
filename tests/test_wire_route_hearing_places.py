@@ -158,7 +158,11 @@ def _first_call(app: FastAPI, ending: str) -> SpeakCall:
 def test_a_kept_place_is_freed_when_its_request_ends(ending: str) -> None:
     """WIRE-161: a place frees after a refusal, a leave, a cancel and the decode."""
 
-    async def scenario() -> int:
+    async def scenario() -> tuple[int, list[dict[str, object]]]:
+        unhandled: list[dict[str, object]] = []
+        asyncio.get_running_loop().set_exception_handler(
+            lambda _loop, context: unhandled.append(context)
+        )
         engine = FakeHearing(hold=ending == "leaves-mid-decode")
         runtime = hear_runtime(engine)
         app = hear_app(
@@ -186,9 +190,10 @@ def test_a_kept_place_is_freed_when_its_request_ends(ending: str) -> None:
             await _decode_over(runtime)
         next_one = hear_call(app)
         await next_one.finish()
-        return next_one.status_code
+        await asyncio.sleep(0)
+        return next_one.status_code, unhandled
 
-    assert asyncio.run(scenario()) == HTTP_200_OK
+    assert asyncio.run(scenario()) == (HTTP_200_OK, [])
 
 
 def test_a_caller_leaving_while_its_request_waits_for_the_decode_frees_its_place() -> (
