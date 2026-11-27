@@ -137,8 +137,25 @@ def test_a_model_of_another_shape_fails_the_load() -> None:
         other.load()
 
 
-def test_a_stream_of_an_unloaded_model_is_refused() -> None:
-    unloaded = SileroDetectors(open_shipped_model)
+class _TwoProbabilitiesPerWindow:
+    """The shipped model's shapes, answering two probabilities for one window."""
 
-    with pytest.raises(RuntimeError, match="not loaded"):
-        unloaded.open()
+    def __init__(self) -> None:
+        self._shipped = open_shipped_model()
+
+    def get_inputs(self) -> list[object]:
+        return self._shipped.get_inputs()
+
+    def get_outputs(self) -> list[object]:
+        return self._shipped.get_outputs()
+
+    def run(self, *arguments: object) -> list[np.ndarray]:
+        probabilities, hidden, cell = self._shipped.run(*arguments)
+        return [np.repeat(probabilities, 2), hidden, cell]
+
+
+def test_a_model_that_answers_two_probabilities_for_a_window_fails_the_load() -> None:
+    other = SileroDetectors(_TwoProbabilitiesPerWindow)
+
+    with pytest.raises(ModelShapeError):
+        other.load()

@@ -475,6 +475,14 @@ def heard(ipa: str, begin: float, end: float) -> Sound:
         ),
         (["a", STRESS], [heard("a", 0.256, 0.512)]),
         (
+            ["b", STRESS, "\u02cc", "a"],
+            [heard("b", 0.256, 0.512), heard("a", 0.512, 1.28)],
+        ),
+        (
+            ["t", TIE_BAR, STRESS, "a"],
+            [heard("t\u0361", 0.256, 0.768), heard("a", 0.768, 1.28)],
+        ),
+        (
             ["a\u026a", "s"],
             [heard("a\u026a", 0.256, 0.512), heard("s", 0.512, 0.768)],
         ),
@@ -489,6 +497,8 @@ def heard(ipa: str, begin: float, end: float) -> Sound:
         "stress opens the following sound",
         "secondary stress opens a sound with its length mark",
         "stress with no sound after it is dropped",
+        "two stress marks open the next sound at the first",
+        "a stress mark after a tie bar opens the next sound",
         "a phoneme id of two bases is one sound with its own samples",
     ],
 )

@@ -104,7 +104,7 @@ class SileroDetectors:
     def __init__(self, open_model: Callable[[], InferenceSession]) -> None:
         """Start unloaded; `open_model` opens the session when `load` runs."""
         self._open_model = open_model
-        self._session: InferenceSession | None = None
+        self._session: InferenceSession
 
     def load(self) -> None:
         """Open the model and check its shapes.
@@ -120,15 +120,12 @@ class SileroDetectors:
             raise ModelShapeError(message)
 
     def open(self) -> SileroStream:
-        """A stream at the start of one session's audio."""
-        if self._session is None:
-            message = "the Silero model is not loaded"
-            raise RuntimeError(message)
+        """A stream at the start of one session's audio; call `load` first."""
         return SileroStream(self._session)
 
     def close(self) -> None:
-        """Drop the session."""
-        self._session = None
+        """Drop the session of a loaded model."""
+        del self._session
 
 
 class SileroStream:

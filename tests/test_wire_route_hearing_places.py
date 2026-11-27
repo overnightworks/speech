@@ -135,6 +135,7 @@ def test_with_every_place_kept_a_body_over_the_cap_is_still_too_large() -> None:
         "leaves",
         "cancelled-waiting",
         "leaves-mid-decode",
+        "leaves-while-refused",
     ],
 )
 def test_a_kept_place_is_freed_when_its_request_ends(ending: str) -> None:
@@ -150,7 +151,7 @@ def test_a_kept_place_is_freed_when_its_request_ends(ending: str) -> None:
             max_recording_bytes=len(_valid()),
         )
         taken = None
-        if ending in {"busy", "cancelled-waiting"}:
+        if ending in {"busy", "cancelled-waiting", "leaves-while-refused"}:
             taken = runtime.hearing.gate.try_acquire()
         match ending:
             case "too-large":
@@ -159,6 +160,9 @@ def test_a_kept_place_is_freed_when_its_request_ends(ending: str) -> None:
                 first = hear_call(app, b"x" * 9)
             case "leaves":
                 first = hear_call_begun(app)
+            case "leaves-while-refused":
+                first = hear_call(app)
+                first.disconnect()
             case _:
                 first = hear_call(app)
         if ending == "leaves-mid-decode":

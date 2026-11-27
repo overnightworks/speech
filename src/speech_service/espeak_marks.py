@@ -539,8 +539,7 @@ class _SoundsInProgress:
     def stress(self, begin: int) -> None:
         if self._stress_begin is None:
             self._stress_begin = begin
-        if not self._joining:
-            self._current = None
+        self._current = None
 
     def extended_by(self, token: str, end: int) -> bool:
         """Join `token` to the current sound if it continues it."""

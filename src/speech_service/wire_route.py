@@ -361,9 +361,7 @@ def _replayed(request: Request, body: bytes) -> Request:
 
 async def _until_caller_leaves(request: Request) -> None:
     """Return when the server reports the caller gone; the body is already read."""
-    message = await request.receive()
-    while message["type"] != "http.disconnect":
-        message = await request.receive()
+    await request.receive()
 
 
 def _give_up(acquiring: asyncio.Future[Lease | None]) -> None:
