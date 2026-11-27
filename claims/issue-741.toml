@@ -1,8 +1,0 @@
-claim_id = "fe44a2df02894db684218f4f5b8dd115"
-agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
-role = "builder"
-base = "218a8c2c03b9c553e3d81dd973f061642e6e33ad"
-branch = "claude/issue-741-speech-pins-quality-v0-28-0"
-scope = [".github/workflows/ci.yml", ".github/workflows/code-scanning.yml", ".github/workflows/release-distributions.yml", ".github/workflows/release.yml", "providers/qwen/pyproject.toml", "pyproject.toml", "quality/config.toml"]
-opened_commit = "bc542c2b3304a914f81d50462b7a8b64a840707b"
-whole_reason = "One quality release moves every pin and the configuration its new rules judge, so they land together."
