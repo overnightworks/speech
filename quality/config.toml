@@ -7,12 +7,6 @@ reason = "the settings the image bakes, so the dated tag fixes whom the service 
 ends = "overnightworks/quality#1104"
 
 [[layout.allow]]
-path = "tests/test_qwen_environment.py"
-rule = "test-layout"
-reason = "it tests the lock of providers/qwen, a sibling project with no tests of its own"
-ends = "#743"
-
-[[layout.allow]]
 path = "tests/test_page_coverage_support.py"
 rule = "test-layout"
 reason = "it tests the browser-flow coverage harness in tests/support, which is no module of src/speech_service"
