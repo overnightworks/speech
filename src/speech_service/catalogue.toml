@@ -1,6 +1,7 @@
-# The voices the service offers: one table per voice id. The image bakes this
-# file and `SPEECH_CATALOGUE_FILE` names it; `speech-fetch-voice` fetches the
-# voices it holds at these pins. It holds no secret.
+# The voices the service offers: one table per voice id. The service's package
+# ships this file, which the service reads unless `SPEECH_CATALOGUE_FILE` names
+# another; `speech-fetch-voice` fetches the voices it holds at these pins. It
+# holds no secret.
 
 # Piper voices: the repository and revision their two files are fetched at, and
 # the SHA-256 each file must have. Licences are those on the voice's model card

@@ -3,8 +3,8 @@ mandatory_jobs = ["Speech: lint, tests", "Speech: Qwen provider", "Speech: image
 
 [[root.allow]]
 entry = "deploy/"
-reason = "the settings the image bakes, so the dated tag fixes whom the service trusts"
-ends = "overnightworks/quality#1104"
+reason = "the image proof's caller table, which leaves with hal's compose path"
+ends = "overnightworks/speech#195"
 
 [[layout.allow]]
 path = "tests/test_page_coverage_support.py"

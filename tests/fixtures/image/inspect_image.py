@@ -11,6 +11,7 @@ import sys
 import sysconfig
 from pathlib import Path
 
+from speech_service.catalogue import PACKAGED_CATALOGUE
 from speech_service.hearing_models import (
     HearingModel,
     HearingModelMissingError,
@@ -47,7 +48,8 @@ package_files = sorted(
 stray_package_files = [
     path
     for path in package_files
-    if path.suffix not in SOURCE_SUFFIXES and path.name != "py.typed"
+    if path.suffix not in SOURCE_SUFFIXES
+    and path.name not in {"py.typed", PACKAGED_CATALOGUE.name}
 ]
 print(
     json.dumps(

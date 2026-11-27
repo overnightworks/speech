@@ -24,7 +24,6 @@ From the repository root, with [uv](https://docs.astral.sh/uv/):
 
 ```sh
 uv sync --locked
-export SPEECH_CATALOGUE_FILE=$PWD/deploy/catalogue.toml
 uv run speech-fetch-voice
 SPEECH_CONFIG_FILE=/absolute/path/to/speech.toml uv run speech-service
 ```
@@ -87,7 +86,7 @@ Every setting is read from `SPEECH_*`. The wire's settings are in
 | `SPEECH_HOST` | `127.0.0.1` | Address the listener binds; a container sets `0.0.0.0` |
 | `SPEECH_PORT` | `8080` | TCP port |
 | `SPEECH_DEVICE` | `cuda` | Hearing's device, `cuda` or `cpu`; Piper stays on the CPU, Qwen on `cuda`; the CPU image sets `cpu`, the gpu stage `cuda` |
-| `SPEECH_CATALOGUE_FILE` | none, required | Absolute path of [`deploy/catalogue.toml`](deploy/catalogue.toml); the images set it |
+| `SPEECH_CATALOGUE_FILE` | the catalogue the service's package ships | Absolute path of another voice catalogue |
 | `SPEECH_VOICE_CACHE` | `~/.cache/piper` | Where Piper's files are kept and fetched to; the images set `/opt/voices` |
 | `SPEECH_HUGGINGFACE_CACHE` | the Hub cache | Where hearing's and Qwen's files are kept and fetched to; the images set `/opt/hearing` |
 | `SPEECH_PROVIDER_ROOT` | none | Directory of the provider environments; a GPU voice needs it, and with it the default offer holds every catalogue voice |

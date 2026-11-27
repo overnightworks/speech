@@ -8,7 +8,7 @@
 !uv.lock
 !src/**/*.py
 !deploy/speech.toml
-!deploy/catalogue.toml
+!src/speech_service/catalogue.toml
 !packages/client/pyproject.toml
 !packages/client/src/**/*.py
 !packages/client/src/**/py.typed

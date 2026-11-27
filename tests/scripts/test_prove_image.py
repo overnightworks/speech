@@ -7,10 +7,12 @@ import re
 import runpy
 import sys
 import tomllib
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 import pytest
 
+from speech_service.catalogue import PACKAGED_CATALOGUE
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
@@ -78,7 +80,10 @@ def test_the_build_context_admits_only_files_the_image_copies() -> None:
         for source in line.split()[:-1]
     }
 
-    assert all(path.partition("/**/")[0] in copied for path in admitted)
+    assert all(
+        any(PurePosixPath(path).is_relative_to(source) for source in copied)
+        for path in admitted
+    )
 
 
 def dockerignore_lines() -> list[str]:
@@ -92,7 +97,9 @@ def source_admissions_beyond_python(admissions: list[str]) -> list[str]:
         admission
         for admission in admissions
         if "src" in admission.removeprefix("!").split("/")
-        and not admission.endswith(("/*.py", "/py.typed"))
+        and not admission.endswith(
+            ("/*.py", "/py.typed", f"/{PACKAGED_CATALOGUE.name}")
+        )
     ]
 
 
@@ -101,6 +108,9 @@ def source_admissions_beyond_python(admissions: list[str]) -> list[str]:
     [
         pytest.param(["!src/**/*.py"], [], id="python source"),
         pytest.param(["!packages/client/src/**/py.typed"], [], id="py.typed"),
+        pytest.param(
+            [f"!src/pkg/{PACKAGED_CATALOGUE.name}"], [], id="the packaged catalogue"
+        ),
         pytest.param(["!src/**"], ["!src/**"], id="the whole top tree"),
         pytest.param(["!src"], ["!src"], id="the tree itself"),
         pytest.param(["!pkg/src/**/*.pem"], ["!pkg/src/**/*.pem"], id="a key suffix"),

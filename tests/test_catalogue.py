@@ -4,10 +4,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from shipped_catalogue import CATALOGUE, CATALOGUE_FILE
+from shipped_catalogue import CATALOGUE
 from speech_client.wire import VOICES, VoiceId
-from speech_service.catalogue import CatalogueError, load_catalogue
-from speech_service.config import Settings
+from speech_service.catalogue import PACKAGED_CATALOGUE, CatalogueError, load_catalogue
+from speech_service.config import Settings, catalogue_of
 from speech_service.service import Runtime
 from tests.support.catalogue_support import (
     piper_table,
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 
 def test_the_shipped_catalogue_loads_every_voice_of_the_wire() -> None:
-    assert load_catalogue(CATALOGUE_FILE).keys() == set(VoiceId)
+    assert load_catalogue(PACKAGED_CATALOGUE).keys() == set(VoiceId)
 
 
 def test_the_client_catalogue_and_the_shipped_one_agree_through_the_wire_model() -> (
@@ -122,16 +122,15 @@ def test_a_catalogue_that_is_not_toml_fails_loud_naming_the_file(
 
 
 def test_the_catalogue_file_must_be_absolute(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SPEECH_CATALOGUE_FILE", "deploy/catalogue.toml")
+    monkeypatch.setenv("SPEECH_CATALOGUE_FILE", "catalogue.toml")
 
     with pytest.raises(ValueError, match=r"catalogue file must be absolute"):
         Settings()
 
 
-def test_an_unset_catalogue_file_stops_the_start(
+def test_an_unset_catalogue_file_reads_the_catalogue_the_package_ships(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("SPEECH_CATALOGUE_FILE")
+    monkeypatch.delenv("SPEECH_CATALOGUE_FILE", raising=False)
 
-    with pytest.raises(CatalogueError, match="SPEECH_CATALOGUE_FILE"):
-        Runtime.from_settings(Settings())
+    assert catalogue_of(Settings()).keys() == set(VoiceId)

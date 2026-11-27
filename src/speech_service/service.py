@@ -117,7 +117,7 @@ class Runtime:
     def from_settings(cls, settings: Settings) -> Runtime:
         """Compose the offer from the catalogue.
 
-        Raises `CatalogueError` when the catalogue is unset, wrong, or lacks an
+        Raises `CatalogueError` when the catalogue is wrong or lacks an
         offered voice.
         """
         catalogue = catalogue_of(settings)
