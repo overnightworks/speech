@@ -2,26 +2,21 @@
 mandatory_jobs = ["Speech: lint, tests", "Speech: Qwen provider", "Speech: image", "Speech: gpu image build / Build", "keycloak-token-shapes", "Speech: browser package", "Speech: browser capture flow"]
 
 [[root.allow]]
-entry = "packages/"
-reason = "the client packages an app builds on: the uv workspace's Python client and the pnpm browser package"
-
-[[root.allow]]
 entry = "deploy/"
 reason = "the settings the image bakes, so the dated tag fixes whom the service trusts"
-
-[[root.allow]]
-entry = "providers/"
-reason = "the GPU and CPU speech providers, each its own uv project with its own lock"
+ends = "overnightworks/quality#1104"
 
 [[layout.allow]]
 path = "tests/test_qwen_environment.py"
 rule = "test-layout"
 reason = "it tests the lock of providers/qwen, a sibling project with no tests of its own"
+ends = "#743"
 
 [[layout.allow]]
 path = "tests/test_page_coverage_support.py"
 rule = "test-layout"
 reason = "it tests the browser-flow coverage harness in tests/support, which is no module of src/speech_service"
+ends = "overnightworks/quality#1101"
 
 [[python.allow]]
 path = "providers/qwen/pyproject.toml"
