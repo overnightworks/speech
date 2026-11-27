@@ -258,11 +258,11 @@ def test_the_console_script_prints_each_designed_path_on_its_own_line(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     [call] = _run_main(
-        monkeypatch, tmp_path, "--language", "de", "--destination", "out"
+        monkeypatch, tmp_path, "--language", "de", "--count", "2", "--destination", "out"
     )
 
     destination = tmp_path.resolve() / "out"
-    assert call[1:4] == ("de", 4, destination)
+    assert call[1:4] == ("de", 2, destination)
     assert capsys.readouterr().out.splitlines() == [
         str(destination / "candidate-01.wav"),
         str(destination / "candidate-02.wav"),
