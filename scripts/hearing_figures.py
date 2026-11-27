@@ -235,10 +235,25 @@ def _silero() -> SileroDetectors:
     return detectors
 
 
+def speech_probabilities(pcm: bytes) -> list[float]:
+    """The shipped Silero's speech probability of each window of 24 kHz `pcm`.
+
+    The clip goes in as wire frames, as the live socket sends it: PyAV keeps
+    about 1.8 MB of a resampler fed a whole 3 s clip, and about 0.25 MB when it
+    is fed in frames.
+    """
+    resampler = Resampler()
+    stream = _silero().open()
+    return [
+        probability
+        for frame in wire_frames(pcm)
+        for probability in stream.probabilities(resampler.feed(frame))
+    ]
+
+
 def _voiced_windows(pcm: bytes) -> list[bool]:
     """Whether each window of 24 kHz `pcm`, as the service hears it, is voiced."""
-    heard = Resampler().feed(pcm)
-    return [is_voiced(p) for p in _silero().open().probabilities(heard)]
+    return [is_voiced(p) for p in speech_probabilities(pcm)]
 
 
 def _turns(pcm: bytes) -> list[TurnEnd]:
@@ -322,15 +337,18 @@ def wav_of(pcm: bytes) -> bytes:
     return buffer.getvalue()
 
 
+def wire_frames(pcm: bytes) -> list[bytes]:
+    """24 kHz `pcm` in the frames the live socket sends."""
+    return [
+        pcm[start : start + FRAME_BYTES] for start in range(0, len(pcm), FRAME_BYTES)
+    ]
+
+
 def frames_with_closing_silence(pcm: bytes) -> list[bytes]:
     """The clip in wire frames, then the silence that lets the service end the turn."""
-    closed = pcm + bytes(
-        int(LIVE_INPUT_RATE * TRAILING_SILENCE_SECONDS) * BYTES_PER_SAMPLE
+    return wire_frames(
+        pcm + bytes(int(LIVE_INPUT_RATE * TRAILING_SILENCE_SECONDS) * BYTES_PER_SAMPLE)
     )
-    return [
-        closed[start : start + FRAME_BYTES]
-        for start in range(0, len(closed), FRAME_BYTES)
-    ]
 
 
 @dataclass(frozen=True)
