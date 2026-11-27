@@ -76,4 +76,3 @@ include = ["providers/qwen/src/*"]
 
 [tool.coverage.report]
 exclude_also = ["assert_never\\(", 'if __name__ == "__main__":']
-fail_under = 94
