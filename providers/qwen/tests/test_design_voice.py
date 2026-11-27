@@ -258,7 +258,14 @@ def test_the_console_script_prints_each_designed_path_on_its_own_line(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     [call] = _run_main(
-        monkeypatch, tmp_path, "--language", "de", "--count", "2", "--destination", "out"
+        monkeypatch,
+        tmp_path,
+        "--language",
+        "de",
+        "--count",
+        "2",
+        "--destination",
+        "out",
     )
 
     destination = tmp_path.resolve() / "out"
