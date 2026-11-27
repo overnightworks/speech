@@ -490,3 +490,15 @@ def test_the_command_line_names_the_cache_and_the_probe_runs_over_it(
 def test_the_command_line_refuses_to_run_without_a_cache() -> None:
     with pytest.raises(SystemExit):
         PROBE.parse_arguments([])
+
+
+def test_the_command_line_refuses_a_cache_that_is_not_a_directory(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "missing"
+    arguments = ["--cache", str(missing)]
+
+    with pytest.raises(SystemExit):
+        PROBE.parse_arguments(arguments)
+
+    assert not missing.exists()

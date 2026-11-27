@@ -1,8 +1,8 @@
 """Measure the sustained-speech duration and pause bound on real recordings.
 
 The probe runs offline on the CPU: no service, no card. It fetches pinned corpora
-into `--cache` (each file at its sha256, verified before it is read; archives are
-read in memory and never extracted), takes the speech probabilities of every
+into the existing directory `--cache` (each file at its sha256, verified before
+it is read; archives are read in memory and never extracted), takes the speech probabilities of every
 excerpt once from the shipped Silero, and replays them through the real
 `HearingSession` for every cell of the grid in `sustained_figures`. It prints one
 JSON: the corpora with their licences, revisions, checksums and counts, and for
@@ -321,7 +321,6 @@ def fetch(cache: Path, pinned: Pinned) -> bytes:
             raise SystemExit(message)
         return content
     content = download_pinned(pinned.url, pinned.sha256)
-    cache.mkdir(parents=True, exist_ok=True)
     partial = target.with_name(f"{target.name}.part")
     partial.write_bytes(content)
     partial.rename(target)
@@ -746,14 +745,26 @@ def document(collection: Collection) -> dict[str, object]:
     }
 
 
+def existing_directory(argument: str) -> Path:
+    """The directory the command line names, refused when it does not exist."""
+    directory = Path(argument)
+    if not directory.is_dir():
+        message = f"{argument} is not an existing directory"
+        raise argparse.ArgumentTypeError(message)
+    return directory
+
+
 def parse_arguments(arguments: Sequence[str]) -> argparse.Namespace:
     """Read the command line."""
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument(
         "--cache",
-        type=Path,
+        type=existing_directory,
         required=True,
-        help="where the pinned corpora are kept; never under /tmp or in a repository",
+        help=(
+            "an existing directory where the pinned corpora are kept;"
+            " never under /tmp or in a repository"
+        ),
     )
     return parser.parse_args(arguments)
 

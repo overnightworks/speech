@@ -14,7 +14,7 @@ Run each in its project's own directory (the root, or `providers/qwen`).
 - `probe-run uv run --locked pytest -q -m keycloak tests/test_callers_keycloak.py`: token shapes against a Keycloak you start yourself on a free port and name in `KEYCLOAK_URL`.
 - `uv run python scripts/prove_speech.py`: stage proof of health and speaking; starts the providers and re-runs itself under `probe-run`.
 - `uv run --locked python scripts/voice_lines.py --voice V --hearing-model M --device cpu|cuda [--language L] [--runs N] [--clip-seconds S] [--warmups N] [--route file|live|both] [--first-audio-max S] [--rtf-max X] [--final-max S] [--two-halves]`: the voice's first audio, real-time factor and hearing final through one started service, as one JSON on stdout (exit 3 when a given line is missed); the script's docstring owns the routes, the warm-ups and `--two-halves`, and it starts under `probe-run` unless `SPEECH_PROOF_UNDER_PROBE_RUN` is set.
-- `uv run --locked python scripts/probe_sustained_speech.py --cache DIR`: the sustained-speech pair on pinned corpora, one JSON (exit 3: a minimum missed); `DIR` never under `/tmp`.
+- `uv run --locked python scripts/probe_sustained_speech.py --cache DIR`: the sustained-speech pair on pinned corpora, one JSON (exit 3: a minimum missed); `DIR` an existing directory, never under `/tmp`.
 
 ## Rules
 
