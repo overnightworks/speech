@@ -2,12 +2,13 @@
 
 The probe runs offline on the CPU: no service, no card. It fetches pinned corpora
 into the existing directory `--cache` (each file at its sha256, verified before
-it is read; archives are read in memory and never extracted), takes the speech probabilities of every
-excerpt once from the shipped Silero, and replays them through the real
-`HearingSession` for every cell of the grid in `sustained_figures`. It prints one
-JSON: the corpora with their licences, revisions, checksums and counts, and for
-each cell the false holds by sound and by pair, and the delay rows. Exit 3 when a
-minimum of kept excerpts is missed after every pinned extra.
+it is read; archives are read in memory and never extracted), takes the speech
+probabilities of every excerpt once from the shipped Silero, and replays them
+through the real `HearingSession` for every cell of the grid in
+`sustained_figures`. It prints one JSON: the corpora with their licences,
+revisions, checksums and counts, and for each cell the false holds by sound and
+by pair, and the delay rows. Exit 3 when a minimum of kept excerpts is missed
+after every pinned extra.
 
 The measured delay is the service's count only: transport and the stop of the
 playback come on top of the card's half second. Re-run it when the shipped
@@ -274,8 +275,9 @@ CORPORA: Final = {
             " the Zenodo repack, record 14650192, is CC BY 4.0"
         ),
         "revision": (
-            "Zenodo record 14650192, test, validation and train shards;"
-            " md5 values are the record's"
+            "Zenodo record 14650192, 20 shards each of test, validation and train;"
+            " the probe reads only shards pinned at a sha256, test 0 to 5 and"
+            " validation 0 to 6; md5 values are the record's"
         ),
         "used_for": "laughter, cough and throat clearing",
         "gaps": [
