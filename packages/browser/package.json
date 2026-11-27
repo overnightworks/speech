@@ -30,9 +30,9 @@
   },
   "devDependencies": {
     "@types/audioworklet": "^0.0.102",
-    "@vitest/coverage-v8": "^5.1.0",
+    "@vitest/coverage-v8": "^5.1.1",
     "monocart-coverage-reports": "^3.2.1",
     "typescript": "^7.0.2",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.1"
   }
 }
