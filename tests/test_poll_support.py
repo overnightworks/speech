@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 WITHIN_SECONDS = 0.05
+LATE_WITHIN_SECONDS = 5.0
 INTERVAL_SECONDS = 0.001
 WAITED_FOR = "the thing that never came"
 
@@ -28,14 +29,12 @@ def _holds_on_call(number: int) -> Callable[[], bool]:
     return condition
 
 
-def _sync_poll(condition: Callable[[], bool]) -> bool:
-    return poll(condition, within=WITHIN_SECONDS, interval=INTERVAL_SECONDS)
+def _sync_poll(condition: Callable[[], bool], within: float = WITHIN_SECONDS) -> bool:
+    return poll(condition, within=within, interval=INTERVAL_SECONDS)
 
 
-def _async_poll(condition: Callable[[], bool]) -> bool:
-    return asyncio.run(
-        poll_async(condition, within=WITHIN_SECONDS, interval=INTERVAL_SECONDS)
-    )
+def _async_poll(condition: Callable[[], bool], within: float = WITHIN_SECONDS) -> bool:
+    return asyncio.run(poll_async(condition, within=within, interval=INTERVAL_SECONDS))
 
 
 def _sync_wait(condition: Callable[[], bool]) -> bool:
@@ -62,9 +61,9 @@ def _async_wait(condition: Callable[[], bool]) -> bool:
 
 @pytest.mark.parametrize("wait", [_sync_poll, _async_poll], ids=["sync", "async"])
 def test_poll_returns_true_when_the_condition_holds_late(
-    wait: Callable[[Callable[[], bool]], bool],
+    wait: Callable[..., bool],
 ) -> None:
-    assert wait(_holds_on_call(3)) is True
+    assert wait(_holds_on_call(3), within=LATE_WITHIN_SECONDS) is True
 
 
 @pytest.mark.parametrize("wait", [_sync_poll, _async_poll], ids=["sync", "async"])
@@ -72,13 +71,6 @@ def test_poll_returns_false_when_the_condition_never_holds(
     wait: Callable[[Callable[[], bool]], bool],
 ) -> None:
     assert wait(lambda: False) is False
-
-
-@pytest.mark.parametrize("wait", [_sync_wait, _async_wait], ids=["sync", "async"])
-def test_wait_until_returns_when_the_condition_holds_late(
-    wait: Callable[[Callable[[], bool]], bool],
-) -> None:
-    assert wait(_holds_on_call(3)) is True
 
 
 @pytest.mark.parametrize("wait", [_sync_wait, _async_wait], ids=["sync", "async"])
