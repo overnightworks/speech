@@ -119,6 +119,27 @@ def vocal_sound(number: int, start: float, end: float) -> str:
     )
 
 
+def act(kind: str, first: int, last: int) -> str:
+    return (
+        f'<dact nite:id="act{first}"><nite:pointer role="da-aspect"'
+        f' href="da-types.xml#id({kind})"/><nite:child'
+        f' href="{MEETING}.A.words.xml#id({MEETING}.A.words{first})'
+        f'..id({MEETING}.A.words{last})"/></dact>'
+    )
+
+
+def dialogue_acts() -> str:
+    return "".join(
+        [
+            act("ami_da_4", 0, 1),
+            act("ami_da_1", 3, 4),
+            act("ami_da_4", 6, 7),
+            act("ami_da_1", 8, 8),
+            act("ami_da_2", 9, 10),
+        ]
+    )
+
+
 def annotations() -> bytes:
     """A wearer who says "mhm" alone at 30 s and 50 s and speaks on from 10 s, 45 s.
 
@@ -140,23 +161,6 @@ def annotations() -> bytes:
         ]
     )
 
-    def act(kind: str, first: int, last: int) -> str:
-        return (
-            f'<dact nite:id="act{first}"><nite:pointer role="da-aspect"'
-            f' href="da-types.xml#id({kind})"/><nite:child'
-            f' href="{MEETING}.A.words.xml#id({MEETING}.A.words{first})'
-            f'..id({MEETING}.A.words{last})"/></dact>'
-        )
-
-    acts = "".join(
-        [
-            act("ami_da_4", 0, 1),
-            act("ami_da_1", 3, 4),
-            act("ami_da_4", 6, 7),
-            act("ami_da_1", 8, 8),
-            act("ami_da_2", 9, 10),
-        ]
-    )
     files = {
         "corpusResources/meetings.xml": (
             f'<nite:root {NITE}><meeting observation="{MEETING}">'
@@ -172,7 +176,7 @@ def annotations() -> bytes:
         ),
         f"words/{MEETING}.A.words.xml": f"<nite:root {NITE}>{words}</nite:root>",
         f"dialogueActs/{MEETING}.A.dialog-act.xml": (
-            f"<nite:root {NITE}>{acts}</nite:root>"
+            f"<nite:root {NITE}>{dialogue_acts()}</nite:root>"
         ),
         f"segments/{MEETING}.B.segments.xml": (
             f'<nite:root {NITE}><segment transcriber_start="30.25"'
