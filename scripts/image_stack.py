@@ -8,7 +8,6 @@ import os
 import subprocess
 import uuid
 from dataclasses import dataclass, field
-from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
@@ -20,6 +19,7 @@ from image_judgement import (
     TmpUsage,
     baked_caller,
     minting_for,
+    require_admitted_speak,
     require_marked_wav,
     seconds_to_healthy,
 )
@@ -254,6 +254,14 @@ class LiveOutcome:
     language: str | None = None
 
 
+@dataclass(frozen=True)
+class SoundOutcome:
+    """How a sound turn ended: the sounds it heard, or the error that stopped it."""
+
+    sounds: tuple[HeardSound, ...]
+    error: str | None
+
+
 @dataclass
 class Session:
     """What the cells share: the stack, the baked callers and what the log must lack.
@@ -371,7 +379,7 @@ class Session:
 
     def hear_sounds(
         self, tokens: TokenPair, wav: bytes, *, asking: bool
-    ) -> tuple[HeardSound, ...]:
+    ) -> SoundOutcome:
         """The sounds a session hears in `wav`, with or without asking for them."""
         answer = self._live(
             tokens,
@@ -380,16 +388,16 @@ class Session:
             sound_detection=asking,
             settle_seconds=SOUND_SETTLE_SECONDS,
         )
-        if "error" in answer:
-            message = f"the sound turn ended in {answer['error']}"
-            raise SystemExit(message)
-        return tuple(
-            HeardSound(
-                SoundName(heard["sound"]),
-                heard["audio_start_ms"],
-                heard["audio_end_ms"],
-            )
-            for heard in answer["sounds"]
+        return SoundOutcome(
+            tuple(
+                HeardSound(
+                    SoundName(heard["sound"]),
+                    heard["audio_start_ms"],
+                    heard["audio_end_ms"],
+                )
+                for heard in answer.get("sounds", ())
+            ),
+            answer.get("error"),
         )
 
     def _live(
@@ -467,9 +475,7 @@ def service_config(compose: Compose) -> dict[str, Any]:
 def speak_marked(session: Session, voice: VoiceId | None = None) -> bytes:
     """One admitted speak of `voice` or the baked one; the WAV carries the AI mark."""
     reply = session.speak(session.admitted_headers(), voice or session.baked.voice)
-    if reply.status != HTTPStatus.OK:
-        message = f"the admitted speak answered {reply.status}"
-        raise SystemExit(message)
+    require_admitted_speak(reply)
     require_marked_wav(reply.body)
     return reply.body
 

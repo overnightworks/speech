@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Final
 
 from image_judgement import (
     first_gpu_voice,
+    require_container_unrestarted,
     require_gpu_voice_down,
     require_log_clean,
     require_offer,
@@ -102,9 +103,7 @@ def cell_gpu_voice_offered(session: Session, wav: bytes) -> None:
         f"cell 23: held; then {voice} not ready, speaking and hearing ready,"
         f" {offered.baked.voice} speaks and {offered.baked.app}'s recording is heard"
     )
-    if container_start(stack) != started:
-        message = f"the service container restarted: {started}"
-        raise SystemExit(message)
+    require_container_unrestarted(started, container_start(stack))
     session.collect_log()
     require_log_clean(session.logs[-1], [SENTENCE], session.heard, session.tokens)
     print("cell 23: held; the container did not restart, the log holds no spoken text")

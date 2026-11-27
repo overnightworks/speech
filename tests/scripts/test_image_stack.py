@@ -70,6 +70,20 @@ def test_a_teardown_tries_both_removals_and_names_each_that_failed(
     assert result.tail is None
 
 
+def test_a_failed_proof_keeps_the_tail_of_the_log_before_it_removes_anything(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeDocker({"logs"})
+    monkeypatch.setattr(image_stack.subprocess, "run", fake)
+
+    result = image_stack.teardown(
+        image_stack.Compose((REPOSITORY / "compose.yaml",), {}, "run"), failed=True
+    )
+
+    assert fake.commands == ["logs", "down", "image"]
+    assert "logs broke" in (result.tail or "")
+
+
 @pytest.mark.parametrize("size", [4096, 25 * 1024 * 1024, 25 * 1024 * 1024 + 1])
 def test_a_form_of_a_size_has_a_body_of_exactly_that_many_bytes(size: int) -> None:
     form = image_stack.form_of_size(size, "de")
@@ -225,6 +239,18 @@ def test_an_image_environment_is_read_from_the_image_itself() -> None:
         "IMAGE_SETTING": "a=b",
         "OTHER_SETTING": "d",
     }
+
+
+def test_a_docker_command_that_fails_ends_the_proof_naming_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = tmp_path / "docker"
+    fake.write_text("#!/bin/sh\necho 'no daemon' >&2\nexit 1\n", encoding="utf-8")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+
+    with pytest.raises(SystemExit, match="docker image failed: no daemon"):
+        image_stack.image_environment("image-under-proof")
 
 
 @pytest.mark.usefixtures("docker_with_image_environment")
