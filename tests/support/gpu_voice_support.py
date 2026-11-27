@@ -48,6 +48,7 @@ from tests.support.launcher_support import (
     server_starts,
     wait_for_starts,
 )
+from tests.support.poll_support import wait_until_async
 from tests.support.serve_support import RecordedStops, serve_runtime
 from tests.support.speak_support import ASGI_TIMEOUT_SECONDS, wav_body
 from tests.support.tcp_server_support import (
@@ -394,11 +395,16 @@ class Serving:
             )
         )
         deadline = time.monotonic() + SERVER_WAIT_SECONDS
-        while not await asyncio.to_thread(answers_http, self.port):
-            assert time.monotonic() < deadline
-        while self._stage.runtime.loading:
-            assert time.monotonic() < deadline
-            await asyncio.sleep(0.01)
+        await wait_until_async(
+            lambda: answers_http(self.port),
+            within=SERVER_WAIT_SECONDS,
+            waited_for="the service never answered",
+        )
+        await wait_until_async(
+            lambda: not self._stage.runtime.loading,
+            within=max(0.0, deadline - time.monotonic()),
+            waited_for="the start load never ended",
+        )
         return httpx2.AsyncClient(
             base_url=f"http://{LOOPBACK}:{self.port}",
             timeout=SERVER_WAIT_SECONDS,

@@ -8,7 +8,6 @@ import os
 import signal
 import subprocess
 import sys
-import time
 import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -31,6 +30,7 @@ from tests.support.launcher_support import (
     SERVER_WAIT_SECONDS,
     assert_reaped,
 )
+from tests.support.poll_support import wait_until
 from tests.support.serve_support import RecordedStops, serve_runtime
 from tests.support.tcp_server_support import (
     answers_http,
@@ -98,11 +98,19 @@ def test_sigterm_stops_the_real_server_and_exits_zero_with_nothing_listening(
         [sys.executable, "-c", _SIGTERM_SERVER], env=environment
     ) as server:
         try:
-            deadline = time.monotonic() + 30
-            while not answers_http(port):
+
+            def answering() -> bool:
+                if answers_http(port):
+                    return True
                 assert server.poll() is None
-                assert time.monotonic() < deadline
-                time.sleep(0.05)
+                return False
+
+            wait_until(
+                answering,
+                within=30,
+                waited_for="the service never answered",
+                interval=0.05,
+            )
             server.send_signal(signal.SIGTERM)
             assert server.wait(timeout=30) == 0
         finally:

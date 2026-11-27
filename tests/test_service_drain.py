@@ -67,6 +67,7 @@ from tests.support.live_support import (
     audio,
     read_event,
 )
+from tests.support.poll_support import wait_until, wait_until_async
 from tests.support.speak_support import speak_body
 from tests.support.tcp_server_support import free_loopback_port, wait_until_listening
 from wav_audio import pcm_from_wav
@@ -136,10 +137,12 @@ def pair(tmp_path: Path) -> Iterator[_Pair]:
         processes.callback(lambda: [process.kill() for process in started])
         for process, port in zip(started, ports, strict=True):
             wait_until_listening(process, port)
-        deadline = time.monotonic() + _WAIT_SECONDS
-        while not all(is_ready(port) for port in ports):
-            assert time.monotonic() < deadline, "the servers never became ready"
-            time.sleep(0.05)
+        wait_until(
+            lambda: all(is_ready(port) for port in ports),
+            within=_WAIT_SECONDS,
+            waited_for="the servers never became ready",
+            interval=0.05,
+        )
         yield _Pair(
             started[0],
             started[1],
@@ -190,17 +193,18 @@ def _stream_speech(pair: _Pair, port: int) -> tuple[http.client.HTTPResponse, by
 async def _until_entered(pair: _Pair, never: str) -> None:
     """Wait until the hearing holds the turn the hold file stops."""
     entered = pair.hearing_hold_file.with_suffix(HEARING_ENTERED_SUFFIX)
-    deadline = time.monotonic() + _WAIT_SECONDS
-    while not entered.exists():
-        assert time.monotonic() < deadline, never
-        await asyncio.sleep(0.05)
+    await wait_until_async(
+        entered.exists, within=_WAIT_SECONDS, waited_for=never, interval=0.05
+    )
 
 
 async def _until_not_ready(port: int) -> None:
-    deadline = time.monotonic() + _WAIT_SECONDS
-    while await asyncio.to_thread(is_ready, port):
-        assert time.monotonic() < deadline, "the stopped server still reports ready"
-        await asyncio.sleep(0.05)
+    await wait_until_async(
+        lambda: not is_ready(port),
+        within=_WAIT_SECONDS,
+        waited_for="the stopped server still reports ready",
+        interval=0.05,
+    )
 
 
 def test_a_stopped_process_finishes_its_turn_and_stream_while_another_takes_work(

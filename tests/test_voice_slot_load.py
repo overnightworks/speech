@@ -51,6 +51,7 @@ from tests.support.launcher_support import (
     wait_for_starts,
 )
 from tests.support.live_support import append, audio, commit, read_event, update
+from tests.support.poll_support import wait_until
 from tests.support.speak_support import (
     SpeakCall,
     assert_call_refusal,
@@ -214,8 +215,7 @@ def test_the_busy_wait_of_a_request_that_waited_for_the_load_starts_at_its_end(
         # Both requests had their tokens accepted before they took hold of the load.
         passed = time.monotonic() + busy_wait_seconds
         (pid,) = await asyncio.to_thread(wait_for_starts, stage.cache, 1)
-        while time.monotonic() <= passed:  # noqa: ASYNC110 - the load outlasts the busy wait
-            await asyncio.sleep(0.01)
+        await asyncio.sleep(max(0.0, passed - time.monotonic()))
         release_load(stage.cache, pid, LoadOutcome.READY)
         for call in calls:
             await call.finish()
@@ -399,10 +399,11 @@ def test_a_server_that_dies_after_it_was_ready_turns_its_voice_unready_and_reloa
             os.kill(first, signal.SIGKILL)
         else:
             post_speech(client, speak_body(VoiceId.RYAN, "refused"))
-        deadline = time.monotonic() + SERVER_WAIT_SECONDS
-        while _health(client).speaking.voices[VoiceId.RYAN].ready:
-            assert time.monotonic() < deadline
-            time.sleep(0.01)
+        wait_until(
+            lambda: not _health(client).speaking.voices[VoiceId.RYAN].ready,
+            within=SERVER_WAIT_SECONDS,
+            waited_for="the voice still reports ready",
+        )
 
         _assert_spoken_at(
             post_speech(client, speak_body(VoiceId.RYAN)), QWEN_SAMPLE_RATE

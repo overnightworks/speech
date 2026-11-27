@@ -33,6 +33,7 @@ from tests.support.launcher_support import (
     wait_for_held_exit,
     wait_for_starts,
 )
+from tests.support.poll_support import wait_until_async
 from tests.support.speak_support import (
     SpeakCall,
     app_over,
@@ -114,9 +115,11 @@ def test_sigterm_during_a_failed_loads_cleanup_waits_for_it_and_exits_by_its_rea
             release_load(stage.cache, pid, LoadOutcome.FAILED)
             await asyncio.to_thread(wait_for_held_exit, stage.cache, pid)
             serving.sigterm()
-            deadline = time.monotonic() + SERVER_WAIT_SECONDS
-            while await asyncio.to_thread(listens_on, serving.port):
-                assert time.monotonic() < deadline
+            await wait_until_async(
+                lambda: not listens_on(serving.port),
+                within=SERVER_WAIT_SECONDS,
+                waited_for="the service still listens",
+            )
             waited = not serving.task.done() and is_running(pid)
             release_exit(stage.cache, pid)
             outcome = await serving.task
