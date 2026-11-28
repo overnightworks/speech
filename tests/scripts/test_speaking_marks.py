@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from typing import TYPE_CHECKING
@@ -9,14 +10,19 @@ from typing import TYPE_CHECKING
 import pytest
 
 import speaking_marks as marks
+from shipped_catalogue import CATALOGUE, PIPER_VOICES
 from speech_client.wire import AudioEventType, Health, Language, ResponseFormat
 from speech_service.ogg_opus import ogg_opus_chunks
 from speech_service.pcm import wav_header
-from tests.support.fakes_support import SPEAK_SAMPLE_RATE, sine_pcm
+from speech_service.service import Runtime, RuntimeDependencies
+from tests.support.fakes_support import SPEAK_SAMPLE_RATE, FakeMarkingSpeaking, sine_pcm
+from tests.support.identity_support import callers_trusting
+from tests.support.tcp_server_support import serving_over_tcp
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from proof_identity import Minting, ProofIdentity
     from speech_client.wire import VoiceId
 
 GERMAN_VOICE = "de_DE-thorsten-medium"
@@ -152,74 +158,142 @@ def with_word(
     return change
 
 
-BAD_ANSWERS: dict[str, Callable[[list], list]] = {
-    "no done": lambda events: events[:-1],
-    "done twice": lambda events: [*events, DONE],
-    "done carries usage": replaced(4, {**DONE, "usage": {}}),
-    "audio after done": lambda events: [*events, events[0]],
-    "marks before any audio": lambda events: [events[1], events[0], *events[2:]],
-    "an unknown event": replaced(2, {"type": "speech.audio.other"}),
-    "words null": replaced(1, {**sentence_marks(0), "words": None}),
-    "sounds null": replaced(1, {**sentence_marks(0), "sounds": None}),
-    "no sounds for a sentence that holds words": replaced(
-        1, {**sentence_marks(0), "sounds": []}
+ONE_DONE = "unknown event or not one done"
+BARE_DONE = "does not end with a bare done"
+NO_SOUND_IN_TIME = "sound times do not increase within the audio"
+NOT_PLAIN_IPA = "not NFC text without a stress mark"
+WORD_TIMES = "word times do not increase within the audio"
+BAD_ANSWERS: dict[str, tuple[Callable[[list], list], str]] = {
+    "no done": (lambda events: events[:-1], ONE_DONE),
+    "done twice": (lambda events: [*events, DONE], ONE_DONE),
+    "done carries usage": (replaced(4, {**DONE, "usage": {}}), BARE_DONE),
+    "audio after done": (lambda events: [*events, events[0]], BARE_DONE),
+    "marks before any audio": (
+        lambda events: [events[1], events[0], *events[2:]],
+        "marks come before the audio",
     ),
-    "a sound with its stress mark": with_sound(1, 0, ("\u02c8j", 0.03, 0.12)),
-    "a sound that is not NFC": with_sound(1, 0, ("a\u0303", 0.03, 0.12)),
-    "a sound without text": with_sound(1, 0, ("", 0.03, 0.12)),
-    "a sound start that decreases": with_sound(1, 1, ("a", 0.02, 0.2)),
-    "a sound that ends before its start": with_sound(1, 1, ("a", 0.2, 0.12)),
-    "a sound after the audio": with_sound(3, 3, ("d", 0.8, 1.5)),
-    "a sound outside every word": with_sound(1, 1, ("a", 0.21, 0.24)),
-    "a sound that says it is estimated": replaced(
-        1,
-        {
-            **sentence_marks(0),
-            "sounds": [
-                {**sound(SOUNDS[0][0]), "estimated": False},
-                *map(sound, SOUNDS[0][1:]),
-            ],
-        },
+    "an unknown event": (replaced(2, {"type": "speech.audio.other"}), ONE_DONE),
+    "words null": (
+        replaced(1, {**sentence_marks(0), "words": None}),
+        "hold no words or sounds",
     ),
-    "one marks event too few": lambda events: [*events[:3], *events[4:]],
-    "a span that is not its text": with_word(1, 1, ("gern", 3, 8, 0.25, 0.45)),
-    "a start that does not increase": with_word(3, 0, ("Nein", 9, 13, 0.1, 0.75)),
-    "an end after the audio": with_word(3, 1, ("danke", 14, 19, 0.8, 1.5)),
-    "an end before its start": with_word(1, 0, ("Ja", 0, 2, 0.2, 0.05)),
-    "a word of the text left out": with_word(1, 1, ("Ja", 0, 2, 0.25, 0.45)),
+    "sounds null": (
+        replaced(1, {**sentence_marks(0), "sounds": None}),
+        "hold no words or sounds",
+    ),
+    "no sounds for a sentence that holds words": (
+        replaced(1, {**sentence_marks(0), "sounds": []}),
+        "words for a sentence and no sound",
+    ),
+    "a sound with its stress mark": (
+        with_sound(1, 0, ("\u02c8j", 0.03, 0.12)),
+        NOT_PLAIN_IPA,
+    ),
+    "a sound that is not NFC": (
+        with_sound(1, 0, ("a\u0303", 0.03, 0.12)),
+        NOT_PLAIN_IPA,
+    ),
+    "a sound without text": (with_sound(1, 0, ("", 0.03, 0.12)), NOT_PLAIN_IPA),
+    "a sound start that decreases": (
+        with_sound(1, 1, ("a", 0.02, 0.2)),
+        NO_SOUND_IN_TIME,
+    ),
+    "a sound that ends before its start": (
+        with_sound(1, 1, ("a", 0.2, 0.12)),
+        NO_SOUND_IN_TIME,
+    ),
+    "a sound after the audio": (with_sound(3, 3, ("d", 0.8, 1.5)), NO_SOUND_IN_TIME),
+    "a sound outside every word": (
+        with_sound(1, 1, ("a", 0.21, 0.24)),
+        "sound does not end inside a word",
+    ),
+    "a sound that says it is estimated": (
+        replaced(
+            1,
+            {
+                **sentence_marks(0),
+                "sounds": [
+                    {**sound(SOUNDS[0][0]), "estimated": False},
+                    *map(sound, SOUNDS[0][1:]),
+                ],
+            },
+        ),
+        "sound does not hold exactly ipa, start and end",
+    ),
+    "a field beside words and sounds": (
+        replaced(1, {**sentence_marks(0), "estimated": False}),
+        "does not hold exactly words and sounds",
+    ),
+    "words that are no list": (
+        replaced(1, {**sentence_marks(0), "words": "Ja gern"}),
+        "marks event is not words and sounds",
+    ),
+    "one marks event too few": (
+        lambda events: [*events[:3], *events[4:]],
+        "holds 1 marks events",
+    ),
+    "a span that is not its text": (
+        with_word(1, 1, ("gern", 3, 8, 0.25, 0.45)),
+        "not the span of the input",
+    ),
+    "a start that does not increase": (
+        with_word(3, 0, ("Nein", 9, 13, 0.1, 0.75)),
+        WORD_TIMES,
+    ),
+    "an end after the audio": (
+        with_word(3, 1, ("danke", 14, 19, 0.8, 1.5)),
+        WORD_TIMES,
+    ),
+    "an end before its start": (with_word(1, 0, ("Ja", 0, 2, 0.2, 0.05)), WORD_TIMES),
+    "a word of the text left out": (
+        with_word(1, 1, ("Ja", 0, 2, 0.25, 0.45)),
+        "leave a word of the text out",
+    ),
 }
 
 
-@pytest.mark.parametrize("change", list(BAD_ANSWERS.values()), ids=list(BAD_ANSWERS))
+@pytest.mark.parametrize(
+    ("change", "failure"), list(BAD_ANSWERS.values()), ids=list(BAD_ANSWERS)
+)
 def test_an_answer_that_breaks_a_ruled_sentence_fails_the_proof(
-    change: Callable[[list], list],
+    change: Callable[[list], list], failure: str
 ) -> None:
     events = change(wav_events())
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit, match=failure):
         judged(events, ResponseFormat.WAV)
 
 
 @pytest.mark.parametrize(
-    "body",
+    ("body", "failure"),
     [
-        b"",
-        b"data: {}\n",
-        b"event: x\n\n",
-        b"data: {}\n\ndata: {}",
-        b"data: not json\n\n",
+        (b"", "not one done"),
+        (b"data: {}\n", "ends inside an event"),
+        (b"event: x\n\n", "no `data:` JSON object"),
+        (b"data: {}\n\ndata: {}", "ends inside an event"),
+        (b"data: not json\n\n", "no `data:` JSON object"),
+        ("data: \u00e4\n\n".encode(), "not ASCII"),
     ],
-    ids=["empty", "no blank line", "other field", "unfinished event", "not json"],
+    ids=[
+        "empty",
+        "no blank line",
+        "other field",
+        "unfinished event",
+        "not json",
+        "not ASCII",
+    ],
 )
-def test_a_body_that_is_not_framed_as_events_fails_the_proof(body: bytes) -> None:
-    with pytest.raises(SystemExit):
+def test_a_body_that_is_not_framed_as_events_fails_the_proof(
+    body: bytes, failure: str
+) -> None:
+    with pytest.raises(SystemExit, match=failure):
         marks.judge_sse_answer(body, TEXT, ResponseFormat.WAV, sentences=2)
 
 
 def test_audio_that_is_not_the_format_asked_for_fails_the_proof() -> None:
     events = wav_events()
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit, match="deltas are not opus"):
         judged(events, ResponseFormat.OPUS)
 
 
@@ -288,3 +362,34 @@ def test_the_proof_needs_health_to_give_words_and_sounds(
     else:
         with pytest.raises(SystemExit):
             marks.require_gives_marks(health, [GERMAN_VOICE])
+
+
+def test_the_event_stream_client_reads_a_served_answer_to_its_done_event(
+    minting: Minting, identity: ProofIdentity
+) -> None:
+    async def scenario() -> bytes:
+        runtime = Runtime(
+            {PIPER_VOICES[0]: FakeMarkingSpeaking()},
+            memory_probe=lambda: 0,
+            dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+        )
+        callers = callers_trusting(identity.configuration_path, minting)
+        async with serving_over_tcp(runtime, callers) as server:
+            return await asyncio.to_thread(
+                marks.speak_sse,
+                server.base_url,
+                "Hallo Welt",
+                PIPER_VOICES[0],
+                ResponseFormat.WAV,
+                minting,
+            )
+
+    events = marks.read_events(asyncio.run(scenario()))
+
+    assert [event["type"] for event in events] == [
+        AudioEventType.DELTA,
+        AudioEventType.MARKS,
+        AudioEventType.DELTA,
+        AudioEventType.MARKS,
+        AudioEventType.DONE,
+    ]
