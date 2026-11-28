@@ -124,6 +124,7 @@ ENGLISH_LONG_TURN = (
 )
 ENGLISH_VOICE: Final = "en_US-ljspeech-medium"
 CARD_STAGES = ("gpu_memory", "taken_card")
+SENTENCE_BOUNDARY = re.compile(r"(?<=\.) ")
 PROBE_TEXT = "Bereit."
 SPEAK_WAIT_SECONDS = 30.0
 POLL_SECONDS = 0.5
@@ -291,7 +292,7 @@ def german_clip(service: Service, text: str) -> bytes:
     sentences join without the pause the route puts between them.
     """
     sentences = []
-    for sentence in re.split(r"(?<=\.) ", text):
+    for sentence in SENTENCE_BOUNDARY.split(text):
         wav, _, _ = speak_measured(
             service.base_url,
             sentence,
@@ -415,10 +416,10 @@ def measure_models(
     `save` writes the record after each language and each model, so a proof killed
     outright keeps what it measured. Returns the clips.
     """
-    clips: dict[Language, Clip] | None = None
+    clips: dict[Language, Clip] = {}
     for model in arguments.hearing_models:
         with hearing_service(arguments.device, model, PIPER_PROOF_VOICE) as service:
-            if clips is None:
+            if not clips:
                 clips = make_clips(service, arguments.english_voice_directory)
             print(
                 "hearing_ready",
@@ -439,9 +440,6 @@ def measure_models(
                 save()
             entry["status"] = figures.StageStatus.MEASURED
             save()
-    if clips is None:
-        message = "no hearing model was given"
-        raise SystemExit(message)
     return clips
 
 

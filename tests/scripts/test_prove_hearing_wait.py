@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from shipped_catalogue import PIPER_VOICES
 from speech_client.outcomes import Unreachable
 from tests.support.clock_support import FakeClock
 from tests.support.hearing_health_support import (
@@ -14,8 +15,10 @@ from tests.support.hearing_health_support import (
     HEALTH_READY,
 )
 from tests.support.script_support import script_module
+from tests.support.tcp_server_support import free_loopback_port
 
 if TYPE_CHECKING:
+    from proof_minting import Minting
     from speech_client.wire import Health
 
 HEARING = script_module("prove_hearing")
@@ -51,6 +54,24 @@ def test_a_service_that_never_finishes_loading_fails_the_wait(
 ) -> None:
     with pytest.raises(SystemExit, match="did not finish loading"):
         wait_loaded_with(health, speaks=speaks)
+
+
+def test_a_load_whose_fresh_health_fails_waits_on() -> None:
+    clock = FakeClock()
+    answers = iter([HEALTH_READY, Unreachable(), HEALTH_READY, HEALTH_READY])
+    wait = HEARING.LoadWait(
+        lambda: False, lambda *_: next(answers), clock.jump, clock.now
+    )
+
+    health = HEARING.wait_loaded("http://127.0.0.1:1", lambda: None, wait)
+
+    assert (health, clock.now()) == (HEALTH_READY, HEARING.POLL_SECONDS)
+
+
+def test_a_service_nothing_listens_on_does_not_speak(minting: Minting) -> None:
+    base_url = f"http://127.0.0.1:{free_loopback_port()}"
+
+    assert not HEARING.speaks(base_url, minting, PIPER_VOICES[0])
 
 
 def test_a_wait_with_slow_health_answers_still_ends_at_its_time_limit() -> None:

@@ -199,6 +199,24 @@ def test_a_healthy_card_keeps_its_reading_among_the_samples(
     assert READING_MIB in sampler.samples
 
 
+def test_a_peak_after_the_first_reading_is_among_the_samples(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    card = FakeNvidiaSmi(tmp_path, monkeypatch)
+    card.use(READING_MIB)
+    monkeypatch.setattr(CARD, "MEMORY_SAMPLE_SECONDS", 0)
+    deadline = time.monotonic() + DEADLINE_SECONDS
+
+    with CARD.MemorySampler() as sampler:
+        while not sampler.samples and time.monotonic() < deadline:
+            pass
+        card.use(2 * READING_MIB)
+        while 2 * READING_MIB not in sampler.samples and time.monotonic() < deadline:
+            pass
+
+    assert max(sampler.samples) == 2 * READING_MIB
+
+
 @pytest.mark.parametrize(
     ("used_mib", "freed"),
     [(100, True), (900, False)],

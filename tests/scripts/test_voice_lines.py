@@ -451,3 +451,18 @@ def test_a_language_the_voice_does_not_offer_is_refused_before_a_service_starts(
 
     assert raised.value.code != 0
     assert all(language in capsys.readouterr().err for language in offered)
+
+
+@pytest.mark.parametrize(
+    "unusable",
+    [("--runs", "0"), ("--clip-seconds", "0"), ("--warmups", "-1")],
+    ids=["no runs", "no clip", "negative warm-ups"],
+)
+def test_a_count_or_length_that_cannot_be_measured_is_refused_before_a_service_starts(
+    capsys: pytest.CaptureFixture[str], unusable: tuple[str, str]
+) -> None:
+    with pytest.raises(SystemExit) as raised:
+        LINES.parse_arguments([*DEVICE_ARGUMENTS, *unusable])
+
+    assert raised.value.code != 0
+    assert "must be positive" in capsys.readouterr().err
