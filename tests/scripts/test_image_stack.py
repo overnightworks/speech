@@ -22,7 +22,7 @@ from speech_service.config import load_caller_config
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from proof_identity import Minting
+    from proof_minting import Minting
     from speech_client.wire import VoiceId
 
 

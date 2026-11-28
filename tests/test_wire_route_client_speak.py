@@ -62,7 +62,7 @@ from wav_audio import WAV_HEADER_BYTES
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
 
-    from proof_identity import TokenPair
+    from proof_minting import TokenPair
     from speech_client.speak import MarkedStreamItem, SpeakOutcome, SpeakStreamItem
     from speech_client.voice_preference import (
         PreferenceOutcome,

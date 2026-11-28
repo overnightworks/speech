@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from packaging.markers import Marker
 
 from hearing_figures import voiced_seconds, words
-from proof_identity import Minting
+from proof_minting import Minting
 from prove_speech import spoken_in_log
 from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, PIPER_VOICES
 from speech_client.outcomes import RetryAfterError, busy_wait

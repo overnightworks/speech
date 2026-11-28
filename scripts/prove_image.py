@@ -95,12 +95,8 @@ from image_stack import (
     start_with,
     teardown,
 )
-from proof_identity import (
-    fetch_key_set,
-    issue_certificates,
-    load_minting,
-    proof_identity,
-)
+from proof_identity import fetch_key_set, issue_certificates, proof_identity
+from proof_minting import load_minting
 from prove_speech import (
     PROBE_RUN,
     SENTENCE,

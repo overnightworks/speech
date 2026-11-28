@@ -11,7 +11,7 @@ import pytest
 import image_judgement as judged
 from hearing_figures import to_wire_rate
 from image_stack import REPOSITORY, LiveOutcome, Reply, SoundOutcome
-from proof_identity import mint_pair
+from proof_minting import mint_pair
 from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, PIPER_VOICES
 from speech_client.realtime_wire import SoundName
 from speech_client.utterances import HeardSound
@@ -29,7 +29,7 @@ from speech_service.pcm import wav_header
 from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
-    from proof_identity import Minting
+    from proof_minting import Minting
 
 BAKED_CONFIG = REPOSITORY / "deploy" / "speech.toml"
 SAMPLE_RATE = 24_000

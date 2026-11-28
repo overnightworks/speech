@@ -14,7 +14,6 @@ import contextlib
 import functools
 import http.client
 import json
-import logging
 import os
 import shutil
 import signal
@@ -22,7 +21,6 @@ import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,13 +31,8 @@ import speaking_figures as figures
 import speaking_marks
 from hearing_client import Service, hear_file
 from hearing_figures import speech_only, to_wire_rate
-from proof_identity import (
-    Minting,
-    ProofIdentity,
-    load_minting,
-    mint_pair,
-    proof_identity,
-)
+from proof_identity import ProofIdentity, proof_identity
+from proof_minting import Minting, load_minting, mint_pair
 from shipped_catalogue import (
     CATALOGUE,
     ON_DEMAND_VOICES,
@@ -99,10 +92,10 @@ UNDER_PROBE_RUN_ENV = "SPEECH_PROOF_UNDER_PROBE_RUN"
 # server exits within the grace after the proof body ends.
 CAP_SECONDS = 1800
 KILL_GRACE_SECONDS = 30
+TERMINATE_GRACE_SECONDS = 10
+KILL_WAIT_SECONDS = 5
 SPEAK_TIMEOUT_SECONDS = 120
 CONCURRENT_EXTRA_WAIT_SECONDS = 8.0
-CONTRACT_MARKERS = ("contract_health", "contract_speak")
-LOGGER = logging.getLogger(__name__)
 READY_TIMEOUT_SECONDS = 600.0
 HEALTH_DEADLINE_SECONDS = 5.0
 HEALTH_CAP_BYTES = 64 * 1024
@@ -294,7 +287,8 @@ def nvidia_memory() -> str:
     return query_nvidia("--query-gpu=memory.used,memory.total", "--format=csv,noheader")
 
 
-def _nvidia_compute_pids() -> str:
+def nvidia_compute_pids() -> str:
+    """The process ids that compute on the card on one line, `none`, or a note."""
     pids = query_nvidia("--query-compute-apps=pid", "--format=csv,noheader")
     if pids.startswith("unavailable:"):
         return pids
@@ -383,6 +377,26 @@ def speech_server(
         yield from _run_and_stop(server, base_url, wait_ready, log_file)
 
 
+def _exits_within(process: subprocess.Popen[str], seconds: float) -> bool:
+    try:
+        process.wait(timeout=seconds)
+    except subprocess.TimeoutExpired:
+        return False
+    return True
+
+
+def stop_process(
+    process: subprocess.Popen[str],
+    *,
+    grace_seconds: float = TERMINATE_GRACE_SECONDS,
+) -> None:
+    """Terminate `process`, wait `grace_seconds`, then kill it and wait for the kill."""
+    process.terminate()
+    if not _exits_within(process, grace_seconds):
+        process.kill()
+        process.wait(timeout=KILL_WAIT_SECONDS)
+
+
 def _run_and_stop(
     server: subprocess.Popen[str],
     base_url: str,
@@ -398,12 +412,7 @@ def _run_and_stop(
         yield running
         proof_failed = False
     finally:
-        server.terminate()
-        try:
-            server.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            server.kill()
-            server.wait(timeout=5)
+        stop_process(server)
         log_file.seek(0)
         log = log_file.read()
         if log:
@@ -442,7 +451,8 @@ def _require_log_without_text(log: str, texts: Iterable[str]) -> None:
         raise SystemExit(message)
 
 
-def _require_speaking(health: Health, voice: VoiceId) -> None:
+def require_speaking(health: Health, voice: VoiceId) -> None:
+    """End the proof when health does not offer `voice`."""
     if voice not in health.speaking.voices:
         message = f"speaking.voices does not offer {voice!r}: {health.speaking!r}"
         raise SystemExit(message)
@@ -464,58 +474,6 @@ def _prove_speak(base_url: str, voice: VoiceId, minting: Minting) -> bytes:
     ).wav
 
 
-def _prove_concurrent_speak(base_url: str, voice: VoiceId, minting: Minting) -> None:
-    limit = PIPER_FIRST_BYTE_LIMIT_S
-    results: dict[str, tuple[bytes, float, float]] = {}
-    errors: list[str] = []
-
-    def run(key: str, text: str) -> None:
-        try:
-            results[key] = speak_measured(base_url, text, voice, minting)
-        except Exception as error:
-            LOGGER.exception("concurrent_speak.failed", extra={"key": key})
-            errors.append(f"{key}: {error}")
-
-    first = threading.Thread(target=run, args=("first", SENTENCE), daemon=True)
-    second = threading.Thread(target=run, args=("second", SECOND), daemon=True)
-    first.start()
-    second.start()
-    first.join()
-    second.join()
-    if errors:
-        raise SystemExit("concurrent speak failed: " + "; ".join(errors))
-    if set(results) != {"first", "second"}:
-        message = f"concurrent speak missing a response: {sorted(results)}"
-        raise SystemExit(message)
-    for key, answer in results.items():
-        spoken = figures.spoken_of(answer)
-        ttfa = spoken.first_audio_seconds
-        print(
-            f"speak_concurrent_{key}",
-            f"first_byte_s={ttfa:.3f}",
-            f"total_s={spoken.total_seconds:.3f}",
-            f"duration_s={spoken.audio_seconds:.3f}",
-            f"rms={spoken.level:.4f}",
-            f"rate={spoken.rate}",
-        )
-        if spoken.is_silent:
-            message = f"concurrent {key} produced silence"
-            raise SystemExit(message)
-        if spoken.audio_seconds < figures.MIN_SPEECH_SECONDS:
-            message = f"concurrent {key} produced too little audio"
-            raise SystemExit(message)
-        if ttfa > limit + CONCURRENT_EXTRA_WAIT_SECONDS:
-            message = (
-                f"concurrent {key} first byte {ttfa:.3f}s; "
-                f"serialized limit is {limit}s plus "
-                f"{CONCURRENT_EXTRA_WAIT_SECONDS}s wait"
-            )
-            raise SystemExit(message)
-    if results["first"][0] == results["second"][0]:
-        message = "concurrent speak returned identical bodies"
-        raise SystemExit(message)
-
-
 def _prove_beside(
     service: Service,
     singles: Mapping[VoiceId, figures.VoiceFigures],
@@ -528,9 +486,9 @@ def _prove_beside(
     if hearing_model is None:
         print("hear_beside_speaking skipped: no hearing model named")
         return together, None
-    if not service.running.health.hearing.ready:
-        message = f"hearing model {hearing_model.value} did not load"
-        raise SystemExit(message)
+    figures.require_hearing_loaded(
+        hearing_model.value, ready=service.running.health.hearing.ready
+    )
     wav, _first, _total = speak(SENTENCE, PIPER_PROOF_VOICE)
     rate, pcm = pcm_from_wav(wav)
     recording = speech_only(to_wire_rate(pcm, rate))
@@ -549,8 +507,9 @@ def _prove_speaking(
     device: str,
 ) -> None:
     """Speak every Piper voice and the named one, then the steps that overlap them."""
+    speak = functools.partial(speak_measured, service.base_url, minting=service.minting)
     singles = figures.prove_each_voice(
-        functools.partial(speak_measured, service.base_url, minting=service.minting),
+        speak,
         PIPER_VOICES,
         SENTENCES,
         limit=PIPER_FIRST_BYTE_LIMIT_S,
@@ -573,7 +532,13 @@ def _prove_speaking(
     german_wav = Path(tempfile.mkdtemp(prefix="speech-proof-")) / "german.wav"
     german_wav.write_bytes(german)
     print("german_wav", german_wav)
-    _prove_concurrent_speak(service.base_url, voice, service.minting)
+    figures.prove_concurrent_speak(
+        speak,
+        voice,
+        (SENTENCE, SECOND),
+        limit=PIPER_FIRST_BYTE_LIMIT_S,
+        extra_wait_seconds=CONCURRENT_EXTRA_WAIT_SECONDS,
+    )
     together, hearing = _prove_beside(service, singles, hearing_model)
     record = figures.speaking_record(device, singles, together, hearing)
     print("speaking_record", json.dumps(record, sort_keys=True))
@@ -592,13 +557,14 @@ def contract_client_command(base_url: str, voice: str, minting_path: Path) -> li
     ]
 
 
-def _prove_contract(
+def prove_contract(
     base_url: str,
     env: dict[str, str],
     voice: VoiceId,
     minting_path: Path,
     work_directory: Path,
 ) -> None:
+    """Run the contract client as its own process; its failure ends the proof."""
     print("contract_client_start")
     completed = subprocess.run(  # noqa: S603 - argv is this interpreter and this repository's client script with no shell
         contract_client_command(base_url, voice, minting_path),
@@ -613,10 +579,6 @@ def _prove_contract(
     if completed.returncode != 0:
         message = f"contract client failed: {completed.returncode}"
         raise SystemExit(message)
-    for marker in CONTRACT_MARKERS:
-        if marker not in completed.stdout:
-            message = f"contract client did not report {marker}"
-            raise SystemExit(message)
 
 
 def free_local_port() -> int:
@@ -696,11 +658,11 @@ def _prove() -> None:
                 print("load_to_ready_s", f"{running.ready_seconds:.1f}")
                 print(
                     "gpu_compute_pids",
-                    _nvidia_compute_pids(),
+                    nvidia_compute_pids(),
                     f"speech_pid={running.process.pid}",
                 )
                 running.spoken_texts.extend([ENGLISH_SENTENCE, *MARKED_TEXTS.values()])
-                _require_speaking(running.health, voice)
+                require_speaking(running.health, voice)
                 print("gpu_resident", nvidia_memory())
                 print("piper_cache", PIPER_CACHE)
                 _prove_speaking(
@@ -709,7 +671,7 @@ def _prove() -> None:
                     settings.hearing_model,
                     env[setting_variable("device")],
                 )
-                _prove_contract(
+                prove_contract(
                     base_url, env, voice, identity.minting_path, work_directory
                 )
                 print("peak_rss_mib", f"{running.peak_rss_mib():.0f}")
@@ -731,8 +693,7 @@ def enter_proof(
     """Parse the command line; run `reexec` outside `probe-run`, `prove` inside it."""
     arguments = sys.argv[1:]
     parsed = parse(arguments)
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(line_buffering=True)
+    sys.stdout.reconfigure(line_buffering=True)
     if UNDER_PROBE_RUN_ENV not in os.environ:
         raise SystemExit(reexec(arguments))
     prove_under_probe_run(functools.partial(prove, parsed))

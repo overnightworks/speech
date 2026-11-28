@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
-from proof_identity import mint_pair
+from proof_minting import mint_pair
 from shipped_catalogue import CATALOGUE, first_language
 from speech_client.wire import (
     SPEECH_PATH,
@@ -41,7 +41,7 @@ from wav_audio import pcm_from_wav
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
-    from proof_identity import Minting
+    from proof_minting import Minting
     from speech_client.wire import Language, VoiceId
 
 type SpeakSse = Callable[[str, VoiceId, ResponseFormat], bytes]

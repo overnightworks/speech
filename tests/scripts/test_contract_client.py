@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import http.server
+import os
 import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import Mock
 
 import jwt
 import pytest
@@ -18,11 +20,9 @@ from speech_client.wire import (
     CONTENT_TYPE_HEADER,
     WORKLOAD_TOKEN_HEADER,
     Health,
-    HearingHealth,
     Language,
-    SpeakingHealth,
+    ResponseFormat,
     SpeechRequest,
-    VoiceHealth,
     VoiceId,
 )
 from speech_service.config import Settings
@@ -32,15 +32,21 @@ from tests.support.fakes_support import SPEAK_SAMPLE_RATE, FakeSpeaking
 from tests.support.identity_support import callers_trusting
 from tests.support.script_support import script_module
 from tests.support.speak_support import FailingSpeaking
+from tests.support.speaking_health_support import health_offering
 from tests.support.tcp_server_support import serving_over_tcp
 from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from proof_identity import Minting, ProofIdentity
+    from proof_identity import ProofIdentity
+    from proof_minting import Minting
+    from speech_service.callers import SpeechCallers
 
 ARGUMENT_ERROR_EXIT_CODE = 2
+# The coverage run measures a child by the repository-relative paths of its config,
+# so the child starts where the tests run.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CLIENT = script_module("contract_client")
 PROVE = script_module("prove_speech")
 
@@ -50,6 +56,7 @@ def contract_speak(base_url: str, text: str, voice: VoiceId, minting: Minting) -
 
 
 HEARING = script_module("prove_hearing")
+MARKS = script_module("speaking_marks")
 
 
 def test_no_credential_holder_shows_a_key_or_token_when_represented(
@@ -209,6 +216,19 @@ def test_peak_resident_memory_is_read_from_the_process_status_in_mebibytes() -> 
     assert PROVE.peak_rss_mib(status) == pytest.approx(2000.0)
 
 
+def test_a_process_status_without_a_peak_resident_set_fails() -> None:
+    with pytest.raises(SystemExit, match="no VmHWM"):
+        PROVE.peak_rss_mib("Name:\tpython\nVmRSS:\t 1 kB\n")
+
+
+def test_a_running_service_reports_its_own_peak_resident_set() -> None:
+    running = PROVE.RunningSpeech(
+        Mock(pid=os.getpid()), health_offering(PIPER_VOICES[0], (Language.DE,)), 0.0
+    )
+
+    assert running.peak_rss_mib() > 0
+
+
 @pytest.mark.parametrize("arguments", [["--help"], ["--measure"], ["extra"]])
 def test_prove_exits_before_any_start_on_help_or_an_unknown_argument(
     arguments: list[str],
@@ -220,27 +240,90 @@ def test_prove_exits_before_any_start_on_help_or_an_unknown_argument(
     assert (exit_info.value.code == 0) == (arguments == ["--help"])
 
 
-@pytest.mark.parametrize("chunks_before_failing", [0, 1])
-@pytest.mark.parametrize("speak", [contract_speak, PROVE.speak_measured])
-def test_a_proof_client_rejects_a_body_the_service_aborted(
-    minting: Minting,
+def sse_speak(base_url: str, text: str, voice: VoiceId, minting: Minting) -> bytes:
+    return MARKS.speak_sse(base_url, text, voice, ResponseFormat.WAV, minting)
+
+
+def speak_against_the_service(
     speak: Callable[[str, str, str, Minting], object],
-    chunks_before_failing: int,
+    minting: Minting,
+    voice: FakeSpeaking,
+    callers: SpeechCallers | None,
+    failure: str,
 ) -> None:
+    """Speak once to a TCP service; the call must end the proof with `failure`."""
+
     async def scenario() -> None:
-        voice = FailingSpeaking(chunks_before_failing=chunks_before_failing)
         runtime = Runtime(
             {PIPER_VOICES[0]: voice},
             memory_probe=lambda: 0,
             dependencies=RuntimeDependencies(catalogue=CATALOGUE),
         )
-        async with serving_over_tcp(runtime) as server:
-            with pytest.raises(SystemExit):
+        async with serving_over_tcp(runtime, callers) as server:
+            with pytest.raises(SystemExit, match=failure):
                 await asyncio.to_thread(
                     speak, server.base_url, "Hallo", PIPER_VOICES[0], minting
                 )
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("chunks_before_failing", [0, 1])
+@pytest.mark.parametrize(
+    ("speak", "failure"),
+    [
+        pytest.param(contract_speak, "speak ended as Cut", id="contract client"),
+        pytest.param(
+            PROVE.speak_measured,
+            "speak body ended before it was complete",
+            id="measured speak",
+        ),
+        pytest.param(
+            sse_speak, "sse speak body ended before its done event", id="sse speak"
+        ),
+    ],
+)
+def test_a_proof_client_rejects_a_body_the_service_aborted(
+    minting: Minting,
+    identity: ProofIdentity,
+    speak: Callable[[str, str, str, Minting], object],
+    failure: str,
+    chunks_before_failing: int,
+) -> None:
+    speak_against_the_service(
+        speak,
+        minting,
+        FailingSpeaking(chunks_before_failing=chunks_before_failing),
+        callers_trusting(identity.configuration_path, minting),
+        failure,
+    )
+
+
+@pytest.mark.parametrize(
+    ("speak", "failure"),
+    [
+        pytest.param(contract_speak, "speak ended as Refused", id="contract client"),
+        pytest.param(
+            PROVE.speak_measured, "speak HTTP status: 401", id="measured speak"
+        ),
+        pytest.param(sse_speak, "sse speak HTTP status: 401", id="sse speak"),
+    ],
+)
+def test_a_proof_client_rejects_a_service_that_does_not_trust_its_key(
+    minting: Minting,
+    speak: Callable[[str, str, str, Minting], object],
+    failure: str,
+) -> None:
+    speak_against_the_service(speak, minting, FakeSpeaking(), None, failure)
+
+
+SPOKEN_WAV = wav_header(SPEAK_SAMPLE_RATE) + b"\x00\x40" * 4
+# The shortest head the client's own reader accepts, a format chunk of four bytes,
+# which the scripts' WAV reader refuses as shorter than a header.
+UNREADABLE_WAV = (
+    b"RIFF\x00\x00\x00\x00WAVEfmt \x04\x00\x00\x00\x00\x00\x00\x00data\x00\x00\x00\x00"
+)
+SILENT_WAV = wav_header(SPEAK_SAMPLE_RATE) + b"\x00\x00" * 4
 
 
 class _RecordedPost(http.server.BaseHTTPRequestHandler):
@@ -251,7 +334,7 @@ class _RecordedPost(http.server.BaseHTTPRequestHandler):
 
 @contextmanager
 def _recording_speech_service(
-    health: Health | None = None,
+    health: Health | None = None, answer: bytes = SPOKEN_WAV
 ) -> Iterator[tuple[str, list[_RecordedPost]]]:
     """A local HTTP server that keeps its POSTs and serves `health`."""
     seen: list[_RecordedPost] = []
@@ -274,8 +357,9 @@ def _recording_speech_service(
             self.send_header("Content-Type", "audio/wav")
             self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()
-            wav = wav_header(SPEAK_SAMPLE_RATE) + b"\x00\x40" * 4
-            self.wfile.write(b"%x\r\n%b\r\n0\r\n\r\n" % (len(wav), wav))
+            if answer:
+                self.wfile.write(b"%x\r\n%b\r\n" % (len(answer), answer))
+            self.wfile.write(b"0\r\n\r\n")
 
         def log_message(self, *_: object) -> None:
             pass
@@ -289,6 +373,110 @@ def _recording_speech_service(
         server.shutdown()
         server.server_close()
         thread.join()
+
+
+@pytest.mark.parametrize(
+    ("health", "answer", "failure"),
+    [
+        pytest.param(None, SPOKEN_WAV, "health ended as", id="no health"),
+        pytest.param(
+            health_offering(PIPER_VOICES[0], (Language.DE,), ready=False),
+            SPOKEN_WAV,
+            "the speaking model is not ready",
+            id="speaking not ready",
+        ),
+        pytest.param(
+            health_offering(PIPER_VOICES[0], (Language.DE,)),
+            UNREADABLE_WAV,
+            "not a WAV body",
+            id="an answer that is no WAV",
+        ),
+        pytest.param(
+            health_offering(PIPER_VOICES[0], (Language.DE,)),
+            SILENT_WAV,
+            "speak returned silence",
+            id="a silent answer",
+        ),
+    ],
+)
+def test_the_contract_client_fails_on_a_service_that_is_not_ready_or_answers_badly(
+    minting: Minting, health: Health | None, answer: bytes, failure: str
+) -> None:
+    with (
+        _recording_speech_service(health, answer) as (base_url, _requests),
+        pytest.raises(SystemExit, match=failure),
+    ):
+        CLIENT.run(base_url, PIPER_VOICES[0], minting)
+
+
+def test_the_measured_speak_fails_on_an_empty_answer(minting: Minting) -> None:
+    with (
+        _recording_speech_service(answer=b"") as (base_url, _requests),
+        pytest.raises(SystemExit, match="speak returned no bytes"),
+    ):
+        PROVE.speak_measured(base_url, "Hallo", PIPER_VOICES[0], minting)
+
+
+def test_the_sse_speak_fails_on_an_answer_that_is_no_event_stream(
+    minting: Minting,
+) -> None:
+    with (
+        _recording_speech_service() as (base_url, _requests),
+        pytest.raises(SystemExit, match="not a text/event-stream"),
+    ):
+        sse_speak(base_url, "Hallo", PIPER_VOICES[0], minting)
+
+
+def test_the_contract_client_refuses_a_process_that_imported_the_service() -> None:
+    with pytest.raises(SystemExit, match="imported speech_service"):
+        CLIENT.main()
+
+
+async def _contract_proof_against_a_service(
+    minting: Minting, identity: ProofIdentity, *, trusting_caller: bool
+) -> None:
+    runtime = Runtime(
+        {PIPER_VOICES[0]: FakeSpeaking()},
+        memory_probe=lambda: 0,
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+    )
+    callers = (
+        callers_trusting(identity.configuration_path, minting)
+        if trusting_caller
+        else None
+    )
+    async with serving_over_tcp(runtime, callers) as server:
+        await asyncio.to_thread(
+            PROVE.prove_contract,
+            server.base_url,
+            dict(os.environ),
+            PIPER_VOICES[0],
+            identity.minting_path,
+            REPOSITORY_ROOT,
+        )
+
+
+def test_the_contract_client_speaks_as_its_own_process_without_loading_the_service(
+    minting: Minting,
+    identity: ProofIdentity,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    asyncio.run(
+        _contract_proof_against_a_service(minting, identity, trusting_caller=True)
+    )
+
+    assert "contract_speak" in capsys.readouterr().out
+
+
+def test_a_contract_client_the_service_refuses_ends_the_proof_naming_its_exit_status(
+    minting: Minting, identity: ProofIdentity
+) -> None:
+    refused_proof = _contract_proof_against_a_service(
+        minting, identity, trusting_caller=False
+    )
+
+    with pytest.raises(SystemExit, match="contract client failed: 1"):
+        asyncio.run(refused_proof)
 
 
 def _unverified_subject(token: str) -> str:
@@ -365,25 +553,11 @@ def test_the_contract_client_speaks_the_language_health_names_first_for_the_voic
 ) -> None:
     voice = next(voice for voice in CATALOGUE if len(CATALOGUE[voice].languages) > 1)
     offered = tuple(reversed(CATALOGUE[voice].languages))
-    health = Health(
-        speaking=SpeakingHealth(
-            ready=True,
-            voices={
-                voice: VoiceHealth(
-                    model=CATALOGUE[voice].engine.wire_model,
-                    name=CATALOGUE[voice].name,
-                    languages=offered,
-                    takes_instructions=False,
-                    ready=True,
-                    sample_rate=SPEAK_SAMPLE_RATE,
-                )
-            },
-        ),
-        hearing=HearingHealth(model="any", ready=True),
-        card_memory_mb=0,
-    )
 
-    with _recording_speech_service(health) as (base_url, requests):
+    with _recording_speech_service(health_offering(voice, offered)) as (
+        base_url,
+        requests,
+    ):
         CLIENT.run(base_url, voice, minting)
 
     (request,) = requests
@@ -394,23 +568,7 @@ def test_the_contract_client_speaks_the_language_health_names_first_for_the_voic
 def test_the_contract_client_speaks_the_voice_named_on_its_command_line(
     minting: Minting, identity: ProofIdentity, voice: VoiceId
 ) -> None:
-    health = Health(
-        speaking=SpeakingHealth(
-            ready=True,
-            voices={
-                voice: VoiceHealth(
-                    model=CATALOGUE[voice].engine.wire_model,
-                    name=CATALOGUE[voice].name,
-                    languages=CATALOGUE[voice].languages,
-                    takes_instructions=False,
-                    ready=True,
-                    sample_rate=SPEAK_SAMPLE_RATE,
-                )
-            },
-        ),
-        hearing=HearingHealth(model="any", ready=True),
-        card_memory_mb=0,
-    )
+    health = health_offering(voice, CATALOGUE[voice].languages)
 
     with _recording_speech_service(health) as (base_url, requests):
         options = CLIENT.parse_arguments(

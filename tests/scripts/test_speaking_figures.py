@@ -187,6 +187,62 @@ def test_an_answer_beside_another_voice_that_is_silent_or_cut_short_fails(
         figures.prove_two_voices(lambda *_: beside, voices, SENTENCES, measured_alone)
 
 
+EXTRA_WAIT_SECONDS = 2.0
+
+
+def prove_concurrent(
+    spoken: Callable[[str], tuple[bytes, float, float]],
+) -> None:
+    figures.prove_concurrent_speak(
+        lambda text, _voice: spoken(text),
+        PIPER_VOICES[0],
+        ("one", "three"),
+        limit=LIMIT_SECONDS,
+        extra_wait_seconds=EXTRA_WAIT_SECONDS,
+    )
+
+
+def test_two_texts_spoken_at_once_pass_when_each_is_heard_in_time() -> None:
+    prove_concurrent(
+        lambda text: answer(
+            first=LIMIT_SECONDS + EXTRA_WAIT_SECONDS, seconds=2.0 + len(text) / 10
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("spoken", "failure"),
+    [
+        (answer(amplitude=0), "concurrent first produced silence"),
+        (answer(seconds=0.2), "concurrent first produced too little audio"),
+        (
+            answer(first=LIMIT_SECONDS + EXTRA_WAIT_SECONDS + 0.1),
+            "concurrent first first byte .* plus",
+        ),
+        (answer(), "identical bodies"),
+    ],
+    ids=["silent", "too short", "late beyond the serialized wait", "identical bodies"],
+)
+def test_two_texts_spoken_at_once_fail_on_a_silent_short_late_or_repeated_answer(
+    spoken: tuple[bytes, float, float], failure: str
+) -> None:
+    with pytest.raises(SystemExit, match=failure):
+        prove_concurrent(lambda _text: spoken)
+
+
+def test_a_failing_concurrent_speak_names_the_call_that_failed() -> None:
+    def refused(text: str) -> tuple[bytes, float, float]:
+        if text == "three":
+            message = "the service refused"
+            raise SystemExit(message)
+        return answer()
+
+    with pytest.raises(
+        SystemExit, match="concurrent speak failed: second: the service refused"
+    ):
+        prove_concurrent(refused)
+
+
 def test_tasks_run_together_when_each_waits_for_the_other() -> None:
     meeting = threading.Barrier(2, timeout=30)
 
@@ -220,6 +276,35 @@ def test_every_task_completes_once_whatever_the_call_beside_it_takes() -> None:
     assert outcome == "heard"
     assert {"first", "second"} <= set(results)
     assert calls
+
+
+def test_a_task_repeats_until_the_call_beside_it_ends() -> None:
+    second_call = threading.Event()
+    calls: list[int] = []
+
+    def task() -> int:
+        if calls:
+            second_call.set()
+        calls.append(len(calls))
+        return len(calls)
+
+    def during() -> str:
+        assert second_call.wait(timeout=30)
+        return "heard"
+
+    outcome, results = figures.run_during([task], during)
+
+    assert outcome == "heard"
+    assert len(results) > 1
+
+
+def test_a_loaded_hearing_model_raises_nothing_beside_speaking() -> None:
+    figures.require_hearing_loaded("small", ready=True)
+
+
+def test_a_hearing_model_that_did_not_load_ends_the_run_beside_speaking() -> None:
+    with pytest.raises(SystemExit, match="hearing model small did not load"):
+        figures.require_hearing_loaded("small", ready=False)
 
 
 def test_a_task_that_fails_beside_the_call_ends_the_run() -> None:

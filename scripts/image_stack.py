@@ -23,7 +23,7 @@ from image_judgement import (
     require_marked_wav,
     seconds_to_healthy,
 )
-from proof_identity import TokenPair, mint_pair
+from proof_minting import TokenPair, mint_pair
 from prove_speech import SENTENCES
 from shipped_catalogue import first_language
 from speech_client.realtime_wire import SoundName
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from image_judgement import BakedCaller
-    from proof_identity import Minting
+    from proof_minting import Minting
     from speech_client.wire import VoiceId
     from speech_service.config import CallerConfig
 

@@ -14,7 +14,7 @@ import json
 import sys
 from pathlib import Path
 
-from proof_identity import Minting, load_minting, mint_pair
+from proof_minting import Minting, load_minting, mint_pair
 from speech_client import speak as speaking_call
 from speech_client.health import fetch_health
 from speech_client.wire import Health, Language, ResponseFormat, VoiceId

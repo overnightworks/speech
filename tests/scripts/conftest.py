@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from proof_identity import Minting, ProofIdentity, load_minting, proof_identity
+from proof_identity import ProofIdentity, proof_identity
+from proof_minting import Minting, load_minting
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
