@@ -217,7 +217,14 @@ def test_a_handle_names_no_moment_before_or_after_the_hearing() -> None:
     before = moments.now()
 
     asyncio.run(
-        hear(hearing(), None, Recorder(), sustained=True, sustained_speech_ms=200)
+        hear(
+            hearing(),
+            None,
+            Recorder(),
+            sustained=True,
+            sustained_speech_ms=200,
+            moments=moments,
+        )
     )
 
     assert (before, moments.now()) == (None, None)
