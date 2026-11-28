@@ -20,12 +20,9 @@ from speech_client.wire import (
     CONTENT_TYPE_HEADER,
     WORKLOAD_TOKEN_HEADER,
     Health,
-    HearingHealth,
     Language,
     ResponseFormat,
-    SpeakingHealth,
     SpeechRequest,
-    VoiceHealth,
     VoiceId,
 )
 from speech_service.config import Settings
@@ -35,6 +32,7 @@ from tests.support.fakes_support import SPEAK_SAMPLE_RATE, FakeSpeaking
 from tests.support.identity_support import callers_trusting
 from tests.support.script_support import script_module
 from tests.support.speak_support import FailingSpeaking
+from tests.support.speaking_health_support import health_offering
 from tests.support.tcp_server_support import serving_over_tcp
 from wav_audio import pcm_from_wav
 
@@ -224,7 +222,7 @@ def test_a_process_status_without_a_peak_resident_set_fails() -> None:
 
 def test_a_running_service_reports_its_own_peak_resident_set() -> None:
     running = PROVE.RunningSpeech(
-        Mock(pid=os.getpid()), speaking_health(PIPER_VOICES[0], (Language.DE,)), 0.0
+        Mock(pid=os.getpid()), health_offering(PIPER_VOICES[0], (Language.DE,)), 0.0
     )
 
     assert running.peak_rss_mib() > 0
@@ -327,29 +325,6 @@ UNREADABLE_WAV = (
 SILENT_WAV = wav_header(SPEAK_SAMPLE_RATE) + b"\x00\x00" * 4
 
 
-def speaking_health(
-    voice: VoiceId, languages: tuple[Language, ...], *, ready: bool = True
-) -> Health:
-    """The health of a service whose one voice speaks `languages`."""
-    return Health(
-        speaking=SpeakingHealth(
-            ready=ready,
-            voices={
-                voice: VoiceHealth(
-                    model=CATALOGUE[voice].engine.wire_model,
-                    name=CATALOGUE[voice].name,
-                    languages=languages,
-                    takes_instructions=False,
-                    ready=ready,
-                    sample_rate=SPEAK_SAMPLE_RATE,
-                )
-            },
-        ),
-        hearing=HearingHealth(model="any", ready=True),
-        card_memory_mb=0,
-    )
-
-
 class _RecordedPost(http.server.BaseHTTPRequestHandler):
     """A request the recording server answered, with the body it carried."""
 
@@ -404,19 +379,19 @@ def _recording_speech_service(
     [
         pytest.param(None, SPOKEN_WAV, "health ended as", id="no health"),
         pytest.param(
-            speaking_health(PIPER_VOICES[0], (Language.DE,), ready=False),
+            health_offering(PIPER_VOICES[0], (Language.DE,), ready=False),
             SPOKEN_WAV,
             "the speaking model is not ready",
             id="speaking not ready",
         ),
         pytest.param(
-            speaking_health(PIPER_VOICES[0], (Language.DE,)),
+            health_offering(PIPER_VOICES[0], (Language.DE,)),
             UNREADABLE_WAV,
             "not a WAV body",
             id="an answer that is no WAV",
         ),
         pytest.param(
-            speaking_health(PIPER_VOICES[0], (Language.DE,)),
+            health_offering(PIPER_VOICES[0], (Language.DE,)),
             SILENT_WAV,
             "speak returned silence",
             id="a silent answer",
@@ -456,40 +431,49 @@ def test_the_contract_client_refuses_a_process_that_imported_the_service() -> No
         CLIENT.main()
 
 
-@pytest.mark.parametrize("trusted", [True, False], ids=["a trusted caller", "refused"])
-def test_the_contract_client_runs_as_its_own_process_against_a_service(
+async def _contract_proof_against_a_service(
+    minting: Minting, identity: ProofIdentity, *, trusting_caller: bool
+) -> None:
+    runtime = Runtime(
+        {PIPER_VOICES[0]: FakeSpeaking()},
+        memory_probe=lambda: 0,
+        dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+    )
+    callers = (
+        callers_trusting(identity.configuration_path, minting)
+        if trusting_caller
+        else None
+    )
+    async with serving_over_tcp(runtime, callers) as server:
+        await asyncio.to_thread(
+            PROVE.prove_contract,
+            server.base_url,
+            dict(os.environ),
+            PIPER_VOICES[0],
+            identity.minting_path,
+            REPOSITORY_ROOT,
+        )
+
+
+def test_the_contract_client_speaks_as_its_own_process_without_loading_the_service(
     minting: Minting,
     identity: ProofIdentity,
     capsys: pytest.CaptureFixture[str],
-    *,
-    trusted: bool,
 ) -> None:
-    async def scenario() -> None:
-        runtime = Runtime(
-            {PIPER_VOICES[0]: FakeSpeaking()},
-            memory_probe=lambda: 0,
-            dependencies=RuntimeDependencies(catalogue=CATALOGUE),
-        )
-        callers = (
-            callers_trusting(identity.configuration_path, minting) if trusted else None
-        )
-        async with serving_over_tcp(runtime, callers) as server:
-            await asyncio.to_thread(
-                PROVE.prove_contract,
-                server.base_url,
-                dict(os.environ),
-                PIPER_VOICES[0],
-                identity.minting_path,
-                REPOSITORY_ROOT,
-            )
+    asyncio.run(
+        _contract_proof_against_a_service(minting, identity, trusting_caller=True)
+    )
 
-    if trusted:
-        asyncio.run(scenario())
-        assert "contract_speak" in capsys.readouterr().out
-    else:
-        run = scenario()
-        with pytest.raises(SystemExit, match="contract client failed: 1"):
-            asyncio.run(run)
+    assert "contract_speak" in capsys.readouterr().out
+
+
+def test_a_contract_client_the_service_refuses_ends_the_proof_naming_its_exit_status(
+    minting: Minting, identity: ProofIdentity
+) -> None:
+    with pytest.raises(SystemExit, match="contract client failed: 1"):
+        asyncio.run(
+            _contract_proof_against_a_service(minting, identity, trusting_caller=False)
+        )
 
 
 def _unverified_subject(token: str) -> str:
@@ -567,7 +551,7 @@ def test_the_contract_client_speaks_the_language_health_names_first_for_the_voic
     voice = next(voice for voice in CATALOGUE if len(CATALOGUE[voice].languages) > 1)
     offered = tuple(reversed(CATALOGUE[voice].languages))
 
-    with _recording_speech_service(speaking_health(voice, offered)) as (
+    with _recording_speech_service(health_offering(voice, offered)) as (
         base_url,
         requests,
     ):
@@ -581,7 +565,7 @@ def test_the_contract_client_speaks_the_language_health_names_first_for_the_voic
 def test_the_contract_client_speaks_the_voice_named_on_its_command_line(
     minting: Minting, identity: ProofIdentity, voice: VoiceId
 ) -> None:
-    health = speaking_health(voice, CATALOGUE[voice].languages)
+    health = health_offering(voice, CATALOGUE[voice].languages)
 
     with _recording_speech_service(health) as (base_url, requests):
         options = CLIENT.parse_arguments(

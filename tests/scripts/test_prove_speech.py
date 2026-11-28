@@ -22,6 +22,7 @@ from speech_service.hearing_models import HearingModel
 from speech_service.onnxruntime_telemetry import ONNXRUNTIME_TELEMETRY_SWITCH
 from tests.support.clock_support import FakeClock
 from tests.support.script_support import script_module
+from tests.support.speaking_health_support import health_offering
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -35,7 +36,6 @@ PROVE = script_module("prove_speech")
 HEARING = script_module("prove_hearing")
 LINES = script_module("voice_lines")
 PIPE_BYTES = 65536
-SAMPLE_RATE = 22_050
 
 
 @pytest.mark.parametrize(
@@ -165,7 +165,7 @@ def test_a_failed_proof_under_probe_run_keeps_its_own_exit_status() -> None:
     )
 
 
-def speaking_health(*, ready: bool) -> Health:
+def health_without_voices(*, ready: bool) -> Health:
     return Health.model_validate(
         {
             "speaking": {"ready": ready, "voices": {}},
@@ -176,7 +176,9 @@ def speaking_health(*, ready: bool) -> Health:
 
 
 def test_a_wait_returns_the_first_health_that_shows_speaking_ready() -> None:
-    answers = iter([speaking_health(ready=False), speaking_health(ready=True)])
+    answers = iter(
+        [health_without_voices(ready=False), health_without_voices(ready=True)]
+    )
     clock = FakeClock()
 
     health = PROVE.wait_for_speaking_ready(
@@ -191,7 +193,7 @@ def test_a_wait_returns_the_first_health_that_shows_speaking_ready() -> None:
 
 
 def test_a_health_that_does_not_offer_the_voice_ends_the_proof() -> None:
-    health = speaking_health(ready=True)
+    health = health_without_voices(ready=True)
 
     with pytest.raises(SystemExit, match="does not offer"):
         PROVE.require_speaking(health, PIPER_VOICES[0])
@@ -199,25 +201,7 @@ def test_a_health_that_does_not_offer_the_voice_ends_the_proof() -> None:
 
 def test_a_health_that_offers_the_voice_lets_the_proof_go_on() -> None:
     voice = PIPER_VOICES[0]
-    health = Health.model_validate(
-        {
-            "speaking": {
-                "ready": True,
-                "voices": {
-                    voice: {
-                        "model": CATALOGUE[voice].engine.wire_model,
-                        "name": CATALOGUE[voice].name,
-                        "languages": CATALOGUE[voice].languages,
-                        "takes_instructions": False,
-                        "ready": True,
-                        "sample_rate": SAMPLE_RATE,
-                    }
-                },
-            },
-            "hearing": {"model": "none", "ready": False},
-            "card_memory_mb": 7,
-        }
-    )
+    health = health_offering(voice, CATALOGUE[voice].languages)
 
     PROVE.require_speaking(health, voice)
 
@@ -239,7 +223,7 @@ def speech_server_logging(tmp_path: Path, text: str) -> AbstractContextManager[o
         {},
         tmp_path,
         start=a_server_whose_log_holds(text),
-        wait_ready=lambda *_: speaking_health(ready=True),
+        wait_ready=lambda *_: health_without_voices(ready=True),
     )
 
 
@@ -301,7 +285,7 @@ def test_the_default_wait_ends_at_once_when_the_server_exited(tmp_path: Path) ->
         start=lambda *_, **__: server,
         wait_ready=functools.partial(
             PROVE.wait_for_speaking_ready,
-            fetch=lambda *_: speaking_health(ready=False),
+            fetch=lambda *_: health_without_voices(ready=False),
             sleep=never_waits,
         ),
     )
@@ -318,7 +302,7 @@ def test_term_stops_the_speech_server_through_its_teardown(tmp_path: Path) -> No
         {},
         tmp_path,
         start=lambda *_, **__: server,
-        wait_ready=lambda *_: speaking_health(ready=True),
+        wait_ready=lambda *_: health_without_voices(ready=True),
     )
 
     def term_while_running() -> None:
@@ -531,7 +515,7 @@ def test_the_default_start_never_blocks_a_service_that_logs_past_the_pipe(
 @pytest.mark.parametrize(
     ("health", "detail_in_message"),
     [
-        (speaking_health(ready=False), True),
+        (health_without_voices(ready=False), True),
         (None, False),
     ],
     ids=["the last health is named", "no health ever answered"],
