@@ -76,11 +76,11 @@ def test_a_service_without_hearing_ends_the_file_proof_naming_its_answer(
             service = CLIENT.Service(server.base_url, minting, None)
             await asyncio.to_thread(CLIENT.hear_file, service, Language.DE, QUESTION)
 
-    with pytest.raises(
-        SystemExit,
-        match=f"the file route answered {HTTPStatus.SERVICE_UNAVAILABLE.value}",
-    ):
-        asyncio.run(scenario())
+    ended = scenario()
+    answered = f"the file route answered {HTTPStatus.SERVICE_UNAVAILABLE.value}"
+
+    with pytest.raises(SystemExit, match=answered):
+        asyncio.run(ended)
 
 
 def test_a_turn_is_heard_live_at_speaking_pace(
@@ -106,8 +106,10 @@ def test_a_refused_live_session_ends_the_proof_naming_its_refusal(
             service = CLIENT.Service(server.base_url, minting, None)
             await CLIENT.hear_live(service, (Language.DE,), QUESTION)
 
+    ended = scenario()
+
     with pytest.raises(SystemExit, match=re.escape(f"completed: {refusal}")):
-        asyncio.run(scenario())
+        asyncio.run(ended)
 
 
 async def delivering(events: Sequence[ServerEvent]) -> AsyncIterator[ServerEvent]:
@@ -136,5 +138,7 @@ def test_a_failed_turn_ends_the_proof_naming_its_event() -> None:
         ),
     )
 
+    turn = CLIENT.receive_turn(delivering([failed]), 1.0, 0.0)
+
     with pytest.raises(SystemExit, match=type(failed).__name__):
-        asyncio.run(CLIENT.receive_turn(delivering([failed]), 1.0, 0.0))
+        asyncio.run(turn)
