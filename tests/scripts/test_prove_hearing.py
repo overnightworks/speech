@@ -17,7 +17,8 @@ import pytest
 from speech_client.hearing import Refused
 from speech_client.outcomes import Unreachable
 from speech_client.wire import Health, RefusalCode, refusal
-from speech_service.hearing_models import HearingModel
+from speech_service.hearing_models import HearingModel, fetch_model
+from tests.support.hear_support import write_snapshot
 from tests.support.hearing_health_support import HEALTH_NO_HEARING, HEALTH_READY
 from tests.support.nvidia_support import FakeNvidiaSmi
 from tests.support.script_support import script_module
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
 HEARING = script_module("prove_hearing")
 VOICES = Path.home() / "voices"
 RUNS = "7"
+HELD_MIB = 321
 WIRE_RATE = 24_000
 SPEECH = Path(__file__).parents[1] / "fixtures" / "speech" / "nein_danke.wav"
 
@@ -109,6 +111,24 @@ def test_a_model_missing_from_the_cache_names_the_command_that_fetches_it(
     )["project"]["scripts"]
     assert hinted is not None
     assert scripts[hinted[1]] == "speech_service.fetch_hearing_model:main"
+
+
+def test_cached_models_pass_the_check_before_anything_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SPEECH_HUGGINGFACE_CACHE", str(tmp_path))
+    fetch_model(HearingModel.SMALL, tmp_path, write_snapshot)
+
+    HEARING.require_cached_models([HearingModel.SMALL])
+
+
+def test_the_card_is_asked_for_its_memory_only_on_cuda(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    FakeNvidiaSmi(tmp_path, monkeypatch).use(HELD_MIB)
+
+    assert HEARING.card_line("cuda").startswith(str(HELD_MIB))
+    assert HEARING.card_line("cpu") == "not applicable"
 
 
 def test_the_resident_memory_with_a_voice_includes_what_its_synthesis_took(

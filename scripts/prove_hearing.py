@@ -415,10 +415,10 @@ def measure_models(
     `save` writes the record after each language and each model, so a proof killed
     outright keeps what it measured. Returns the clips.
     """
-    clips: dict[Language, Clip] | None = None
+    clips: dict[Language, Clip] = {}
     for model in arguments.hearing_models:
         with hearing_service(arguments.device, model, PIPER_PROOF_VOICE) as service:
-            if clips is None:
+            if not clips:
                 clips = make_clips(service, arguments.english_voice_directory)
             print(
                 "hearing_ready",
@@ -439,9 +439,6 @@ def measure_models(
                 save()
             entry["status"] = figures.StageStatus.MEASURED
             save()
-    if clips is None:
-        message = "no hearing model was given"
-        raise SystemExit(message)
     return clips
 
 
