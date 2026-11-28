@@ -18,27 +18,20 @@ from speech_client.hearing import Refused
 from speech_client.outcomes import Unreachable
 from speech_client.wire import Health, RefusalCode, refusal
 from speech_service.hearing_models import HearingModel, fetch_model
-from tests.support.hear_support import write_snapshot
+from tests.support.hear_support import VoiceWithDurationNoise, write_snapshot
 from tests.support.hearing_health_support import HEALTH_NO_HEARING, HEALTH_READY
 from tests.support.nvidia_support import FakeNvidiaSmi
 from tests.support.script_support import script_module
-from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     import argparse
-    import wave
     from collections.abc import Callable, Iterator
-
-    from piper.config import SynthesisConfig
 
     from speech_client.wire import VoiceId
 
 HEARING = script_module("prove_hearing")
-VOICES = Path.home() / "voices"
 RUNS = "7"
 HELD_MIB = 321
-WIRE_RATE = 24_000
-SPEECH = Path(__file__).parents[1] / "fixtures" / "speech" / "nein_danke.wav"
 
 
 def command(*changes: str) -> list[str]:
@@ -49,8 +42,6 @@ def command(*changes: str) -> list[str]:
         "small",
         "--record",
         "record.json",
-        "--english-voice-directory",
-        str(VOICES),
         *changes,
     ]
 
@@ -63,7 +54,6 @@ def test_the_device_the_models_and_the_paths_come_from_the_command_line() -> Non
     assert arguments.device == "cpu"
     assert arguments.hearing_models == [HearingModel.SMALL, HearingModel.LARGE_V3]
     assert arguments.record == Path("record.json")
-    assert arguments.english_voice_directory == VOICES
     assert arguments.runs == int(RUNS)
 
 
@@ -231,24 +221,6 @@ def test_both_languages_run_in_one_fixed_order_for_every_clip() -> None:
     two_languages = [allowed for allowed in handed if len(allowed) > 1]
     assert two_languages
     assert set(two_languages) == {(HEARING.Language.DE, HEARING.Language.EN)}
-
-
-class VoiceWithDurationNoise:
-    """A voice whose sentences pause past the cut-off unless its durations are fixed."""
-
-    def synthesize_wav(
-        self,
-        text: str,
-        wav_file: wave.Wave_write,
-        syn_config: SynthesisConfig | None = None,
-    ) -> None:
-        """Each sentence as two halves of speech with a pause between them."""
-        pause = 0.1 if syn_config and syn_config.noise_w_scale == 0.0 else 0.6
-        wav_file.setparams((1, 2, WIRE_RATE, 0, "NONE", "not compressed"))
-        rate, phrase = pcm_from_wav(SPEECH.read_bytes())
-        half = HEARING.figures.to_wire_rate(phrase, rate)
-        for _ in re.split(r"(?<=\.) ", text):
-            wav_file.writeframes(half + bytes(int(2 * WIRE_RATE * pause)) + half)
 
 
 def test_an_english_long_turn_stays_one_turn_whatever_the_durations() -> None:

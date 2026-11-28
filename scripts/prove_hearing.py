@@ -4,10 +4,11 @@ Starts the speech service once per hearing model and hears a German and an
 English question and a long turn, live over a WebSocket and from a file. On
 `cuda` it also measures the card's peak memory and starts the service on a card
 a second process holds. It writes one JSON record and prints its stage lines.
-It never downloads a hearing model and fetches only the English Piper voice
-at its pin, never starts or stops anything but its own processes, and drives under
-`probe-run` as `prove_speech` does. Its clips are synthetic: German from the
-service's speak route, English from a Piper voice.
+It downloads nothing: a hearing model and the English Piper voice come from the
+service's own caches, and when one is absent the proof ends naming the command
+that fetches it. It never starts or stops anything but its own processes, and
+drives under `probe-run` as `prove_speech` does. Its clips are synthetic: German
+from the service's speak route, English from a Piper voice.
 """
 
 # ruff: noqa: T201 - the proof prints its stage lines as the command line output
@@ -22,8 +23,6 @@ import hashlib
 import io
 import json
 import re
-import shutil
-import tempfile
 import time
 import wave
 from dataclasses import dataclass
@@ -50,23 +49,21 @@ from hearing_client import (
     refusal_code,
 )
 from hearing_figures import LiveTurn
-from proof_identity import proof_identity
-from proof_minting import Minting, load_minting, mint_pair
+from proof_minting import Minting, mint_pair
 from prove_speech import (
-    LOOPBACK_HOST,
     PIPER_PROOF_VOICE,
     READY_TIMEOUT_SECONDS,
+    Start,
+    Started,
     enter_proof,
-    free_local_port,
     nvidia_memory,
     read_health,
     require_running,
     run_under_probe_run,
     speak_measured,
-    speech_environment,
-    speech_server,
+    started_speech,
 )
-from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, first_language
+from shipped_catalogue import ON_DEMAND_VOICES, first_language
 from speech_client.hearing import Refused
 from speech_client.wire import (
     SPEECH_PATH,
@@ -83,7 +80,7 @@ from speech_service.hearing_models import (
     HearingModelMissingError,
     model_directory,
 )
-from speech_service.piper_voices import fetch_voice_files
+from speech_service.voices import piper_voice_paths
 from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
@@ -99,6 +96,7 @@ if TYPE_CHECKING:
 
     from piper import PiperVoice
 
+    from prove_speech import WaitReady
     from speech_client.health import HealthOutcome
     from speech_client.hearing import HearingOutcome
 
@@ -122,7 +120,7 @@ ENGLISH_LONG_TURN = (
     "Finally we decide who greets the guests at the entrance and who shows "
     "them the way to the rooms."
 )
-ENGLISH_VOICE: Final = "en_US-ljspeech-medium"
+ENGLISH_VOICE: Final = VoiceId.LJSPEECH
 CARD_STAGES = ("gpu_memory", "taken_card")
 SENTENCE_BOUNDARY = re.compile(r"(?<=\.) ")
 PROBE_TEXT = "Bereit."
@@ -156,16 +154,15 @@ class Clip:
     long_turn: bytes
 
 
-def spoken_texts() -> list[str]:
-    """Every sentence the proof speaks or hears, which no service log may hold."""
-    return [
-        PROBE_TEXT,
-        *(
-            text
-            for language in LANGUAGES
-            for text in (language.question, language.long_turn)
-        ),
-    ]
+SPOKEN_TEXTS: Final = (
+    PROBE_TEXT,
+    *(
+        text
+        for language in LANGUAGES
+        for text in (language.question, language.long_turn)
+    ),
+)
+"""Every sentence the proof speaks or hears, which no service log may hold."""
 
 
 # -- waiting for the service --------------------------------------------------
@@ -232,36 +229,31 @@ def wait_loaded(
     raise SystemExit(message)
 
 
+def hearing_wait(voice: VoiceId, base_url: str, minting: Minting) -> WaitReady:
+    """The wait that ends once the service finished loading, hearing or not."""
+    return functools.partial(
+        wait_loaded,
+        wait=LoadWait(can_speak=functools.partial(speaks, base_url, minting, voice)),
+    )
+
+
 @contextlib.contextmanager
 def hearing_service(
-    device: str, hearing_model: str, voice: VoiceId
+    device: str,
+    hearing_model: str,
+    voice: VoiceId,
+    serve: Callable[[Start], AbstractContextManager[Started]] = started_speech,
 ) -> Iterator[Service]:
     """Run the service on `device` with the model, speaking `voice`, on its own."""
-    directory = Path(tempfile.mkdtemp(prefix="speech-"))
-    port = free_local_port()
-    base_url = f"http://{LOOPBACK_HOST}:{port}"  # NOSONAR(S5332) loopback
-    try:
-        with proof_identity(directory) as identity:
-            minting = load_minting(identity.minting_path)
-            environment = speech_environment(
-                port, voice, identity, device, hearing_model
-            )
-            wait_ready = functools.partial(
-                wait_loaded,
-                wait=LoadWait(
-                    can_speak=functools.partial(speaks, base_url, minting, voice)
-                ),
-            )
-            with speech_server(
-                base_url,
-                environment,
-                directory,
-                wait_ready=wait_ready,
-            ) as running:
-                running.spoken_texts.extend(spoken_texts())
-                yield Service(base_url, minting, running)
-    finally:
-        shutil.rmtree(directory)
+    start = Start(
+        {PIPER_PROOF_VOICE, voice},
+        device=device,
+        hearing_model=hearing_model,
+        wait=functools.partial(hearing_wait, voice),
+        spoken_texts=SPOKEN_TEXTS,
+    )
+    with serve(start) as started:
+        yield started.service
 
 
 @dataclass(frozen=True)
@@ -304,9 +296,17 @@ def german_clip(service: Service, text: str) -> bytes:
     return b"".join(sentences)
 
 
-def english_voice_path(directory: Path) -> Path:
-    """The English Piper voice in `directory`, fetched there once if absent."""
-    return fetch_voice_files(CATALOGUE[ENGLISH_VOICE], directory)
+def english_voice_path() -> Path:
+    """The English Piper voice in the service's voice cache; absent ends the proof."""
+    cache = load_settings().voice_cache
+    onnx, _metadata = piper_voice_paths(cache, ENGLISH_VOICE)
+    if not onnx.is_file():
+        message = (
+            f"{ENGLISH_VOICE} is not in {cache}; fetch it with: speech-fetch-voice"
+            " (the voices SPEECH_VOICES offers, all when it is unset)"
+        )
+        raise SystemExit(message)
+    return onnx
 
 
 def english_clip(voice: PiperVoice, text: str) -> bytes:
@@ -329,11 +329,16 @@ def english_clip(voice: PiperVoice, text: str) -> bytes:
         )
 
 
-def make_clips(service: Service, english_directory: Path) -> dict[Language, Clip]:
-    """Both languages' clips; a long turn must be one turn the service hears whole."""
+def load_english_voice() -> PiperVoice:
+    """The English Piper voice from the service's voice cache."""
     from piper import PiperVoice
 
-    voice = PiperVoice.load(english_voice_path(english_directory))
+    return PiperVoice.load(english_voice_path())
+
+
+def make_clips(service: Service) -> dict[Language, Clip]:
+    """Both languages' clips; a long turn must be one turn the service hears whole."""
+    voice = load_english_voice()
     clips = {
         Language.DE: Clip(
             german_clip(service, GERMAN_QUESTION),
@@ -420,7 +425,7 @@ def measure_models(
     for model in arguments.hearing_models:
         with hearing_service(arguments.device, model, PIPER_PROOF_VOICE) as service:
             if not clips:
-                clips = make_clips(service, arguments.english_voice_directory)
+                clips = make_clips(service)
             print(
                 "hearing_ready",
                 model,
@@ -602,12 +607,6 @@ def parse_arguments(arguments: list[str]) -> argparse.Namespace:
         help="a hearing model to measure; give it once per model",
     )
     parser.add_argument("--record", type=_record_path, required=True)
-    parser.add_argument(
-        "--english-voice-directory",
-        type=Path,
-        required=True,
-        help="where the English Piper voice is kept; fetched there when absent",
-    )
     parser.add_argument("--runs", type=_runs, default=figures.MIN_RUNS)
     return parser.parse_args(arguments)
 

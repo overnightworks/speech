@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -11,13 +10,17 @@ import pytest
 import hearing_figures as figures
 from shipped_catalogue import CATALOGUE
 from speech_service.service import Runtime, RuntimeDependencies
+from speech_service.voices import piper_voice_paths
 from tests.support.fakes_support import FakeSpeaking
+from tests.support.hear_support import NEIN_DANKE, VoiceWithDurationNoise
 from tests.support.hearing_service_support import service_of
+from tests.support.piper_support import install_fake_piper
 from tests.support.script_support import script_module
 from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+    from pathlib import Path
     from typing import Any
 
     from proof_identity import ProofIdentity
@@ -25,8 +28,7 @@ if TYPE_CHECKING:
 
 HEARING = script_module("prove_hearing")
 LINES = script_module("voice_lines")
-SPEECH = Path(__file__).parents[1] / "fixtures" / "speech" / "nein_danke.wav"
-SPEECH_RATE, SPEECH_PCM = pcm_from_wav(SPEECH.read_bytes())
+SPEECH_RATE, SPEECH_PCM = pcm_from_wav(NEIN_DANKE.read_bytes())
 
 
 class SpeakingARecording(FakeSpeaking):
@@ -94,3 +96,66 @@ def test_a_clip_of_a_given_length_is_exactly_that_many_seconds(
     )
 
     assert figures.seconds_of(clip) == pytest.approx(seconds, abs=1e-4)
+
+
+@pytest.fixture
+def english_voice_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    cache = tmp_path / "voices"
+    cache.mkdir()
+    monkeypatch.setenv("SPEECH_VOICE_CACHE", str(cache))
+    return cache
+
+
+@pytest.fixture
+def loaded_english_voices(
+    english_voice_cache: Path, monkeypatch: pytest.MonkeyPatch
+) -> list[Path]:
+    """The paths the fake piper loaded, with the English voice in the cache."""
+    onnx, _metadata = piper_voice_paths(english_voice_cache, HEARING.ENGLISH_VOICE)
+    onnx.touch()
+    loaded: list[Path] = []
+
+    def load(path: Path) -> VoiceWithDurationNoise:
+        loaded.append(path)
+        return VoiceWithDurationNoise()
+
+    install_fake_piper(monkeypatch, load)
+    return loaded
+
+
+@pytest.mark.usefixtures("loaded_english_voices")
+def test_both_languages_get_a_clip_that_is_one_turn(
+    minting: Minting,
+    identity: ProofIdentity,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    clips = asyncio.run(clip_made(minting, identity, HEARING.make_clips))
+
+    assert set(clips) == {language.code for language in HEARING.LANGUAGES}
+    printed = capsys.readouterr().out.splitlines()
+    measured = [line.split()[:2] for line in printed if "long_turn_clip" in line]
+    assert measured == [["long_turn_clip", language.value] for language in clips]
+
+
+def test_the_english_voice_is_loaded_from_the_voice_in_the_cache(
+    english_voice_cache: Path, loaded_english_voices: list[Path]
+) -> None:
+    HEARING.load_english_voice()
+
+    assert loaded_english_voices == [HEARING.english_voice_path()]
+    assert loaded_english_voices[0].parent == english_voice_cache
+
+
+def test_an_english_voice_in_the_cache_is_the_path_the_clip_loads(
+    english_voice_cache: Path,
+) -> None:
+    onnx, _metadata = piper_voice_paths(english_voice_cache, HEARING.ENGLISH_VOICE)
+    onnx.touch()
+
+    assert HEARING.english_voice_path() == onnx
+
+
+@pytest.mark.usefixtures("english_voice_cache")
+def test_an_english_voice_absent_from_the_cache_names_the_fetch_command() -> None:
+    with pytest.raises(SystemExit, match="fetch it with: speech-fetch-voice"):
+        HEARING.english_voice_path()

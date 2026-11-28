@@ -1,7 +1,5 @@
 """Silero over a session's audio: the shipped model, window by window."""
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 from faster_whisper.vad import get_vad_model
@@ -16,11 +14,11 @@ from speech_service.voice_activity import (
     SileroDetectors,
     open_shipped_model,
 )
+from tests.support.hear_support import NEIN_DANKE
 from wav_audio import pcm_from_wav
 
 MIN_VOICED_SECONDS = 0.5
 LEAD_MS = 900
-SPEECH = Path(__file__).parent / "fixtures" / "speech" / "nein_danke.wav"
 
 
 @pytest.fixture(scope="module")
@@ -40,7 +38,7 @@ def _noise(seconds: float, level: float, seed: int = 1) -> bytes:
 
 
 def _speech() -> bytes:
-    rate, pcm = pcm_from_wav(SPEECH.read_bytes())
+    rate, pcm = pcm_from_wav(NEIN_DANKE.read_bytes())
     assert rate == SAMPLE_RATE
     return pcm
 

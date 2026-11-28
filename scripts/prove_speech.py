@@ -54,7 +54,15 @@ from speech_service.onnxruntime_telemetry import disable_onnxruntime_telemetry
 from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
+    from collections.abc import (
+        Callable,
+        Collection,
+        Iterable,
+        Iterator,
+        Mapping,
+        Sequence,
+    )
+    from contextlib import AbstractContextManager
     from types import FrameType
     from typing import IO
 
@@ -101,10 +109,9 @@ HEALTH_DEADLINE_SECONDS = 5.0
 HEALTH_CAP_BYTES = 64 * 1024
 PIPER_FIRST_BYTE_LIMIT_S = 0.5
 PIPER_PROOF_VOICE: Final = PIPER_VOICES[0]
-PIPER_CACHE = Path.home() / ".cache" / "piper"
 LOOPBACK_HOST = "127.0.0.1"
 PROVIDER_ROOT = Path(__file__).resolve().parents[1] / "providers"
-HF_CACHE = Path.home() / ".cache" / "huggingface" / "hub"
+PROOF_TEXTS: Final = (ENGLISH_SENTENCE, *MARKED_TEXTS.values())
 
 
 def fleet_command(arguments: list[str], script: Path = THIS_SCRIPT) -> list[str]:
@@ -205,56 +212,66 @@ def wait_for_speaking_ready(
     raise SystemExit(message)
 
 
-def speak_measured(
-    base_url: str,
-    text: str,
-    voice: VoiceId,
-    minting: Minting,
-    *,
-    language: Language | None = None,
-) -> tuple[bytes, float, float]:
-    """Speak one request in `language` or the voice's first.
+def measured_on(
+    clock: Callable[[], float],
+) -> Callable[..., tuple[bytes, float, float]]:
+    """A speak that reads its times from `clock`.
 
-    Return the whole WAV, time to first audio and total time.
+    It speaks one request in `language` or the voice's first and returns the whole
+    WAV, time to first audio and total time.
 
     The headers leave before synthesis, so the first audio is the first body
     byte. A body the service aborted raises `IncompleteRead` in `http.client`,
     and the proof fails rather than keep the partial WAV.
     """
-    pair = mint_pair(minting)
-    address = urlsplit(base_url)
-    connection = http.client.HTTPConnection(
-        address.hostname, address.port, timeout=SPEAK_TIMEOUT_SECONDS
-    )
-    try:
-        start = time.perf_counter()
-        connection.request(
-            "POST",
-            SPEECH_PATH,
-            speech_request_body(
-                text, voice, ResponseFormat.WAV, language or first_language(voice)
-            ),
-            speech_request_headers(
-                workload_token=pair.workload, person_token=pair.person
-            ),
+
+    def speak_measured(
+        base_url: str,
+        text: str,
+        voice: VoiceId,
+        minting: Minting,
+        *,
+        language: Language | None = None,
+    ) -> tuple[bytes, float, float]:
+        pair = mint_pair(minting)
+        address = urlsplit(base_url)
+        connection = http.client.HTTPConnection(
+            address.hostname, address.port, timeout=SPEAK_TIMEOUT_SECONDS
         )
-        response = connection.getresponse()
-        if response.status != http.client.OK:
-            message = f"speak HTTP status: {response.status}"
+        try:
+            start = clock()
+            connection.request(
+                "POST",
+                SPEECH_PATH,
+                speech_request_body(
+                    text, voice, ResponseFormat.WAV, language or first_language(voice)
+                ),
+                speech_request_headers(
+                    workload_token=pair.workload, person_token=pair.person
+                ),
+            )
+            response = connection.getresponse()
+            if response.status != http.client.OK:
+                message = f"speak HTTP status: {response.status}"
+                raise SystemExit(message)
+            first = response.read(1)
+            first_byte_at = clock()
+            body = first + response.read()
+            end = clock()
+        except http.client.IncompleteRead:
+            message = "speak body ended before it was complete"
+            raise SystemExit(message) from None
+        finally:
+            connection.close()
+        if not first:
+            message = "speak returned no bytes"
             raise SystemExit(message)
-        first = response.read(1)
-        first_byte_at = time.perf_counter()
-        body = first + response.read()
-        end = time.perf_counter()
-    except http.client.IncompleteRead:
-        message = "speak body ended before it was complete"
-        raise SystemExit(message) from None
-    finally:
-        connection.close()
-    if not first:
-        message = "speak returned no bytes"
-        raise SystemExit(message)
-    return body, first_byte_at - start, end - start
+        return body, first_byte_at - start, end - start
+
+    return speak_measured
+
+
+speak_measured = measured_on(time.perf_counter)
 
 
 def proof_voice(offered: frozenset[VoiceId]) -> VoiceId:
@@ -306,16 +323,16 @@ def peak_rss_mib(status: str) -> float:
 
 @dataclass(frozen=True)
 class RunningSpeech:
-    """A started speech service: process, first health, texts it must not log."""
+    """A started speech service: its pid, first health, texts it must not log."""
 
-    process: subprocess.Popen[str]
+    pid: int
     health: Health
     ready_seconds: float
     spoken_texts: list[str] = field(default_factory=list)
 
     def peak_rss_mib(self) -> float:
         """The service process's peak resident set in MiB."""
-        status = Path(f"/proc/{self.process.pid}/status")
+        status = Path(f"/proc/{self.pid}/status")
         return peak_rss_mib(status.read_text(encoding="utf-8"))
 
 
@@ -408,7 +425,7 @@ def _run_and_stop(
     try:
         started = time.monotonic()
         health = wait_ready(base_url, server.poll)
-        running = RunningSpeech(server, health, time.monotonic() - started)
+        running = RunningSpeech(server.pid, health, time.monotonic() - started)
         yield running
         proof_failed = False
     finally:
@@ -458,29 +475,13 @@ def require_speaking(health: Health, voice: VoiceId) -> None:
         raise SystemExit(message)
 
 
-def _prove_speak(base_url: str, voice: VoiceId, minting: Minting) -> bytes:
-    """Speak German figures.MEASURE_REPETITIONS times.
-
-    `prove_one_speak` fails the run the moment any single repetition misses
-    the first-byte limit; a passing run is the proof that every
-    repetition held, not just the median.
-    """
-    return figures.prove_speak_medians(
-        functools.partial(speak_measured, base_url, minting=minting),
-        SENTENCE,
-        voice,
-        limit=PIPER_FIRST_BYTE_LIMIT_S,
-        label="speak_wire_de",
-    ).wav
-
-
 def _prove_beside(
     service: Service,
+    speak: figures.Speak,
     singles: Mapping[VoiceId, figures.VoiceFigures],
     hearing_model: HearingModel | None,
 ) -> tuple[dict[str, object], dict[str, object] | None]:
     """Two voices at once, then the hearing of one recording while they speak."""
-    speak = functools.partial(speak_measured, service.base_url, minting=service.minting)
     pair = figures.voice_pair(PIPER_VOICES)
     together = figures.prove_two_voices(speak, pair, SENTENCES, singles)
     if hearing_model is None:
@@ -502,12 +503,12 @@ def _prove_beside(
 
 def _prove_speaking(
     service: Service,
+    speak: figures.Speak,
     voice: VoiceId,
     hearing_model: HearingModel | None,
     device: str,
 ) -> None:
     """Speak every Piper voice and the named one, then the steps that overlap them."""
-    speak = functools.partial(speak_measured, service.base_url, minting=service.minting)
     singles = figures.prove_each_voice(
         speak,
         PIPER_VOICES,
@@ -527,7 +528,13 @@ def _prove_speaking(
     german = (
         singles[voice].wav
         if voice in singles
-        else _prove_speak(service.base_url, voice, service.minting)
+        else figures.prove_speak_medians(
+            speak,
+            SENTENCE,
+            voice,
+            limit=PIPER_FIRST_BYTE_LIMIT_S,
+            label="speak_wire_de",
+        ).wav
     )
     german_wav = Path(tempfile.mkdtemp(prefix="speech-proof-")) / "german.wav"
     german_wav.write_bytes(german)
@@ -539,7 +546,7 @@ def _prove_speaking(
         limit=PIPER_FIRST_BYTE_LIMIT_S,
         extra_wait_seconds=CONCURRENT_EXTRA_WAIT_SECONDS,
     )
-    together, hearing = _prove_beside(service, singles, hearing_model)
+    together, hearing = _prove_beside(service, speak, singles, hearing_model)
     record = figures.speaking_record(device, singles, together, hearing)
     print("speaking_record", json.dumps(record, sort_keys=True))
 
@@ -595,12 +602,12 @@ def offer_setting(offered: Collection[VoiceId]) -> str:
 
 def speech_environment(
     port: int,
-    voice: VoiceId,
+    offered: Collection[VoiceId],
     identity: ProofIdentity,
     device: str | None = None,
     hearing_model: str | None = None,
 ) -> dict[str, str]:
-    """Return the process environment binding the loopback port, offering `voice`.
+    """Return the process environment binding the loopback port, offering `offered`.
 
     `device` defaults to `SPEECH_DEVICE` from the caller's environment, else
     `cuda`; `hearing_model` is left unset when absent. With a hearing model, sound
@@ -617,7 +624,7 @@ def speech_environment(
     )
     if env[setting_variable("device")] == "cpu":
         env["CUDA_VISIBLE_DEVICES"] = ""
-    env[setting_variable("voices")] = offer_setting({PIPER_PROOF_VOICE, voice})
+    env[setting_variable("voices")] = offer_setting(offered)
     if hearing_model is not None:
         env[setting_variable("hearing_model")] = hearing_model
         env.setdefault(setting_variable("sound_events"), "false")
@@ -638,50 +645,112 @@ def parse_arguments(arguments: list[str]) -> argparse.Namespace:
     return parser.parse_args(arguments)
 
 
-def _prove() -> None:
-    print("gpu_before", nvidia_memory())
+type WaitReady = Callable[[str, Callable[[], int | None]], Health]
+
+
+def speaking_ready_wait(_base_url: str, _minting: Minting) -> WaitReady:
+    """The wait that ends once speaking is ready."""
+    return wait_for_speaking_ready
+
+
+@dataclass(frozen=True)
+class Start:
+    """What one proof's service start differs in; the rest is the one start."""
+
+    offered: Collection[VoiceId]
+    device: str | None = None
+    hearing_model: str | None = None
+    wait: Callable[[str, Minting], WaitReady] = speaking_ready_wait
+    spoken_texts: Sequence[str] = ()
+
+
+@dataclass(frozen=True)
+class Started:
+    """A started service and what the steps after the start need of it."""
+
+    service: Service
+    environment: dict[str, str]
+    work_directory: Path
+    minting_path: Path
+
+
+@contextlib.contextmanager
+def started_speech(start: Start) -> Iterator[Started]:
+    """Start the service on its own port and identity; end it and its files on exit."""
     work_directory = Path(tempfile.mkdtemp(prefix="speech-"))
     port = free_local_port()
     base_url = f"http://{LOOPBACK_HOST}:{port}"  # NOSONAR(S5332) loopback
-    settings = load_settings()
-    voice = proof_voice(settings.voices or frozenset())
     try:
         with proof_identity(work_directory) as identity:
             minting = load_minting(identity.minting_path)
-            env = speech_environment(port, voice, identity)
-            env[setting_variable("voices")] = offer_setting({*PIPER_VOICES, voice})
-            with speech_server(base_url, env, work_directory) as running:
-                print(
-                    "health_ready",
-                    json.dumps(running.health.model_dump(), sort_keys=True),
-                )
-                print("load_to_ready_s", f"{running.ready_seconds:.1f}")
-                print(
-                    "gpu_compute_pids",
-                    nvidia_compute_pids(),
-                    f"speech_pid={running.process.pid}",
-                )
-                running.spoken_texts.extend([ENGLISH_SENTENCE, *MARKED_TEXTS.values()])
-                require_speaking(running.health, voice)
-                print("gpu_resident", nvidia_memory())
-                print("piper_cache", PIPER_CACHE)
-                _prove_speaking(
+            environment = speech_environment(
+                port, start.offered, identity, start.device, start.hearing_model
+            )
+            with speech_server(
+                base_url,
+                environment,
+                work_directory,
+                wait_ready=start.wait(base_url, minting),
+            ) as running:
+                running.spoken_texts.extend(start.spoken_texts)
+                yield Started(
                     Service(base_url, minting, running),
-                    voice,
-                    settings.hearing_model,
-                    env[setting_variable("device")],
+                    environment,
+                    work_directory,
+                    identity.minting_path,
                 )
-                prove_contract(
-                    base_url, env, voice, identity.minting_path, work_directory
-                )
-                print("peak_rss_mib", f"{running.peak_rss_mib():.0f}")
-        print("gpu_after", nvidia_memory())
-        print("caches_kept")
-        print("  huggingface:", HF_CACHE)
-        print("  piper:", PIPER_CACHE)
-        print("PROOF_OK")
     finally:
         shutil.rmtree(work_directory)
+
+
+def prove(
+    serve: Callable[[Start], AbstractContextManager[Started]] = started_speech,
+    clock: Callable[[], float] = time.perf_counter,
+) -> None:
+    """Prove speaking on the service `serve` starts, then the contract client.
+
+    The speak calls are timed on `clock`.
+    """
+    print("gpu_before", nvidia_memory())
+    settings = load_settings()
+    voice = proof_voice(settings.voices or frozenset())
+    try:
+        with serve(Start({*PIPER_VOICES, voice}, spoken_texts=PROOF_TEXTS)) as started:
+            service = started.service
+            running = service.running
+            print(
+                "health_ready", json.dumps(running.health.model_dump(), sort_keys=True)
+            )
+            print("load_to_ready_s", f"{running.ready_seconds:.1f}")
+            print(
+                "gpu_compute_pids", nvidia_compute_pids(), f"speech_pid={running.pid}"
+            )
+            require_speaking(running.health, voice)
+            print("gpu_resident", nvidia_memory())
+            print("piper_cache", settings.voice_cache)
+            _prove_speaking(
+                service,
+                functools.partial(
+                    measured_on(clock), service.base_url, minting=service.minting
+                ),
+                voice,
+                settings.hearing_model,
+                settings.device,
+            )
+            prove_contract(
+                service.base_url,
+                started.environment,
+                voice,
+                started.minting_path,
+                started.work_directory,
+            )
+            print("peak_rss_mib", f"{running.peak_rss_mib():.0f}")
+        print("gpu_after", nvidia_memory())
+        print("caches_kept")
+        print("  huggingface:", settings.huggingface_cache)
+        print("  piper:", settings.voice_cache)
+        print("PROOF_OK")
+    finally:
         print("gpu_released", nvidia_memory())
 
 
@@ -701,7 +770,7 @@ def enter_proof(
 
 def main() -> None:
     """Run the stage proof, driving it through the fleet's `probe-run` form."""
-    enter_proof(run_under_probe_run, lambda _arguments: _prove())
+    enter_proof(run_under_probe_run, lambda _arguments: prove())
 
 
 if __name__ == "__main__":
