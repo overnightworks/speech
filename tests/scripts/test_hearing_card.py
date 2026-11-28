@@ -8,6 +8,7 @@ import select
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -197,6 +198,27 @@ def test_a_healthy_card_keeps_its_reading_among_the_samples(
         pass
 
     assert READING_MIB in sampler.samples
+
+
+def test_a_peak_after_the_first_reading_is_among_the_samples(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    readings = iter([READING_MIB, 2 * READING_MIB])
+    second_taken = threading.Event()
+
+    def used_mib() -> int:
+        reading = next(readings, 2 * READING_MIB)
+        if reading != READING_MIB:
+            second_taken.set()
+        return reading
+
+    monkeypatch.setattr(CARD, "used_mib", used_mib)
+    monkeypatch.setattr(CARD, "MEMORY_SAMPLE_SECONDS", 0)
+
+    with CARD.MemorySampler() as sampler:
+        assert second_taken.wait(DEADLINE_SECONDS)
+
+    assert max(sampler.samples) == 2 * READING_MIB
 
 
 @pytest.mark.parametrize(

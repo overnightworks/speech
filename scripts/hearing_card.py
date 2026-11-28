@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextlib
-import os
 import re
 import subprocess
 import sys
@@ -17,8 +16,8 @@ import hearing_figures as figures
 from prove_speech import (
     query_nvidia,
     start_with_parent_death,
+    stop_process,
 )
-from speech_service.cuda_libs import cuda_library_dirs
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -33,14 +32,6 @@ FREED_POLL_SECONDS = 0.5
 HOLDER_STOP_SECONDS = 10
 HELD_WAIT_SECONDS = 120.0
 HELD_LINE = re.compile(r"held (?P<mib>\d+)")
-
-
-def add_cuda_library_path(env: dict[str, str]) -> None:
-    """Put the bundled CUDA libraries on `env`'s loader path."""
-    cuda_dirs = ":".join(str(path) for path in cuda_library_dirs())
-    if cuda_dirs:
-        existing = env.get("LD_LIBRARY_PATH", "")
-        env["LD_LIBRARY_PATH"] = f"{cuda_dirs}:{existing}" if existing else cuda_dirs
 
 
 def used_mib() -> int:
@@ -131,11 +122,8 @@ def held_card(wait_seconds: float = HELD_WAIT_SECONDS) -> Iterator[int]:
     main thread. A holder that ended while the stage ran fails the stage, since
     its memory was no longer held.
     """
-    environment = os.environ.copy()
-    add_cuda_library_path(environment)
     holder = start_with_parent_death(
         [sys.executable, str(CARD_HOLDER)],
-        env=environment,
         stdout=subprocess.PIPE,
         text=True,
     )
@@ -148,12 +136,7 @@ def held_card(wait_seconds: float = HELD_WAIT_SECONDS) -> Iterator[int]:
             )
             raise SystemExit(message)
     finally:
-        holder.terminate()
-        try:
-            holder.wait(timeout=HOLDER_STOP_SECONDS)
-        except subprocess.TimeoutExpired:
-            holder.kill()
-            holder.wait()
+        stop_process(holder, grace_seconds=HOLDER_STOP_SECONDS)
 
 
 def card_is_freed(
