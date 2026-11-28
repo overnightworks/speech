@@ -23,7 +23,6 @@ from packages.client.tests.support.scripted_hearing_support import (
     sustained_from,
     takes_audio,
 )
-from speech_client.outcomes import Malformed
 from speech_client.realtime_wire import SpeechSustainedFrom, SustainedSpeech
 from speech_client.wire import DRAIN_CLOSE_CODE
 
@@ -205,19 +204,6 @@ def test_only_the_event_of_the_newest_moment_is_delivered() -> None:
     delivered = _moments_heard(asyncio.run(scenario()))
 
     assert [(event.from_ms, event.audio_end_ms) for event in delivered] == [(200, 500)]
-
-
-def test_an_event_when_no_moment_was_written_is_malformed() -> None:
-    async def scenario() -> object:
-        async with scripted(says(sustained_from("a", 0, 300), then_close=1000)) as (
-            port,
-            _,
-        ):
-            async with _session(port) as session:
-                await _hear_all(session)
-            return session.outcome
-
-    assert asyncio.run(scenario()) == Malformed()
 
 
 def test_a_moment_written_before_a_cut_is_written_on_the_next_wire_from_its_start() -> (

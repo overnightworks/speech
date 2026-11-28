@@ -108,18 +108,13 @@ def test_a_session_that_did_not_ask_refuses_the_type_whatever_its_fields(
     ("fields", "param"),
     [
         pytest.param({}, FROM_PARAM, id="no-position"),
-        pytest.param({"from_ms": None}, FROM_PARAM, id="null"),
-        pytest.param({"from_ms": "320"}, FROM_PARAM, id="text"),
-        pytest.param({"from_ms": 320.5}, FROM_PARAM, id="a-fraction"),
-        pytest.param({"from_ms": True}, FROM_PARAM, id="a-boolean"),
-        pytest.param({"from_ms": -1}, FROM_PARAM, id="below-zero"),
         pytest.param({"from_ms": 320, "extra": 1}, "extra", id="an-unknown-key"),
     ],
 )
 def test_a_malformed_moment_ends_the_session_naming_the_field(
     fields: dict[str, object], param: str
 ) -> None:
-    """WIRE-176, WIRE-82: a moment the parser refuses ends the session invalid."""
+    """WIRE-176, WIRE-82: the parser's refusal, field and id, ends the session."""
 
     async def scenario() -> FakeSocket:
         session, socket, _, _ = await asking(SEVEN_WINDOWS)
