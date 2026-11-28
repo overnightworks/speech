@@ -108,20 +108,29 @@ def english_voice_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
 def test_both_languages_get_a_clip_that_is_one_turn(
     minting: Minting,
     identity: ProofIdentity,
-    english_voice_cache: Path,
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    onnx, _metadata = piper_voice_paths(english_voice_cache, HEARING.ENGLISH_VOICE)
-    onnx.touch()
-    monkeypatch.setattr("piper.PiperVoice.load", lambda _path: VoiceWithDurationNoise())
-
-    clips = asyncio.run(clip_made(minting, identity, HEARING.make_clips))
+    clips = asyncio.run(
+        clip_made(
+            minting,
+            identity,
+            lambda service: HEARING.make_clips(service, VoiceWithDurationNoise),
+        )
+    )
 
     assert set(clips) == {language.code for language in HEARING.LANGUAGES}
     printed = capsys.readouterr().out.splitlines()
     measured = [line.split()[:2] for line in printed if "long_turn_clip" in line]
     assert measured == [["long_turn_clip", language.value] for language in clips]
+
+
+def test_an_english_voice_in_the_cache_is_the_path_the_clip_loads(
+    english_voice_cache: Path,
+) -> None:
+    onnx, _metadata = piper_voice_paths(english_voice_cache, HEARING.ENGLISH_VOICE)
+    onnx.touch()
+
+    assert HEARING.english_voice_path() == onnx
 
 
 @pytest.mark.usefixtures("english_voice_cache")

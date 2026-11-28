@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
-from shipped_catalogue import PIPER_VOICES
+from shipped_catalogue import ON_DEMAND_VOICES, PIPER_VOICES
 from speech_service.hearing_models import HearingModel, fetch_model
 from speech_service.voices import piper_voice_paths
 from tests.support.gpu_voice_support import _RECORDING_PIPER
@@ -15,6 +17,9 @@ from tests.support.hear_support import write_snapshot
 from tests.support.script_support import script_module
 
 HEARING = script_module("prove_hearing")
+if TYPE_CHECKING:
+    from speech_client.wire import VoiceId
+
 PROVE = script_module("prove_speech")
 SCRIPTS = Path(PROVE.__file__).parent
 
@@ -106,3 +111,22 @@ def test_a_hearing_service_without_a_card_is_started_once_its_voice_speaks(
         health = service.running.health
 
     assert (health.speaking.ready, health.hearing.ready) == (True, False)
+
+
+@pytest.mark.parametrize(
+    "voice", [PROVE.PIPER_PROOF_VOICE, ON_DEMAND_VOICES[0]], ids=["piper", "on-demand"]
+)
+def test_the_hearing_service_offers_the_voice_it_speaks_beside_the_piper_proof_voice(
+    voice: VoiceId,
+) -> None:
+    starts: list[PROVE.Start] = []
+
+    def serve(start: PROVE.Start) -> contextlib.AbstractContextManager[PROVE.Started]:
+        starts.append(start)
+        return contextlib.nullcontext(PROVE.Started(None, {}, SCRIPTS, SCRIPTS))
+
+    with HEARING.hearing_service("cpu", HearingModel.SMALL.value, voice, serve):
+        pass
+
+    (start,) = starts
+    assert set(start.offered) == {PROVE.PIPER_PROOF_VOICE, voice}

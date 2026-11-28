@@ -54,6 +54,7 @@ from prove_speech import (
     PIPER_PROOF_VOICE,
     READY_TIMEOUT_SECONDS,
     Start,
+    Started,
     enter_proof,
     nvidia_memory,
     read_health,
@@ -238,7 +239,10 @@ def hearing_wait(voice: VoiceId, base_url: str, minting: Minting) -> WaitReady:
 
 @contextlib.contextmanager
 def hearing_service(
-    device: str, hearing_model: str, voice: VoiceId
+    device: str,
+    hearing_model: str,
+    voice: VoiceId,
+    serve: Callable[[Start], AbstractContextManager[Started]] = started_speech,
 ) -> Iterator[Service]:
     """Run the service on `device` with the model, speaking `voice`, on its own."""
     start = Start(
@@ -248,7 +252,7 @@ def hearing_service(
         wait=functools.partial(hearing_wait, voice),
         spoken_texts=SPOKEN_TEXTS,
     )
-    with started_speech(start) as started:
+    with serve(start) as started:
         yield started.service
 
 
@@ -325,11 +329,18 @@ def english_clip(voice: PiperVoice, text: str) -> bytes:
         )
 
 
-def make_clips(service: Service) -> dict[Language, Clip]:
-    """Both languages' clips; a long turn must be one turn the service hears whole."""
+def load_english_voice() -> PiperVoice:
+    """The English Piper voice from the service's voice cache."""
     from piper import PiperVoice
 
-    voice = PiperVoice.load(english_voice_path())
+    return PiperVoice.load(english_voice_path())
+
+
+def make_clips(
+    service: Service, load_voice: Callable[[], PiperVoice] = load_english_voice
+) -> dict[Language, Clip]:
+    """Both languages' clips; a long turn must be one turn the service hears whole."""
+    voice = load_voice()
     clips = {
         Language.DE: Clip(
             german_clip(service, GERMAN_QUESTION),

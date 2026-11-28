@@ -46,8 +46,12 @@ def printed_by_the_proof(
     minting: Minting,
     identity: ProofIdentity,
     capsys: pytest.CaptureFixture[str],
+    starts: list[PROVE.Start] | None = None,
 ) -> list[str]:
-    """The lines the proof prints against `runtime`, served by this process."""
+    """The lines the proof prints against `runtime`, served by this process.
+
+    Each Start the proof asks its serve port for is appended to `starts`.
+    """
 
     async def scenario() -> None:
         async with service_of(runtime, minting, identity) as service:
@@ -59,11 +63,15 @@ def printed_by_the_proof(
                 REPOSITORY_ROOT,
                 identity.minting_path,
             )
-            await asyncio.to_thread(
-                PROVE.prove,
-                lambda _start: contextlib.nullcontext(started),
-                FakeClock().now,
-            )
+
+            def serve(
+                start: PROVE.Start,
+            ) -> contextlib.AbstractContextManager[PROVE.Started]:
+                if starts is not None:
+                    starts.append(start)
+                return contextlib.nullcontext(started)
+
+            await asyncio.to_thread(PROVE.prove, serve, FakeClock().now)
 
     asyncio.run(scenario())
     return capsys.readouterr().out.splitlines()
@@ -111,10 +119,13 @@ def test_a_named_gpu_voice_is_measured_on_its_own(
     monkeypatch.setenv("SPEECH_VOICES", PROVE.offer_setting({*PIPER_VOICES, gpu_voice}))
     runtime = served_runtime({*PIPER_VOICES, gpu_voice}, None)
 
-    lines = printed_by_the_proof(runtime, minting, identity, capsys)
+    starts: list[PROVE.Start] = []
+    lines = printed_by_the_proof(runtime, minting, identity, capsys, starts)
 
     assert_ends_in_proof_ok_from_this_process(lines)
     assert len(starting_with(lines, "speak_wire_de_rep")) == figures.MEASURE_REPETITIONS
+    (start,) = starts
+    assert set(start.offered) == {*PIPER_VOICES, gpu_voice}
 
 
 def test_with_a_hearing_model_a_recording_is_heard_while_two_voices_speak(
