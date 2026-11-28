@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from http import HTTPStatus
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -12,6 +13,9 @@ from image_stack import Reply, SoundOutcome
 from prove_image import BUILD_LIMIT_SECONDS
 from speech_client.realtime_wire import SoundName
 from speech_client.utterances import HeardSound
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 KEY_SERVER = "keys.example:443"
 PUBLIC = "public.example:443"
@@ -137,7 +141,7 @@ def test_an_admitted_speak_that_is_refused_fails_naming_its_status() -> None:
     ],
 )
 def test_a_sound_turn_that_ended_in_an_error_fails_the_proof_naming_it(
-    judgement: object,
+    judgement: Callable[[SoundOutcome], None],
 ) -> None:
     ended = SoundOutcome((HeardSound(SoundName.LAUGHTER, 0, 1000),), "Refused")
 
