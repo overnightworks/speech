@@ -1,8 +1,0 @@
-claim_id = "3daf3a72524f4da4899aca761b73e27d"
-agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
-role = "builder"
-base = "dbfdc0e898c0fab7c7ce5825102ae38adbdfee06"
-branch = "claude/issue-765-measured-where-it-runs"
-scope = [".github/workflows/ci.yml", "Dockerfile", "docs/ARCHITECTURE.md", "providers/qwen/pyproject.toml", "providers/qwen/src/speech_qwen/design_voice.py", "providers/qwen/src/speech_qwen/server.py", "providers/qwen/tests/test_design_voice.py", "scripts/build_sound_model.py", "scripts/build_sound_model.py.lock"]
-opened_commit = "500a78a91ddd6d5ca1fc10c198262c9d265634b3"
-whole_reason = "Lines CI already runs count where they run, and the Qwen fake sits at the boundary it stands in for; split, a floor would rise on half the measurement."
