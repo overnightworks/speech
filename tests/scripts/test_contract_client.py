@@ -470,10 +470,12 @@ def test_the_contract_client_speaks_as_its_own_process_without_loading_the_servi
 def test_a_contract_client_the_service_refuses_ends_the_proof_naming_its_exit_status(
     minting: Minting, identity: ProofIdentity
 ) -> None:
+    refused_proof = _contract_proof_against_a_service(
+        minting, identity, trusting_caller=False
+    )
+
     with pytest.raises(SystemExit, match="contract client failed: 1"):
-        asyncio.run(
-            _contract_proof_against_a_service(minting, identity, trusting_caller=False)
-        )
+        asyncio.run(refused_proof)
 
 
 def _unverified_subject(token: str) -> str:
