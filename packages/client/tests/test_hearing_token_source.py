@@ -23,7 +23,6 @@ from packages.client.tests.support.hearing_support import (
 )
 from packages.client.tests.support.reconnect_support import (
     BOUND,
-    WHOLE_RUN_SECONDS,
     Tokens,
     hear,
     hear_through,
@@ -123,8 +122,7 @@ def test_a_session_built_in_one_trace_sends_the_trace_it_is_entered_in() -> None
                 session = session_to(port)
             with unit_trace(None):
                 entered_in = current_traceparent()
-                async with session, asyncio.timeout(WHOLE_RUN_SECONDS):
-                    _ = [event async for event in session.events()]
+                await hear_through(session)
             return [
                 visit.headers.get(TRACEPARENT_HEADER) for visit in visits
             ], entered_in
