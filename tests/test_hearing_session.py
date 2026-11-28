@@ -785,3 +785,16 @@ def test_a_moment_serves_only_its_item_once_that_item_ended() -> None:
     heard += session.add(_quiet(22))
 
     assert _moments(heard) == []
+
+
+def test_a_moment_after_a_commit_inside_a_window_is_the_item_that_begins_at_it() -> None:
+    """WIRE-177: an item whose start is in the moment's millisecond is not after it."""
+    from_ms = start_of_window(10)
+    session = _moment_session("v" * 30 + "." * SILENT_WINDOWS)
+    session.add(_quiet(10) + b"\0" * 8 * BYTES_PER_SAMPLE)
+    session.commit()
+    session.sustain_from(from_ms)
+
+    heard = session.add(_quiet(20 + SILENT_WINDOWS))
+
+    assert [event.from_ms for event in _moments(heard)] == [from_ms]

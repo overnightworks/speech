@@ -384,7 +384,8 @@ class HearingSession:
         """The audio passes the moment with no item that began at or before it."""
         moment = self._undecided_moment(start)
         if moment is not None and not (
-            self._speech_windows and self._turn_start <= moment.sample
+            self._speech_windows
+            and self._turn_start // _SAMPLES_PER_MILLISECOND <= moment.from_ms
         ):
             moment.spent = True
 
