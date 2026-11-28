@@ -1,8 +1,0 @@
-claim_id = "3e6a0f4d3af44001a0e8b3ca7b8f054f"
-agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
-role = "builder"
-base = "df415761a775d7c40c641ef644f272a7ea2193d7"
-branch = "claude/issue-761-sound-model-build-script"
-scope = [".github/workflows/ci.yml", "scripts/build_sound_model.py", "tests/scripts/test_build_sound_model.py", "tests/scripts/test_build_sound_model_refusals.py"]
-opened_commit = "8c95407d3b353cd62214b7b7db2eeee59832a1e7"
-whole_reason = "The build's refusals, its local fetch, the clip's order and the score owner are one proof that nothing is left behind, and the floor rises only once all of them are reached."
