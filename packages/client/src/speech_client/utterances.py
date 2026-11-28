@@ -252,8 +252,6 @@ class _Mapping:
                 await self._on_sound(event)
             case SpeechSustained():
                 await self._on_sustained(event)
-            case SpeechSustainedFrom():
-                await self._on_sustained_from(event)
             case TranscriptDelta() if self.callbacks.on_partial is not None:
                 text = self.items.text.get(event.item_id, "") + event.delta
                 self.items.text[event.item_id] = text
@@ -292,12 +290,6 @@ class _Mapping:
             raise ServerEventError
         await self.callbacks.on_speech_sustained(
             SustainedVoice(event.item_id, event.audio_end_ms)
-        )
-
-    async def _on_sustained_from(self, event: SpeechSustainedFrom) -> None:
-        assert self.callbacks.on_speech_sustained_from is not None  # noqa: S101 - checked
-        await self.callbacks.on_speech_sustained_from(
-            SustainedFrom(event.item_id, event.audio_end_ms)
         )
 
     async def _completed(self, event: TranscriptCompleted) -> None:
@@ -339,14 +331,36 @@ def _sustained_ask(
         raise ValueError(message) from refused
 
 
-def _check_moments(callbacks: HearingCallbacks, moments: SustainMoments | None) -> None:
-    """Refuse a handle or a callback without the other, or without sustained speech."""
-    if (moments is None) != (callbacks.on_speech_sustained_from is None):
+def _moment_callback(
+    callbacks: HearingCallbacks, moments: SustainMoments | None
+) -> Callable[[SustainedFrom], Awaitable[None]] | None:
+    """The callback a moment's event goes to; refuse a handle or callback alone.
+
+    A handle comes with its callback and the sustained speech it counts, or neither.
+    """
+    on_moment = callbacks.on_speech_sustained_from
+    if (moments is None) != (on_moment is None):
         message = "moments and on_speech_sustained_from go together"
         raise ValueError(message)
     if moments is not None and callbacks.on_speech_sustained is None:
         message = "moments need on_speech_sustained"
         raise ValueError(message)
+    return on_moment
+
+
+def _with_moments(
+    on_event: Callable[[ServerEvent | Reconnected], Awaitable[None]],
+    on_moment: Callable[[SustainedFrom], Awaitable[None]],
+) -> Callable[[ServerEvent | Reconnected], Awaitable[None]]:
+    """`on_event`, with a moment's event going to `on_moment`."""
+
+    async def on_event_with_moments(event: ServerEvent | Reconnected) -> None:
+        if isinstance(event, SpeechSustainedFrom):
+            await on_moment(SustainedFrom(event.item_id, event.audio_end_ms))
+        else:
+            await on_event(event)
+
+    return on_event_with_moments
 
 
 async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
@@ -365,7 +379,7 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
     moments: SustainMoments | None = None,
 ) -> UtteranceOutcome:
     """Hear `browser`'s audio at the service at `origin`; see the module."""
-    _check_moments(callbacks, moments)
+    on_moment = _moment_callback(callbacks, moments)
     sustained_speech = _sustained_ask(callbacks, sustained_speech_ms)
     session = HearingSession(
         origin,
@@ -378,13 +392,18 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
         sound_detection=callbacks.on_sound is not None,
         sustained_speech=sustained_speech,
     )
+    on_event = _Mapping(callbacks, ended).on_event
     try:
         with (moments or SustainMoments()).running(session.sustain_from_now):
             return await relay(
                 browser,
                 session,
                 app_ended=ended,
-                on_event=_Mapping(callbacks, ended).on_event,
+                on_event=(
+                    on_event
+                    if on_moment is None
+                    else _with_moments(on_event, on_moment)
+                ),
                 on_text=callbacks.on_text,
                 frame_limit_bytes=HOP_FRAME_BYTES,
             )
