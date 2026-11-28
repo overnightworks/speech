@@ -18,7 +18,7 @@ from speech_qwen import design_voice
 from speech_qwen.server import WATCH_THREAD_NAME, Server
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator, Sequence
 
     from support.scripted_server import ScriptedSpeechServer
 
@@ -304,7 +304,25 @@ def test_the_console_script_refuses_what_the_design_refuses(
         _run_main(monkeypatch, tmp_path, *options)
 
 
-def test_the_designs_stop_of_its_own_server_ends_nothing(tmp_path: Path) -> None:
+def test_the_designs_stop_of_its_own_server_ends_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ends_seen: list[object] = []
+    real_start_server = design_voice.start_server
+
+    def recording_start_server(
+        command: Sequence[str],
+        socket_path: Path,
+        *,
+        when_server_ends: Callable[[], None],
+    ) -> Server:
+        return real_start_server(
+            command,
+            socket_path,
+            when_server_ends=lambda: (when_server_ends(), ends_seen.append(None))[1],
+        )
+
+    monkeypatch.setattr(design_voice, "start_server", recording_start_server)
     socket_path = tmp_path / "server.sock"
     command = [sys.executable, str(_FAKE_SERVER), "healthy", "--uds", str(socket_path)]
 
@@ -318,4 +336,4 @@ def test_the_designs_stop_of_its_own_server_ends_nothing(tmp_path: Path) -> None
         if thread.name == WATCH_THREAD_NAME:
             thread.join()
 
-    # The test process surviving is the proof: the default `exit_worker` would end it.
+    assert ends_seen == [None]
