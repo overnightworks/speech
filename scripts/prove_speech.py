@@ -382,6 +382,14 @@ def speech_server(
         yield from _run_and_stop(server, base_url, wait_ready, log_file)
 
 
+def _exits_within(process: subprocess.Popen[str], seconds: float) -> bool:
+    try:
+        process.wait(timeout=seconds)
+    except subprocess.TimeoutExpired:
+        return False
+    return True
+
+
 def stop_process(
     process: subprocess.Popen[str],
     *,
@@ -389,9 +397,7 @@ def stop_process(
 ) -> None:
     """Terminate `process`, wait `grace_seconds`, then kill it and wait for the kill."""
     process.terminate()
-    try:
-        process.wait(timeout=grace_seconds)
-    except subprocess.TimeoutExpired:
+    if not _exits_within(process, grace_seconds):
         process.kill()
         process.wait(timeout=KILL_WAIT_SECONDS)
 
