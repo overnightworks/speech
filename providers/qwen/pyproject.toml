@@ -9,7 +9,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "overnightworks-speech-provider-contract",
     "vllm==0.32.0",
-    "vllm-omni==0.32.0",
+    "vllm-omni==0.34.0",
 ]
 
 [project.scripts]

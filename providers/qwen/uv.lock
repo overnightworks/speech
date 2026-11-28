@@ -16,7 +16,7 @@ overrides = [
 
 [[package]]
 name = "accelerate"
-version = "1.12.0"
+version = "1.13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -27,9 +27,9 @@ dependencies = [
     { name = "safetensors" },
     { name = "torch" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4a/8e/ac2a9566747a93f8be36ee08532eb0160558b07630a081a6056a9f89bf1d/accelerate-1.12.0.tar.gz", hash = "sha256:70988c352feb481887077d2ab845125024b2a137a5090d6d7a32b57d03a45df6", size = 398399, upload-time = "2025-11-21T11:27:46.973Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ca/14/787e5498cd062640f0f3d92ef4ae4063174f76f9afd29d13fc52a319daae/accelerate-1.13.0.tar.gz", hash = "sha256:d631b4e0f5b3de4aff2d7e9e6857d164810dfc3237d54d017f075122d057b236", size = 402835, upload-time = "2026-03-04T19:34:12.359Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9f/d2/c581486aa6c4fbd7394c23c47b83fa1a919d34194e16944241daf9e762dd/accelerate-1.12.0-py3-none-any.whl", hash = "sha256:3e2091cd341423207e2f084a6654b1efcd250dc326f2a37d6dde446e07cabb11", size = 380935, upload-time = "2025-11-21T11:27:44.522Z" },
+    { url = "https://files.pythonhosted.org/packages/7e/46/02ac5e262d4af18054b3e922b2baedbb2a03289ee792162de60a865defc5/accelerate-1.13.0-py3-none-any.whl", hash = "sha256:cf1a3efb96c18f7b152eb0fa7490f3710b19c3f395699358f08decca2b8b62e0", size = 383744, upload-time = "2026-03-04T19:34:10.313Z" },
 ]
 
 [[package]]
@@ -515,11 +515,10 @@ wheels = [
 
 [[package]]
 name = "diffusers"
-version = "0.40.0"
+version = "0.42.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "filelock" },
-    { name = "httpx" },
     { name = "huggingface-hub" },
     { name = "importlib-metadata" },
     { name = "numpy" },
@@ -528,9 +527,9 @@ dependencies = [
     { name = "requests" },
     { name = "safetensors" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/59/32/b9c6a198812e2a7d2c2828a850dba384306f9af285eac23e35e89d5b008a/diffusers-0.40.0.tar.gz", hash = "sha256:49f112ce52ff6d332ab68afec01f79a53e6489b42cb69104444c98b4a2f64af8", size = 4886420, upload-time = "2026-08-20T14:30:40.923Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/21/b09591f038b86bf1f5147c4cac12cd36052d8055a1c64797bb1760a4a44c/diffusers-0.42.0.tar.gz", hash = "sha256:e29c723d84251465743a515803a5bbd4e760ea9e9c1ebd4315f3b104d0c25bbe", size = 5264326, upload-time = "2026-10-23T15:36:11.037Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/db/df/ffb593ebed2a068d2d6be44261283f39a6b809c0fcdfdcafbd448cbeec77/diffusers-0.40.0-py3-none-any.whl", hash = "sha256:5b5da7c3ddb62152fa4afc577f02e050af688c797375c34fb2d01006da3f3541", size = 5911654, upload-time = "2026-08-20T14:30:38.422Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/ac/08dca462b503e8c16099af647401c2548cbe2c4fbafd487ff3265fa57385/diffusers-0.42.0-py3-none-any.whl", hash = "sha256:c409b893156c895dde5b7fe410a014f6b94bf7caa1b96360e43a335c762674f4", size = 6354874, upload-time = "2026-10-23T15:36:08.334Z" },
 ]
 
 [[package]]
@@ -2055,7 +2054,7 @@ dev = [
 requires-dist = [
     { name = "overnightworks-speech-provider-contract", editable = "../provider-contract" },
     { name = "vllm", specifier = "==0.32.0" },
-    { name = "vllm-omni", specifier = "==0.32.0" },
+    { name = "vllm-omni", specifier = "==0.34.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -3320,7 +3319,7 @@ wheels = [
 
 [[package]]
 name = "vllm-omni"
-version = "0.32.0"
+version = "0.34.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "accelerate" },
@@ -3335,9 +3334,13 @@ dependencies = [
     { name = "janus" },
     { name = "kernels" },
     { name = "msgpack" },
+    { name = "msgspec" },
     { name = "omegaconf" },
     { name = "onnxruntime" },
+    { name = "openai" },
+    { name = "opentelemetry-api" },
     { name = "prettytable" },
+    { name = "psutil" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyzmq" },
@@ -3353,7 +3356,7 @@ dependencies = [
     { name = "x-transformers" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/72/e9/9f8b93e0c59ba91a39530e55d5573edd544fdafaadaec48abe0950096e75/vllm_omni-0.32.0-py3-none-any.whl", hash = "sha256:242b94e64b359d3cd6d1ebf1b9d6b43ae854a4f97c780fd5e2121dab06cb68e6", size = 9668735, upload-time = "2026-10-28T09:52:14.588Z" },
+    { url = "https://files.pythonhosted.org/packages/3d/93/f706c56d8c33ea942af70e7de366a881ca6bc4e528532ea376cb77a17ac8/vllm_omni-0.34.0-py3-none-any.whl", hash = "sha256:c5cb4d05275008287803f7dfb3f9428d845d12635a75f2f0d8075961ca62d8d8", size = 11264394, upload-time = "2026-11-22T13:06:10.053Z" },
 ]
 
 [[package]]
