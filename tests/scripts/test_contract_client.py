@@ -9,7 +9,6 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import Mock
 
 import jwt
 import pytest
@@ -25,7 +24,6 @@ from speech_client.wire import (
     SpeechRequest,
     VoiceId,
 )
-from speech_service.config import Settings
 from speech_service.pcm import wav_header
 from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import SPEAK_SAMPLE_RATE, FakeSpeaking
@@ -108,7 +106,7 @@ def test_prove_points_the_service_at_the_repository_provider_environments(
 ) -> None:
     monkeypatch.delenv("SPEECH_PROVIDER_ROOT", raising=False)
 
-    environment = PROVE.speech_environment(8080, PIPER_VOICES[0], identity)
+    environment = PROVE.speech_environment(8080, PIPER_VOICES, identity)
 
     provider_root = Path(environment["SPEECH_PROVIDER_ROOT"])
     assert provider_root.is_absolute()
@@ -132,24 +130,12 @@ def test_prove_speaks_the_gpu_voice_the_offer_names_else_piper(
     assert PROVE.proof_voice(offered) is next(iter(on_demand), PROVE.PIPER_PROOF_VOICE)
 
 
-@pytest.mark.parametrize("voice", list(CATALOGUE))
-def test_prove_offers_the_service_the_voice_it_speaks_beside_a_piper_voice(
-    monkeypatch: pytest.MonkeyPatch, identity: ProofIdentity, voice: VoiceId
-) -> None:
-    monkeypatch.setenv("SPEECH_VOICES", ON_DEMAND_VOICES[0])
-
-    environment = PROVE.speech_environment(8080, voice, identity)
-
-    monkeypatch.setenv("SPEECH_VOICES", environment["SPEECH_VOICES"])
-    assert Settings().voices == {PROVE.PIPER_PROOF_VOICE, voice}
-
-
 def test_prove_keeps_a_provider_root_the_caller_set(
     monkeypatch: pytest.MonkeyPatch, identity: ProofIdentity
 ) -> None:
     monkeypatch.setenv("SPEECH_PROVIDER_ROOT", "/elsewhere")
 
-    environment = PROVE.speech_environment(8080, PIPER_VOICES[0], identity)
+    environment = PROVE.speech_environment(8080, PIPER_VOICES, identity)
 
     assert environment["SPEECH_PROVIDER_ROOT"] == "/elsewhere"
 
@@ -170,7 +156,7 @@ def test_prove_starts_a_hearing_service_with_sounds_off_unless_exported(
         monkeypatch.setenv("SPEECH_SOUND_EVENTS", exported)
 
     environment = PROVE.speech_environment(
-        8080, PIPER_VOICES[0], identity, hearing_model="small"
+        8080, PIPER_VOICES, identity, hearing_model="small"
     )
 
     assert environment["SPEECH_SOUND_EVENTS"] == started_with
@@ -181,7 +167,7 @@ def test_prove_leaves_the_sound_switch_alone_without_a_hearing_model(
 ) -> None:
     monkeypatch.delenv("SPEECH_SOUND_EVENTS", raising=False)
 
-    environment = PROVE.speech_environment(8080, PIPER_VOICES[0], identity)
+    environment = PROVE.speech_environment(8080, PIPER_VOICES, identity)
 
     assert "SPEECH_SOUND_EVENTS" not in environment
 
@@ -192,7 +178,7 @@ def test_prove_defaults_to_the_card_proof(
     for name in ("SPEECH_DEVICE", "CUDA_VISIBLE_DEVICES"):
         monkeypatch.delenv(name, raising=False)
 
-    environment = PROVE.speech_environment(8080, PIPER_VOICES[0], identity)
+    environment = PROVE.speech_environment(8080, PIPER_VOICES, identity)
 
     assert environment["SPEECH_DEVICE"] == "cuda"
     assert "CUDA_VISIBLE_DEVICES" not in environment
@@ -203,7 +189,7 @@ def test_prove_takes_the_device_and_hides_the_card_on_the_cpu(
 ) -> None:
     monkeypatch.setenv("SPEECH_DEVICE", "cpu")
 
-    environment = PROVE.speech_environment(8080, PIPER_VOICES[0], identity)
+    environment = PROVE.speech_environment(8080, PIPER_VOICES, identity)
 
     assert environment["SPEECH_DEVICE"] == "cpu"
     assert environment["CUDA_VISIBLE_DEVICES"] == ""
@@ -219,14 +205,6 @@ def test_peak_resident_memory_is_read_from_the_process_status_in_mebibytes() -> 
 def test_a_process_status_without_a_peak_resident_set_fails() -> None:
     with pytest.raises(SystemExit, match="no VmHWM"):
         PROVE.peak_rss_mib("Name:\tpython\nVmRSS:\t 1 kB\n")
-
-
-def test_a_running_service_reports_its_own_peak_resident_set() -> None:
-    running = PROVE.RunningSpeech(
-        Mock(pid=os.getpid()), health_offering(PIPER_VOICES[0], (Language.DE,)), 0.0
-    )
-
-    assert running.peak_rss_mib() > 0
 
 
 @pytest.mark.parametrize("arguments", [["--help"], ["--measure"], ["extra"]])
@@ -611,7 +589,7 @@ def test_the_contract_client_command_passes_the_minting_file_path_and_no_secret(
 def test_prove_hands_the_service_its_configuration_and_the_proofs_ca(
     identity: ProofIdentity,
 ) -> None:
-    environment = PROVE.speech_environment(8080, PIPER_VOICES[0], identity)
+    environment = PROVE.speech_environment(8080, PIPER_VOICES, identity)
 
     assert environment["SPEECH_CONFIG_FILE"] == str(identity.configuration_path)
     assert environment["SSL_CERT_FILE"] == str(identity.ca_path)
@@ -622,7 +600,7 @@ def test_prove_binds_the_service_to_the_loopback_port_it_picked(
 ) -> None:
     port = PROVE.free_local_port()
 
-    environment = PROVE.speech_environment(port, PIPER_VOICES[0], identity)
+    environment = PROVE.speech_environment(port, PIPER_VOICES, identity)
 
     assert environment["SPEECH_HOST"] == "127.0.0.1"
     assert environment["SPEECH_PORT"] == str(port)

@@ -397,8 +397,6 @@ def fake_probe_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
                 HEARING_MODEL,
                 "--record",
                 "r.json",
-                "--english-voice-directory",
-                "voices",
             ],
             id="prove_hearing",
         ),

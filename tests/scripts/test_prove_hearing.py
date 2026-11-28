@@ -34,7 +34,6 @@ if TYPE_CHECKING:
     from speech_client.wire import VoiceId
 
 HEARING = script_module("prove_hearing")
-VOICES = Path.home() / "voices"
 RUNS = "7"
 HELD_MIB = 321
 WIRE_RATE = 24_000
@@ -49,8 +48,6 @@ def command(*changes: str) -> list[str]:
         "small",
         "--record",
         "record.json",
-        "--english-voice-directory",
-        str(VOICES),
         *changes,
     ]
 
@@ -63,7 +60,6 @@ def test_the_device_the_models_and_the_paths_come_from_the_command_line() -> Non
     assert arguments.device == "cpu"
     assert arguments.hearing_models == [HearingModel.SMALL, HearingModel.LARGE_V3]
     assert arguments.record == Path("record.json")
-    assert arguments.english_voice_directory == VOICES
     assert arguments.runs == int(RUNS)
 
 

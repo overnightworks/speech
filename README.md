@@ -145,7 +145,7 @@ and cleans up what it started:
 | Command | What it proves |
 | --- | --- |
 | `uv run python scripts/prove_speech.py` | Health and speaking of every offered Piper voice and two at once, ending in `PROOF_OK`; with a hearing model, a recording heard meanwhile. Without a card: `SPEECH_DEVICE=cpu` |
-| `uv run python scripts/prove_hearing.py --device cpu --hearing-model small --record record.json --english-voice-directory ~/.cache/piper-en` | Hearing, live and from a file; only a record with an empty `not_measured` is `complete` |
+| `uv run python scripts/prove_hearing.py --device cpu --hearing-model small --record record.json` | Hearing, live and from a file, with the English Piper voice read from the service's voice cache (`speech-fetch-voice` fetches it); only a record with an empty `not_measured` is `complete` |
 | `uv run python scripts/prove_image.py` | The built image under the real `compose.yaml` (CI job `Speech: image`) |
 
 ## Documentation
