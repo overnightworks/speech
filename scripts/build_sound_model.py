@@ -211,7 +211,19 @@ def reference_windows() -> list[Samples]:
     return [*noise.astype(np.float32), *(audio[s : s + WINDOW_SAMPLES] for s in starts)]
 
 
-def worst_difference(model, onnx: Path, labels: int) -> float:  # noqa: ANN001 - torch stays lazy
+def score_difference(found: Samples, expected: Samples, labels: int) -> float:
+    """The largest gap between two scores; a malformed pair is refused."""
+    if found.shape != expected.shape or found.shape[1] != labels:
+        message = f"the ONNX scores are {found.shape}, PyTorch's {expected.shape}"
+        raise RuntimeError(message)
+    difference = np.abs(found - expected)
+    if not np.isfinite(difference).all():
+        message = "the ONNX or PyTorch scores hold a non-finite value"
+        raise RuntimeError(message)
+    return float(difference.max())
+
+
+def worst_difference(model, onnx: Path, windows: list[Samples], labels: int) -> float:  # noqa: ANN001 - torch stays lazy
     """The largest score difference between the ONNX and the PyTorch model."""
     import torch  # noqa: PLC0415 - torch stays lazy
 
@@ -221,20 +233,13 @@ def worst_difference(model, onnx: Path, labels: int) -> float:  # noqa: ANN001 -
         str(onnx), sess_options=options, providers=["CPUExecutionProvider"]
     )
     worst = 0.0
-    for window in reference_windows():
+    for window in windows:
         (found,) = session.run(None, {"waveform": window[None]})
         with torch.no_grad():
             expected = torch.sigmoid(
                 model(model.mel_forward(torch.from_numpy(window[None])))[0]
             ).numpy()
-        if found.shape != expected.shape or found.shape[1] != labels:
-            message = f"the ONNX scores are {found.shape}, PyTorch's {expected.shape}"
-            raise RuntimeError(message)
-        difference = np.abs(found - expected)
-        if not np.isfinite(difference).all():
-            message = "the ONNX or PyTorch scores hold a non-finite value"
-            raise RuntimeError(message)
-        worst = max(worst, float(difference.max()))
+        worst = max(worst, score_difference(found, expected, labels))
     return worst
 
 
@@ -243,6 +248,7 @@ def build(destination: Path) -> None:
     if destination.exists():
         message = f"{destination} exists"
         raise RuntimeError(message)
+    windows = reference_windows()
     destination.parent.mkdir(parents=True, exist_ok=True)
     # The staging directory is a sibling, so its rename is one step on one volume.
     with tempfile.TemporaryDirectory(
@@ -255,7 +261,7 @@ def build(destination: Path) -> None:
         labels = class_names(source)
         model = pytorch_model(source)
         convert(model, output / MODEL_NAME)
-        worst = worst_difference(model, output / MODEL_NAME, len(labels))
+        worst = worst_difference(model, output / MODEL_NAME, windows, len(labels))
         if worst > TOLERANCE:
             message = (
                 f"the ONNX differs from PyTorch by {worst:.1e} (limit {TOLERANCE:g})"

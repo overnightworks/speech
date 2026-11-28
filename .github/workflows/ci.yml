@@ -405,7 +405,7 @@ jobs:
       - name: Judge the combined root coverage
         run: |
           uv run --locked coverage combine .coverage.unit .coverage.browser-flow .coverage.keycloak .coverage.image
-          uv run --locked coverage report --precision=2 --show-missing --skip-covered --fail-under=98.58
+          uv run --locked coverage report --precision=2 --show-missing --skip-covered --fail-under=98.87
           uv run --locked coverage xml -o coverage-root.xml
 
       # The two reports name disjoint files, so their concatenation is one valid lcov.
