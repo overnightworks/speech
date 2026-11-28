@@ -276,12 +276,16 @@ jobs:
 
       # The proof starts its services as subprocesses, which `patch = ["subprocess"]`
       # measures into fragments; combining them leaves the one file the report job reads.
+      # The image's sound-model stage runs under coverage in every build; its data file is
+      # exported from that build's stage and combined too.
       - name: Build the image and prove it on isolated networks
         env:
           COVERAGE_FILE: .coverage.image
         run: |
           uv run --locked coverage run scripts/prove_image.py
           uv run --locked coverage combine --append
+          docker build --target sound-model-coverage --output type=local,dest=sound-model-coverage .
+          uv run --locked coverage combine --append sound-model-coverage
 
       - name: Upload the coverage data
         if: ${{ !cancelled() }}

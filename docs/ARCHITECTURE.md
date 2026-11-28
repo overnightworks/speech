@@ -181,6 +181,11 @@ reports` combines them into `coverage-root.xml` and judges the root floor in its
 it is its own layer with its own report, and its job judges its floor. A floor
 lives in the one CI command that judges it and only rises.
 
+The image build's sound-model stage is measured where it runs: it executes
+`scripts/build_sound_model.py` under coverage in every build, and the image job
+exports that stage's data file and combines it into the image job's data file. Its
+torch-bound conversion and parity check are reached by no other layer.
+
 ## Constraints and reasons
 
 - **The operator owns the card.** The service arbitrates nothing; `SPEECH_VOICES`
@@ -244,7 +249,7 @@ lives in the one CI command that judges it and only rises.
   judged in use. The cost of scoring beside a decode, about 4.5 % of one core per
   session, is not judged under load.
 - Neither Dependabot nor the quality gate's advisory scan reads the inline
-  header or the lock of `scripts/build_sound_model.py`, so its pins move by hand
-  and its packages are not scanned for advisories.
+  header or the lock of `scripts/build_sound_model.py`, so its pins, coverage's
+  among them, move by hand and its packages are not scanned for advisories.
 - A copied token works until its `exp`, with no leeway or sender constraint. A
   live hearing session outlives a token's expiry; the app ends it.
