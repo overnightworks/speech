@@ -8,7 +8,6 @@ import select
 import signal
 import subprocess
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -201,22 +200,19 @@ def test_a_healthy_card_keeps_its_reading_among_the_samples(
 
 
 def test_a_peak_after_the_first_reading_is_among_the_samples(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    readings = iter([READING_MIB, 2 * READING_MIB])
-    second_taken = threading.Event()
-
-    def used_mib() -> int:
-        reading = next(readings, 2 * READING_MIB)
-        if reading != READING_MIB:
-            second_taken.set()
-        return reading
-
-    monkeypatch.setattr(CARD, "used_mib", used_mib)
+    card = FakeNvidiaSmi(tmp_path, monkeypatch)
+    card.use(READING_MIB)
     monkeypatch.setattr(CARD, "MEMORY_SAMPLE_SECONDS", 0)
+    deadline = time.monotonic() + DEADLINE_SECONDS
 
     with CARD.MemorySampler() as sampler:
-        assert second_taken.wait(DEADLINE_SECONDS)
+        while not sampler.samples and time.monotonic() < deadline:
+            pass
+        card.use(2 * READING_MIB)
+        while 2 * READING_MIB not in sampler.samples and time.monotonic() < deadline:
+            pass
 
     assert max(sampler.samples) == 2 * READING_MIB
 

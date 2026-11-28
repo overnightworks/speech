@@ -22,18 +22,15 @@ from speech_client.realtime_wire import (
 from speech_client.wire import Language, RefusalCode
 from tests.support.fakes_support import sine_pcm
 from tests.support.hear_support import HEARD_TEXT, FakeHearing, hear_runtime
-from tests.support.identity_support import callers_trusting
+from tests.support.hearing_service_support import service_of
 from tests.support.script_support import script_module
-from tests.support.tcp_server_support import serving_over_tcp
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
-    from contextlib import AbstractAsyncContextManager
 
     from proof_identity import ProofIdentity
     from proof_minting import Minting
     from speech_client.realtime_wire import ServerEvent
-    from tests.support.tcp_server_support import TcpServer
 
 CLIENT = script_module("hearing_client")
 QUESTION = sine_pcm(0.5, LIVE_INPUT_RATE)
@@ -45,20 +42,13 @@ COMPLETED = TranscriptCompleted(
 )
 
 
-def served(
-    engine: FakeHearing | None, minting: Minting, identity: ProofIdentity
-) -> AbstractAsyncContextManager[TcpServer]:
-    """The service hearing with `engine`, for callers trusting `minting`."""
-    callers = callers_trusting(identity.configuration_path, minting)
-    return serving_over_tcp(hear_runtime(engine), callers)
-
-
 def test_a_recording_is_heard_from_the_file_route(
     minting: Minting, identity: ProofIdentity
 ) -> None:
     async def scenario() -> tuple[float, str]:
-        async with served(FakeHearing(), minting, identity) as server:
-            service = CLIENT.Service(server.base_url, minting, None)
+        async with service_of(
+            hear_runtime(FakeHearing()), minting, identity
+        ) as service:
             return await asyncio.to_thread(
                 CLIENT.hear_file, service, Language.DE, QUESTION
             )
@@ -72,8 +62,7 @@ def test_a_service_without_hearing_ends_the_file_proof_naming_its_answer(
     minting: Minting, identity: ProofIdentity
 ) -> None:
     async def scenario() -> None:
-        async with served(None, minting, identity) as server:
-            service = CLIENT.Service(server.base_url, minting, None)
+        async with service_of(hear_runtime(None), minting, identity) as service:
             await asyncio.to_thread(CLIENT.hear_file, service, Language.DE, QUESTION)
 
     ended = scenario()
@@ -83,12 +72,13 @@ def test_a_service_without_hearing_ends_the_file_proof_naming_its_answer(
         asyncio.run(ended)
 
 
-def test_a_turn_is_heard_live_at_speaking_pace(
+def test_a_turn_is_heard_live_and_its_transcript_returned(
     minting: Minting, identity: ProofIdentity
 ) -> None:
     async def scenario() -> object:
-        async with served(FakeHearing(), minting, identity) as server:
-            service = CLIENT.Service(server.base_url, minting, None)
+        async with service_of(
+            hear_runtime(FakeHearing()), minting, identity
+        ) as service:
             return await CLIENT.hear_live(service, (Language.DE,), QUESTION)
 
     turn = asyncio.run(scenario())
@@ -102,8 +92,7 @@ def test_a_refused_live_session_ends_the_proof_naming_its_refusal(
     refusal = Refused(int(HTTPStatus.SERVICE_UNAVAILABLE), RefusalCode.UNAVAILABLE)
 
     async def scenario() -> None:
-        async with served(None, minting, identity) as server:
-            service = CLIENT.Service(server.base_url, minting, None)
+        async with service_of(hear_runtime(None), minting, identity) as service:
             await CLIENT.hear_live(service, (Language.DE,), QUESTION)
 
     ended = scenario()

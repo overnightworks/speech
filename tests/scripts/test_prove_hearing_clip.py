@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -12,9 +13,8 @@ import hearing_figures as figures
 from shipped_catalogue import CATALOGUE
 from speech_service.service import Runtime, RuntimeDependencies
 from tests.support.fakes_support import FakeSpeaking
-from tests.support.identity_support import callers_trusting
+from tests.support.hearing_service_support import service_of
 from tests.support.script_support import script_module
-from tests.support.tcp_server_support import serving_over_tcp
 from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
@@ -26,7 +26,6 @@ if TYPE_CHECKING:
 
 HEARING = script_module("prove_hearing")
 LINES = script_module("voice_lines")
-CLIENT = script_module("hearing_client")
 SPEECH = Path(__file__).parents[1] / "fixtures" / "speech" / "nein_danke.wav"
 SPEECH_RATE, SPEECH_PCM = pcm_from_wav(SPEECH.read_bytes())
 
@@ -53,9 +52,7 @@ async def clip_made(
         memory_probe=lambda: 0,
         dependencies=RuntimeDependencies(catalogue=CATALOGUE),
     )
-    callers = callers_trusting(identity.configuration_path, minting)
-    async with serving_over_tcp(runtime, callers) as server:
-        service = CLIENT.Service(server.base_url, minting, None)
+    async with service_of(runtime, minting, identity) as service:
         return await asyncio.to_thread(make, service)
 
 
@@ -72,10 +69,18 @@ def german_clip(minting: Minting, identity: ProofIdentity) -> bytes:
 def test_the_german_clip_joins_the_speech_of_each_sentence(
     minting: Minting, identity: ProofIdentity
 ) -> None:
+    sentences = len(re.split(r"(?<=\.) ", HEARING.GERMAN_LONG_TURN))
+    one_sentence = asyncio.run(
+        clip_made(
+            minting,
+            identity,
+            lambda service: HEARING.german_clip(service, "Nein, danke."),
+        )
+    )
+
     clip = german_clip(minting, identity)
 
-    sentences = HEARING.GERMAN_LONG_TURN.count(". ") + 1
-    assert 0 < figures.seconds_of(clip) <= sentences * len(SPEECH_PCM) / SPEECH_RATE
+    assert len(clip) == sentences * len(one_sentence)
 
 
 @pytest.mark.parametrize("longer_by", [1.0, 0.0], ids=["past one clip", "one clip"])
