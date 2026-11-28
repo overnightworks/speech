@@ -135,7 +135,9 @@ def test_an_admitted_speak_that_is_refused_fails_naming_its_status() -> None:
     "judgement",
     [
         pytest.param(
-            lambda outcome: judged.require_one_laughter(outcome, 3000), id="asked"
+            # The error fires before the clip is judged: the length is any value.
+            lambda outcome: judged.require_one_laughter(outcome, 3000),
+            id="asked",
         ),
         pytest.param(judged.require_no_sounds, id="not asked"),
     ],

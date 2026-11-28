@@ -92,6 +92,8 @@ def test_a_teardown_tries_both_removals_and_names_each_that_failed(
     assert fake.commands == commands
     assert [line.split(" failed")[0] for line in result.left] == left
     assert (result.tail is not None) == failed
+    if failed:
+        assert "logs broke" in (result.tail or "")
 
 
 @pytest.mark.parametrize("size", [4096, 25 * 1024 * 1024, 25 * 1024 * 1024 + 1])
