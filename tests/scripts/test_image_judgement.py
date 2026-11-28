@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import jwt
@@ -26,6 +25,7 @@ from speech_client.wire import (
 from speech_service.config import CallerConfig, load_caller_config
 from speech_service.hearing_models import HearingModel
 from speech_service.pcm import wav_header
+from tests.support.hear_support import NEIN_DANKE
 from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
@@ -33,7 +33,6 @@ if TYPE_CHECKING:
 
 BAKED_CONFIG = REPOSITORY / "deploy" / "speech.toml"
 SAMPLE_RATE = 24_000
-SPEECH = Path(__file__).parents[1] / "fixtures" / "speech" / "nein_danke.wav"
 # One phrase holds less voiced speech than any model's floor, this many hold more.
 LONG_ENOUGH_PHRASES = 4
 SILENCE = bytes(64)
@@ -558,7 +557,7 @@ def test_a_final_in_another_language_than_expected_fails_the_proof() -> None:
 
 def _clip(phrases: int) -> bytes:
     """`phrases` spoken phrases of a Piper voice, one after the other, as a WAV."""
-    rate, phrase = pcm_from_wav(SPEECH.read_bytes())
+    rate, phrase = pcm_from_wav(NEIN_DANKE.read_bytes())
     pcm = to_wire_rate(phrase, rate) * phrases
     return wav_header(SAMPLE_RATE, len(pcm)) + pcm
 

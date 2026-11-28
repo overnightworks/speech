@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import wave
 from dataclasses import replace
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -14,6 +13,7 @@ import hearing_figures as figures
 from speech_client.wire import Language, RefusalCode
 from speech_service.config import DEFAULT_LIVE_SILENCE_SECONDS
 from speech_service.voice_activity import PRE_ROLL_SECONDS, START_WINDOWS
+from tests.support.hear_support import NEIN_DANKE
 from wav_audio import pcm_from_wav
 
 RATE = 24000
@@ -25,12 +25,11 @@ WINDOW_BYTES = 512 * RATE // 16_000 * 2
 # which Silero rates as voiced.
 BURST_BYTES = (START_WINDOWS - 1) * WINDOW_BYTES
 BURST_FROM_BYTES = 10 * WINDOW_BYTES
-SPEECH = Path(__file__).parents[1] / "fixtures" / "speech" / "nein_danke.wav"
 
 
 def speech() -> bytes:
     """A German phrase spoken by a Piper voice, at the wire rate."""
-    rate, pcm = pcm_from_wav(SPEECH.read_bytes())
+    rate, pcm = pcm_from_wav(NEIN_DANKE.read_bytes())
     return figures.to_wire_rate(pcm, rate)
 
 

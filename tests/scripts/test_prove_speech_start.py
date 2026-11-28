@@ -8,10 +8,12 @@ from pathlib import Path
 import pytest
 
 from shipped_catalogue import PIPER_VOICES
+from speech_service.hearing_models import HearingModel
 from speech_service.voices import piper_voice_paths
 from tests.support.gpu_voice_support import _RECORDING_PIPER
 from tests.support.script_support import script_module
 
+HEARING = script_module("prove_hearing")
 PROVE = script_module("prove_speech")
 SCRIPTS = Path(PROVE.__file__).parent
 
@@ -53,3 +55,18 @@ def test_the_proofs_service_starts_on_its_own_identity_and_leaves_no_process() -
 
     assert not directory.exists()
     assert not Path(f"/proc/{pid}").exists()
+
+
+@pytest.mark.usefixtures("piper_beside_the_checkout")
+def test_a_hearing_model_missing_from_the_cache_ends_the_start_when_the_service_exits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SPEECH_HUGGINGFACE_CACHE", str(tmp_path / "empty-cache"))
+
+    with (
+        pytest.raises(SystemExit, match="service exited with status"),
+        HEARING.hearing_service(
+            "cpu", HearingModel.SMALL.value, PROVE.PIPER_PROOF_VOICE
+        ),
+    ):
+        pass

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import threading
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from hearing_figures import to_wire_rate
 from shipped_catalogue import CATALOGUE
 from speech_client.wire import (
     MODEL,
@@ -23,23 +26,45 @@ from tests.support.detector_support import LevelDetector
 from tests.support.fakes_support import FakeSpeaking, sine_pcm
 from tests.support.identity_support import valid_callers, valid_headers
 from tests.support.speak_support import SpeakCall, speak_scope
+from wav_audio import pcm_from_wav
 
 if TYPE_CHECKING:
+    import wave
     from collections.abc import Mapping
-    from pathlib import Path
 
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from httpx2 import Response as ClientResponse
+    from piper.config import SynthesisConfig
 
     from speech_service.clock import Clock
     from speech_service.sound_events import SoundTaggers
 
+NEIN_DANKE = Path(__file__).parents[1] / "fixtures" / "speech" / "nein_danke.wav"
 BOUNDARY = "recording-boundary"
 MULTIPART = f"multipart/form-data; boundary={BOUNDARY}"
 RECORDING_RATE = 22_050
 HEARD_TEXT = "Guten Tag"
 WAIT_SECONDS = 5.0
+PIPER_WIRE_RATE = 24_000
+
+
+class VoiceWithDurationNoise:
+    """A Piper voice that pauses inside a sentence unless its durations are fixed."""
+
+    def synthesize_wav(
+        self,
+        text: str,
+        wav_file: wave.Wave_write,
+        syn_config: SynthesisConfig | None = None,
+    ) -> None:
+        """Each sentence as two halves of speech with a pause between them."""
+        pause = 0.1 if syn_config and syn_config.noise_w_scale == 0.0 else 0.6
+        wav_file.setparams((1, 2, PIPER_WIRE_RATE, 0, "NONE", "not compressed"))
+        rate, phrase = pcm_from_wav(NEIN_DANKE.read_bytes())
+        half = to_wire_rate(phrase, rate)
+        for _ in re.split(r"(?<=\.) ", text):
+            wav_file.writeframes(half + bytes(int(2 * PIPER_WIRE_RATE * pause)) + half)
 
 
 class FakeHearing:
