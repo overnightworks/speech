@@ -3,6 +3,6 @@ agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
 role = "builder"
 base = "2e03eff08091ebfe16517ba137cfccb25ebc2bfa"
 branch = "claude/issue-768-client-drops-its-trace-carrier"
-scope = ["docs/wire.md", "packages/client/pyproject.toml", "packages/client/src/speech_client/_traceparent.py", "packages/client/src/speech_client/hearing.py", "packages/client/tests/test_hearing_token_source.py", "packages/client/tests/test_utterances_trace.py", "pyproject.toml", "uv.lock"]
+scope = ["docs/wire.md", "packages/client/pyproject.toml", "packages/client/src/speech_client/_traceparent.py", "packages/client/src/speech_client/hearing.py", "packages/client/src/speech_client/utterances.py", "packages/client/tests/test_hearing_token_source.py", "packages/client/tests/test_utterances_trace.py", "pyproject.toml", "uv.lock"]
 opened_commit = "bb1481d1c6f279b73ddfeeba203dcc58cc94203c"
 whole_reason = "One carrier removal in the hearing client with the logline range and pins it needs."
