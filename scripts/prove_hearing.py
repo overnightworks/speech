@@ -124,6 +124,7 @@ ENGLISH_LONG_TURN = (
 )
 ENGLISH_VOICE: Final = "en_US-ljspeech-medium"
 CARD_STAGES = ("gpu_memory", "taken_card")
+SENTENCE_BOUNDARY = re.compile(r"(?<=\.) ")
 PROBE_TEXT = "Bereit."
 SPEAK_WAIT_SECONDS = 30.0
 POLL_SECONDS = 0.5
@@ -291,7 +292,7 @@ def german_clip(service: Service, text: str) -> bytes:
     sentences join without the pause the route puts between them.
     """
     sentences = []
-    for sentence in re.split(r"(?<=\.) ", text):
+    for sentence in SENTENCE_BOUNDARY.split(text):
         wav, _, _ = speak_measured(
             service.base_url,
             sentence,

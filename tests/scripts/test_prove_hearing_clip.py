@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -69,7 +68,7 @@ def german_clip(minting: Minting, identity: ProofIdentity) -> bytes:
 def test_the_german_clip_joins_the_speech_of_each_sentence(
     minting: Minting, identity: ProofIdentity
 ) -> None:
-    sentences = len(re.split(r"(?<=\.) ", HEARING.GERMAN_LONG_TURN))
+    sentences = len(HEARING.SENTENCE_BOUNDARY.split(HEARING.GERMAN_LONG_TURN))
     one_sentence = asyncio.run(
         clip_made(
             minting,
