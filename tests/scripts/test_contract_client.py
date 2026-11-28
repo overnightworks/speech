@@ -9,6 +9,7 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import Mock
 
 import jwt
 import pytest
@@ -210,6 +211,19 @@ def test_peak_resident_memory_is_read_from_the_process_status_in_mebibytes() -> 
     status = "Name:\tpython\nVmPeak:\t 9999 kB\nVmHWM:\t 2048000 kB\nVmRSS:\t 1 kB\n"
 
     assert PROVE.peak_rss_mib(status) == pytest.approx(2000.0)
+
+
+def test_a_process_status_without_a_peak_resident_set_fails() -> None:
+    with pytest.raises(SystemExit, match="no VmHWM"):
+        PROVE.peak_rss_mib("Name:\tpython\nVmRSS:\t 1 kB\n")
+
+
+def test_a_running_service_reports_its_own_peak_resident_set() -> None:
+    running = PROVE.RunningSpeech(
+        Mock(pid=os.getpid()), speaking_health(PIPER_VOICES[0], (Language.DE,)), 0.0
+    )
+
+    assert running.peak_rss_mib() > 0
 
 
 @pytest.mark.parametrize("arguments", [["--help"], ["--measure"], ["extra"]])

@@ -97,6 +97,8 @@ UNDER_PROBE_RUN_ENV = "SPEECH_PROOF_UNDER_PROBE_RUN"
 # server exits within the grace after the proof body ends.
 CAP_SECONDS = 1800
 KILL_GRACE_SECONDS = 30
+TERMINATE_GRACE_SECONDS = 10
+KILL_WAIT_SECONDS = 5
 SPEAK_TIMEOUT_SECONDS = 120
 CONCURRENT_EXTRA_WAIT_SECONDS = 8.0
 READY_TIMEOUT_SECONDS = 600.0
@@ -290,7 +292,8 @@ def nvidia_memory() -> str:
     return query_nvidia("--query-gpu=memory.used,memory.total", "--format=csv,noheader")
 
 
-def _nvidia_compute_pids() -> str:
+def nvidia_compute_pids() -> str:
+    """The process ids that compute on the card on one line, `none`, or a note."""
     pids = query_nvidia("--query-compute-apps=pid", "--format=csv,noheader")
     if pids.startswith("unavailable:"):
         return pids
@@ -379,6 +382,20 @@ def speech_server(
         yield from _run_and_stop(server, base_url, wait_ready, log_file)
 
 
+def stop_process(
+    process: subprocess.Popen[str],
+    *,
+    grace_seconds: float = TERMINATE_GRACE_SECONDS,
+) -> None:
+    """Terminate `process`, wait `grace_seconds`, then kill it and wait for the kill."""
+    process.terminate()
+    try:
+        process.wait(timeout=grace_seconds)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=KILL_WAIT_SECONDS)
+
+
 def _run_and_stop(
     server: subprocess.Popen[str],
     base_url: str,
@@ -394,12 +411,7 @@ def _run_and_stop(
         yield running
         proof_failed = False
     finally:
-        server.terminate()
-        try:
-            server.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            server.kill()
-            server.wait(timeout=5)
+        stop_process(server)
         log_file.seek(0)
         log = log_file.read()
         if log:
@@ -438,7 +450,8 @@ def _require_log_without_text(log: str, texts: Iterable[str]) -> None:
         raise SystemExit(message)
 
 
-def _require_speaking(health: Health, voice: VoiceId) -> None:
+def require_speaking(health: Health, voice: VoiceId) -> None:
+    """End the proof when health does not offer `voice`."""
     if voice not in health.speaking.voices:
         message = f"speaking.voices does not offer {voice!r}: {health.speaking!r}"
         raise SystemExit(message)
@@ -644,11 +657,11 @@ def _prove() -> None:
                 print("load_to_ready_s", f"{running.ready_seconds:.1f}")
                 print(
                     "gpu_compute_pids",
-                    _nvidia_compute_pids(),
+                    nvidia_compute_pids(),
                     f"speech_pid={running.process.pid}",
                 )
                 running.spoken_texts.extend([ENGLISH_SENTENCE, *MARKED_TEXTS.values()])
-                _require_speaking(running.health, voice)
+                require_speaking(running.health, voice)
                 print("gpu_resident", nvidia_memory())
                 print("piper_cache", PIPER_CACHE)
                 _prove_speaking(
@@ -679,8 +692,7 @@ def enter_proof(
     """Parse the command line; run `reexec` outside `probe-run`, `prove` inside it."""
     arguments = sys.argv[1:]
     parsed = parse(arguments)
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(line_buffering=True)
+    sys.stdout.reconfigure(line_buffering=True)
     if UNDER_PROBE_RUN_ENV not in os.environ:
         raise SystemExit(reexec(arguments))
     prove_under_probe_run(functools.partial(prove, parsed))

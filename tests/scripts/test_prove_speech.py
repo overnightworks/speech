@@ -25,7 +25,9 @@ from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+    from contextlib import AbstractContextManager
     from types import ModuleType
+    from typing import IO
 
     from speech_client.health import HealthOutcome
 
@@ -170,6 +172,92 @@ def speaking_health(*, ready: bool) -> Health:
             "card_memory_mb": 7,
         }
     )
+
+
+def test_a_wait_returns_the_first_health_that_shows_speaking_ready() -> None:
+    answers = iter([speaking_health(ready=False), speaking_health(ready=True)])
+    clock = FakeClock()
+
+    health = PROVE.wait_for_speaking_ready(
+        "http://127.0.0.1:1",
+        lambda: None,
+        fetch=lambda *_: next(answers),
+        clock=clock.now,
+        sleep=clock.jump,
+    )
+
+    assert health.speaking.ready
+
+
+def test_a_health_that_does_not_offer_the_voice_ends_the_proof() -> None:
+    with pytest.raises(SystemExit, match="does not offer"):
+        PROVE.require_speaking(speaking_health(ready=True), PIPER_VOICES[0])
+
+
+def a_server_whose_log_holds(text: str) -> Callable[..., Mock]:
+    """A fake start whose service has logged `text` and exits at once."""
+
+    def start(*_: object, stdout: IO[str], **__: object) -> Mock:
+        stdout.write(text)
+        stdout.flush()
+        return Mock(returncode=0)
+
+    return start
+
+
+def speech_server_logging(tmp_path: Path, text: str) -> AbstractContextManager[object]:
+    return PROVE.speech_server(
+        "http://127.0.0.1:1",
+        {},
+        tmp_path,
+        start=a_server_whose_log_holds(text),
+        wait_ready=lambda *_: speaking_health(ready=True),
+    )
+
+
+def test_a_passed_proof_whose_service_log_holds_a_spoken_text_fails(
+    tmp_path: Path,
+) -> None:
+    running = speech_server_logging(tmp_path, PROVE.SENTENCE)
+
+    with pytest.raises(SystemExit, match="holds 1 spoken text"), running:
+        pass
+
+
+def raise_the_proofs_own_error() -> None:
+    message = "the proof's own error"
+    raise RuntimeError(message)
+
+
+def test_a_failed_proof_reports_a_spoken_text_in_the_log_without_hiding_its_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    running = speech_server_logging(tmp_path, PROVE.SENTENCE)
+
+    with pytest.raises(RuntimeError, match="the proof's own error"), running:
+        raise_the_proofs_own_error()
+
+    assert "holds 1 spoken text" in capsys.readouterr().out
+
+
+def test_a_child_that_ignores_term_is_killed_after_the_grace() -> None:
+    ignores_term = (
+        "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN);"
+        " print('armed', flush=True); time.sleep(600)"
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-c", ignores_term], stdout=subprocess.PIPE, text=True
+    )
+    try:
+        assert child.stdout.readline().strip() == "armed"
+
+        PROVE.stop_process(child, grace_seconds=0.2)
+
+        assert child.returncode == -signal.SIGKILL
+    finally:
+        child.kill()
+        child.wait()
+        child.stdout.close()
 
 
 def test_the_default_wait_ends_at_once_when_the_server_exited(tmp_path: Path) -> None:
