@@ -487,8 +487,9 @@ def test_the_contract_client_runs_as_its_own_process_against_a_service(
         asyncio.run(scenario())
         assert "contract_speak" in capsys.readouterr().out
     else:
+        run = scenario()
         with pytest.raises(SystemExit, match="contract client failed: 1"):
-            asyncio.run(scenario())
+            asyncio.run(run)
 
 
 def _unverified_subject(token: str) -> str:

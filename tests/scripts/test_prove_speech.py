@@ -191,8 +191,10 @@ def test_a_wait_returns_the_first_health_that_shows_speaking_ready() -> None:
 
 
 def test_a_health_that_does_not_offer_the_voice_ends_the_proof() -> None:
+    health = speaking_health(ready=True)
+
     with pytest.raises(SystemExit, match="does not offer"):
-        PROVE.require_speaking(speaking_health(ready=True), PIPER_VOICES[0])
+        PROVE.require_speaking(health, PIPER_VOICES[0])
 
 
 def test_a_health_that_offers_the_voice_lets_the_proof_go_on() -> None:
