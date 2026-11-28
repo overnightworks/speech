@@ -426,7 +426,7 @@ def test_the_moments_event_follows_the_items_own_when_both_complete_in_one_windo
 
 
 def test_a_moment_equal_to_the_standing_one_changes_nothing() -> None:
-    """WIRE-178: naming the standing moment again keeps its count and sends no more."""
+    """The scheduler keeps the standing moment's count when it is named again."""
     from_ms = start_of_window(10)
     session = _moment_session(ITEM)
     session.sustain_from(from_ms)
