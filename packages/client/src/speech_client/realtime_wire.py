@@ -8,6 +8,7 @@ none of them.
 
 from __future__ import annotations
 
+import base64
 import json
 from enum import StrEnum
 from typing import Annotated, ClassVar, Final, Literal
@@ -196,6 +197,16 @@ class TranscriptionSession(_SessionPart):
         return self.model_copy(update={"audio": audio})
 
 
+INPUT_BYTES_PER_SECOND: Final = (
+    SessionInput().format.rate * PcmFormat.sample_bytes * PcmFormat.channels
+)
+
+
+def input_milliseconds(audio_bytes: int) -> int:
+    """The whole milliseconds of `audio_bytes` of input, as WIRE-70 counts them."""
+    return audio_bytes * 1000 // INPUT_BYTES_PER_SECOND
+
+
 class _ClientEvent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -222,18 +233,30 @@ class AudioCommit(_ClientEvent):
     type: Literal["input_audio_buffer.commit"]
 
 
-ClientEvent = SessionUpdate | AudioAppend | AudioCommit
+class SustainFrom(_ClientEvent):
+    """`input_audio_buffer.sustain_from`: count sustained speech from `from_ms`."""
+
+    type: Literal["input_audio_buffer.sustain_from"]
+    from_ms: int = Field(ge=0)
+
+
+ClientEvent = SessionUpdate | AudioAppend | AudioCommit | SustainFrom
+EVENT_TYPE_PARAM: Final = "type"
+SUSTAIN_FROM_PARAM: Final = "from_ms"
 _CLIENT_EVENT: Final = TypeAdapter(Annotated[ClientEvent, Field(discriminator="type")])
 
 
 class ClientEventError(ValueError):
     """A client message that is not one of the events this service accepts."""
 
-    def __init__(self, param: str | None, event_id: str | None) -> None:
-        """Name the field at fault and the client event's own id; never its content."""
+    def __init__(
+        self, param: str | None, event_id: str | None, event_type: str | None
+    ) -> None:
+        """Name the field at fault, the client event's own id and type; no content."""
         super().__init__("the client event is not valid")
         self.param = param
         self.event_id = event_id
+        self.event_type = event_type
 
 
 def parse_client_event(text: str) -> ClientEvent:
@@ -246,19 +269,22 @@ def parse_client_event(text: str) -> ClientEvent:
         )[0]
         # A field error leads with the event's type, which the param leaves out.
         if first["type"] == "union_tag_invalid":
-            param = "type"
+            param = EVENT_TYPE_PARAM
         else:
             param = ".".join(map(str, first["loc"][1:])) or None
-        raise ClientEventError(param, _event_id(text)) from None
+        raise ClientEventError(
+            param, _text_field(text, "event_id"), _text_field(text, "type")
+        ) from None
 
 
-def _event_id(text: str) -> str | None:
+def _text_field(text: str, name: str) -> str | None:
+    """The string field `name` of the JSON object in `text`, if it is one."""
     try:
         event = json.loads(text)
     except ValueError:
         return None
-    event_id = event.get("event_id") if isinstance(event, dict) else None
-    return event_id if isinstance(event_id, str) else None
+    value = event.get(name) if isinstance(event, dict) else None
+    return value if isinstance(value, str) else None
 
 
 def new_event_id() -> str:
@@ -318,6 +344,17 @@ class SpeechSustained(_ServerEvent):
         "input_audio_buffer.speech_sustained"
     )
     item_id: str
+    audio_end_ms: int
+
+
+class SpeechSustainedFrom(_ServerEvent):
+    """`input_audio_buffer.speech_sustained_from`: a voice lasted from a moment."""
+
+    type: Literal["input_audio_buffer.speech_sustained_from"] = (
+        "input_audio_buffer.speech_sustained_from"
+    )
+    item_id: str
+    from_ms: int
     audio_end_ms: int
 
 
@@ -469,6 +506,7 @@ ServerEvent = (
     | SessionUpdated
     | SpeechStarted
     | SpeechSustained
+    | SpeechSustainedFrom
     | TranscriptDelta
     | SpeechStopped
     | AudioCommitted
@@ -558,3 +596,17 @@ def session_update(
         ),
     )
     return update.model_dump_json(exclude_none=True)
+
+
+def audio_append(pcm: bytes) -> str:
+    """The `input_audio_buffer.append` that carries `pcm`."""
+    return AudioAppend(
+        type="input_audio_buffer.append", audio=base64.b64encode(pcm).decode()
+    ).model_dump_json(exclude_none=True)
+
+
+def sustain_from(from_ms: int) -> str:
+    """The `input_audio_buffer.sustain_from` that names the moment `from_ms`."""
+    return SustainFrom(
+        type="input_audio_buffer.sustain_from", from_ms=from_ms
+    ).model_dump_json(exclude_none=True)

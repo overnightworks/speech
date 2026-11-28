@@ -12,12 +12,14 @@ import base64
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, get_args
 
 from logline import StepTimer, current_traceparent, unit_trace
 from starlette.status import WS_1000_NORMAL_CLOSURE
 
 from speech_client.realtime_wire import (
+    EVENT_TYPE_PARAM,
+    SUSTAIN_FROM_PARAM,
     AudioAppend,
     AudioCommit,
     AudioCommitted,
@@ -31,6 +33,8 @@ from speech_client.realtime_wire import (
     SpeechStarted,
     SpeechStopped,
     SpeechSustained,
+    SpeechSustainedFrom,
+    SustainFrom,
     TranscriptCompleted,
     TranscriptDelta,
     TranscriptFailed,
@@ -38,6 +42,7 @@ from speech_client.realtime_wire import (
     TranscriptLanguage,
     UserMessageItem,
     error_event,
+    input_milliseconds,
     item_failure,
     new_item_id,
     parse_client_event,
@@ -49,8 +54,10 @@ from speech_service.hearing_session import (
     MAX_TURN_SECONDS,
     POLL_WAIT_SECONDS,
     HearingSession,
+    SchedulerEvent,
     SpeechStart,
     SpeechSustain,
+    SpeechSustainFrom,
     TurnEnd,
     TurnEndedBy,
 )
@@ -74,6 +81,7 @@ _PCM_BYTES_PER_SECOND: Final = HEARING_SAMPLE_RATE * BYTES_PER_SAMPLE
 _MAX_ENDED_TURNS: Final = 2
 _MAX_SUSTAINED_SPEECH_MS: Final = round(MAX_TURN_SECONDS * 1000)
 _SUSTAINED_DURATION_PARAM: Final = "session.audio.input.sustained_speech.duration_ms"
+_MOMENT_EVENT_TYPE: Final = get_args(SustainFrom.model_fields["type"].annotation)[0]
 
 
 @dataclass(slots=True)
@@ -138,6 +146,7 @@ class LiveSession:
         self._languages = (Language.DE,)
         self._configured = False
         self._audio_seen = False
+        self._appended_bytes = 0
         self._ended = False
         self._open_item: str | None = None
         self._last_item: str | None = None
@@ -163,15 +172,26 @@ class LiveSession:
                 event = parse_client_event(text or "")
             except ClientEventError as error:
                 await self._end_locked(
-                    RefusalCode.INVALID_REQUEST, error.param, error.event_id
+                    RefusalCode.INVALID_REQUEST,
+                    self._param_of(error.event_type, error.param),
+                    error.event_id,
                 )
                 return
             if isinstance(event, SessionUpdate):
                 await self._on_update(event)
             elif isinstance(event, AudioAppend):
                 await self._on_append(event)
+            elif isinstance(event, SustainFrom):
+                await self._on_moment(event)
             else:
                 await self._on_commit(event)
+
+    def _param_of(self, event_type: str | None, param: str | None) -> str | None:
+        """The field at fault: a moment a session did not ask for is an unknown type."""
+        return EVENT_TYPE_PARAM if self._unasked_moment(event_type) else param
+
+    def _unasked_moment(self, event_type: str | None) -> bool:
+        return event_type == _MOMENT_EVENT_TYPE and not self._scheduler.sustains
 
     async def on_tick(self) -> None:
         """Decode a partial when due; a draining hearing ends the session at a turn."""
@@ -315,6 +335,7 @@ class LiveSession:
             await self._end_locked(RefusalCode.INVALID_REQUEST, "audio", event.event_id)
             return
         self._audio_seen = True
+        self._appended_bytes += len(raw)
         if self._hearing.draining:
             self._scheduler.stop_opening_turns()
         pcm = self._resampler.feed(raw)
@@ -325,9 +346,20 @@ class LiveSession:
             self._sounds.add(pcm)
             await self._start_sound_hop()
 
-    def _watch_silence(
-        self, events: Sequence[SpeechStart | SpeechSustain | TurnEnd]
-    ) -> None:
+    async def _on_moment(self, event: SustainFrom) -> None:
+        """Count sustained speech from the moment; a moment already behind ends it."""
+        if self._unasked_moment(event.type):
+            await self._end_locked(
+                RefusalCode.INVALID_REQUEST, EVENT_TYPE_PARAM, event.event_id
+            )
+        elif event.from_ms < input_milliseconds(self._appended_bytes):
+            await self._end_locked(
+                RefusalCode.INVALID_REQUEST, SUSTAIN_FROM_PARAM, event.event_id
+            )
+        else:
+            self._scheduler.sustain_from(event.from_ms)
+
+    def _watch_silence(self, events: Sequence[SchedulerEvent]) -> None:
         """Time the wait for the open turn's end from the first silent audio on."""
         if any(isinstance(event, TurnEnd) for event in events):
             return
@@ -352,37 +384,39 @@ class LiveSession:
             return
         await self._apply([turn])
 
-    async def _apply(
-        self, events: Sequence[SpeechStart | SpeechSustain | TurnEnd]
-    ) -> None:
+    async def _apply(self, events: Sequence[SchedulerEvent]) -> None:
         """Settle every ended turn of `events` before the first send suspends."""
         outgoing: list[BaseModel] = []
         backlog = False
         for event in events:
-            if isinstance(event, SpeechStart):
-                outgoing.append(
-                    SpeechStarted(
-                        item_id=self._open_item_id(), audio_start_ms=event.audio_ms
-                    )
-                )
-                continue
-            if isinstance(event, SpeechSustain):
-                outgoing.append(
-                    SpeechSustained(
-                        item_id=self._open_item_id(), audio_end_ms=event.audio_ms
-                    )
-                )
-                continue
-            ended, backlog = self._end_turn(event)
-            outgoing += ended
-            if backlog:
-                break
+            if isinstance(event, TurnEnd):
+                ended, backlog = self._end_turn(event)
+                outgoing += ended
+                if backlog:
+                    break
+            else:
+                outgoing.append(self._announcement(event))
         for message in outgoing:
             if self._ended:
                 return
             await self._emit(message)
         if backlog and not self._ended:
             await self._end_locked(RefusalCode.BUSY)
+
+    def _announcement(
+        self, event: SpeechStart | SpeechSustain | SpeechSustainFrom
+    ) -> BaseModel:
+        """The event of the open item that `event` announces."""
+        item_id = self._open_item_id()
+        match event:
+            case SpeechStart():
+                return SpeechStarted(item_id=item_id, audio_start_ms=event.audio_ms)
+            case SpeechSustain():
+                return SpeechSustained(item_id=item_id, audio_end_ms=event.audio_ms)
+            case SpeechSustainFrom():
+                return SpeechSustainedFrom(
+                    item_id=item_id, from_ms=event.from_ms, audio_end_ms=event.audio_ms
+                )
 
     def _open_item_id(self) -> str:
         if self._open_item is None:

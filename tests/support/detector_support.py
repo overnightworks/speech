@@ -25,6 +25,11 @@ def end_of_window(index: int) -> int:
     return round((index + 1) * WINDOW_SECONDS * 1000)
 
 
+def start_of_window(index: int) -> int:
+    """The millisecond at which the window of this index starts."""
+    return round(index * WINDOW_SECONDS * 1000)
+
+
 class LevelDetector:
     """Answers 1.0 for a window whose mean level reaches 1000, else 0.0.
 
