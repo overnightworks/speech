@@ -307,7 +307,7 @@ def test_the_console_script_refuses_what_the_design_refuses(
 def test_the_designs_stop_of_its_own_server_ends_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    ends_seen: list[object] = []
+    server_ended = threading.Event()
     real_start_server = design_voice.start_server
 
     def recording_start_server(
@@ -316,11 +316,11 @@ def test_the_designs_stop_of_its_own_server_ends_nothing(
         *,
         when_server_ends: Callable[[], None],
     ) -> Server:
-        return real_start_server(
-            command,
-            socket_path,
-            when_server_ends=lambda: (when_server_ends(), ends_seen.append(None))[1],
-        )
+        def recording_end() -> None:
+            when_server_ends()
+            server_ended.set()
+
+        return real_start_server(command, socket_path, when_server_ends=recording_end)
 
     monkeypatch.setattr(design_voice, "start_server", recording_start_server)
     socket_path = tmp_path / "server.sock"
@@ -336,4 +336,4 @@ def test_the_designs_stop_of_its_own_server_ends_nothing(
         if thread.name == WATCH_THREAD_NAME:
             thread.join()
 
-    assert ends_seen == [None]
+    assert server_ended.is_set()
