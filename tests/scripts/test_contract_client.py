@@ -20,6 +20,7 @@ from speech_client.wire import (
     Health,
     HearingHealth,
     Language,
+    ResponseFormat,
     SpeakingHealth,
     SpeechRequest,
     VoiceHealth,
@@ -50,6 +51,7 @@ def contract_speak(base_url: str, text: str, voice: VoiceId, minting: Minting) -
 
 
 HEARING = script_module("prove_hearing")
+MARKS = script_module("speaking_marks")
 
 
 def test_no_credential_holder_shows_a_key_or_token_when_represented(
@@ -220,11 +222,30 @@ def test_prove_exits_before_any_start_on_help_or_an_unknown_argument(
     assert (exit_info.value.code == 0) == (arguments == ["--help"])
 
 
+def sse_speak(base_url: str, text: str, voice: VoiceId, minting: Minting) -> bytes:
+    return MARKS.speak_sse(base_url, text, voice, ResponseFormat.WAV, minting)
+
+
 @pytest.mark.parametrize("chunks_before_failing", [0, 1])
-@pytest.mark.parametrize("speak", [contract_speak, PROVE.speak_measured])
+@pytest.mark.parametrize(
+    ("speak", "failure"),
+    [
+        pytest.param(contract_speak, "speak ended as Cut", id="contract client"),
+        pytest.param(
+            PROVE.speak_measured,
+            "speak body ended before it was complete",
+            id="measured speak",
+        ),
+        pytest.param(
+            sse_speak, "sse speak body ended before its done event", id="sse speak"
+        ),
+    ],
+)
 def test_a_proof_client_rejects_a_body_the_service_aborted(
     minting: Minting,
+    identity: ProofIdentity,
     speak: Callable[[str, str, str, Minting], object],
+    failure: str,
     chunks_before_failing: int,
 ) -> None:
     async def scenario() -> None:
@@ -234,8 +255,9 @@ def test_a_proof_client_rejects_a_body_the_service_aborted(
             memory_probe=lambda: 0,
             dependencies=RuntimeDependencies(catalogue=CATALOGUE),
         )
-        async with serving_over_tcp(runtime) as server:
-            with pytest.raises(SystemExit):
+        callers = callers_trusting(identity.configuration_path, minting)
+        async with serving_over_tcp(runtime, callers) as server:
+            with pytest.raises(SystemExit, match=failure):
                 await asyncio.to_thread(
                     speak, server.base_url, "Hallo", PIPER_VOICES[0], minting
                 )
