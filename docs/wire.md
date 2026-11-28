@@ -248,7 +248,7 @@ The limits, each answered without decoding more than it must:
 - WIRE-48: `WS /v1/realtime?intent=transcription` hears audio as it arrives.
 - WIRE-49: It speaks the
   events of OpenAI's Realtime transcription session that this service applies, and
-  two events of its own, sound detection (WIRE-163) and sustained speech (WIRE-171,
+  events of its own, sound detection (WIRE-163) and sustained speech (WIRE-171,
   WIRE-177), and one client message of the sustained ask's own, the moment (WIRE-176).
 - WIRE-50: Both tokens travel in the upgrade request's headers, as on the
   other routes; a client sends them from a server, never from a browser.
