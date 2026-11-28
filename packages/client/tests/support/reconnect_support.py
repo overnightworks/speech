@@ -153,15 +153,19 @@ async def collected(session: HearingSession) -> list[ServerEvent | Reconnected]:
 
 
 def reads(
-    chunks: int, *, closes_with: int = 1000, says: tuple[str, ...] = ()
+    chunks: int,
+    *,
+    moments: int = 0,
+    closes_with: int = 1000,
+    says: tuple[str, ...] = (),
 ) -> Script:
-    """Open, say `says`, take `chunks` chunks of audio, then close with a code."""
+    """Open, say `says`, take `chunks` chunks and `moments` moments, then close."""
 
     async def play(connection: ServerConnection, visit: Visit) -> None:
         await opens(connection, visit)
         for event in says:
             await connection.send(event)
-        await takes_audio(connection, visit, chunks)
+        await takes_audio(connection, visit, chunks, moments)
         await connection.close(closes_with)
 
     return play

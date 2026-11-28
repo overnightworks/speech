@@ -25,6 +25,12 @@ socket's logger above debug; no outcome and no repr carries a token or heard tex
   `SpeechStarted` and before its `SpeechStopped`. `None` asks nothing and the
   update's bytes carry no ask. The ask needs service release `v2026.11.26.1`: an
   older service refuses the field and the session ends `invalid_request`.
+- `sustain_from_now()` names a moment at the audio queued so far and returns its
+  position on the hearing's timeline in whole milliseconds, rounded down; it returns
+  `None` while no hearing runs and raises `ValueError` without the ask. `events()`
+  yields the `SpeechSustainedFrom` of the newest moment only, also across a reconnect:
+  a new session gets the newest moment when its position is at or above that session's
+  start (WIRE-176 to WIRE-178).
 - `send(pcm)` queues PCM16 audio at 24 kHz. Audio queued before a session is
   open, or faster than it is written, is held up to `held_limit_bytes`; one byte
   over ends the session with `OverCap`, at any moment. A chunk leaves the held
@@ -95,7 +101,6 @@ cancel while leaving, aborts the connection at once, without a close handshake.
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
 import logging
 from collections import deque
@@ -121,6 +126,7 @@ from speech_client._failures import (
 )
 from speech_client._traceparent import traceparent_headers
 from speech_client._transport import base_origin
+from speech_client.moments import MomentLedger
 from speech_client.outcomes import (
     Busy,
     Cut,
@@ -133,7 +139,6 @@ from speech_client.outcomes import (
 )
 from speech_client.realtime_wire import (
     INPUT_BYTES_PER_SECOND,
-    AudioAppend,
     ErrorEvent,
     ServerEventError,
     SessionCreated,
@@ -142,8 +147,10 @@ from speech_client.realtime_wire import (
     SpeechStarted,
     SpeechStopped,
     SpeechSustained,
+    SpeechSustainedFrom,
     TranscriptCompleted,
     TranscriptFailed,
+    audio_append,
     input_milliseconds,
     parse_server_event,
     realtime_url,
@@ -396,6 +403,8 @@ class HearingSession:
         self._held_bytes = 0
         self._held_changed = asyncio.Event()
         self._written_bytes = 0
+        self._sustained_asked = sustained_speech is not None
+        self._moments = MomentLedger()
         self._wire: _Wire | None = None
         self._interrupted: _Interrupted | None = None
         self._end: asyncio.Future[HearingOutcome] | None = None
@@ -441,6 +450,19 @@ class HearingSession:
         self._held.append(pcm)
         self._held_bytes += len(pcm)
         self._held_changed.set()
+
+    def sustain_from_now(self) -> int | None:
+        """Name a moment at the audio queued so far and return its position in ms."""
+        if not self._sustained_asked:
+            message = "sustain_from_now needs a session that asked for sustained speech"
+            raise ValueError(message)
+        if self._end is None or self._end.done() or self.outcome is not None:
+            return None
+        queued = self._written_bytes + self._held_bytes
+        position = input_milliseconds(queued)
+        self._moments.name(queued, position)
+        self._held_changed.set()
+        return position
 
     async def events(self) -> AsyncIterator[ServerEvent | Reconnected]:
         """The server events, in order, until the session ends."""
@@ -517,6 +539,7 @@ class HearingSession:
             opening_at = self._opening_at(attempt_started)
             if opening_at is None:
                 return ReconnectFailed()
+            self._moments.new_wire()
             self._wire = _Wire(
                 offset_ms=input_milliseconds(self._written_bytes),
                 last_turn_end_ms=input_milliseconds(self._written_bytes),
@@ -709,7 +732,8 @@ class HearingSession:
                 wire.opened_at = asyncio.get_running_loop().time()
                 wire.opened.set()
                 await self._announce_reconnect(wire)
-            await self._received.put(self._on_timeline(event, wire))
+            if (moved := self._on_timeline(event, wire)) is not None:
+                await self._received.put(moved)
 
     async def _announce_reconnect(self, wire: _Wire) -> None:
         interrupted, self._interrupted = self._interrupted, None
@@ -721,10 +745,14 @@ class HearingSession:
                 )
             )
 
-    @staticmethod
-    def _on_timeline(event: ServerEvent, wire: _Wire) -> ServerEvent:
-        """Put the service's positions on the hearing's audio timeline."""
+    def _on_timeline(self, event: ServerEvent, wire: _Wire) -> ServerEvent | None:
+        """Put the service's positions on the hearing's audio timeline.
+
+        `None` drops an event of a moment that is not the newest.
+        """
         match event:
+            case SpeechSustainedFrom():
+                return self._moments.on_timeline(event, wire.offset_ms)
             case SpeechStarted():
                 return event.model_copy(
                     update={"audio_start_ms": event.audio_start_ms + wire.offset_ms}
@@ -755,15 +783,14 @@ class HearingSession:
         with contextlib.suppress(ConnectionClosed):
             await wire.opened.wait()
             while True:
-                while self._held:
+                moment = self._moments.take_due(self._written_bytes, wire.offset_ms)
+                if moment is not None:
+                    await socket.send(moment)
+                elif self._held:
                     pcm = self._held.popleft()
                     self._held_bytes -= len(pcm)
                     self._written_bytes += len(pcm)
-                    await socket.send(
-                        AudioAppend(
-                            type="input_audio_buffer.append",
-                            audio=base64.b64encode(pcm).decode(),
-                        ).model_dump_json(exclude_none=True)
-                    )
-                self._held_changed.clear()
-                await self._held_changed.wait()
+                    await socket.send(audio_append(pcm))
+                else:
+                    self._held_changed.clear()
+                    await self._held_changed.wait()

@@ -8,6 +8,7 @@ none of them.
 
 from __future__ import annotations
 
+import base64
 import json
 from enum import StrEnum
 from typing import Annotated, ClassVar, Final, Literal
@@ -593,3 +594,17 @@ def session_update(
         ),
     )
     return update.model_dump_json(exclude_none=True)
+
+
+def audio_append(pcm: bytes) -> str:
+    """The `input_audio_buffer.append` that carries `pcm`."""
+    return AudioAppend(
+        type="input_audio_buffer.append", audio=base64.b64encode(pcm).decode()
+    ).model_dump_json(exclude_none=True)
+
+
+def sustain_from(from_ms: int) -> str:
+    """The `input_audio_buffer.sustain_from` that names the moment `from_ms`."""
+    return SustainFrom(
+        type="input_audio_buffer.sustain_from", from_ms=from_ms
+    ).model_dump_json(exclude_none=True)

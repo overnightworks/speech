@@ -33,6 +33,20 @@ after `ended` is set no callback is called again.
   duration, raises `ValueError` at the call, before any connection. The ask needs
   service release `v2026.11.26.1`: an older service refuses it and the hearing
   ends `invalid_request`.
+- `on_speech_sustained_from`, if given with `moments`, a `SustainMoments` handle, gets
+  a `SustainedFrom` when the voice of the item at the newest moment has lasted
+  `sustained_speech_ms` from it, `audio_end_ms` into the audio, in event order with the
+  other callbacks: after that item's `on_speech_sustained`. `moments.now()` names a
+  moment at the audio handed to the hearing so far and returns its position on the
+  hearing's timeline, in whole milliseconds rounded down, or `None` while no hearing
+  runs; an item whose `audio_start_ms` is above that position is covered by its first
+  partial. Only the newest moment's event is delivered, also across a reconnect; an
+  older moment's is dropped, and an event when no moment was written raises
+  `ServerEventError`. A handle or callback without the other, or without
+  `on_speech_sustained`, raises `ValueError` at the call, before any connection.
+  Without a handle the hearing writes the bytes it always wrote. The moment needs the
+  service release that carries WIRE-176: an older one ends the hearing
+  `invalid_request`.
 - `on_turn_ended`, if given, gets a `TurnEnd` for each finished item, empty or
   not, after that item's `on_utterance`: `heard_words` is false when the
   transcript was empty, a cough for one. Without it nothing of an empty turn
@@ -79,6 +93,7 @@ from speech_client.hearing import (
     HearingSession,
     Reconnected,
 )
+from speech_client.moments import SustainMoments
 from speech_client.realtime_wire import (
     ErrorEvent,
     ServerEventError,
@@ -87,6 +102,7 @@ from speech_client.realtime_wire import (
     SpeechStarted,
     SpeechStopped,
     SpeechSustained,
+    SpeechSustainedFrom,
     SustainedSpeech,
     TranscriptCompleted,
     TranscriptDelta,
@@ -133,6 +149,14 @@ class SpeechStop:
 @dataclass(frozen=True, slots=True)
 class SustainedVoice:
     """A person's voice in item `item_id` has lasted, `audio_end_ms` into the audio."""
+
+    item_id: str
+    audio_end_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class SustainedFrom:
+    """A person's voice in item `item_id` has lasted from the newest moment."""
 
     item_id: str
     audio_end_ms: int
@@ -205,6 +229,7 @@ class HearingCallbacks:
     on_reconnected: Callable[[Reconnected], Awaitable[None]] | None = None
     on_text: Callable[[str], None] | None = None
     on_speech_sustained: Callable[[SustainedVoice], Awaitable[None]] | None = None
+    on_speech_sustained_from: Callable[[SustainedFrom], Awaitable[None]] | None = None
 
 
 @dataclass(slots=True)
@@ -227,6 +252,10 @@ class _Mapping:
                 await self._on_sound(event)
             case SpeechSustained():
                 await self._on_sustained(event)
+            case SpeechSustainedFrom() if self.callbacks.on_speech_sustained_from:
+                await self.callbacks.on_speech_sustained_from(
+                    SustainedFrom(event.item_id, event.audio_end_ms)
+                )
             case TranscriptDelta() if self.callbacks.on_partial is not None:
                 text = self.items.text.get(event.item_id, "") + event.delta
                 self.items.text[event.item_id] = text
@@ -306,6 +335,16 @@ def _sustained_ask(
         raise ValueError(message) from refused
 
 
+def _check_moments(callbacks: HearingCallbacks, moments: SustainMoments | None) -> None:
+    """Refuse a handle or a callback without the other, or without sustained speech."""
+    if (moments is None) != (callbacks.on_speech_sustained_from is None):
+        message = "moments and on_speech_sustained_from go together"
+        raise ValueError(message)
+    if moments is not None and callbacks.on_speech_sustained is None:
+        message = "moments need on_speech_sustained"
+        raise ValueError(message)
+
+
 async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
     browser: BrowserSocket,
     origin: str,
@@ -319,8 +358,10 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
     opening_seconds: float = OPENING_SECONDS,
     traceparent: str | None = None,
     sustained_speech_ms: int | None = None,
+    moments: SustainMoments | None = None,
 ) -> UtteranceOutcome:
     """Hear `browser`'s audio at the service at `origin`; see the module."""
+    _check_moments(callbacks, moments)
     sustained_speech = _sustained_ask(callbacks, sustained_speech_ms)
     session = HearingSession(
         origin,
@@ -334,14 +375,15 @@ async def hear_utterances(  # noqa: PLR0913 - one keyword per call-site input
         sustained_speech=sustained_speech,
     )
     try:
-        return await relay(
-            browser,
-            session,
-            app_ended=ended,
-            on_event=_Mapping(callbacks, ended).on_event,
-            on_text=callbacks.on_text,
-            frame_limit_bytes=HOP_FRAME_BYTES,
-        )
+        with (moments or SustainMoments()).running(session.sustain_from_now):
+            return await relay(
+                browser,
+                session,
+                app_ended=ended,
+                on_event=_Mapping(callbacks, ended).on_event,
+                on_text=callbacks.on_text,
+                frame_limit_bytes=HOP_FRAME_BYTES,
+            )
     except _ServiceFailedError as failure:
         await browser.close(HopClose.SERVICE_FAILED)
         return ServiceFailed(failure.code)

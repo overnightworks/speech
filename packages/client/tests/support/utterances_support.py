@@ -36,6 +36,7 @@ from speech_client.utterances import (
     Partial,
     SpeechStart,
     SpeechStop,
+    SustainedFrom,
     SustainedVoice,
     TurnEnd,
     Utterance,
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
     from websockets.http11 import Request
 
     from speech_client.hearing import Reconnected, TokenSource
+    from speech_client.moments import SustainMoments
     from speech_client.realtime_wire import ServerEvent
     from speech_client.utterances import UtteranceOutcome
 
@@ -155,6 +157,24 @@ class Browser:
         self.closed_with.append(code)
 
 
+class NamingBrowser(Browser):
+    """A browser that names a moment once its messages are played."""
+
+    def __init__(
+        self, moments: SustainMoments, messages: tuple[Mapping[str, object], ...]
+    ) -> None:
+        """Hold the messages it plays, and the handle that names the moment."""
+        super().__init__(messages)
+        self._moments = moments
+        self.position: int | None = None
+
+    async def receive(self) -> Mapping[str, object]:
+        """The next message; after the last, the moment is named at the audio so far."""
+        if not self._messages:
+            self.position = self._moments.now()
+        return await super().receive()
+
+
 @dataclass
 class Recorder:
     """The app's side: what its callbacks got, in order, and how they behave."""
@@ -163,7 +183,13 @@ class Recorder:
     ends_after_first: bool = False
     raises: Exception | None = None
     got: list[
-        Utterance | Partial | HeardSound | SpeechStart | SpeechStop | SustainedVoice
+        Utterance
+        | Partial
+        | HeardSound
+        | SpeechStart
+        | SpeechStop
+        | SustainedVoice
+        | SustainedFrom
     ] = field(default_factory=list)
     turn_ends: list[TurnEnd] = field(default_factory=list)
     reconnected: list[Reconnected] = field(default_factory=list)
@@ -200,6 +226,10 @@ class Recorder:
         """Take a sustained voice."""
         await self._take(voice)
 
+    async def on_speech_sustained_from(self, voice: SustainedFrom) -> None:
+        """Take a voice sustained from the newest moment."""
+        await self._take(voice)
+
     async def _take(
         self,
         heard: Utterance
@@ -207,7 +237,8 @@ class Recorder:
         | HeardSound
         | SpeechStart
         | SpeechStop
-        | SustainedVoice,
+        | SustainedVoice
+        | SustainedFrom,
     ) -> None:
         self.got.append(heard)
         if self.ends_after_first:
@@ -283,6 +314,7 @@ async def hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
     speech_marks: bool = False,
     sustained: bool = False,
     sustained_speech_ms: int | None = None,
+    moments: SustainMoments | None = None,
     reconnects: bool = True,
     languages: tuple[Language, ...] = (Language.DE,),
     bounds: Bounds = Bounds(),
@@ -299,6 +331,7 @@ async def hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
                 token_source=token_source,
                 traceparent=traceparent,
                 sustained_speech_ms=sustained_speech_ms,
+                moments=moments,
                 languages=languages,
                 deadline_seconds=bounds.deadline_seconds,
                 held_limit_bytes=bounds.held_limit_bytes,
@@ -317,6 +350,9 @@ async def hear(  # noqa: PLR0913 - one keyword per thing a scenario varies
                     on_sound=recorder.on_sound if sounds else None,
                     on_speech_sustained=recorder.on_speech_sustained
                     if sustained
+                    else None,
+                    on_speech_sustained_from=recorder.on_speech_sustained_from
+                    if moments is not None
                     else None,
                     on_reconnected=recorder.on_reconnected if reconnects else None,
                     on_text=on_text,
