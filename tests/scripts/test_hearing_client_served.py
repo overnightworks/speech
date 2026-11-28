@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+import hearing_figures as figures
 from hearing_figures import LIVE_INPUT_RATE
 from speech_client.hearing import Refused
 from speech_client.realtime_wire import (
@@ -20,12 +21,14 @@ from speech_client.realtime_wire import (
     TranscriptLanguage,
 )
 from speech_client.wire import Language, RefusalCode
+from tests.support.detector_support import LevelDetector
 from tests.support.fakes_support import sine_pcm
 from tests.support.hear_support import HEARD_TEXT, FakeHearing, hear_runtime
 from tests.support.hearing_service_support import service_of
 from tests.support.script_support import script_module
 
 if TYPE_CHECKING:
+    import threading
     from collections.abc import AsyncIterator, Sequence
 
     from proof_identity import ProofIdentity
@@ -78,6 +81,52 @@ def test_a_turn_is_heard_live_and_its_transcript_returned(
     async def scenario() -> object:
         async with service_of(
             hear_runtime(FakeHearing()), minting, identity
+        ) as service:
+            return await CLIENT.hear_live(service, (Language.DE,), QUESTION)
+
+    turn = asyncio.run(scenario())
+
+    assert turn.transcript == HEARD_TEXT
+
+
+class ReleasingAfterTheLastFrame(LevelDetector):
+    """A level detector that sets `release` once it was fed `frames` frames."""
+
+    def __init__(self, frames: int, release: threading.Event) -> None:
+        """Count down from `frames`."""
+        super().__init__()
+        self._frames_left = frames
+        self._release = release
+
+    def probabilities(self, pcm: bytes) -> list[float]:
+        """The level answers; the last frame lets the decode go."""
+        self._frames_left -= 1
+        if self._frames_left == 0:
+            self._release.set()
+        return super().probabilities(pcm)
+
+
+class HoldingUntilTheLastFrame(FakeHearing):
+    """A hearing engine that holds its decode until its detector has heard `frames`."""
+
+    def __init__(self, frames: int) -> None:
+        """Hold the decode, to be released by the detector the engine opens."""
+        super().__init__(hold=True)
+        self._frames = frames
+
+    def open_detector(self) -> LevelDetector:
+        """A detector that releases the decode after the last of the frames."""
+        return ReleasingAfterTheLastFrame(self._frames, self.release)
+
+
+def test_a_decode_held_until_the_last_frame_ends_the_turn_after_every_frame_was_sent(
+    minting: Minting, identity: ProofIdentity
+) -> None:
+    frames = len(figures.frames_with_closing_silence(QUESTION))
+
+    async def scenario() -> object:
+        async with service_of(
+            hear_runtime(HoldingUntilTheLastFrame(frames)), minting, identity
         ) as service:
             return await CLIENT.hear_live(service, (Language.DE,), QUESTION)
 

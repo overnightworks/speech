@@ -8,9 +8,10 @@ from pathlib import Path
 import pytest
 
 from shipped_catalogue import PIPER_VOICES
-from speech_service.hearing_models import HearingModel
+from speech_service.hearing_models import HearingModel, fetch_model
 from speech_service.voices import piper_voice_paths
 from tests.support.gpu_voice_support import _RECORDING_PIPER
+from tests.support.hear_support import write_snapshot
 from tests.support.script_support import script_module
 
 HEARING = script_module("prove_hearing")
@@ -57,6 +58,23 @@ def test_the_proofs_service_starts_on_its_own_identity_and_leaves_no_process() -
     assert not Path(f"/proc/{pid}").exists()
 
 
+SPEAKING_PIPER = """
+from types import SimpleNamespace
+
+
+CHUNK = SimpleNamespace(audio_int16_bytes=bytes(4410))
+
+
+class PiperVoice:
+    @staticmethod
+    def load(_path, **_options):
+        return SimpleNamespace(
+            config=SimpleNamespace(sample_rate=22050),
+            synthesize=lambda *_a, **_k: [CHUNK],
+        )
+"""
+
+
 @pytest.mark.usefixtures("piper_beside_the_checkout")
 def test_a_hearing_model_missing_from_the_cache_ends_the_start_when_the_service_exits(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -70,3 +88,21 @@ def test_a_hearing_model_missing_from_the_cache_ends_the_start_when_the_service_
         ),
     ):
         pass
+
+
+@pytest.mark.usefixtures("piper_beside_the_checkout")
+def test_a_hearing_service_without_a_card_is_started_once_its_voice_speaks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache = tmp_path / "hearing-cache"
+    fetch_model(HearingModel.SMALL, cache, write_snapshot)
+    monkeypatch.setenv("SPEECH_HUGGINGFACE_CACHE", str(cache))
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
+    (tmp_path / "modules" / "piper.py").write_text(SPEAKING_PIPER, encoding="utf-8")
+
+    with HEARING.hearing_service(
+        "cuda", HearingModel.SMALL.value, PROVE.PIPER_PROOF_VOICE
+    ) as service:
+        health = service.running.health
+
+    assert (health.speaking.ready, health.hearing.ready) == (True, False)

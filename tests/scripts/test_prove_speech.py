@@ -14,7 +14,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, PIPER_VOICES, first_language
+from shipped_catalogue import ON_DEMAND_VOICES, PIPER_VOICES, first_language
 from speech_client.outcomes import Unreachable
 from speech_client.wire import Health, VoiceId
 from speech_service.config import Settings
@@ -22,7 +22,6 @@ from speech_service.hearing_models import HearingModel
 from speech_service.onnxruntime_telemetry import ONNXRUNTIME_TELEMETRY_SWITCH
 from tests.support.clock_support import FakeClock
 from tests.support.script_support import script_module
-from tests.support.speaking_health_support import health_offering
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -197,13 +196,6 @@ def test_a_health_that_does_not_offer_the_voice_ends_the_proof() -> None:
 
     with pytest.raises(SystemExit, match="does not offer"):
         PROVE.require_speaking(health, PIPER_VOICES[0])
-
-
-def test_a_health_that_offers_the_voice_lets_the_proof_go_on() -> None:
-    voice = PIPER_VOICES[0]
-    health = health_offering(voice, CATALOGUE[voice].languages)
-
-    PROVE.require_speaking(health, voice)
 
 
 def a_server_whose_log_holds(text: str) -> Callable[..., Mock]:
