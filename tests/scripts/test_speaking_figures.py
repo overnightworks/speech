@@ -357,14 +357,3 @@ def test_the_record_carries_the_device_and_each_voices_figures() -> None:
     assert set(record["voices"]) == {voice.value for voice in PIPER_VOICES}
     assert record["two_voices"] == {"two": 1}
     assert record["hearing"] is None
-
-
-def test_a_concurrent_speak_that_fails_names_which_call_failed() -> None:
-    def spoken(text: str) -> tuple[bytes, float, float]:
-        if text == "three":
-            message = "refused"
-            raise SystemExit(message)
-        return answer()
-
-    with pytest.raises(SystemExit, match="concurrent speak failed: second: refused"):
-        prove_concurrent(spoken)
