@@ -147,7 +147,6 @@ class LiveSession:
         self._configured = False
         self._audio_seen = False
         self._appended_bytes = 0
-        self._sustained_asked = False
         self._ended = False
         self._open_item: str | None = None
         self._last_item: str | None = None
@@ -189,7 +188,7 @@ class LiveSession:
 
     def _param_of(self, event_type: str | None, param: str | None) -> str | None:
         """The field at fault: a moment a session did not ask for is an unknown type."""
-        if event_type == _MOMENT_EVENT_TYPE and not self._sustained_asked:
+        if event_type == _MOMENT_EVENT_TYPE and not self._scheduler.sustains:
             return _EVENT_TYPE_PARAM
         return param
 
@@ -326,7 +325,6 @@ class LiveSession:
                 )
                 return
             self._scheduler.sustain_after(duration_ms)
-            self._sustained_asked = True
             session = session.with_sustained_duration(duration_ms)
         await self._emit(SessionUpdated(session=session))
 
@@ -349,7 +347,7 @@ class LiveSession:
 
     async def _on_moment(self, event: SustainFrom) -> None:
         """Count sustained speech from the moment; a moment already behind ends it."""
-        if not self._sustained_asked:
+        if not self._scheduler.sustains:
             await self._end_locked(
                 RefusalCode.INVALID_REQUEST, _EVENT_TYPE_PARAM, event.event_id
             )

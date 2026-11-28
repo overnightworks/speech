@@ -201,6 +201,11 @@ class HearingSession:
             duration_ms * _SAMPLES_PER_MILLISECOND / WINDOW_SAMPLES
         )
 
+    @property
+    def sustains(self) -> bool:
+        """Whether `sustain_after` asked for sustained speech."""
+        return self._sustained_windows_to_send is not None
+
     def sustain_from(self, from_ms: int) -> None:
         """Raise `SpeechSustainFrom` once the item at `from_ms` has lasted the duration.
 
