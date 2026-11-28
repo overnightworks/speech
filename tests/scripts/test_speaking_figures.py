@@ -283,9 +283,9 @@ def test_a_task_repeats_until_the_call_beside_it_ends() -> None:
     calls: list[int] = []
 
     def task() -> int:
-        calls.append(len(calls))
-        if len(calls) >= 2:  # noqa: PLR2004 - the second call
+        if calls:
             second_call.set()
+        calls.append(len(calls))
         return len(calls)
 
     def during() -> str:
@@ -295,7 +295,7 @@ def test_a_task_repeats_until_the_call_beside_it_ends() -> None:
     outcome, results = figures.run_during([task], during)
 
     assert outcome == "heard"
-    assert len(results) >= 2  # noqa: PLR2004 - the repeat
+    assert len(results) > 1
 
 
 def test_a_loaded_hearing_model_raises_nothing_beside_speaking() -> None:
