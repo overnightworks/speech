@@ -1,6 +1,5 @@
 """The speaking engines the runtime builds: the local Piper voice and the providers."""
 
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,6 +23,7 @@ from speech_service.speaking import (
     load_piper_voice,
     speaking_for_voice,
 )
+from tests.support.piper_support import install_fake_piper
 
 
 @pytest.mark.parametrize("voice", PIPER_VOICES)
@@ -89,9 +89,7 @@ def test_the_piper_voice_is_loaded_with_the_alignment_output(
         loaded.append((path, include_alignments))
         return object()
 
-    monkeypatch.setitem(
-        sys.modules, "piper", SimpleNamespace(PiperVoice=SimpleNamespace(load=load))
-    )
+    install_fake_piper(monkeypatch, load)
 
     load_piper_voice(tmp_path / "local-voice.onnx")
 
