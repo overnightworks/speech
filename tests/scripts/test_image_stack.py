@@ -45,29 +45,55 @@ class FakeDocker:
 
 
 @pytest.mark.parametrize(
-    ("failing", "left"),
+    ("failing", "failed", "commands", "left"),
     [
-        pytest.param(set(), [], id="clean"),
-        pytest.param({"down"}, ["compose down"], id="compose down fails"),
-        pytest.param({"image"}, ["docker image rm"], id="image removal fails"),
-        pytest.param({"down", "image"}, ["compose down", "docker image rm"], id="both"),
+        pytest.param(set(), False, ["down", "image"], [], id="clean"),
+        pytest.param(
+            {"down"},
+            False,
+            ["down", "image"],
+            ["compose down"],
+            id="compose down fails",
+        ),
+        pytest.param(
+            {"image"},
+            False,
+            ["down", "image"],
+            ["docker image rm"],
+            id="image removal fails",
+        ),
+        pytest.param(
+            {"down", "image"},
+            False,
+            ["down", "image"],
+            ["compose down", "docker image rm"],
+            id="both",
+        ),
+        pytest.param(
+            set(), True, ["logs", "down", "image"], [], id="a failed proof logs first"
+        ),
     ],
 )
 def test_a_teardown_tries_both_removals_and_names_each_that_failed(
     monkeypatch: pytest.MonkeyPatch,
     failing: set[str],
+    *,
+    failed: bool,
+    commands: list[str],
     left: list[str],
 ) -> None:
     fake = FakeDocker(failing)
     monkeypatch.setattr(image_stack.subprocess, "run", fake)
 
     result = image_stack.teardown(
-        image_stack.Compose((REPOSITORY / "compose.yaml",), {}, "run"), failed=False
+        image_stack.Compose((REPOSITORY / "compose.yaml",), {}, "run"), failed=failed
     )
 
-    assert fake.commands == ["down", "image"]
+    assert fake.commands == commands
     assert [line.split(" failed")[0] for line in result.left] == left
-    assert result.tail is None
+    assert (result.tail is not None) == failed
+    if failed:
+        assert "logs broke" in (result.tail or "")
 
 
 @pytest.mark.parametrize("size", [4096, 25 * 1024 * 1024, 25 * 1024 * 1024 + 1])
@@ -225,6 +251,18 @@ def test_an_image_environment_is_read_from_the_image_itself() -> None:
         "IMAGE_SETTING": "a=b",
         "OTHER_SETTING": "d",
     }
+
+
+def test_a_docker_command_that_fails_ends_the_proof_naming_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = tmp_path / "docker"
+    fake.write_text("#!/bin/sh\necho 'no daemon' >&2\nexit 1\n", encoding="utf-8")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+
+    with pytest.raises(SystemExit, match="docker image failed: no daemon"):
+        image_stack.image_environment("image-under-proof")
 
 
 @pytest.mark.usefixtures("docker_with_image_environment")

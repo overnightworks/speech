@@ -34,29 +34,37 @@ if TYPE_CHECKING:
 from image_gpu_voice import cell_gpu_voice_not_offered, cell_gpu_voice_offered
 from image_judgement import (
     ImageReport,
+    SealedState,
     TmpUsage,
     baked_caller,
     external_networks,
     first_english_voice,
     heard_words,
-    image_faults,
     is_speaking_alone,
     live_texts,
     locked_distributions,
     minting_for,
+    require_built_within,
     require_fails,
     require_final,
+    require_health_ready_without_key_server,
+    require_healthcheck_fails_without_model,
     require_heard,
     require_hearing_ready,
+    require_image_as_locked,
     require_language,
     require_limit_answer,
     require_log_clean,
+    require_log_names_setting,
     require_marked_wav,
     require_no_oom,
     require_no_sounds,
     require_one_laughter,
+    require_reach_of_key_server_alone,
     require_ready_within,
     require_refusal,
+    require_sealed_container,
+    require_teardown_clean,
     require_tmp_clean,
     require_transcript,
     require_voiced_floor,
@@ -157,9 +165,7 @@ def cell_build(project: str) -> None:
         f"cell 1: build_seconds={seconds:.0f} image_mib={size // 2**20}"
         " layer_cache=none (images already pulled on the host are still reused)"
     )
-    if seconds > BUILD_LIMIT_SECONDS:
-        message = f"the build took {seconds:.0f} s, past {BUILD_LIMIT_SECONDS} s"
-        raise SystemExit(message)
+    require_built_within(seconds, BUILD_LIMIT_SECONDS)
 
 
 def _project_name(path: str) -> str:
@@ -198,10 +204,7 @@ def cell_contents(plain: Compose) -> None:
         stdin=script,
     )  # fmt: skip
     report = ImageReport(**json.loads(output))
-    faults = image_faults(report, _locked_set(), voice_hashes)
-    if faults:
-        message = "the image is not as locked: " + "; ".join(faults)
-        raise SystemExit(message)
+    require_image_as_locked(report, _locked_set(), voice_hashes)
     print(
         f"cell 2: held; user={report.user} distributions={len(report.distributions)}"
         " no_nvidia=yes hearing_model=pinned_revision"
@@ -237,22 +240,26 @@ def cell_start(session: Session) -> float:
     compose = session.compose
     compose.up()
     seconds = seconds_until_healthy(compose)
-    container = container_of(compose, SERVICE)
-    inspected = json.loads(docker("inspect", container))[0]
-    user = compose.run("exec", "-T", SERVICE, "id", "-u").stdout.strip()
-    ready = session.health()["speaking"]["ready"]
-    writable = can_write_root(compose)
-    if not (
-        inspected["State"]["Health"]["Status"] == "healthy"
-        and inspected["HostConfig"]["ReadonlyRootfs"] is True
-        and user != "0"
-        and ready is True
-        and not writable
-    ):
-        message = f"start is not as shipped: user={user} ready={ready} {writable=}"
-        raise SystemExit(message)
-    print(f"cell 3: held; healthy read_only user={user} ready={ready} root_writable=no")
+    state = sealed_state(session)
+    require_sealed_container(state)
+    print(
+        f"cell 3: held; healthy read_only user={state.user}"
+        f" ready={state.speaking_ready} root_writable=no"
+    )
     return seconds
+
+
+def sealed_state(session: Session) -> SealedState:
+    """What the service container shows of its health, root, user and readiness."""
+    compose = session.compose
+    inspected = json.loads(docker("inspect", container_of(compose, SERVICE)))[0]
+    return SealedState(
+        health_status=inspected["State"]["Health"]["Status"],
+        read_only_root=inspected["HostConfig"]["ReadonlyRootfs"] is True,
+        user=compose.run("exec", "-T", SERVICE, "id", "-u").stdout.strip(),
+        speaking_ready=session.health()["speaking"]["ready"] is True,
+        root_writable=can_write_root(compose),
+    )
 
 
 def can_write_root(compose: Compose) -> bool:
@@ -301,9 +308,7 @@ def cell_key_server_stopped(session: Session) -> None:
     compose.up(SERVICE, recreate=True)
     reply = session.speak(session.admitted_headers(), session.baked.voice)
     require_refusal(reply, RefusalCode.UNAVAILABLE)
-    if session.health()["speaking"]["ready"] is not True:
-        message = "/health does not stay honest while the key server is away"
-        raise SystemExit(message)
+    require_health_ready_without_key_server(session.health())
     session.collect_log()
     compose.up(KEY_SERVER)
     print("cell 7: held; refused as unavailable, no audio, health ready")
@@ -315,9 +320,7 @@ def cell_restart(session: Session) -> None:
     compose.run("restart", "--timeout", str(STOP_TIMEOUT_SECONDS), SERVICE)
     compose.up(SERVICE)
     speak_marked(session)
-    if can_write_root(compose):
-        message = "the restarted service can write outside tmpfs"
-        raise SystemExit(message)
+    require_sealed_container(sealed_state(session))
     print(
         "cell 9: held; healthy again after"
         f" {seconds_until_healthy(compose):.0f}s, speaks, root_writable=no"
@@ -333,18 +336,17 @@ def reached(session: Session, addresses: list[str]) -> dict[str, bool]:
     return json.loads(output)
 
 
+def key_server_address(session: Session) -> str:
+    """The host and port the baked caller's key set is served from."""
+    return f"{session.baked.key_set_host}:{session.baked.key_set_port}"
+
+
 def cell_no_egress(session: Session) -> None:
     """Cell 8: from the service the key server answers and public hosts do not."""
-    key_server = f"{session.baked.key_set_host}:{session.baked.key_set_port}"
-    reach = reached(session, [key_server, *PUBLIC_ADDRESSES])
-    outside = [
-        address
-        for address, answered in reach.items()
-        if answered and address != key_server
-    ]
-    if not reach[key_server] or outside:
-        message = f"reach is not the key server alone: {reach}"
-        raise SystemExit(message)
+    key_server = key_server_address(session)
+    require_reach_of_key_server_alone(
+        reached(session, [key_server, *PUBLIC_ADDRESSES]), key_server
+    )
     print(
         f"cell 8: held; from the service {key_server} answers and "
         f"{', '.join(PUBLIC_ADDRESSES)} do not"
@@ -463,10 +465,11 @@ def cell_live_sounds(session: Session) -> None:
     pair = session.pair()
     asked = session.hear_sounds(pair, wav, asking=True)
     require_one_laughter(asked, clip_ms)
+    heard = asked.sounds
     require_no_sounds(session.hear_sounds(pair, wav, asking=False))
     print(
         f"cell 24: held; the {clip_ms} ms reference clip gave one Laughter from"
-        f" {asked[0].audio_start_ms} ms to {asked[0].audio_end_ms} ms to a session"
+        f" {heard[0].audio_start_ms} ms to {heard[0].audio_end_ms} ms to a session"
         " that asked, and no sound to one that did not"
     )
 
@@ -530,9 +533,11 @@ def cell_hearing_restart(session: Session, wav: bytes, plain: Compose) -> None:
     health = session.health()
     reply = session.hear(session.admitted_headers(), wav, HEARING_LANGUAGE)
     session.heard.append(require_transcript(reply, SENTENCE))
-    if any(reached(session, [PUBLIC_ADDRESSES[1]]).values()) or can_write_root(compose):
-        message = "after the restart the service can reach the hub or write its root"
-        raise SystemExit(message)
+    key_server = key_server_address(session)
+    require_reach_of_key_server_alone(
+        reached(session, [key_server, *PUBLIC_ADDRESSES]), key_server
+    )
+    require_sealed_container(sealed_state(session))
     print(
         f"cell 19: held; healthy_after={seconds_until_healthy(compose):.0f}s"
         f" speaking_ready={health['speaking']['ready']}"
@@ -614,18 +619,16 @@ def require_hearing_model_negatives(session: Session) -> None:
         "a start without the model",
         naming="hearing is not ready",
     )
-    if passes:
-        message = "the healthcheck passes without a hearing model"
-        raise SystemExit(message)
+    require_healthcheck_fails_without_model(healthcheck_passes=passes)
     missing = start_with(session, MISSING_MODEL_OVERRIDE)
     require_fails(
         lambda: missing.up(SERVICE),
         "a hearing model missing from the image",
         naming="unhealthy",
     )
-    if HEARING_MODEL_SETTING not in missing.run("logs", "--no-color", SERVICE).stdout:
-        message = "the service did not stop for want of the hearing model"
-        raise SystemExit(message)
+    require_log_names_setting(
+        missing.run("logs", "--no-color", SERVICE).stdout, HEARING_MODEL_SETTING
+    )
 
 
 def cell_negatives(session: Session, wav: bytes) -> None:
@@ -759,9 +762,7 @@ def prove() -> None:
             print_teardown(outcome, project)
     finally:
         shutil.rmtree(directory)
-    if outcome.left:
-        message = "teardown left something: " + "; ".join(outcome.left)
-        raise SystemExit(message)
+    require_teardown_clean(outcome.left)
     print("PROOF_OK")
 
 

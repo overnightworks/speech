@@ -37,8 +37,7 @@ from wav_audio import pcm_from_wav, riff_chunks
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
-    from image_stack import LiveOutcome, Reply
-    from speech_client.utterances import HeardSound
+    from image_stack import LiveOutcome, Reply, SoundOutcome
     from speech_service.config import CallerConfig
 
 FORBIDDEN_PATH_PARTS: Final = frozenset({".git", "tests", "providers"})
@@ -85,6 +84,17 @@ class TmpUsage:
 
     used_bytes: int
     size_bytes: int
+
+
+@dataclass(frozen=True)
+class SealedState:
+    """What the proof saw of the service container: its health, root and user."""
+
+    health_status: str
+    read_only_root: bool
+    user: str
+    speaking_ready: bool
+    root_writable: bool
 
 
 @dataclass(frozen=True)
@@ -152,11 +162,12 @@ def ai_mark_of(wav: bytes) -> str | None:
 
 
 def without_mark(wav: bytes) -> bytes:
-    """The same WAV with its INFO chunk cut out."""
+    """The same WAV with its INFO chunk cut out; a WAV with none is no input."""
     for chunk_id, start, end in riff_chunks(wav):
         if chunk_id == MARK_CHUNK:
             return wav[:start] + wav[end:]
-    return wav
+    message = "the WAV has no INFO chunk to cut, so its negative check proves nothing"
+    raise SystemExit(message)
 
 
 def _audio_bytes(wav: bytes, data_start: int) -> int:
@@ -253,10 +264,19 @@ def _unwanted_files(application_files: Iterable[str]) -> list[str]:
     ]
 
 
-def image_faults(
+def require_image_as_locked(
+    report: ImageReport, locked: set[str], voice_hashes: dict[str, str]
+) -> None:
+    """Fail naming what the image holds that it must not, or lacks."""
+    faults = _image_faults(report, locked, voice_hashes)
+    if faults:
+        message = "the image is not as locked: " + "; ".join(faults)
+        raise SystemExit(message)
+
+
+def _image_faults(
     report: ImageReport, locked: set[str], voice_hashes: dict[str, str]
 ) -> list[str]:
-    """What the image holds that it must not, or lacks; empty when it is as locked."""
     installed = {distribution_name(name) for name in report.distributions}
     faults = [f"missing {name}" for name in sorted(locked - installed)]
     faults += [f"extra {name}" for name in sorted(installed - locked)]
@@ -422,9 +442,16 @@ def require_final(outcome: LiveOutcome, sentence: str) -> None:
     require_heard(outcome.final, sentence)
 
 
-def require_one_laughter(sounds: Iterable[HeardSound], clip_ms: int) -> None:
-    """Fail unless `sounds` is one laughter that began inside a clip of `clip_ms`."""
-    heard = list(sounds)
+def _require_no_error(outcome: SoundOutcome) -> None:
+    if outcome.error is not None:
+        message = f"the sound turn ended in {outcome.error}"
+        raise SystemExit(message)
+
+
+def require_one_laughter(outcome: SoundOutcome, clip_ms: int) -> None:
+    """Fail unless the turn is one laughter that began inside a clip of `clip_ms`."""
+    _require_no_error(outcome)
+    heard = list(outcome.sounds)
     if [one.sound for one in heard] != [SoundName.LAUGHTER]:
         names = [one.sound.value for one in heard]
         message = f"expected exactly one Laughter, heard {names}"
@@ -438,9 +465,10 @@ def require_one_laughter(sounds: Iterable[HeardSound], clip_ms: int) -> None:
         raise SystemExit(message)
 
 
-def require_no_sounds(sounds: Iterable[HeardSound]) -> None:
+def require_no_sounds(outcome: SoundOutcome) -> None:
     """Fail when a session that did not ask for sounds heard any."""
-    names = [one.sound.value for one in sounds]
+    _require_no_error(outcome)
+    names = [one.sound.value for one in outcome.sounds]
     if names:
         message = f"a session that did not ask for sounds heard {names}"
         raise SystemExit(message)
@@ -538,4 +566,93 @@ def require_gpu_voice_down(health: Health, voice: VoiceId) -> None:
             f"speaking.ready={health.speaking.ready} "
             f"hearing.ready={health.hearing.ready} {voice}.ready={voice_ready}"
         )
+        raise SystemExit(message)
+
+
+def require_built_within(seconds: float, limit: int) -> None:
+    """Fail when the build took longer than `limit` seconds."""
+    if seconds > limit:
+        message = f"the build took {seconds:.0f} s, past {limit} s"
+        raise SystemExit(message)
+
+
+def require_sealed_container(state: SealedState) -> None:
+    """Fail naming each way the container is not healthy, read-only and non-root."""
+    faults = [
+        fault
+        for broken, fault in (
+            (state.health_status != "healthy", f"it is {state.health_status}"),
+            (not state.read_only_root, "its root is not read-only"),
+            (state.user == "0", "it runs as root"),
+            (not state.speaking_ready, "speaking is not ready"),
+            (state.root_writable, "its root is writable"),
+        )
+        if broken
+    ]
+    if faults:
+        message = "the container is not sealed: " + ", ".join(faults)
+        raise SystemExit(message)
+
+
+def require_reach_of_key_server_alone(
+    reach: Mapping[str, bool], key_server: str
+) -> None:
+    """Fail unless the key server answers and no other address does."""
+    outside = sorted(
+        address
+        for address, answered in reach.items()
+        if answered and address != key_server
+    )
+    if outside:
+        message = f"the service reaches beyond the key server: {outside}"
+        raise SystemExit(message)
+    if not reach[key_server]:
+        message = f"the key server {key_server} does not answer: {dict(reach)}"
+        raise SystemExit(message)
+
+
+def require_health_ready_without_key_server(
+    health: Mapping[str, Mapping[str, object]],
+) -> None:
+    """Fail unless `/health` still shows the voice ready with the key server away."""
+    if health["speaking"]["ready"] is not True:
+        message = "/health does not stay honest while the key server is away"
+        raise SystemExit(message)
+
+
+def require_healthcheck_fails_without_model(*, healthcheck_passes: bool) -> None:
+    """Fail when the healthcheck passes in a service that has no hearing model."""
+    if healthcheck_passes:
+        message = "the healthcheck passes without a hearing model"
+        raise SystemExit(message)
+
+
+def require_log_names_setting(log: str, setting: str) -> None:
+    """Fail unless the service log names the `setting` it stopped for."""
+    if setting not in log:
+        message = f"the service did not stop for want of {setting}"
+        raise SystemExit(message)
+
+
+def require_teardown_clean(left: Iterable[str]) -> None:
+    """Fail naming each removal that teardown could not make."""
+    left = list(left)
+    if left:
+        message = "teardown left something: " + "; ".join(left)
+        raise SystemExit(message)
+
+
+def require_container_unrestarted(
+    before: tuple[str, str, int], after: tuple[str, str, int]
+) -> None:
+    """Fail unless the container's id, start time and restart count are unchanged."""
+    if after != before:
+        message = f"the service container restarted: {before} became {after}"
+        raise SystemExit(message)
+
+
+def require_admitted_speak(reply: Reply) -> None:
+    """Fail unless the speak of an admitted caller was answered with its audio."""
+    if reply.status != HTTPStatus.OK:
+        message = f"the admitted speak answered {reply.status}"
         raise SystemExit(message)

@@ -280,3 +280,22 @@ def test_the_wait_for_speaking_alone_retries_a_health_that_is_not_up_yet(
     PROVE.wait_until_speaking_alone(session)
 
     assert session.answers == []
+
+
+def test_a_health_that_never_shows_speaking_alone_fails_after_the_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Session:
+        asked = 0
+
+        def health(self) -> dict[str, dict[str, bool]]:
+            self.asked += 1
+            return {"speaking": {"ready": True}, "hearing": {"ready": True}}
+
+    monkeypatch.setattr(PROVE.time, "sleep", lambda _: None)
+    session = Session()
+
+    with pytest.raises(SystemExit, match="never showed speaking ready"):
+        PROVE.wait_until_speaking_alone(session)
+
+    assert session.asked == PROVE.ANSWER_WAIT_SECONDS

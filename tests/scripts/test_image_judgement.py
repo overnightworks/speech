@@ -10,7 +10,7 @@ import pytest
 
 import image_judgement as judged
 from hearing_figures import to_wire_rate
-from image_stack import REPOSITORY, LiveOutcome, Reply
+from image_stack import REPOSITORY, LiveOutcome, Reply, SoundOutcome
 from proof_identity import mint_pair
 from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, PIPER_VOICES
 from speech_client.realtime_wire import SoundName
@@ -86,6 +86,9 @@ def marked_wav() -> bytes:
     [
         pytest.param(judged.without_mark(marked_wav()), id="no mark"),
         pytest.param(b"not audio at all", id="not a wav"),
+        pytest.param(
+            wav_header(SAMPLE_RATE)[:12], id="a RIFF WAVE header with no chunk"
+        ),
         pytest.param(wav_header(SAMPLE_RATE), id="no audio"),
         pytest.param(wav_header(SAMPLE_RATE)[:-8] + SILENCE, id="no data chunk"),
         pytest.param(
@@ -230,13 +233,12 @@ def test_an_image_that_differs_from_the_lock_is_named_by_its_fault(
 ) -> None:
     report = judged.ImageReport(**{**vars(clean_report()), **change})
 
-    faults = judged.image_faults(report, {"some-package"}, {"voice.onnx": "abc"})
-
-    assert any(fault in line for line in faults)
+    with pytest.raises(SystemExit, match=f"not as locked:.*{fault}"):
+        judged.require_image_as_locked(report, {"some-package"}, {"voice.onnx": "abc"})
 
 
 def test_an_image_as_locked_has_no_fault() -> None:
-    assert not judged.image_faults(
+    judged.require_image_as_locked(
         clean_report(), {"some-package"}, {"voice.onnx": "abc"}
     )
 
@@ -369,11 +371,10 @@ def test_an_nvidia_distribution_in_the_image_is_named_even_when_the_lock_lists_i
         **{**vars(clean_report()), "distributions": ["Some_Package", "nvidia-nccl"]}
     )
 
-    faults = judged.image_faults(
-        report, {"some-package", "nvidia-nccl"}, {"voice.onnx": "abc"}
-    )
-
-    assert faults == ["holds nvidia-nccl"]
+    with pytest.raises(SystemExit, match=r"not as locked: holds nvidia-nccl$"):
+        judged.require_image_as_locked(
+            report, {"some-package", "nvidia-nccl"}, {"voice.onnx": "abc"}
+        )
 
 
 SENTENCE = "Die Kamera zeigt den Vortragenden, während die Folie vorbereitet wird."
@@ -661,7 +662,7 @@ def _laugh(start_ms: int = 500, end_ms: int = 2500) -> HeardSound:
 
 
 def test_one_laughter_that_began_inside_the_clip_passes() -> None:
-    judged.require_one_laughter([_laugh()], CLIP_MS)
+    judged.require_one_laughter(SoundOutcome((_laugh(),), None), CLIP_MS)
 
 
 @pytest.mark.parametrize(
@@ -678,11 +679,11 @@ def test_anything_but_one_laughter_inside_the_clip_fails_the_proof(
     sounds: list[HeardSound], fault: str
 ) -> None:
     with pytest.raises(SystemExit, match=fault):
-        judged.require_one_laughter(sounds, CLIP_MS)
+        judged.require_one_laughter(SoundOutcome(tuple(sounds), None), CLIP_MS)
 
 
 def test_a_session_that_did_not_ask_hears_no_sound_or_fails_the_proof() -> None:
-    judged.require_no_sounds([])
-    heard = [_laugh()]
+    judged.require_no_sounds(SoundOutcome((), None))
+    heard = SoundOutcome((_laugh(),), None)
     with pytest.raises(SystemExit, match="did not ask"):
         judged.require_no_sounds(heard)
