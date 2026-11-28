@@ -99,7 +99,6 @@ CAP_SECONDS = 1800
 KILL_GRACE_SECONDS = 30
 SPEAK_TIMEOUT_SECONDS = 120
 CONCURRENT_EXTRA_WAIT_SECONDS = 8.0
-CONTRACT_MARKERS = ("contract_health", "contract_speak")
 READY_TIMEOUT_SECONDS = 600.0
 HEALTH_DEADLINE_SECONDS = 5.0
 HEALTH_CAP_BYTES = 64 * 1024
@@ -544,13 +543,14 @@ def contract_client_command(base_url: str, voice: str, minting_path: Path) -> li
     ]
 
 
-def _prove_contract(
+def prove_contract(
     base_url: str,
     env: dict[str, str],
     voice: VoiceId,
     minting_path: Path,
     work_directory: Path,
 ) -> None:
+    """Run the contract client as its own process; its failure ends the proof."""
     print("contract_client_start")
     completed = subprocess.run(  # noqa: S603 - argv is this interpreter and this repository's client script with no shell
         contract_client_command(base_url, voice, minting_path),
@@ -565,10 +565,6 @@ def _prove_contract(
     if completed.returncode != 0:
         message = f"contract client failed: {completed.returncode}"
         raise SystemExit(message)
-    for marker in CONTRACT_MARKERS:
-        if marker not in completed.stdout:
-            message = f"contract client did not report {marker}"
-            raise SystemExit(message)
 
 
 def free_local_port() -> int:
@@ -661,7 +657,7 @@ def _prove() -> None:
                     settings.hearing_model,
                     env[setting_variable("device")],
                 )
-                _prove_contract(
+                prove_contract(
                     base_url, env, voice, identity.minting_path, work_directory
                 )
                 print("peak_rss_mib", f"{running.peak_rss_mib():.0f}")

@@ -28,7 +28,6 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
 
 from speech_client.hearing import SessionTokens
-from speech_service.config import app_group
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -311,6 +310,10 @@ def proof_identity(directory: Path) -> Iterator[ProofIdentity]:
     Everything lands in a private subdirectory of `directory`. The key server
     stops on exit; removing `directory` is the caller's.
     """
+    # The contract client imports this module for the minting and must not load
+    # `speech_service`, so the issuer alone imports it.
+    from speech_service.config import app_group  # noqa: PLC0415
+
     identity_directory = directory / "identity"
     identity_directory.mkdir(mode=OWNER_ONLY_DIRECTORY)
     signing_key = rsa.generate_private_key(public_exponent=65537, key_size=KEY_BITS)
