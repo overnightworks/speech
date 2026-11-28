@@ -165,7 +165,7 @@ def _asked_and_fed_odd_chunks(socket: WebSocketTestSession) -> None:
 
 
 def test_a_moment_and_its_event_travel_the_route_over_odd_chunks() -> None:
-    """WIRE-176, WIRE-177: a moment at the audio appended is not behind it."""
+    """WIRE-49, WIRE-59, WIRE-176, WIRE-177: a moment at the appended audio stands."""
     with _client().websocket_connect(URL, headers=valid_headers()) as socket:
         _asked_and_fed_odd_chunks(socket)
         socket.send_text(sustain_from(from_ms=APPENDED_MS))

@@ -252,10 +252,8 @@ class _Mapping:
                 await self._on_sound(event)
             case SpeechSustained():
                 await self._on_sustained(event)
-            case SpeechSustainedFrom() if self.callbacks.on_speech_sustained_from:
-                await self.callbacks.on_speech_sustained_from(
-                    SustainedFrom(event.item_id, event.audio_end_ms)
-                )
+            case SpeechSustainedFrom():
+                await self._on_sustained_from(event)
             case TranscriptDelta() if self.callbacks.on_partial is not None:
                 text = self.items.text.get(event.item_id, "") + event.delta
                 self.items.text[event.item_id] = text
@@ -294,6 +292,12 @@ class _Mapping:
             raise ServerEventError
         await self.callbacks.on_speech_sustained(
             SustainedVoice(event.item_id, event.audio_end_ms)
+        )
+
+    async def _on_sustained_from(self, event: SpeechSustainedFrom) -> None:
+        assert self.callbacks.on_speech_sustained_from is not None  # noqa: S101 - checked
+        await self.callbacks.on_speech_sustained_from(
+            SustainedFrom(event.item_id, event.audio_end_ms)
         )
 
     async def _completed(self, event: TranscriptCompleted) -> None:

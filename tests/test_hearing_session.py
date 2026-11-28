@@ -356,7 +356,7 @@ PRE_ROLL_WINDOWS = int(PRE_ROLL_SECONDS / WINDOW_SECONDS)
 def _sustained_session(
     windows: str, sustained_ms: int | None, **session_settings: float
 ) -> HearingSession:
-    """A session fed by the detector's answers for `windows`, asked for `sustained_ms`."""
+    """A session whose detector answers `windows`, asked for `sustained_ms`."""
     detector = ScriptedDetector(_WINDOW_PROBABILITY[window] for window in windows)
     session = HearingSession(
         _Clock(), detector, DEFAULT_LIVE_SILENCE_SECONDS, **session_settings
@@ -787,7 +787,7 @@ def test_a_moment_serves_only_its_item_once_that_item_ended() -> None:
     assert _moments(heard) == []
 
 
-def test_a_moment_after_a_commit_inside_a_window_is_the_item_that_begins_at_it() -> None:
+def test_an_item_after_a_commit_inside_a_window_begins_at_the_moment() -> None:
     """WIRE-177: an item whose start is in the moment's millisecond is not after it."""
     from_ms = start_of_window(10)
     session = _moment_session("v" * 30 + "." * SILENT_WINDOWS)

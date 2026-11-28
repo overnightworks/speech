@@ -325,9 +325,7 @@ class HearingSession:
             *self._moment_when_reached(end),
         ]
 
-    def _continue_turn(
-        self, probability: float, end: int
-    ) -> list[SpeechSustain | TurnEnd]:
+    def _continue_turn(self, probability: float, end: int) -> list[SchedulerEvent]:
         if is_voiced(probability):
             if self._silent_windows >= self._pause_windows:
                 self._sustained_windows = 0

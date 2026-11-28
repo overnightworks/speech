@@ -295,7 +295,7 @@ def test_the_event_is_sent_to_a_draining_session_until_its_close() -> None:
     assert socket.types().index(SpeechSustained) < socket.types().index(AudioCommitted)
 
 
-def test_nothing_follows_an_error_not_even_a_sustainedvoice() -> None:
+def test_nothing_follows_an_error_not_even_a_sustained_voice() -> None:
     """WIRE-175: after `error` the session sends no event."""
 
     async def scenario() -> FakeSocket:
