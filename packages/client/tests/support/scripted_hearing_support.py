@@ -18,6 +18,7 @@ from speech_client.realtime_wire import (
     SessionUpdated,
     SpeechStarted,
     SpeechStopped,
+    SpeechSustainedFrom,
     TranscriptCompleted,
     TranscriptFailed,
     TranscriptionSession,
@@ -51,6 +52,9 @@ class Visit:
     headers: Headers
     update: str | None = None
     audio: list[bytes] = field(default_factory=list)
+    frames: list[str] = field(default_factory=list)
+    moments: list[tuple[int, int]] = field(default_factory=list)
+    """Each `sustain_from`: how many chunks came before it, and its `from_ms`."""
 
 
 @dataclass(frozen=True)
@@ -112,11 +116,18 @@ async def opens(connection: ServerConnection, visit: Visit) -> None:
     await connection.send(CREATED_EVENT)
 
 
-async def takes_audio(connection: ServerConnection, visit: Visit, chunks: int) -> None:
-    """Take audio until `chunks` chunks arrived."""
-    while len(visit.audio) < chunks:
-        message = json.loads(await connection.recv())
-        visit.audio.append(base64.b64decode(message["audio"]))
+async def takes_audio(
+    connection: ServerConnection, visit: Visit, chunks: int, moments: int = 0
+) -> None:
+    """Take audio and moments until `chunks` chunks and `moments` moments arrived."""
+    while len(visit.audio) < chunks or len(visit.moments) < moments:
+        frame = str(await connection.recv())
+        visit.frames.append(frame)
+        message = json.loads(frame)
+        if "audio" in message:
+            visit.audio.append(base64.b64decode(message["audio"]))
+        else:
+            visit.moments.append((len(visit.audio), message["from_ms"]))
 
 
 def says(*events: str, then_close: int | None = None) -> Script:
@@ -171,6 +182,12 @@ answers_then_drains = says(speech_started("i", 0), then_close=DRAIN_CLOSE_CODE)
 
 def speech_stopped(item_id: str, audio_end_ms: int) -> str:
     return SpeechStopped(item_id=item_id, audio_end_ms=audio_end_ms).model_dump_json()
+
+
+def sustained_from(item_id: str, from_ms: int, audio_end_ms: int) -> str:
+    return SpeechSustainedFrom(
+        item_id=item_id, from_ms=from_ms, audio_end_ms=audio_end_ms
+    ).model_dump_json()
 
 
 def completed(item_id: str, transcript: str = "words") -> str:

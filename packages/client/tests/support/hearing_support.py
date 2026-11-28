@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection
 
     from speech_client.hearing import HearingOutcome
+    from speech_client.realtime_wire import SustainedSpeech
 
 LOOPBACK = "127.0.0.1"
 WORKLOAD_TOKEN = "workload-secret"  # noqa: S105 - a scenario value
@@ -77,6 +78,7 @@ def session_to(  # noqa: PLR0913 - one keyword per thing a scenario varies
     token_source: TokenSource = fixed_tokens,
     *,
     traceparent: str | None = None,
+    sustained_speech: SustainedSpeech | None = None,
 ) -> HearingSession:
     return HearingSession(
         f"http://{LOOPBACK}:{port}",
@@ -86,6 +88,7 @@ def session_to(  # noqa: PLR0913 - one keyword per thing a scenario varies
         held_limit_bytes=held_limit_bytes,
         opening_seconds=opening_seconds,
         traceparent=traceparent,
+        sustained_speech=sustained_speech,
     )
 
 

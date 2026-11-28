@@ -14,6 +14,7 @@ from speech_client.realtime_wire import (
     ErrorEvent,
     ServerEvent,
     SessionUpdate,
+    SustainFrom,
     TranscriptFailed,
     parse_server_event,
 )
@@ -119,18 +120,19 @@ def _type_of(event: type[BaseModel]) -> str:
     return name
 
 
-def _samples(count: int, level: int) -> str:
+def samples(count: int, level: int = SPEECH_LEVEL) -> str:
+    """The base64 PCM16 at 24 kHz of `count` samples of one level."""
     return base64.b64encode(struct.pack("<h", level) * count).decode()
 
 
 def audio(seconds: float, level: int = SPEECH_LEVEL) -> str:
     """The base64 PCM16 at 24 kHz of a constant level `seconds` long."""
-    return _samples(int(seconds * INPUT_RATE), level)
+    return samples(int(seconds * INPUT_RATE), level)
 
 
 def windows(count: int, level: int = SPEECH_LEVEL) -> str:
     """The base64 PCM16 at 24 kHz of `count` whole 32 ms windows of one level."""
-    return _samples(count * _INPUT_SAMPLES_PER_WINDOW, level)
+    return samples(count * _INPUT_SAMPLES_PER_WINDOW, level)
 
 
 def append(data: str, event_id: str | None = None) -> str:
@@ -147,6 +149,11 @@ def commit(event_id: str | None = None) -> str:
     if event_id:
         event["event_id"] = event_id
     return json.dumps(event)
+
+
+def sustain_from(**fields: object) -> str:
+    """An `input_audio_buffer.sustain_from` message with exactly `fields`."""
+    return json.dumps({"type": _type_of(SustainFrom), **fields})
 
 
 def update(
