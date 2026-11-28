@@ -14,8 +14,9 @@ socket's logger above debug; no outcome and no repr carries a token or heard tex
   runs ends the session as that bound says.
 - `traceparent` goes on every upgrade as a header and parents only the service's
   own lines of the session, never a turn: a turn's trace comes back in its
-  `transcript.completed`. Without it each opening carries the trace running there
-  when the host has called `logline.configure`, and none otherwise.
+  `transcript.completed`. Without it each opening, reconnects included, carries the
+  trace the session was entered in when the host has called `logline.configure`, and
+  none otherwise.
 - `sound_detection` (default false) asks the service for sounds in the session
   update, so `events()` yields `SoundDetected` with its positions on the hearing's
   audio timeline, as for speech. Without it the session update carries no ask.
