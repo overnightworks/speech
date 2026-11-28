@@ -50,7 +50,8 @@ from hearing_client import (
     refusal_code,
 )
 from hearing_figures import LiveTurn
-from proof_identity import Minting, load_minting, mint_pair, proof_identity
+from proof_identity import proof_identity
+from proof_minting import Minting, load_minting, mint_pair
 from prove_speech import (
     LOOPBACK_HOST,
     PIPER_PROOF_VOICE,

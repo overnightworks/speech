@@ -16,15 +16,14 @@ from typing import TYPE_CHECKING
 import jwt
 import pytest
 
-from proof_identity import (
-    mint_pair,
-    proof_identity,
-)
+from proof_identity import proof_identity
+from proof_minting import mint_pair
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from proof_identity import Minting, ProofIdentity
+    from proof_identity import ProofIdentity
+    from proof_minting import Minting
 
 PEM_PRIVATE_KEY_HEADER = "-----BEGIN"
 REQUIRED_WORKLOAD = ["iss", "aud", "azp", "client_id", "sub", "iat", "exp"]

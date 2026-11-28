@@ -39,7 +39,8 @@ from wav_audio import pcm_from_wav
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from proof_identity import Minting, ProofIdentity
+    from proof_identity import ProofIdentity
+    from proof_minting import Minting
     from speech_service.callers import SpeechCallers
 
 ARGUMENT_ERROR_EXIT_CODE = 2

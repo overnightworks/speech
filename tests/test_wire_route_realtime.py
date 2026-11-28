@@ -21,7 +21,7 @@ from starlette.status import (
 from starlette.testclient import WebSocketDenialResponse, WebSocketTestSession
 from starlette.websockets import WebSocketDisconnect
 
-from proof_identity import PERSON_SECONDS, WORKLOAD_SECONDS
+from proof_minting import PERSON_SECONDS, WORKLOAD_SECONDS
 from speech_client.realtime_wire import (
     AudioCommitted,
     ErrorEvent,

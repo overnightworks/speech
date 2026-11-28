@@ -31,13 +31,8 @@ import speaking_figures as figures
 import speaking_marks
 from hearing_client import Service, hear_file
 from hearing_figures import speech_only, to_wire_rate
-from proof_identity import (
-    Minting,
-    ProofIdentity,
-    load_minting,
-    mint_pair,
-    proof_identity,
-)
+from proof_identity import ProofIdentity, proof_identity
+from proof_minting import Minting, load_minting, mint_pair
 from shipped_catalogue import (
     CATALOGUE,
     ON_DEMAND_VOICES,

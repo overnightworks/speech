@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 import hearing_figures as figures
 from hearing_figures import LiveTurn
-from proof_identity import Minting, mint_pair
+from proof_minting import Minting, mint_pair
 from speech_client.hearing import HearingSession
 from speech_client.realtime_wire import (
     ErrorEvent,

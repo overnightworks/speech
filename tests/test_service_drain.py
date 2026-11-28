@@ -21,7 +21,8 @@ import pytest
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
-from proof_identity import load_minting, mint_pair, proof_identity
+from proof_identity import proof_identity
+from proof_minting import load_minting, mint_pair
 from speech_client.hearing import (
     NEEDED_HOLD_BYTES,
     ReconnectCause,

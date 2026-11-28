@@ -230,6 +230,19 @@ def test_two_texts_spoken_at_once_fail_on_a_silent_short_late_or_repeated_answer
         prove_concurrent(lambda _text: spoken)
 
 
+def test_a_failing_concurrent_speak_names_the_call_that_failed() -> None:
+    def refused(text: str) -> tuple[bytes, float, float]:
+        if text == "three":
+            message = "the service refused"
+            raise SystemExit(message)
+        return answer()
+
+    with pytest.raises(
+        SystemExit, match="concurrent speak failed: second: the service refused"
+    ):
+        prove_concurrent(refused)
+
+
 def test_tasks_run_together_when_each_waits_for_the_other() -> None:
     meeting = threading.Barrier(2, timeout=30)
 

@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from webauth.https_client import KeySetFetchError
 
-from proof_identity import ALGORITHM, Minting, TokenPair, mint_pair
+from proof_minting import ALGORITHM, Minting, TokenPair, mint_pair
 from speech_client.wire import speech_request_headers
 from speech_service.callers import SpeechCallers
 from speech_service.config import (

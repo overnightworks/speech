@@ -345,8 +345,22 @@ def prove_concurrent_speak(
     Each is judged by `require_concurrent`; two identical bodies mean one answer was
     served twice.
     """
-    answers = run_together([functools.partial(speak, text, voice) for text in texts])
-    for key, answer in zip(("first", "second"), answers, strict=True):
+    keys = ("first", "second")
+
+    def named(key: str, text: str) -> Callable[[], tuple[bytes, float, float]]:
+        def run() -> tuple[bytes, float, float]:
+            try:
+                return speak(text, voice)
+            except SystemExit as failure:
+                message = f"concurrent speak failed: {key}: {failure}"
+                raise SystemExit(message) from failure
+
+        return run
+
+    answers = run_together(
+        [named(key, text) for key, text in zip(keys, texts, strict=True)]
+    )
+    for key, answer in zip(keys, answers, strict=True):
         spoken = spoken_of(answer)
         print(
             f"speak_concurrent_{key}",

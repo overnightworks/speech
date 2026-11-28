@@ -22,7 +22,8 @@ from tests.support.tcp_server_support import serving_over_tcp
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from proof_identity import Minting, ProofIdentity
+    from proof_identity import ProofIdentity
+    from proof_minting import Minting
     from speech_client.wire import VoiceId
 
 GERMAN_VOICE = "de_DE-thorsten-medium"
