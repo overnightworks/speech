@@ -188,9 +188,10 @@ class LiveSession:
 
     def _param_of(self, event_type: str | None, param: str | None) -> str | None:
         """The field at fault: a moment a session did not ask for is an unknown type."""
-        if event_type == _MOMENT_EVENT_TYPE and not self._scheduler.sustains:
-            return _EVENT_TYPE_PARAM
-        return param
+        return _EVENT_TYPE_PARAM if self._unasked_moment(event_type) else param
+
+    def _unasked_moment(self, event_type: str | None) -> bool:
+        return event_type == _MOMENT_EVENT_TYPE and not self._scheduler.sustains
 
     async def on_tick(self) -> None:
         """Decode a partial when due; a draining hearing ends the session at a turn."""
@@ -347,7 +348,7 @@ class LiveSession:
 
     async def _on_moment(self, event: SustainFrom) -> None:
         """Count sustained speech from the moment; a moment already behind ends it."""
-        if not self._scheduler.sustains:
+        if self._unasked_moment(event.type):
             await self._end_locked(
                 RefusalCode.INVALID_REQUEST, _EVENT_TYPE_PARAM, event.event_id
             )
