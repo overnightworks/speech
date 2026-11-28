@@ -14,7 +14,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from shipped_catalogue import ON_DEMAND_VOICES, PIPER_VOICES, first_language
+from shipped_catalogue import CATALOGUE, ON_DEMAND_VOICES, PIPER_VOICES, first_language
 from speech_client.outcomes import Unreachable
 from speech_client.wire import Health, VoiceId
 from speech_service.config import Settings
@@ -35,6 +35,7 @@ PROVE = script_module("prove_speech")
 HEARING = script_module("prove_hearing")
 LINES = script_module("voice_lines")
 PIPE_BYTES = 65536
+SAMPLE_RATE = 22_050
 
 
 @pytest.mark.parametrize(
@@ -192,6 +193,31 @@ def test_a_wait_returns_the_first_health_that_shows_speaking_ready() -> None:
 def test_a_health_that_does_not_offer_the_voice_ends_the_proof() -> None:
     with pytest.raises(SystemExit, match="does not offer"):
         PROVE.require_speaking(speaking_health(ready=True), PIPER_VOICES[0])
+
+
+def test_a_health_that_offers_the_voice_lets_the_proof_go_on() -> None:
+    voice = PIPER_VOICES[0]
+    health = Health.model_validate(
+        {
+            "speaking": {
+                "ready": True,
+                "voices": {
+                    voice: {
+                        "model": CATALOGUE[voice].engine.wire_model,
+                        "name": CATALOGUE[voice].name,
+                        "languages": CATALOGUE[voice].languages,
+                        "takes_instructions": False,
+                        "ready": True,
+                        "sample_rate": SAMPLE_RATE,
+                    }
+                },
+            },
+            "hearing": {"model": "none", "ready": False},
+            "card_memory_mb": 7,
+        }
+    )
+
+    PROVE.require_speaking(health, voice)
 
 
 def a_server_whose_log_holds(text: str) -> Callable[..., Mock]:

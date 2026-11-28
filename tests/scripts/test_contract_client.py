@@ -42,8 +42,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from proof_identity import Minting, ProofIdentity
+    from speech_service.callers import SpeechCallers
 
 ARGUMENT_ERROR_EXIT_CODE = 2
+# The coverage run measures a child by the repository-relative paths of its config,
+# so the child starts where the tests run.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CLIENT = script_module("contract_client")
 PROVE = script_module("prove_speech")
 
@@ -241,6 +245,30 @@ def sse_speak(base_url: str, text: str, voice: VoiceId, minting: Minting) -> byt
     return MARKS.speak_sse(base_url, text, voice, ResponseFormat.WAV, minting)
 
 
+def speak_against_the_service(
+    speak: Callable[[str, str, str, Minting], object],
+    minting: Minting,
+    voice: FakeSpeaking,
+    callers: SpeechCallers | None,
+    failure: str,
+) -> None:
+    """Speak once to a TCP service; the call must end the proof with `failure`."""
+
+    async def scenario() -> None:
+        runtime = Runtime(
+            {PIPER_VOICES[0]: voice},
+            memory_probe=lambda: 0,
+            dependencies=RuntimeDependencies(catalogue=CATALOGUE),
+        )
+        async with serving_over_tcp(runtime, callers) as server:
+            with pytest.raises(SystemExit, match=failure):
+                await asyncio.to_thread(
+                    speak, server.base_url, "Hallo", PIPER_VOICES[0], minting
+                )
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("chunks_before_failing", [0, 1])
 @pytest.mark.parametrize(
     ("speak", "failure"),
@@ -263,21 +291,31 @@ def test_a_proof_client_rejects_a_body_the_service_aborted(
     failure: str,
     chunks_before_failing: int,
 ) -> None:
-    async def scenario() -> None:
-        voice = FailingSpeaking(chunks_before_failing=chunks_before_failing)
-        runtime = Runtime(
-            {PIPER_VOICES[0]: voice},
-            memory_probe=lambda: 0,
-            dependencies=RuntimeDependencies(catalogue=CATALOGUE),
-        )
-        callers = callers_trusting(identity.configuration_path, minting)
-        async with serving_over_tcp(runtime, callers) as server:
-            with pytest.raises(SystemExit, match=failure):
-                await asyncio.to_thread(
-                    speak, server.base_url, "Hallo", PIPER_VOICES[0], minting
-                )
+    speak_against_the_service(
+        speak,
+        minting,
+        FailingSpeaking(chunks_before_failing=chunks_before_failing),
+        callers_trusting(identity.configuration_path, minting),
+        failure,
+    )
 
-    asyncio.run(scenario())
+
+@pytest.mark.parametrize(
+    ("speak", "failure"),
+    [
+        pytest.param(contract_speak, "speak ended as Refused", id="contract client"),
+        pytest.param(
+            PROVE.speak_measured, "speak HTTP status: 401", id="measured speak"
+        ),
+        pytest.param(sse_speak, "sse speak HTTP status: 401", id="sse speak"),
+    ],
+)
+def test_a_proof_client_rejects_a_service_that_does_not_trust_its_key(
+    minting: Minting,
+    speak: Callable[[str, str, str, Minting], object],
+    failure: str,
+) -> None:
+    speak_against_the_service(speak, minting, FakeSpeaking(), None, failure)
 
 
 SPOKEN_WAV = wav_header(SPEAK_SAMPLE_RATE) + b"\x00\x40" * 4
@@ -420,7 +458,6 @@ def test_the_contract_client_refuses_a_process_that_imported_the_service() -> No
 
 @pytest.mark.parametrize("trusted", [True, False], ids=["a trusted caller", "refused"])
 def test_the_contract_client_runs_as_its_own_process_against_a_service(
-    tmp_path: Path,
     minting: Minting,
     identity: ProofIdentity,
     capsys: pytest.CaptureFixture[str],
@@ -443,7 +480,7 @@ def test_the_contract_client_runs_as_its_own_process_against_a_service(
                 dict(os.environ),
                 PIPER_VOICES[0],
                 identity.minting_path,
-                tmp_path,
+                REPOSITORY_ROOT,
             )
 
     if trusted:
