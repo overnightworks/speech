@@ -1,8 +1,0 @@
-claim_id = "3e0ef4c76e0a46989903013ef573cb8e"
-agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
-role = "builder"
-base = "2f1bbfbfc13ac01a25516168602a3465f20f9583"
-branch = "claude/issue-754-image-proof-scripts"
-scope = [".github/workflows/ci.yml", "scripts/image_gpu_voice.py", "scripts/image_judgement.py", "scripts/image_stack.py", "scripts/prove_image.py", "tests/scripts/test_image_judgement.py", "tests/scripts/test_image_judgement_faults.py", "tests/scripts/test_image_stack.py", "tests/scripts/test_prove_image.py"]
-opened_commit = "9dfc26fa0259b93d6626f7503708093ca1646d26"
-whole_reason = "The image proof's verdicts move from its cells into their one judgement owner, each proven by a fault case, and the floor rises only once all of them are reached."
