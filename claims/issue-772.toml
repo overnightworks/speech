@@ -1,0 +1,7 @@
+claim_id = "36c21683125f40d9b62c40ba5ec08db3"
+agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
+role = "builder"
+base = "c439b73e48a23137f7ffdd191b76bcac581d4053"
+branch = "claude/issue-772-release-ships-only-changed-layers"
+scope = [".github/workflows/release.yml", "Dockerfile", "docs/ARCHITECTURE.md"]
+opened_commit = "200e254131e3ca673f98dab20d26bd58a767d03b"
