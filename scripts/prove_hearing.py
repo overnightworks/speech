@@ -336,11 +336,9 @@ def load_english_voice() -> PiperVoice:
     return PiperVoice.load(english_voice_path())
 
 
-def make_clips(
-    service: Service, load_voice: Callable[[], PiperVoice] = load_english_voice
-) -> dict[Language, Clip]:
+def make_clips(service: Service) -> dict[Language, Clip]:
     """Both languages' clips; a long turn must be one turn the service hears whole."""
-    voice = load_voice()
+    voice = load_english_voice()
     clips = {
         Language.DE: Clip(
             german_clip(service, GERMAN_QUESTION),

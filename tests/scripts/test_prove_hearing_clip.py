@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
+import sys
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -106,18 +109,29 @@ def english_voice_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
 
 
 def test_both_languages_get_a_clip_that_is_one_turn(
+    english_voice_cache: Path,
+    monkeypatch: pytest.MonkeyPatch,
     minting: Minting,
     identity: ProofIdentity,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    clips = asyncio.run(
-        clip_made(
-            minting,
-            identity,
-            lambda service: HEARING.make_clips(service, VoiceWithDurationNoise),
-        )
+    onnx, _metadata = piper_voice_paths(english_voice_cache, HEARING.ENGLISH_VOICE)
+    onnx.touch()
+    # The real submodule stays importable beside the fake package.
+    importlib.import_module("piper.config")
+    loaded: list[Path] = []
+
+    def load(path: Path) -> VoiceWithDurationNoise:
+        loaded.append(path)
+        return VoiceWithDurationNoise()
+
+    monkeypatch.setitem(
+        sys.modules, "piper", SimpleNamespace(PiperVoice=SimpleNamespace(load=load))
     )
 
+    clips = asyncio.run(clip_made(minting, identity, HEARING.make_clips))
+
+    assert loaded == [onnx]
     assert set(clips) == {language.code for language in HEARING.LANGUAGES}
     printed = capsys.readouterr().out.splitlines()
     measured = [line.split()[:2] for line in printed if "long_turn_clip" in line]
