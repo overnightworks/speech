@@ -160,7 +160,7 @@ def test_a_moment_below_the_whole_milliseconds_appended_ends_the_session(
 
 
 def test_an_equal_moment_after_audio_is_behind_and_ends_the_session() -> None:
-    """WIRE-178: an equal moment changes nothing only while no audio followed it."""
+    """WIRE-178: an equal moment is behind once whole milliseconds of audio pass it."""
 
     async def scenario() -> FakeSocket:
         session, socket, _, _ = await asking(SEVEN_WINDOWS)
