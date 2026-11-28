@@ -353,18 +353,26 @@ LONG_PAUSE = "." * 5
 PRE_ROLL_WINDOWS = int(PRE_ROLL_SECONDS / WINDOW_SECONDS)
 
 
-def _heard(
-    windows: str,
-    sustained_ms: int | None = FOUR_TENTHS_MS,
-    **session_settings: float,
-) -> list[SpeechStart | SpeechSustain | TurnEnd]:
-    """Every event of a session that is fed `windows` and asked for `sustained_ms`."""
+def _sustained_session(
+    windows: str, sustained_ms: int | None, **session_settings: float
+) -> HearingSession:
+    """A session fed by the detector's answers for `windows`, asked for `sustained_ms`."""
     detector = ScriptedDetector(_WINDOW_PROBABILITY[window] for window in windows)
     session = HearingSession(
         _Clock(), detector, DEFAULT_LIVE_SILENCE_SECONDS, **session_settings
     )
     if sustained_ms is not None:
         session.sustain_after(sustained_ms)
+    return session
+
+
+def _heard(
+    windows: str,
+    sustained_ms: int | None = FOUR_TENTHS_MS,
+    **session_settings: float,
+) -> list[SpeechStart | SpeechSustain | TurnEnd]:
+    """Every event of a session that is fed `windows` and asked for `sustained_ms`."""
+    session = _sustained_session(windows, sustained_ms, **session_settings)
     return session.add(_quiet(len(windows)))
 
 
@@ -577,14 +585,9 @@ ITEM = "." * 4 + "v" * 20 + "." * SILENT_WINDOWS
 
 
 def _moment_session(windows: str) -> HearingSession:
-    session = HearingSession(
-        _Clock(),
-        ScriptedDetector(_WINDOW_PROBABILITY[window] for window in windows),
-        DEFAULT_LIVE_SILENCE_SECONDS,
-        pause_seconds=MOMENT_PAUSE_SECONDS,
+    return _sustained_session(
+        windows, MOMENT_DURATION_MS, pause_seconds=MOMENT_PAUSE_SECONDS
     )
-    session.sustain_after(MOMENT_DURATION_MS)
-    return session
 
 
 def _counted_from(
