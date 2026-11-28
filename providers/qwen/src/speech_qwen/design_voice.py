@@ -41,7 +41,7 @@ class DesignVoiceError(RuntimeError):
     """The server refused a design request or answered with no audio."""
 
 
-def _start_until_stopped(command: Sequence[str], socket_path: Path) -> Server:
+def start_until_stopped(command: Sequence[str], socket_path: Path) -> Server:
     """Start the server; its end is `design_voices`' own doing, so nothing exits."""
     return start_server(command, socket_path, when_server_ends=lambda: None)
 
@@ -65,8 +65,7 @@ def design_voices(  # noqa: PLR0913 - one value per input of the script
     destination: Path,
     cache: Path,
     *,
-    start: Callable[[Sequence[str], Path], Server] = _start_until_stopped,
-    download: Callable[[str, str, Path], str] = _download_checkpoint,
+    start: Callable[[Sequence[str], Path], Server] = start_until_stopped,
 ) -> list[Path]:
     """Write `count` candidate WAVs of `description` and their transcripts.
 
@@ -93,7 +92,7 @@ def design_voices(  # noqa: PLR0913 - one value per input of the script
 
     from speech_qwen.model import start_on_checkpoint
 
-    checkpoint = download(DESIGN_MODEL_ID, DESIGN_REVISION, cache)
+    checkpoint = _download_checkpoint(DESIGN_MODEL_ID, DESIGN_REVISION, cache)
     server = start_on_checkpoint(Path(checkpoint), start)
     with _stopped(server):
         audio_bodies = [

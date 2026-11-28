@@ -36,7 +36,7 @@ _SHARED_MEMORY_DIRECTORY = Path("/dev", "shm")
 """Where the server's shared-memory connector keeps its wake directories."""
 _OWN_USER_ID = os.getuid()
 STDERR_THREAD_NAME = "speech-qwen-server-stderr"
-_WATCH_THREAD_NAME = "speech-qwen-server-watch"
+WATCH_THREAD_NAME = "speech-qwen-server-watch"
 
 
 class ServerStartError(RuntimeError):
@@ -123,7 +123,7 @@ def start_server(
     threading.Thread(
         target=_call_when_ended,
         args=(process, when_server_ends),
-        name=_WATCH_THREAD_NAME,
+        name=WATCH_THREAD_NAME,
         daemon=True,
     ).start()
     return server
