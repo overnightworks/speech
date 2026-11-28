@@ -99,7 +99,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: >-
           uv run --locked --project providers/qwen pytest -n auto providers/qwen/tests
-          --cov --cov-precision=2 --cov-fail-under=98.48 --cov-config=providers/qwen/pyproject.toml --cov-report=xml:coverage-qwen.xml --cov-report=term:skip-covered
+          --cov --cov-precision=2 --cov-fail-under=99.70 --cov-config=providers/qwen/pyproject.toml --cov-report=xml:coverage-qwen.xml --cov-report=term:skip-covered
 
       - name: Upload the coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -409,7 +409,7 @@ jobs:
       - name: Judge the combined root coverage
         run: |
           uv run --locked coverage combine .coverage.unit .coverage.browser-flow .coverage.keycloak .coverage.image
-          uv run --locked coverage report --precision=2 --show-missing --skip-covered --fail-under=98.87
+          uv run --locked coverage report --precision=2 --show-missing --skip-covered --fail-under=99.13
           uv run --locked coverage xml -o coverage-root.xml
 
       # The two reports name disjoint files, so their concatenation is one valid lcov.
