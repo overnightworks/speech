@@ -78,7 +78,7 @@ browser left. A failure of an app callback is raised unchanged. The browser gets
 no token and no event, only its close code. Nothing here logs.
 
 `traceparent` parents the service's own lines of the hearing, and without it the
-running trace does, as for `HearingSession`.
+trace the session was entered in does, as for `HearingSession`.
 """
 
 from __future__ import annotations

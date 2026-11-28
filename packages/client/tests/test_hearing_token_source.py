@@ -23,6 +23,7 @@ from packages.client.tests.support.hearing_support import (
 )
 from packages.client.tests.support.reconnect_support import (
     BOUND,
+    WHOLE_RUN_SECONDS,
     Tokens,
     hear,
     hear_through,
@@ -132,6 +133,39 @@ def test_a_session_built_in_one_trace_sends_the_trace_it_is_entered_in() -> None
 
     assert entered_in is not None
     assert sent == [entered_in, entered_in]
+
+
+@pytest.mark.parametrize("explicit", [False, True], ids=["entered-in", "explicit"])
+def test_a_reconnect_carries_the_trace_entered_in_after_the_host_moved_on(
+    *, explicit: bool
+) -> None:
+    """WIRE-149: both openings carry the trace entered in, or the explicit value."""
+    given = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+    async def scenario() -> tuple[list[str | None], str | None, str | None]:
+        async with scripted(drains, ends_in_order) as (port, visits):
+            with unit_trace(None):
+                entered_in = current_traceparent()
+                session = session_to(port, traceparent=given if explicit else None)
+                async with session:
+                    with unit_trace(None):
+                        moved_to = current_traceparent()
+                        async with asyncio.timeout(WHOLE_RUN_SECONDS):
+                            async for _ in session.events():
+                                pass
+            return (
+                [visit.headers.get(TRACEPARENT_HEADER) for visit in visits],
+                entered_in,
+                moved_to,
+            )
+
+    with configured("speech"):
+        sent, entered_in, moved_to = asyncio.run(scenario())
+
+    assert entered_in is not None
+    assert moved_to not in (None, entered_in)
+    expected = given if explicit else entered_in
+    assert sent == [expected, expected]
 
 
 def test_a_token_repr_carries_no_token() -> None:

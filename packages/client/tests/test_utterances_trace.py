@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 def test_the_session_upgrade_carries_the_callers_traceparent_else_the_running_one(
     trace: str,
 ) -> None:
-    """WIRE-149: the upgrade carries the caller's, else the running trace's.
+    """WIRE-149: the upgrade carries the caller's, else the trace entered in.
 
     The caller's is given inside a running trace, which it must win over; the
     running trace reaches the upgrade through the host's configured logline, so
