@@ -18,6 +18,8 @@ from logline import StepTimer, current_traceparent, unit_trace
 from starlette.status import WS_1000_NORMAL_CLOSURE
 
 from speech_client.realtime_wire import (
+    EVENT_TYPE_PARAM,
+    SUSTAIN_FROM_PARAM,
     AudioAppend,
     AudioCommit,
     AudioCommitted,
@@ -80,8 +82,6 @@ _MAX_ENDED_TURNS: Final = 2
 _MAX_SUSTAINED_SPEECH_MS: Final = round(MAX_TURN_SECONDS * 1000)
 _SUSTAINED_DURATION_PARAM: Final = "session.audio.input.sustained_speech.duration_ms"
 _MOMENT_EVENT_TYPE: Final = get_args(SustainFrom.model_fields["type"].annotation)[0]
-_EVENT_TYPE_PARAM: Final = "type"
-_MOMENT_PARAM: Final = "from_ms"
 
 
 @dataclass(slots=True)
@@ -188,7 +188,7 @@ class LiveSession:
 
     def _param_of(self, event_type: str | None, param: str | None) -> str | None:
         """The field at fault: a moment a session did not ask for is an unknown type."""
-        return _EVENT_TYPE_PARAM if self._unasked_moment(event_type) else param
+        return EVENT_TYPE_PARAM if self._unasked_moment(event_type) else param
 
     def _unasked_moment(self, event_type: str | None) -> bool:
         return event_type == _MOMENT_EVENT_TYPE and not self._scheduler.sustains
@@ -350,11 +350,11 @@ class LiveSession:
         """Count sustained speech from the moment; a moment already behind ends it."""
         if self._unasked_moment(event.type):
             await self._end_locked(
-                RefusalCode.INVALID_REQUEST, _EVENT_TYPE_PARAM, event.event_id
+                RefusalCode.INVALID_REQUEST, EVENT_TYPE_PARAM, event.event_id
             )
         elif event.from_ms < input_milliseconds(self._appended_bytes):
             await self._end_locked(
-                RefusalCode.INVALID_REQUEST, _MOMENT_PARAM, event.event_id
+                RefusalCode.INVALID_REQUEST, SUSTAIN_FROM_PARAM, event.event_id
             )
         else:
             self._scheduler.sustain_from(event.from_ms)

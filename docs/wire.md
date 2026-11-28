@@ -359,7 +359,7 @@ The limits, each answered without decoding more than it must:
 | WIRE-171 | `input_audio_buffer.speech_sustained` (`item_id`, `audio_end_ms`) | once per item, in a session that asked (WIRE-172), when the item's voice has lasted the session's duration (WIRE-173): after its `speech_started`, before its `speech_stopped` and `committed` (WIRE-175); `audio_end_ms` counts as below |
 | WIRE-177 | `input_audio_buffer.speech_sustained_from` (`item_id`, `from_ms`, `audio_end_ms`) | once per item and moment, for the item whose `audio_start_ms` is at or before `from_ms` and which had not ended before it, when its voiced windows that begin at or after `from_ms` reach the session's duration, counted as WIRE-173 counts, a pause past the bound restarting them; after the item's `speech_sustained`. No event for an item that ends first. |
 
-`audio_start_ms` and `audio_end_ms` (WIRE-70, WIRE-72, WIRE-171) count milliseconds of the audio
+`audio_start_ms` and `audio_end_ms` (WIRE-70, WIRE-72, WIRE-171, WIRE-177) count milliseconds of the audio
 the service received in this session, from its first byte, in the service's 16 kHz time,
 the dropped audio between turns included. They depend on neither the wall clock nor when
 an event is sent. Turns are ordered, not contiguous: a turn's end is the position of the
@@ -464,8 +464,8 @@ audio, pre-roll included.
   appended waits for the audio.
 - WIRE-178: A session holds one moment. A new `sustain_from` replaces it as it is received:
   no event of the older moment follows, and one already sent stands. A moment equal to the
-  standing one changes nothing while no audio was appended after it; once audio was, the
-  equal moment is behind and WIRE-176 refuses it.
+  standing one changes nothing while it is not behind; once the whole milliseconds of the
+  audio appended pass it, the equal moment is behind and WIRE-176 refuses it.
 
 **Every announced item ends once.**
 

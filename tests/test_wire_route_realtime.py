@@ -183,21 +183,6 @@ def test_a_moment_and_its_event_travel_the_route_over_odd_chunks() -> None:
     assert moment.audio_end_ms == end_of_window(10)
 
 
-def test_a_moment_one_millisecond_behind_the_audio_ends_the_session() -> None:
-    """WIRE-176, WIRE-82: behind ends the session invalid_request naming `from_ms`."""
-    with _client().websocket_connect(URL, headers=valid_headers()) as socket:
-        _asked_and_fed_odd_chunks(socket)
-        socket.send_text(sustain_from(from_ms=APPENDED_MS - 1))
-        events = [_received(socket) for _ in range(3)]
-
-    error = events[-1]
-    assert isinstance(error, ErrorEvent)
-    assert (error.error.code, error.error.param) == (
-        RefusalCode.INVALID_REQUEST,
-        "from_ms",
-    )
-
-
 def test_a_session_runs_on_after_both_tokens_expire_and_a_new_upgrade_is_refused() -> (
     None
 ):

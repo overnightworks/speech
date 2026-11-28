@@ -241,6 +241,8 @@ class SustainFrom(_ClientEvent):
 
 
 ClientEvent = SessionUpdate | AudioAppend | AudioCommit | SustainFrom
+EVENT_TYPE_PARAM: Final = "type"
+SUSTAIN_FROM_PARAM: Final = "from_ms"
 _CLIENT_EVENT: Final = TypeAdapter(Annotated[ClientEvent, Field(discriminator="type")])
 
 
@@ -267,7 +269,7 @@ def parse_client_event(text: str) -> ClientEvent:
         )[0]
         # A field error leads with the event's type, which the param leaves out.
         if first["type"] == "union_tag_invalid":
-            param = "type"
+            param = EVENT_TYPE_PARAM
         else:
             param = ".".join(map(str, first["loc"][1:])) or None
         raise ClientEventError(

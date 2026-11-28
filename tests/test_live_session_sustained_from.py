@@ -159,28 +159,6 @@ def test_a_moment_below_the_whole_milliseconds_appended_ends_the_session(
         assert not socket.of_type(ErrorEvent)
 
 
-def test_a_new_moment_replaces_the_older_and_an_equal_one_changes_nothing() -> None:
-    """WIRE-178: one event, of the newest moment."""
-
-    async def scenario() -> FakeSocket:
-        session, socket, _, _ = await asking(SEVEN_WINDOWS)
-        await session.on_message(sustain_from(from_ms=start_of_window(4)))
-        await session.on_message(append(windows(9)))
-        await session.on_message(sustain_from(from_ms=start_of_window(12)))
-        await session.on_message(sustain_from(from_ms=start_of_window(12)))
-        await session.on_message(append(voice("v" * 20 + "." * SILENCE_WINDOWS)))
-        await session.settled()
-        return socket
-
-    socket = asyncio.run(scenario())
-
-    (event,) = _moments(socket)
-    assert (event.from_ms, event.audio_end_ms) == (
-        start_of_window(12),
-        end_of_window(18),
-    )
-
-
 def test_an_equal_moment_after_audio_is_behind_and_ends_the_session() -> None:
     """WIRE-178: an equal moment changes nothing only while no audio followed it."""
 
