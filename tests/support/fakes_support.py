@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import math
+import re
 import struct
 import threading
 import types
+import zlib
 from typing import TYPE_CHECKING
 
 from shipped_catalogue import CATALOGUE
-from speech_client.wire import SentenceMarks, VoiceId, Word
+from speech_client.wire import SentenceMarks, Sound, VoiceId, Word
 from speech_service import voice_slot
 from speech_service.config import Settings
 from speech_service.control import create_control_app
@@ -106,6 +108,68 @@ class FakeMarkingSpeaking(FakeSpeaking):
             yield pcm
             self.produced.append(f"marks {word.text}")
             yield SentenceMarks(words=(word,))
+
+
+SENTENCE_SECONDS = 1.0
+_SENTENCE = re.compile(r"[^.!?]+[.!?]*\s*")
+_WORD = re.compile(r"\w+")
+_LOWEST_PITCH_HZ = 200
+_PITCH_SPREAD_HZ = 400
+
+
+class FakeSentenceVoice(FakeSpeaking):
+    """A voice that speaks each sentence for a second, as a tone its text decides.
+
+    The words of a sentence share its second evenly and each word is one sound, so
+    the marks cover every word of the requested text.
+    """
+
+    gives_word_marks = True
+
+    def _sentences(self, text: str) -> Iterator[tuple[re.Match[str], bytes]]:
+        for sentence in _SENTENCE.finditer(text):
+            spread = zlib.crc32(sentence[0].encode()) % _PITCH_SPREAD_HZ
+            yield (
+                sentence,
+                sine_pcm(SENTENCE_SECONDS, self.sample_rate, _LOWEST_PITCH_HZ + spread),
+            )
+
+    def pcm_chunks(
+        self, text: str, language: str, instructions: str | None = None
+    ) -> Iterator[bytes]:
+        """Each sentence's tone."""
+        del language, instructions
+        self.heard_text = text
+        for _sentence, pcm in self._sentences(text):
+            yield pcm
+
+    def marked_chunks(
+        self, text: str, language: str, instructions: str | None = None
+    ) -> Iterator[bytes | SentenceMarks]:
+        """Each sentence's tone, then the marks of its words and their sounds."""
+        del language, instructions
+        self.heard_text = text
+        for number, (sentence, pcm) in enumerate(self._sentences(text)):
+            yield pcm
+            spans = list(_WORD.finditer(text, sentence.start(), sentence.end()))
+            share = SENTENCE_SECONDS / len(spans)
+            words = tuple(
+                Word(
+                    text=span[0],
+                    start_char=span.start(),
+                    end_char=span.end(),
+                    start=(number * SENTENCE_SECONDS) + position * share,
+                    end=(number * SENTENCE_SECONDS) + (position + 1) * share,
+                )
+                for position, span in enumerate(spans)
+            )
+            yield SentenceMarks(
+                words=words,
+                sounds=tuple(
+                    Sound(ipa=word.text, start=word.start, end=word.end)
+                    for word in words
+                ),
+            )
 
 
 class GateTimeoutError(RuntimeError):

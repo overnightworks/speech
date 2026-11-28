@@ -388,6 +388,7 @@ def fake_probe_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.mark.parametrize(
     ("script", "arguments"),
     [
+        pytest.param(PROVE, [], id="prove_speech"),
         pytest.param(
             HEARING,
             [
