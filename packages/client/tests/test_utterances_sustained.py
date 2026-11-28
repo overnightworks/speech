@@ -212,22 +212,21 @@ def test_a_moment_handle_or_callback_without_the_rest_raises_before_any_connecti
         )
 
 
-def test_a_handle_names_no_moment_before_or_after_the_hearing() -> None:
+def test_a_handle_names_a_moment_only_while_a_hearing_runs() -> None:
     moments = SustainMoments()
+    asked = 0
+
+    def name() -> int:
+        nonlocal asked
+        asked += 1
+        return 7
+
     before = moments.now()
+    with moments.running(name):
+        during = moments.now()
+    after = moments.now()
 
-    asyncio.run(
-        hear(
-            hearing(),
-            None,
-            Recorder(),
-            sustained=True,
-            sustained_speech_ms=200,
-            moments=moments,
-        )
-    )
-
-    assert (before, moments.now()) == (None, None)
+    assert (before, during, after, asked) == (None, 7, None, 1)
 
 
 def test_the_event_of_the_moment_the_app_named_reaches_its_callback() -> None:
