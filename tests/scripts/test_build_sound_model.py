@@ -257,7 +257,7 @@ def test_score_difference_refuses_unsound_scores(
 @pytest.mark.parametrize(
     ("found", "expected", "gap"),
     [
-        (_scores(0.5, 0.25), _scores(0.25, 0.5), 0.25),
+        (_scores(0.25, 0.25), _scores(0.5, 0.5), 0.25),
         (_scores(0.5, 0.75), _scores(0.5, 0.25), 0.5),
     ],
     ids=["the_gap_is_absolute", "the_gap_is_the_largest_column"],
