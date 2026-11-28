@@ -1,0 +1,8 @@
+claim_id = "076c3866c7b042c6987702a916b99c1b"
+agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
+role = "builder"
+base = "cabd6f8a5265cc06272f67a6bf7aed5293b5edb1"
+branch = "claude/issue-758-hearing-proof-scripts"
+scope = [".github/workflows/ci.yml", "scripts/hearing_card.py", "scripts/hearing_client.py", "scripts/prove_hearing.py", "scripts/voice_lines.py", "tests/scripts", "tests/support"]
+opened_commit = "76b27fb42e797304a58797635a00a9721fb0b2cb"
+whole_reason = "The hearing proofs' clients and verdicts are reached together by flows over the in-process service and fault cases, and the floor rises only once all of them are."
