@@ -285,17 +285,13 @@ def test_a_task_repeats_until_the_call_beside_it_ends() -> None:
     assert len(results) >= 2  # noqa: PLR2004 - the repeat
 
 
-@pytest.mark.parametrize(
-    ("ready", "loaded"), [(True, True), (False, False)], ids=["loaded", "not loaded"]
-)
-def test_the_hearing_model_must_be_loaded_to_be_heard_beside_speaking(
-    *, ready: bool, loaded: bool
-) -> None:
-    if loaded:
-        figures.require_hearing_loaded("small", ready=ready)
-    else:
-        with pytest.raises(SystemExit, match="hearing model small did not load"):
-            figures.require_hearing_loaded("small", ready=ready)
+def test_a_loaded_hearing_model_raises_nothing_beside_speaking() -> None:
+    figures.require_hearing_loaded("small", ready=True)
+
+
+def test_a_hearing_model_that_did_not_load_ends_the_run_beside_speaking() -> None:
+    with pytest.raises(SystemExit, match="hearing model small did not load"):
+        figures.require_hearing_loaded("small", ready=False)
 
 
 def test_a_task_that_fails_beside_the_call_ends_the_run() -> None:
