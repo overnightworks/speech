@@ -14,7 +14,6 @@ import contextlib
 import functools
 import http.client
 import json
-import logging
 import os
 import shutil
 import signal
@@ -22,7 +21,6 @@ import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -102,7 +100,6 @@ KILL_GRACE_SECONDS = 30
 SPEAK_TIMEOUT_SECONDS = 120
 CONCURRENT_EXTRA_WAIT_SECONDS = 8.0
 CONTRACT_MARKERS = ("contract_health", "contract_speak")
-LOGGER = logging.getLogger(__name__)
 READY_TIMEOUT_SECONDS = 600.0
 HEALTH_DEADLINE_SECONDS = 5.0
 HEALTH_CAP_BYTES = 64 * 1024
@@ -464,58 +461,6 @@ def _prove_speak(base_url: str, voice: VoiceId, minting: Minting) -> bytes:
     ).wav
 
 
-def _prove_concurrent_speak(base_url: str, voice: VoiceId, minting: Minting) -> None:
-    limit = PIPER_FIRST_BYTE_LIMIT_S
-    results: dict[str, tuple[bytes, float, float]] = {}
-    errors: list[str] = []
-
-    def run(key: str, text: str) -> None:
-        try:
-            results[key] = speak_measured(base_url, text, voice, minting)
-        except Exception as error:
-            LOGGER.exception("concurrent_speak.failed", extra={"key": key})
-            errors.append(f"{key}: {error}")
-
-    first = threading.Thread(target=run, args=("first", SENTENCE), daemon=True)
-    second = threading.Thread(target=run, args=("second", SECOND), daemon=True)
-    first.start()
-    second.start()
-    first.join()
-    second.join()
-    if errors:
-        raise SystemExit("concurrent speak failed: " + "; ".join(errors))
-    if set(results) != {"first", "second"}:
-        message = f"concurrent speak missing a response: {sorted(results)}"
-        raise SystemExit(message)
-    for key, answer in results.items():
-        spoken = figures.spoken_of(answer)
-        ttfa = spoken.first_audio_seconds
-        print(
-            f"speak_concurrent_{key}",
-            f"first_byte_s={ttfa:.3f}",
-            f"total_s={spoken.total_seconds:.3f}",
-            f"duration_s={spoken.audio_seconds:.3f}",
-            f"rms={spoken.level:.4f}",
-            f"rate={spoken.rate}",
-        )
-        if spoken.is_silent:
-            message = f"concurrent {key} produced silence"
-            raise SystemExit(message)
-        if spoken.audio_seconds < figures.MIN_SPEECH_SECONDS:
-            message = f"concurrent {key} produced too little audio"
-            raise SystemExit(message)
-        if ttfa > limit + CONCURRENT_EXTRA_WAIT_SECONDS:
-            message = (
-                f"concurrent {key} first byte {ttfa:.3f}s; "
-                f"serialized limit is {limit}s plus "
-                f"{CONCURRENT_EXTRA_WAIT_SECONDS}s wait"
-            )
-            raise SystemExit(message)
-    if results["first"][0] == results["second"][0]:
-        message = "concurrent speak returned identical bodies"
-        raise SystemExit(message)
-
-
 def _prove_beside(
     service: Service,
     singles: Mapping[VoiceId, figures.VoiceFigures],
@@ -528,9 +473,9 @@ def _prove_beside(
     if hearing_model is None:
         print("hear_beside_speaking skipped: no hearing model named")
         return together, None
-    if not service.running.health.hearing.ready:
-        message = f"hearing model {hearing_model.value} did not load"
-        raise SystemExit(message)
+    figures.require_hearing_loaded(
+        hearing_model.value, ready=service.running.health.hearing.ready
+    )
     wav, _first, _total = speak(SENTENCE, PIPER_PROOF_VOICE)
     rate, pcm = pcm_from_wav(wav)
     recording = speech_only(to_wire_rate(pcm, rate))
@@ -549,8 +494,9 @@ def _prove_speaking(
     device: str,
 ) -> None:
     """Speak every Piper voice and the named one, then the steps that overlap them."""
+    speak = functools.partial(speak_measured, service.base_url, minting=service.minting)
     singles = figures.prove_each_voice(
-        functools.partial(speak_measured, service.base_url, minting=service.minting),
+        speak,
         PIPER_VOICES,
         SENTENCES,
         limit=PIPER_FIRST_BYTE_LIMIT_S,
@@ -573,7 +519,13 @@ def _prove_speaking(
     german_wav = Path(tempfile.mkdtemp(prefix="speech-proof-")) / "german.wav"
     german_wav.write_bytes(german)
     print("german_wav", german_wav)
-    _prove_concurrent_speak(service.base_url, voice, service.minting)
+    figures.prove_concurrent_speak(
+        speak,
+        voice,
+        (SENTENCE, SECOND),
+        limit=PIPER_FIRST_BYTE_LIMIT_S,
+        extra_wait_seconds=CONCURRENT_EXTRA_WAIT_SECONDS,
+    )
     together, hearing = _prove_beside(service, singles, hearing_model)
     record = figures.speaking_record(device, singles, together, hearing)
     print("speaking_record", json.dumps(record, sort_keys=True))

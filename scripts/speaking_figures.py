@@ -310,6 +310,70 @@ def prove_two_voices(
     return record
 
 
+def require_concurrent(
+    label: str, spoken: Spoken, *, limit: float, extra_wait_seconds: float
+) -> None:
+    """Fail unless an answer given beside another is audible, a sentence, and in time.
+
+    The service serializes a voice, so the answer that waits may start
+    `extra_wait_seconds` after the first-byte `limit`.
+    """
+    if spoken.is_silent:
+        message = f"{label} produced silence"
+        raise SystemExit(message)
+    if spoken.audio_seconds < MIN_SPEECH_SECONDS:
+        message = f"{label} produced too little audio"
+        raise SystemExit(message)
+    if spoken.first_audio_seconds > limit + extra_wait_seconds:
+        message = (
+            f"{label} first byte {spoken.first_audio_seconds:.3f}s; "
+            f"serialized limit is {limit}s plus {extra_wait_seconds}s wait"
+        )
+        raise SystemExit(message)
+
+
+def prove_concurrent_speak(
+    speak: Speak,
+    voice: VoiceId,
+    texts: tuple[str, str],
+    *,
+    limit: float,
+    extra_wait_seconds: float,
+) -> None:
+    """Speak two texts with one voice at one moment; both answers differ and hold.
+
+    Each is judged by `require_concurrent`; two identical bodies mean one answer was
+    served twice.
+    """
+    answers = run_together([functools.partial(speak, text, voice) for text in texts])
+    for key, answer in zip(("first", "second"), answers, strict=True):
+        spoken = spoken_of(answer)
+        print(
+            f"speak_concurrent_{key}",
+            f"first_byte_s={spoken.first_audio_seconds:.3f}",
+            f"total_s={spoken.total_seconds:.3f}",
+            f"duration_s={spoken.audio_seconds:.3f}",
+            f"rms={spoken.level:.4f}",
+            f"rate={spoken.rate}",
+        )
+        require_concurrent(
+            f"concurrent {key}",
+            spoken,
+            limit=limit,
+            extra_wait_seconds=extra_wait_seconds,
+        )
+    if answers[0][0] == answers[1][0]:
+        message = "concurrent speak returned identical bodies"
+        raise SystemExit(message)
+
+
+def require_hearing_loaded(model: str, *, ready: bool) -> None:
+    """Fail unless the hearing model the proof names is loaded."""
+    if not ready:
+        message = f"hearing model {model} did not load"
+        raise SystemExit(message)
+
+
 def require_heard(label: str, reference: str, heard: str) -> float:
     """The word error rate of `heard` against `reference`; fail above the limit."""
     rate = figures.word_errors(reference, heard).rate
