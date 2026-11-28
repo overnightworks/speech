@@ -12,9 +12,10 @@ socket's logger above debug; no outcome and no repr carries a token or heard tex
   raises ends the session at once, nothing more is opened and `outcome` stays
   `None`; leaving the context raises it. A bound that expires while the source
   runs ends the session as that bound says.
-- `traceparent` (default: the trace running when the session is built) goes on
-  every upgrade as a header and parents only the service's own lines of the
-  session, never a turn: a turn's trace comes back in its `transcript.completed`.
+- `traceparent` goes on every upgrade as a header and parents only the service's
+  own lines of the session, never a turn: a turn's trace comes back in its
+  `transcript.completed`. Without it each opening carries the trace running there
+  when the host has called `logline.configure`, and none otherwise.
 - `sound_detection` (default false) asks the service for sounds in the session
   update, so `events()` yields `SoundDetected` with its positions on the hearing's
   audio timeline, as for speech. Without it the session update carries no ask.
@@ -124,7 +125,7 @@ from speech_client._failures import (
     left_under_cancellation,
     settled,
 )
-from speech_client._traceparent import traceparent_headers
+from speech_client._traceparent import given_traceparent_headers
 from speech_client._transport import base_origin
 from speech_client.moments import MomentLedger
 from speech_client.outcomes import (
@@ -388,7 +389,7 @@ class HearingSession:
             message = "opening_seconds must be above 0"
             raise ValueError(message)
         self._url = realtime_url(base_url)
-        self._traceparent_headers = traceparent_headers(traceparent)
+        self._traceparent_headers = given_traceparent_headers(traceparent)
         self._token_source = token_source
         self._update = session_update(
             languages,

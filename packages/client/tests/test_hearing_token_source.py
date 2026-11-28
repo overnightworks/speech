@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import time
+from contextlib import nullcontext
 from typing import TYPE_CHECKING
 
 import pytest
 from logline import current_traceparent, unit_trace
+from logline.testing import configured
 
 from packages.client.tests.support.elapsed_support import (
     SESSION_DEADLINE_SECONDS,
@@ -21,6 +23,7 @@ from packages.client.tests.support.hearing_support import (
 )
 from packages.client.tests.support.reconnect_support import (
     BOUND,
+    WHOLE_RUN_SECONDS,
     Tokens,
     hear,
     hear_through,
@@ -79,13 +82,17 @@ def test_the_source_is_awaited_before_every_opening_and_its_tokens_travel() -> N
     ]
 
 
-@pytest.mark.parametrize("trace", ["caller's", "ambient", "none"])
-def test_every_opening_sends_the_callers_traceparent_over_the_ambient_one_or_none(
+@pytest.mark.parametrize(
+    "trace", ["caller's", "ambient", "ambient-unconfigured", "none"]
+)
+def test_every_opening_sends_the_callers_traceparent_over_the_running_one_or_none(
     trace: str,
 ) -> None:
     """WIRE-149: every upgrade carries the same traceparent, reopenings included.
 
-    The caller's is given inside a running trace, which it must win over.
+    The caller's is given inside a running trace, which it must win over; the
+    running trace reaches the upgrade through the host's configured logline, so
+    a host that never configured it sends none.
     """
     given = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 
@@ -100,10 +107,33 @@ def test_every_opening_sends_the_callers_traceparent_over_the_ambient_one_or_non
                     await hear(port, traceparent=given if trace == "caller's" else None)
             return [visit.headers.get(TRACEPARENT_HEADER) for visit in visits], ambient
 
-    sent, ambient = asyncio.run(scenario())
+    with nullcontext() if trace == "ambient-unconfigured" else configured("speech"):
+        sent, ambient = asyncio.run(scenario())
 
-    expected = given if trace == "caller's" else ambient
+    expected = {"caller's": given, "ambient": ambient}.get(trace)
     assert sent == [expected, expected]
+
+
+def test_a_session_built_in_one_trace_sends_the_trace_it_is_entered_in() -> None:
+    """WIRE-149: the openings carry the trace running when the session runs."""
+
+    async def scenario() -> tuple[list[str | None], str | None]:
+        async with scripted(drains, ends_in_order) as (port, visits):
+            with unit_trace(None):
+                session = session_to(port)
+            with unit_trace(None):
+                entered_in = current_traceparent()
+                async with session, asyncio.timeout(WHOLE_RUN_SECONDS):
+                    _ = [event async for event in session.events()]
+            return [
+                visit.headers.get(TRACEPARENT_HEADER) for visit in visits
+            ], entered_in
+
+    with configured("speech"):
+        sent, entered_in = asyncio.run(scenario())
+
+    assert entered_in is not None
+    assert sent == [entered_in, entered_in]
 
 
 def test_a_token_repr_carries_no_token() -> None:
