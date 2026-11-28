@@ -1,0 +1,8 @@
+claim_id = "d964b31f0c914b948bf5bddb44df97e6"
+agent = "Claude 4eb7a7ca-f6a5-4ebf-8b8f-4f83a029d5ee"
+role = "builder"
+base = "3e14982ee7b99cb3c714bb8737fd3d6ba4dc347f"
+branch = "claude/issue-766-stage-proofs-over-the-fakes"
+scope = [".github/workflows/ci.yml", "README.md", "scripts/prove_hearing.py", "scripts/prove_speech.py", "tests/scripts/test_hearing_client_served.py", "tests/scripts/test_hearing_figures.py", "tests/scripts/test_image_judgement.py", "tests/scripts/test_prove_hearing.py", "tests/scripts/test_prove_hearing_clip.py", "tests/scripts/test_prove_speech.py", "tests/scripts/test_prove_speech_served.py", "tests/scripts/test_prove_speech_start.py", "tests/support/fakes_support.py", "tests/support/hear_support.py", "tests/test_voice_activity.py"]
+opened_commit = "e6bbf17214cfb3d7a506c42857ecdfa2e0c87911"
+whole_reason = "Both proofs share one start and are driven through their entry points, so their composition is proven in CI; split, the start owner would have no proving flow."
