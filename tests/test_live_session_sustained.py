@@ -1,7 +1,6 @@
 """A session that asks for sustained speech gets one event per item once voice lasts."""
 
 import asyncio
-from itertools import groupby
 from typing import TYPE_CHECKING
 
 import pytest
@@ -32,7 +31,6 @@ from tests.support.detector_support import (
 from tests.support.hear_support import FakeHearing, loaded
 from tests.support.live_support import (
     ASK_FOR_SOUNDS,
-    SPEECH_LEVEL,
     WAIT_SECONDS,
     FakeSocket,
     append,
@@ -40,15 +38,13 @@ from tests.support.live_support import (
     end_is,
     started,
     update,
-    windows,
 )
 from tests.support.sound_support import FakeSoundModel, loaded_taggers
+from tests.support.sustained_support import asking, voice
 
-FOUR_TENTHS = {"duration_ms": FOUR_TENTHS_MS}
 SILENCE_WINDOWS = 16
 PARAM = "session.audio.input.sustained_speech.duration_ms"
 ITEMS = 4
-LEVELS = {"v": SPEECH_LEVEL, ".": 0}
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -56,34 +52,6 @@ if TYPE_CHECKING:
     from speech_client.realtime_wire import ServerEvent
     from speech_service.hearing import Hearing
     from speech_service.live_session import LiveSession
-    from speech_service.sound_events import SoundTaggers
-
-
-def _voice(pattern: str) -> str:
-    """The audio of `pattern`, one window a character: `v` voiced, `.` silent.
-
-    A silent window follows: the resampler holds back the last samples it is fed.
-    """
-    return "".join(
-        windows(len(list(run)), LEVELS[character])
-        for character, run in groupby(pattern + ".")
-    )
-
-
-async def _asking(
-    ask: object = FOUR_TENTHS,
-    engine: FakeHearing | None = None,
-    *,
-    sounds: SoundTaggers | None = None,
-    sound_detection: dict[str, str] | None = None,
-) -> tuple[LiveSession, FakeSocket, Hearing, FakeClock]:
-    clock = FakeClock()
-    hearing = loaded(engine or FakeHearing(), clock, sounds=sounds)
-    session, socket = await started(hearing)
-    await session.on_message(
-        update(sound_detection=sound_detection, sustained_speech=ask)
-    )
-    return session, socket, hearing, clock
 
 
 async def _end_by(
@@ -97,7 +65,7 @@ async def _end_by(
         await session.on_tick()
 
     endings = {
-        "silence": lambda: session.on_message(append(_voice("." * SILENCE_WINDOWS))),
+        "silence": lambda: session.on_message(append(voice("." * SILENCE_WINDOWS))),
         "commit": lambda: session.on_message(commit()),
         "drain-cut": drain_cut,
     }
@@ -122,7 +90,7 @@ def test_the_echo_carries_the_applied_duration_and_the_creation_none(
     """WIRE-172, WIRE-174: `session.updated` echoes the duration the session applies."""
 
     async def scenario() -> FakeSocket:
-        _, socket, _, _ = await _asking(ask)
+        _, socket, _, _ = await asking(ask)
         return socket
 
     socket = asyncio.run(scenario())
@@ -142,7 +110,7 @@ def test_a_session_that_does_not_ask_sees_no_field_and_no_event() -> None:
         hearing = loaded(FakeHearing(), FakeClock())
         session, socket = await started(hearing)
         await session.on_message(update())
-        await session.on_message(append(_voice("v" * 40 + "." * SILENCE_WINDOWS)))
+        await session.on_message(append(voice("v" * 40 + "." * SILENCE_WINDOWS)))
         await session.settled()
         return socket
 
@@ -171,7 +139,7 @@ def test_a_bad_ask_ends_the_session_invalid_naming_the_field(ask: object) -> Non
     """WIRE-58, WIRE-172: a bad ask ends the session invalid_request with its param."""
 
     async def scenario() -> FakeSocket:
-        _, socket, _, _ = await _asking(ask)
+        _, socket, _, _ = await asking(ask)
         return socket
 
     socket = asyncio.run(scenario())
@@ -185,8 +153,8 @@ def test_the_event_names_its_item_and_the_end_of_the_window_of_the_count() -> No
     """WIRE-171, WIRE-173, WIRE-175: the event names the item and the window's end."""
 
     async def scenario() -> FakeSocket:
-        session, socket, _, _ = await _asking()
-        await session.on_message(append(_voice("v" * THRESHOLD_WINDOWS)))
+        session, socket, _, _ = await asking()
+        await session.on_message(append(voice("v" * THRESHOLD_WINDOWS)))
         return socket
 
     socket = asyncio.run(scenario())
@@ -202,8 +170,8 @@ def test_the_event_lies_after_the_start_and_before_the_stop_and_the_commit() -> 
     """WIRE-175: the order of one item's events."""
 
     async def scenario() -> FakeSocket:
-        session, socket, _, _ = await _asking()
-        await session.on_message(append(_voice("v" * 20 + "." * SILENCE_WINDOWS)))
+        session, socket, _, _ = await asking()
+        await session.on_message(append(voice("v" * 20 + "." * SILENCE_WINDOWS)))
         await session.settled()
         return socket
 
@@ -225,8 +193,8 @@ def test_a_pre_roll_that_holds_the_count_has_its_event_right_after_the_start() -
     """WIRE-173: the pre-roll counts, and its event follows `speech_started`."""
 
     async def scenario() -> FakeSocket:
-        session, socket, _, _ = await _asking({"duration_ms": 100})
-        await session.on_message(append(_voice("vv.vvv")))
+        session, socket, _, _ = await asking({"duration_ms": 100})
+        await session.on_message(append(voice("vv.vvv")))
         return socket
 
     socket = asyncio.run(scenario())
@@ -241,11 +209,11 @@ def test_each_item_gets_its_own_event_and_a_voice_that_stopped_first_none() -> N
     """WIRE-173, WIRE-175: the count starts afresh with every item."""
 
     async def scenario() -> FakeSocket:
-        session, socket, _, _ = await _asking()
+        session, socket, _, _ = await asking()
         short = "v" * 8 + "." * SILENCE_WINDOWS
-        await session.on_message(append(_voice(short + short)))
-        await session.on_message(append(_voice("v" * 20 + "." * SILENCE_WINDOWS)))
-        await session.on_message(append(_voice("v" * 20 + "." * SILENCE_WINDOWS)))
+        await session.on_message(append(voice(short + short)))
+        await session.on_message(append(voice("v" * 20 + "." * SILENCE_WINDOWS)))
+        await session.on_message(append(voice("v" * 20 + "." * SILENCE_WINDOWS)))
         await session.settled()
         return socket
 
@@ -265,8 +233,8 @@ def test_an_item_that_ends_before_the_count_has_no_event_and_ends_once(
     """WIRE-80, WIRE-173: no event for an item that ended first, which still ends."""
 
     async def scenario() -> FakeSocket:
-        session, socket, hearing, clock = await _asking()
-        await session.on_message(append(_voice("v" * (THRESHOLD_WINDOWS - 1))))
+        session, socket, hearing, clock = await asking()
+        await session.on_message(append(voice("v" * (THRESHOLD_WINDOWS - 1))))
         await _end_by(ending, session, hearing, clock)
         await session.settled()
         return socket
@@ -285,8 +253,8 @@ def test_an_item_that_ends_after_the_event_keeps_it_and_ends_once(
     """WIRE-175: the event stands when the item is ended by the client or a drain."""
 
     async def scenario() -> FakeSocket:
-        session, socket, hearing, clock = await _asking()
-        await session.on_message(append(_voice("v" * (THRESHOLD_WINDOWS + 2))))
+        session, socket, hearing, clock = await asking()
+        await session.on_message(append(voice("v" * (THRESHOLD_WINDOWS + 2))))
         await _end_by(ending, session, hearing, clock)
         await session.settled()
         return socket
@@ -307,16 +275,16 @@ def test_the_event_is_sent_to_a_draining_session_until_its_close() -> None:
     """WIRE-175: a drain sends the event while the open item runs, then closes 1012."""
 
     async def scenario() -> tuple[FakeSocket, list[type[ServerEvent]]]:
-        session, socket, hearing, clock = await _asking()
-        await session.on_message(append(_voice("v" * 8)))
+        session, socket, hearing, clock = await asking()
+        await session.on_message(append(voice("v" * 8)))
         hearing.begin_drain()
-        await session.on_message(append(_voice("v" * 8)))
+        await session.on_message(append(voice("v" * 8)))
         clock.jump(DRAIN_TURN_SECONDS)
         await session.on_tick()
         await session.settled()
         await session.on_tick()
         closed_with = socket.types()
-        await session.on_message(append(_voice("v" * (2 * THRESHOLD_WINDOWS))))
+        await session.on_message(append(voice("v" * (2 * THRESHOLD_WINDOWS))))
         return socket, closed_with
 
     socket, closed_with = asyncio.run(scenario())
@@ -327,14 +295,14 @@ def test_the_event_is_sent_to_a_draining_session_until_its_close() -> None:
     assert socket.types().index(SpeechSustained) < socket.types().index(AudioCommitted)
 
 
-def test_nothing_follows_an_error_not_even_a_sustained_voice() -> None:
+def test_nothing_follows_an_error_not_even_a_sustainedvoice() -> None:
     """WIRE-175: after `error` the session sends no event."""
 
     async def scenario() -> FakeSocket:
-        session, socket, _, _ = await _asking()
-        await session.on_message(append(_voice("v" * (THRESHOLD_WINDOWS - 1))))
+        session, socket, _, _ = await asking()
+        await session.on_message(append(voice("v" * (THRESHOLD_WINDOWS - 1))))
         await session.on_message(append("not base64!"))
-        await session.on_message(append(_voice("v" * 20)))
+        await session.on_message(append(voice("v" * 20)))
         return socket
 
     socket = asyncio.run(scenario())
@@ -349,12 +317,12 @@ def test_the_event_is_sent_while_a_decode_is_held() -> None:
 
     async def scenario() -> tuple[list[object], list[type[ServerEvent]]]:
         engine = FakeHearing(hold=True)
-        session, socket, _, _ = await _asking({"duration_ms": 800}, engine)
-        await session.on_message(append(_voice("v" * voiced_before_the_decode)))
+        session, socket, _, _ = await asking({"duration_ms": 800}, engine)
+        await session.on_message(append(voice("v" * voiced_before_the_decode)))
         await session.on_tick()
         assert await asyncio.to_thread(engine.entered.wait, WAIT_SECONDS)
         before = _sustained(socket)
-        await session.on_message(append(_voice("v" * voiced_before_the_decode)))
+        await session.on_message(append(voice("v" * voiced_before_the_decode)))
         during = _sustained(socket)
         engine.release.set()
         await session.settled()
@@ -378,7 +346,7 @@ def test_one_echo_carries_the_sound_ask_and_the_applied_duration(
 
     async def scenario() -> FakeSocket:
         taggers, _ = loaded_taggers(tmp_path)
-        _, socket, _, _ = await _asking(sounds=taggers, sound_detection=ASK_FOR_SOUNDS)
+        _, socket, _, _ = await asking(sounds=taggers, sound_detection=ASK_FOR_SOUNDS)
         return socket
 
     socket = asyncio.run(scenario())
@@ -397,11 +365,11 @@ def test_a_voice_with_a_sound_gets_its_sustained_event_before_its_sound_event(
 
     async def scenario() -> FakeSocket:
         taggers, model = loaded_taggers(tmp_path, FakeSoundModel())
-        session, socket, _, _ = await _asking(
+        session, socket, _, _ = await asking(
             sounds=taggers, sound_detection=ASK_FOR_SOUNDS
         )
         model.script(LAUGH)
-        await session.on_message(append(_voice("v" * VOICED_WINDOWS_OF_A_HOP)))
+        await session.on_message(append(voice("v" * VOICED_WINDOWS_OF_A_HOP)))
         await session.settled()
         return socket
 
@@ -424,8 +392,8 @@ def test_without_a_sound_model_the_echo_keeps_the_duration_and_the_event_comes()
     """WIRE-165, WIRE-172: the sound ask is dropped, the sustained speech is not."""
 
     async def scenario() -> FakeSocket:
-        session, socket, _, _ = await _asking(sound_detection=ASK_FOR_SOUNDS)
-        await session.on_message(append(_voice("v" * THRESHOLD_WINDOWS)))
+        session, socket, _, _ = await asking(sound_detection=ASK_FOR_SOUNDS)
+        await session.on_message(append(voice("v" * THRESHOLD_WINDOWS)))
         return socket
 
     socket = asyncio.run(scenario())

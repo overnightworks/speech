@@ -22,12 +22,15 @@ from speech_client.realtime_wire import (
     SpeechStarted,
     SpeechStopped,
     SpeechSustained,
+    SpeechSustainedFrom,
+    SustainFrom,
     TranscriptCompleted,
     TranscriptDelta,
     TranscriptFailed,
     TranscriptionSession,
     TranscriptLanguage,
     error_event,
+    input_milliseconds,
     item_failure,
     parse_client_event,
     parse_server_event,
@@ -334,7 +337,7 @@ def test_a_session_update_whose_session_names_no_type_is_refused() -> None:
     ],
     ids=["malformed", "not-an-object", "clear", "unknown", "no-audio", "extra-field"],
 )
-def test_anything_but_the_three_client_events_is_refused(text: str) -> None:
+def test_anything_but_the_four_client_events_is_refused(text: str) -> None:
     with pytest.raises(ClientEventError):
         parse_client_event(text)
 
@@ -436,6 +439,7 @@ def _each_server_event() -> list[ServerEvent]:
         error_event(RefusalCode.BUSY, param="audio"),
         SoundDetected(sound=SoundName.LAUGHTER, audio_start_ms=1500, audio_end_ms=3500),
         SpeechSustained(item_id="item", audio_end_ms=416),
+        SpeechSustainedFrom(item_id="item", from_ms=96, audio_end_ms=416),
     ]
 
 
@@ -606,3 +610,68 @@ def test_a_sustained_speech_event_names_its_item_and_the_end_of_the_window() -> 
 
     assert event["type"] == "input_audio_buffer.speech_sustained"
     assert (event["item_id"], event["audio_end_ms"]) == ("item", 416)
+
+
+def test_a_moment_event_names_its_item_the_moment_and_the_end_of_the_window() -> None:
+    """WIRE-177: the event carries `item_id`, `from_ms` and `audio_end_ms`."""
+    event = json.loads(
+        SpeechSustainedFrom(
+            item_id="item", from_ms=96, audio_end_ms=416
+        ).model_dump_json()
+    )
+
+    assert event["type"] == "input_audio_buffer.speech_sustained_from"
+    assert (event["item_id"], event["from_ms"], event["audio_end_ms"]) == (
+        "item",
+        96,
+        416,
+    )
+
+
+def _moment(**fields: object) -> str:
+    return json.dumps({"type": "input_audio_buffer.sustain_from", **fields})
+
+
+def test_a_moment_is_parsed_with_its_position_and_event_id() -> None:
+    """WIRE-176: a client names a moment with an integer `from_ms` from 0."""
+    event = parse_client_event(_moment(from_ms=0, event_id="m1"))
+
+    assert event == SustainFrom(
+        type="input_audio_buffer.sustain_from", from_ms=0, event_id="m1"
+    )
+
+
+@pytest.mark.parametrize(
+    ("fields", "param"),
+    [
+        pytest.param({}, "from_ms", id="absent"),
+        pytest.param({"from_ms": None}, "from_ms", id="null"),
+        pytest.param({"from_ms": "5"}, "from_ms", id="text"),
+        pytest.param({"from_ms": 5.5}, "from_ms", id="a-fraction"),
+        pytest.param({"from_ms": True}, "from_ms", id="a-boolean"),
+        pytest.param({"from_ms": -1}, "from_ms", id="below-zero"),
+        pytest.param({"from_ms": 5, "other": 1}, "other", id="an-unknown-key"),
+    ],
+)
+def test_a_moment_the_parser_refuses_names_the_field_and_its_type(
+    fields: dict[str, object], param: str
+) -> None:
+    """WIRE-176: the refusal names the field, and the raw type is kept for the ask."""
+    with pytest.raises(ClientEventError) as refused:
+        parse_client_event(_moment(**fields, event_id="m1"))
+
+    assert (refused.value.param, refused.value.event_id, refused.value.event_type) == (
+        param,
+        "m1",
+        "input_audio_buffer.sustain_from",
+    )
+
+
+def test_the_milliseconds_of_the_input_audio_round_down() -> None:
+    """WIRE-70: 24 kHz PCM16 is 48 bytes a millisecond, and a part of one is dropped."""
+    assert [input_milliseconds(size) for size in (0, 47, 48, 3004 * 2)] == [
+        0,
+        0,
+        1,
+        125,
+    ]

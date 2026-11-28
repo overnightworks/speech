@@ -31,6 +31,7 @@ from speech_client.realtime_wire import (
     SessionUpdated,
     SpeechStarted,
     SpeechSustained,
+    SpeechSustainedFrom,
     SustainedSpeech,
     TranscriptCompleted,
     TranscriptFailed,
@@ -45,6 +46,7 @@ from speech_client.wire import (
 )
 from speech_service.config import Settings
 from speech_service.control import create_control_app
+from tests.support.detector_support import end_of_window
 from tests.support.hear_support import (
     HEARD_TEXT,
     WAIT_SECONDS,
@@ -71,6 +73,8 @@ from tests.support.live_support import (
     audio,
     commit,
     read_event,
+    samples,
+    sustain_from,
     update,
     windows,
 )
@@ -143,6 +147,55 @@ def test_the_ask_for_sustained_speech_its_echo_and_its_event_travel_the_route() 
     assert isinstance(sustained, SpeechSustained)
     assert sustained.item_id == opened.item_id
     assert sustained.audio_end_ms == 13 * 32
+
+
+# Odd chunks of the browser's 24 kHz audio: 3004 samples are 125 whole milliseconds
+# and a sixth of one, the rest bring the voice to 1166 ms.
+ODD_CHUNKS_BEFORE_THE_MOMENT = (1001, 2003)
+ODD_CHUNKS_AFTER_THE_MOMENT = (7001, 9999, 8003)
+APPENDED_MS = 125
+
+
+def _asked_and_fed_odd_chunks(socket: WebSocketTestSession) -> None:
+    assert isinstance(_received(socket), SessionCreated)
+    socket.send_text(update(sustained_speech={"duration_ms": 200}))
+    assert isinstance(_received(socket), SessionUpdated)
+    for size in ODD_CHUNKS_BEFORE_THE_MOMENT:
+        socket.send_text(append(samples(size)))
+
+
+def test_a_moment_and_its_event_travel_the_route_over_odd_chunks() -> None:
+    """WIRE-176, WIRE-177: a moment at the audio appended is not behind it."""
+    with _client().websocket_connect(URL, headers=valid_headers()) as socket:
+        _asked_and_fed_odd_chunks(socket)
+        socket.send_text(sustain_from(from_ms=APPENDED_MS))
+        for size in ODD_CHUNKS_AFTER_THE_MOMENT:
+            socket.send_text(append(samples(size)))
+        socket.send_text(append(windows(1, 0)))
+        opened, sustained, moment = (_received(socket) for _ in range(3))
+
+    assert isinstance(opened, SpeechStarted)
+    assert isinstance(sustained, SpeechSustained)
+    assert isinstance(moment, SpeechSustainedFrom)
+    assert moment.item_id == opened.item_id
+    assert moment.from_ms == APPENDED_MS
+    # Seven windows begin at or after 125 ms: the first at 128 ms, the last ends at 352.
+    assert moment.audio_end_ms == end_of_window(10)
+
+
+def test_a_moment_one_millisecond_behind_the_audio_ends_the_session() -> None:
+    """WIRE-176, WIRE-82: behind ends the session invalid_request naming `from_ms`."""
+    with _client().websocket_connect(URL, headers=valid_headers()) as socket:
+        _asked_and_fed_odd_chunks(socket)
+        socket.send_text(sustain_from(from_ms=APPENDED_MS - 1))
+        events = [_received(socket) for _ in range(3)]
+
+    error = events[-1]
+    assert isinstance(error, ErrorEvent)
+    assert (error.error.code, error.error.param) == (
+        RefusalCode.INVALID_REQUEST,
+        "from_ms",
+    )
 
 
 def test_a_session_runs_on_after_both_tokens_expire_and_a_new_upgrade_is_refused() -> (

@@ -8,8 +8,10 @@ from speech_service.config import DEFAULT_LIVE_SILENCE_SECONDS
 from speech_service.hearing_session import (
     MAX_TURN_SECONDS,
     HearingSession,
+    SchedulerEvent,
     SpeechStart,
     SpeechSustain,
+    SpeechSustainFrom,
     TurnEnd,
     TurnEndedBy,
 )
@@ -28,6 +30,7 @@ from tests.support.detector_support import (
     LevelDetector,
     ScriptedDetector,
     end_of_window,
+    start_of_window,
 )
 
 BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE
@@ -565,3 +568,217 @@ def test_a_commit_after_the_event_leaves_the_event_standing() -> None:
         end_of_window(THRESHOLD_WINDOWS - 1)
     ]
     assert isinstance(ended, TurnEnd)
+
+
+# The moment's cases count under a duration of 7 windows and a pause bound of 5.
+MOMENT_DURATION_MS = 200
+MOMENT_PAUSE_SECONDS = 0.15
+ITEM = "." * 4 + "v" * 20 + "." * SILENT_WINDOWS
+
+
+def _moment_session(windows: str) -> HearingSession:
+    session = HearingSession(
+        _Clock(),
+        ScriptedDetector(_WINDOW_PROBABILITY[window] for window in windows),
+        DEFAULT_LIVE_SILENCE_SECONDS,
+        pause_seconds=MOMENT_PAUSE_SECONDS,
+    )
+    session.sustain_after(MOMENT_DURATION_MS)
+    return session
+
+
+def _counted_from(
+    windows: str, from_ms: int, *, named_after: int = 0
+) -> list[SchedulerEvent]:
+    """Every event of `windows` when `from_ms` is named after `named_after` of them."""
+    session = _moment_session(windows)
+    heard = session.add(_quiet(named_after))
+    session.sustain_from(from_ms)
+    return heard + session.add(_quiet(len(windows) - named_after))
+
+
+def _moments(events: list[SchedulerEvent]) -> list[SpeechSustainFrom]:
+    return [event for event in events if isinstance(event, SpeechSustainFrom)]
+
+
+@pytest.mark.parametrize(
+    ("windows", "from_ms", "named_after", "reached_at"),
+    [
+        pytest.param(
+            ITEM,
+            start_of_window(10),
+            0,
+            16,
+            id="a-moment-ahead-of-the-audio-waits-for-it",
+        ),
+        pytest.param(
+            ITEM, start_of_window(10), 8, 16, id="a-moment-named-while-the-item-is-open"
+        ),
+        pytest.param(
+            ITEM,
+            start_of_window(9),
+            0,
+            15,
+            id="a-window-that-begins-at-the-moment-counts",
+        ),
+        pytest.param(
+            ITEM,
+            start_of_window(9) + 1,
+            0,
+            16,
+            id="a-window-straddling-the-moment-does-not-count",
+        ),
+        pytest.param(
+            "v" * 5 + "." * 4 + "v" * 10 + "." * SILENT_WINDOWS,
+            start_of_window(0),
+            0,
+            10,
+            id="a-pause-within-the-bound-restarts-nothing",
+        ),
+        pytest.param(
+            "v" * 10 + "." * 5 + "v" * 10 + "." * SILENT_WINDOWS,
+            start_of_window(4),
+            0,
+            21,
+            id="a-pause-past-the-bound-restarts-the-count-from-zero",
+        ),
+        pytest.param(
+            ITEM, start_of_window(5), 0, 11, id="a-moment-inside-the-confirmation-run"
+        ),
+        pytest.param(
+            ITEM,
+            start_of_window(6),
+            0,
+            12,
+            id="a-moment-at-the-window-that-confirms-the-run",
+        ),
+        pytest.param(
+            ITEM,
+            start_of_window(4),
+            0,
+            10,
+            id="a-run-whose-first-window-begins-at-the-moment",
+        ),
+        pytest.param(
+            "f" * 3 + "v" * 20 + "." * SILENT_WINDOWS,
+            start_of_window(3),
+            0,
+            9,
+            id="pre-roll-windows-before-the-moment-do-not-count",
+        ),
+        pytest.param(
+            ITEM,
+            start_of_window(4) - 1,
+            0,
+            None,
+            id="an-item-that-begins-after-the-moment-gets-none",
+        ),
+        pytest.param(
+            "v" * 10 + "." * SILENT_WINDOWS + "v" * 30 + "." * SILENT_WINDOWS,
+            start_of_window(5),
+            0,
+            None,
+            id="an-item-that-ends-before-the-count-gets-none-and-the-next-none",
+        ),
+        pytest.param(
+            "v" * 10 + "." * SILENT_WINDOWS + "." * 4 + "v" * 30,
+            end_of_window(10 + SILENT_WINDOWS - 1),
+            0,
+            None,
+            id="an-item-that-ended-at-the-moment-is-not-its-item",
+        ),
+        pytest.param(
+            "." * 30 + "v" * 20 + "." * SILENT_WINDOWS,
+            start_of_window(10),
+            0,
+            None,
+            id="no-item-at-the-moment",
+        ),
+        pytest.param(
+            "v" * 2 + "." * 3 + "v" * 20 + "." * SILENT_WINDOWS,
+            start_of_window(1),
+            0,
+            None,
+            id="a-run-that-fails-confirmation-gets-nothing",
+        ),
+    ],
+)
+def test_one_event_comes_where_the_voice_from_the_moment_reaches_the_count(
+    windows: str, from_ms: int, named_after: int, reached_at: int | None
+) -> None:
+    """WIRE-177: the windows that begin at or after the moment count, once."""
+    heard = _counted_from(windows, from_ms, named_after=named_after)
+
+    expected = (
+        []
+        if reached_at is None
+        else [SpeechSustainFrom(from_ms=from_ms, audio_ms=end_of_window(reached_at))]
+    )
+    assert _moments(heard) == expected
+
+
+def test_the_moments_event_follows_the_items_own_when_both_complete_in_one_window() -> (
+    None
+):
+    """WIRE-177: the item's `SpeechSustain` comes before the moment's event."""
+    heard = _counted_from(ITEM, start_of_window(4))
+
+    assert [type(event) for event in heard if not isinstance(event, TurnEnd)] == [
+        SpeechStart,
+        SpeechSustain,
+        SpeechSustainFrom,
+    ]
+
+
+def test_a_moment_equal_to_the_standing_one_changes_nothing() -> None:
+    """WIRE-178: naming the standing moment again keeps its count and sends no more."""
+    from_ms = start_of_window(10)
+    session = _moment_session(ITEM)
+    session.sustain_from(from_ms)
+    heard = session.add(_quiet(12))
+    session.sustain_from(from_ms)
+    heard += session.add(_quiet(8))
+    session.sustain_from(from_ms)
+    heard += session.add(_quiet(len(ITEM) - 20))
+
+    assert _moments(heard) == [
+        SpeechSustainFrom(from_ms=from_ms, audio_ms=end_of_window(16))
+    ]
+
+
+def test_a_new_moment_replaces_the_standing_one_that_has_not_sent() -> None:
+    """WIRE-178: no event of the older moment follows."""
+    session = _moment_session(ITEM)
+    session.sustain_from(start_of_window(8))
+    heard = session.add(_quiet(11))
+    session.sustain_from(start_of_window(12))
+    heard += session.add(_quiet(len(ITEM) - 11))
+
+    assert _moments(heard) == [
+        SpeechSustainFrom(from_ms=start_of_window(12), audio_ms=end_of_window(18))
+    ]
+
+
+def test_a_new_moment_leaves_the_event_the_older_one_already_sent_standing() -> None:
+    """WIRE-178: an event sent stands, and the new moment counts on its own."""
+    session = _moment_session(ITEM)
+    session.sustain_from(start_of_window(6))
+    heard = session.add(_quiet(13))
+    session.sustain_from(start_of_window(16))
+    heard += session.add(_quiet(len(ITEM) - 13))
+
+    assert _moments(heard) == [
+        SpeechSustainFrom(from_ms=start_of_window(6), audio_ms=end_of_window(12)),
+        SpeechSustainFrom(from_ms=start_of_window(16), audio_ms=end_of_window(22)),
+    ]
+
+
+def test_a_moment_serves_only_its_item_once_that_item_ended() -> None:
+    """WIRE-178: after a commit ends the item, the next item gets no event."""
+    session = _moment_session("v" * 30)
+    session.sustain_from(start_of_window(6))
+    heard = session.add(_quiet(8))
+    session.commit()
+    heard += session.add(_quiet(22))
+
+    assert _moments(heard) == []

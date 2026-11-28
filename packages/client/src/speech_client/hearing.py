@@ -132,12 +132,11 @@ from speech_client.outcomes import (
     busy_wait,
 )
 from speech_client.realtime_wire import (
+    INPUT_BYTES_PER_SECOND,
     AudioAppend,
     ErrorEvent,
-    PcmFormat,
     ServerEventError,
     SessionCreated,
-    SessionInput,
     SessionUpdated,
     SoundDetected,
     SpeechStarted,
@@ -145,6 +144,7 @@ from speech_client.realtime_wire import (
     SpeechSustained,
     TranscriptCompleted,
     TranscriptFailed,
+    input_milliseconds,
     parse_server_event,
     realtime_url,
     session_update,
@@ -246,11 +246,8 @@ OPENING_SECONDS: Final = 5.0
 RECONNECT_BOUND: Final = ReconnectBound(
     attempts=5, pause_seconds=0.5, within_seconds=10
 )
-_BYTES_PER_SECOND: Final = (
-    SessionInput().format.rate * PcmFormat.sample_bytes * PcmFormat.channels
-)
 NEEDED_HOLD_BYTES: Final = int(
-    max(OPENING_SECONDS, RECONNECT_BOUND.within_seconds) * _BYTES_PER_SECOND
+    max(OPENING_SECONDS, RECONNECT_BOUND.within_seconds) * INPUT_BYTES_PER_SECOND
 )
 
 # The socket logs request headers and frame texts at debug; this logger never
@@ -360,10 +357,6 @@ def _is_failed_attempt(outcome: HearingOutcome) -> bool:
             return True
         case _:
             return False
-
-
-def _milliseconds(audio_bytes: int) -> int:
-    return audio_bytes * 1000 // _BYTES_PER_SECOND
 
 
 class HearingSession:
@@ -525,8 +518,8 @@ class HearingSession:
             if opening_at is None:
                 return ReconnectFailed()
             self._wire = _Wire(
-                offset_ms=_milliseconds(self._written_bytes),
-                last_turn_end_ms=_milliseconds(self._written_bytes),
+                offset_ms=input_milliseconds(self._written_bytes),
+                last_turn_end_ms=input_milliseconds(self._written_bytes),
             )
             outcome = await self._wire_session(end, opening_at)
             wire, self._wire = self._wire, None

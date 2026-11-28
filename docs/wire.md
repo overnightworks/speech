@@ -71,6 +71,12 @@ session's events `events()` yields `Reconnected` (a client-side record, no wire 
 its cause (`DRAIN` or `CUT`) and the span of audio, on that timeline, that may have gone
 unheard, from the end of the last turn the old session delivered to the new session's
 first position. The new session's items start afresh.
+A `SustainMoments` handle passed to `hear_utterances` names a moment (WIRE-176) at
+`now()`, which returns the position of the audio handed to the hearing so far on that
+timeline, whole milliseconds rounded down, and `None` while no hearing runs; the library
+delivers only the event of the newest moment (WIRE-177, WIRE-178), also across a
+reconnect, and writes the newest moment on a new session when its position is at or
+above that session's start.
 `speech_client.relay` relays a browser's binary audio frames to such a session for an
 app's server and hands the app the typed events, never the browser; it ends the hop
 when the browser leaves, breaks a frame rule or the app ends it, and closes the
@@ -242,7 +248,8 @@ The limits, each answered without decoding more than it must:
 - WIRE-48: `WS /v1/realtime?intent=transcription` hears audio as it arrives.
 - WIRE-49: It speaks the
   events of OpenAI's Realtime transcription session that this service applies, and
-  two events of its own, sound detection (WIRE-163) and sustained speech (WIRE-171).
+  two events of its own, sound detection (WIRE-163) and sustained speech (WIRE-171,
+  WIRE-177), and one client message of the sustained ask's own, the moment (WIRE-176).
 - WIRE-50: Both tokens travel in the upgrade request's headers, as on the
   other routes; a client sends them from a server, never from a browser.
 - WIRE-140: The tokens are checked once, at the upgrade; a session runs on after either
@@ -301,8 +308,8 @@ The limits, each answered without decoding more than it must:
 **Client events.**
 
 - WIRE-59: Only `session.update`, `input_audio_buffer.append` (base64
-  PCM16 at 24 kHz) and
-  `input_audio_buffer.commit`.
+  PCM16 at 24 kHz),
+  `input_audio_buffer.commit` and `input_audio_buffer.sustain_from` (WIRE-176).
 - WIRE-60: Invalid base64 or an odd byte count ends the session.
 - WIRE-61: Any other event type, `input_audio_buffer.clear`
   included, is a protocol violation.
@@ -350,6 +357,7 @@ The limits, each answered without decoding more than it must:
 | WIRE-77 | `error` (`error.type`, `error.code`, `error.message`, `error.param`, `error.event_id`) | the session ends after it |
 | WIRE-163 | `input_audio_buffer.sound_detected` (`sound`, `audio_start_ms`, `audio_end_ms`) | a sound began, in a session that asked (below); it has no `item_id` |
 | WIRE-171 | `input_audio_buffer.speech_sustained` (`item_id`, `audio_end_ms`) | once per item, in a session that asked (WIRE-172), when the item's voice has lasted the session's duration (WIRE-173): after its `speech_started`, before its `speech_stopped` and `committed` (WIRE-175); `audio_end_ms` counts as below |
+| WIRE-177 | `input_audio_buffer.speech_sustained_from` (`item_id`, `from_ms`, `audio_end_ms`) | once per item and moment, for the item whose `audio_start_ms` is at or before `from_ms` and which had not ended before it, when its voiced windows that begin at or after `from_ms` reach the session's duration, counted as WIRE-173 counts, a pause past the bound restarting them; after the item's `speech_sustained`. No event for an item that ends first. |
 
 `audio_start_ms` and `audio_end_ms` (WIRE-70, WIRE-72, WIRE-171) count milliseconds of the audio
 the service received in this session, from its first byte, in the service's 16 kHz time,
@@ -420,7 +428,8 @@ audio, pre-roll included.
 
 - WIRE-172: A session asks for it with `session.audio.input.sustained_speech`
   `{"duration_ms": <integer>}` in its `session.update`, and only a session that asked gets
-  `input_audio_buffer.speech_sustained`; without the ask every event and echo is as it would
+  `input_audio_buffer.speech_sustained` and `input_audio_buffer.speech_sustained_from`;
+  without the ask every event and echo is as it would
   be without it. `duration_ms` is an integer from 1 to 30000, the turn cap (WIRE-66); left
   out, it is the service's default, 400 ms. The duration is fixed for the session (WIRE-58).
   An app holds a speaking agent on this event instead of on `speech_started`, so a short
@@ -440,11 +449,22 @@ audio, pre-roll included.
 - WIRE-174: `session.updated` echoes the field with the duration the session applies,
   `{"duration_ms": <integer>}`, as asked or the default when the ask leaves it out;
   `session.created` never carries it.
-- WIRE-175: The event follows its item's `speech_started` and precedes its `speech_stopped`
-  and `committed`; its order against deltas is free. Every announced item still ends
-  once (WIRE-80). The event is sent while a drain runs (WIRE-146), until the `1012` close;
-  after an `error`, a `failed` or the close none follows. It is counted as audio arrives,
+- WIRE-175: Each event follows its item's `speech_started` and precedes its `speech_stopped`
+  and `committed`, `speech_sustained_from` after `speech_sustained`; their order against
+  deltas is free. Every announced item still ends
+  once (WIRE-80). Each is sent while a drain runs (WIRE-146), until the `1012` close;
+  after an `error`, a `failed` or the close none follows. Each is counted as audio arrives,
   so it never delays a receive or a decode.
+- WIRE-176: A session that asked for sustained speech names a moment with
+  `input_audio_buffer.sustain_from` (`from_ms`, an integer, milliseconds as WIRE-70 counts
+  them). A session that did not ask refuses the type as WIRE-61 does, whatever its fields. A
+  `from_ms` below the whole milliseconds of the audio appended so far, absent, `null`, not an
+  integer, below 0, or beside a key the service does not know ends the session
+  `invalid_request` with `param` `from_ms` or the key's name. A position ahead of the audio
+  appended waits for the audio.
+- WIRE-178: A session holds one moment. A new `sustain_from` replaces it as it is received:
+  no event of the older moment follows, and one already sent stands. A moment equal to the
+  standing one changes nothing.
 
 **Every announced item ends once.**
 

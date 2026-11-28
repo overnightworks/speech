@@ -57,6 +57,17 @@ class SpeechSustain:
     audio_ms: int
 
 
+@dataclass(frozen=True, slots=True)
+class SpeechSustainFrom:
+    """The voice at the moment `from_ms` has lasted the duration from there on.
+
+    `audio_ms` is the end of the window that completed the count.
+    """
+
+    from_ms: int
+    audio_ms: int
+
+
 class TurnEndedBy(StrEnum):
     """What ended a turn: a client commit, a drain cut, the length cap or silence."""
 
@@ -83,6 +94,26 @@ class TurnEnd:
     silence_ms: int = 0
 
 
+type SchedulerEvent = SpeechStart | SpeechSustain | SpeechSustainFrom | TurnEnd
+
+
+@dataclass(slots=True)
+class _Moment:
+    """A moment the voice is counted from.
+
+    `base` is the item's count when the moment's item was decided, `None` before;
+    `spent` is set once the moment can yield nothing more.
+    """
+
+    from_ms: int
+    base: int | None = None
+    spent: bool = False
+
+    @property
+    def sample(self) -> int:
+        return self.from_ms * _SAMPLES_PER_MILLISECOND
+
+
 @dataclass(frozen=True, slots=True)
 class OpenTurn:
     """The open turn's audio so far and how much of it was speech."""
@@ -96,11 +127,18 @@ def _pause_windows(pause_seconds: float) -> int:
     return int(pause_seconds * HEARING_SAMPLE_RATE) // WINDOW_SAMPLES + 1
 
 
-def _voiced_since_last_pause(starts: deque[int], pause_windows: int) -> int:
-    """How many of the voiced windows, by their starts, follow the last long pause."""
+def _voiced_since_last_pause(
+    starts: deque[int], pause_windows: int, *, from_sample: int = 0
+) -> int:
+    """How many voiced windows, by their starts, follow the last long pause.
+
+    Only windows that begin at or after `from_sample` count.
+    """
     count = 0
     newer: int | None = None
     for start in reversed(starts):
+        if start < from_sample:
+            break
         if newer is not None and (newer - start) // WINDOW_SAMPLES - 1 >= pause_windows:
             break
         count += 1
@@ -146,6 +184,7 @@ class HearingSession:
         self._sustained_windows_to_send: int | None = None
         self._sustained_windows = 0
         self._sustained_sent = False
+        self._moment: _Moment | None = None
         self._waiting_voiced: deque[int] = deque()
         self._last_partial_at: float | None = None
         self._last_partial_samples = 0
@@ -162,10 +201,20 @@ class HearingSession:
             duration_ms * _SAMPLES_PER_MILLISECOND / WINDOW_SAMPLES
         )
 
-    def add(self, pcm: bytes) -> list[SpeechStart | SpeechSustain | TurnEnd]:
+    def sustain_from(self, from_ms: int) -> None:
+        """Raise `SpeechSustainFrom` once the item at `from_ms` has lasted the duration.
+
+        The item is the one that began at or before `from_ms` and had not ended before
+        it; only the windows that begin at or after `from_ms` count, under the rule
+        of `sustain_after`. A moment replaces the standing one, unless it equals it.
+        """
+        if self._moment is None or self._moment.from_ms != from_ms:
+            self._moment = _Moment(from_ms)
+
+    def add(self, pcm: bytes) -> list[SchedulerEvent]:
         """Take 16 kHz mono 16-bit audio; a turn that reaches the cap ends there."""
         self._pcm.extend(pcm)
-        events: list[SpeechStart | SpeechSustain | TurnEnd] = []
+        events: list[SchedulerEvent] = []
         for probability in self._detector.probabilities(pcm):
             events += self._take_window(probability)
         return events
@@ -220,23 +269,25 @@ class HearingSession:
         self._last_partial_samples = len(self._pcm) // BYTES_PER_SAMPLE
 
     @property
+    def _turn_start(self) -> int:
+        """Where the turn being confirmed or open starts, in samples."""
+        return max(self._run_start, self._held_from)
+
+    @property
     def _held_end(self) -> int:
         return self._held_from + len(self._pcm) // BYTES_PER_SAMPLE
 
-    def _take_window(
-        self, probability: float
-    ) -> list[SpeechStart | SpeechSustain | TurnEnd]:
+    def _take_window(self, probability: float) -> list[SchedulerEvent]:
         start = self._windows * WINDOW_SAMPLES
         self._windows += 1
         if self._speaking:
+            self._reach_moment(start)
             return self._continue_turn(probability, start + WINDOW_SAMPLES)
         if is_voiced(probability):
             self._waiting_voiced.append(start)
         return self._wait_for_speech(probability, start)
 
-    def _wait_for_speech(
-        self, probability: float, start: int
-    ) -> list[SpeechStart | SpeechSustain | TurnEnd]:
+    def _wait_for_speech(self, probability: float, start: int) -> list[SchedulerEvent]:
         if probability < START_THRESHOLD or (
             self._last_turn and not self._speech_windows
         ):
@@ -247,26 +298,26 @@ class HearingSession:
             self._speech_windows += 1
             if self._speech_windows >= START_WINDOWS:
                 return self._open_turn(start + WINDOW_SAMPLES)
+        self._pass_moment_without_item(start)
         newest = self._run_start if self._speech_windows else start + WINDOW_SAMPLES
         self._drop_before(newest - _PRE_ROLL_SAMPLES)
         return []
 
-    def _open_turn(self, end: int) -> list[SpeechStart | SpeechSustain | TurnEnd]:
+    def _open_turn(self, end: int) -> list[SchedulerEvent]:
         self._drop_before(self._run_start - _PRE_ROLL_SAMPLES)
         self._speaking = True
         self._voiced_windows = len(self._waiting_voiced)
         self._sustained_windows = _voiced_since_last_pause(
             self._waiting_voiced, self._pause_windows
         )
+        self._decide_moment_of_opening_turn(end - WINDOW_SAMPLES)
         self._waiting_voiced.clear()
         self._silent_windows = 0
         self._speech_windows = 0
         return [
-            SpeechStart(
-                audio_ms=max(self._run_start, self._held_from)
-                // _SAMPLES_PER_MILLISECOND
-            ),
+            SpeechStart(audio_ms=self._turn_start // _SAMPLES_PER_MILLISECOND),
             *self._sustained_when_reached(end),
+            *self._moment_when_reached(end),
         ]
 
     def _continue_turn(
@@ -275,6 +326,8 @@ class HearingSession:
         if is_voiced(probability):
             if self._silent_windows >= self._pause_windows:
                 self._sustained_windows = 0
+                if self._moment is not None and self._moment.base is not None:
+                    self._moment.base = 0
             self._sustained_windows += 1
             self._voiced_windows += 1
             self._silent_windows = 0
@@ -287,7 +340,7 @@ class HearingSession:
                 self._silent_windows * WINDOW_SAMPLES // _SAMPLES_PER_MILLISECOND
             )
             return self._end(end, TurnEndedBy.SILENCE, silence_ms=silence_ms)
-        return self._sustained_when_reached(end)
+        return [*self._sustained_when_reached(end), *self._moment_when_reached(end)]
 
     def _sustained_when_reached(self, end: int) -> list[SpeechSustain]:
         """The turn's one event, once the window ending at `end` completes the count."""
@@ -299,6 +352,50 @@ class HearingSession:
             return []
         self._sustained_sent = True
         return [SpeechSustain(audio_ms=end // _SAMPLES_PER_MILLISECOND)]
+
+    def _undecided_moment(self, start: int) -> _Moment | None:
+        """The moment when it is undecided and the window at `start` reaches it."""
+        moment = self._moment
+        if moment is None or moment.spent or moment.base is not None:
+            return None
+        return moment if start >= moment.sample else None
+
+    def _reach_moment(self, start: int) -> None:
+        """The audio reaches the moment while an item is open: its item is that one."""
+        if (moment := self._undecided_moment(start)) is not None:
+            moment.base = self._sustained_windows
+
+    def _decide_moment_of_opening_turn(self, start: int) -> None:
+        """The audio is at the moment as a turn opens: count what begins at or after it.
+
+        A turn that opens before the moment is decided when the audio reaches it.
+        """
+        if (moment := self._undecided_moment(start)) is not None:
+            moment.base = self._sustained_windows - _voiced_since_last_pause(
+                self._waiting_voiced, self._pause_windows, from_sample=moment.sample
+            )
+
+    def _pass_moment_without_item(self, start: int) -> None:
+        """The audio passes the moment with no item that began at or before it."""
+        moment = self._undecided_moment(start)
+        if moment is not None and not (
+            self._speech_windows and self._turn_start <= moment.sample
+        ):
+            moment.spent = True
+
+    def _moment_when_reached(self, end: int) -> list[SpeechSustainFrom]:
+        """The moment's one event, once the window ending at `end` completes it."""
+        moment = self._moment
+        if (
+            moment is None
+            or moment.spent
+            or moment.base is None
+            or self._sustained_windows_to_send is None
+            or self._sustained_windows - moment.base < self._sustained_windows_to_send
+        ):
+            return []
+        moment.spent = True
+        return [SpeechSustainFrom(moment.from_ms, end // _SAMPLES_PER_MILLISECOND)]
 
     def _drop_before(self, sample: int) -> None:
         dropped = min(sample, self._held_end) - self._held_from
@@ -328,6 +425,8 @@ class HearingSession:
         self._silent_windows = 0
         self._voiced_windows = 0
         self._sustained_sent = False
+        if self._moment is not None and self._moment.base is not None:
+            self._moment.spent = True
         self._waiting_voiced.clear()
         self._last_partial_at = None
         self._last_partial_samples = 0
