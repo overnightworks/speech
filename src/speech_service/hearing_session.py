@@ -211,10 +211,9 @@ class HearingSession:
 
         The item is the one that began at or before `from_ms` and had not ended before
         it; only the windows that begin at or after `from_ms` count, under the rule
-        of `sustain_after`. A moment replaces the standing one, unless it equals it.
+        of `sustain_after`. A moment replaces the standing one.
         """
-        if self._moment is None or self._moment.from_ms != from_ms:
-            self._moment = _Moment(from_ms)
+        self._moment = _Moment(from_ms)
 
     def add(self, pcm: bytes) -> list[SchedulerEvent]:
         """Take 16 kHz mono 16-bit audio; a turn that reaches the cap ends there."""
