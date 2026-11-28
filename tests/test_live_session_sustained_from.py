@@ -40,9 +40,9 @@ def _moments(socket: FakeSocket) -> list[SpeechSustainedFrom]:
     return socket.of_type(SpeechSustainedFrom)
 
 
-def _refusal(socket: FakeSocket) -> tuple[str | None, str | None]:
+def _refusal(socket: FakeSocket, failed: int = 0) -> tuple[str | None, str | None]:
     """The `param` and the `event_id` of the one `error` that ended the session."""
-    assert end_is(socket, "invalid_request", failed=0)
+    assert end_is(socket, "invalid_request", failed=failed)
     (error,) = socket.of_type(ErrorEvent)
     return error.error.param, error.error.event_id
 
@@ -179,6 +179,21 @@ def test_a_new_moment_replaces_the_older_and_an_equal_one_changes_nothing() -> N
         start_of_window(12),
         end_of_window(18),
     )
+
+
+def test_an_equal_moment_after_audio_is_behind_and_ends_the_session() -> None:
+    """WIRE-178: an equal moment changes nothing only while no audio followed it."""
+
+    async def scenario() -> FakeSocket:
+        session, socket, _, _ = await asking(SEVEN_WINDOWS)
+        await session.on_message(sustain_from(from_ms=0))
+        await session.on_message(append(windows(20)))
+        await session.on_message(sustain_from(from_ms=0))
+        return socket
+
+    socket = asyncio.run(scenario())
+
+    assert _refusal(socket, failed=1) == (FROM_PARAM, None)
 
 
 def test_the_event_is_sent_to_a_draining_session_until_its_close() -> None:

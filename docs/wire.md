@@ -464,7 +464,8 @@ audio, pre-roll included.
   appended waits for the audio.
 - WIRE-178: A session holds one moment. A new `sustain_from` replaces it as it is received:
   no event of the older moment follows, and one already sent stands. A moment equal to the
-  standing one changes nothing.
+  standing one changes nothing while no audio was appended after it; once audio was, the
+  equal moment is behind and WIRE-176 refuses it.
 
 **Every announced item ends once.**
 
