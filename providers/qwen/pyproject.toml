@@ -71,7 +71,7 @@ banned-module-level-imports = [
 [tool.coverage.run]
 branch = true
 relative_files = true
-patch = ["subprocess"]
+patch = ["_exit", "subprocess"]
 include = ["providers/qwen/src/*"]
 
 [tool.coverage.report]

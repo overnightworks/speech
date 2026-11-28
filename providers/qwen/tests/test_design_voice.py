@@ -5,21 +5,24 @@ from __future__ import annotations
 import io
 import subprocess
 import sys
+import threading
 import wave
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from speech_provider_contract import QWEN_ARTIFACTS
 
 from speech_qwen import design_voice
-from speech_qwen.server import Server
+from speech_qwen.server import WATCH_THREAD_NAME, Server
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator, Sequence
 
     from support.scripted_server import ScriptedSpeechServer
 
+_FAKE_SERVER = Path(__file__).parent / "support" / "fake_vllm_omni.py"
 DESCRIPTION = "A warm, calm female voice with a slight smile"
 
 
@@ -33,24 +36,24 @@ def _wav(frames: int = 240) -> bytes:
     return buffer.getvalue()
 
 
-class _Downloaded:
-    """A stand-in download that records what it was asked for."""
+class _Snapshots:
+    """The Hub library's download, replaced by one that records its request."""
 
     def __init__(self, checkpoint: Path) -> None:
         self.checkpoint = checkpoint
-        self.calls: list[tuple[str, str]] = []
+        self.requests: list[dict[str, object]] = []
 
-    def __call__(self, repo_id: str, revision: str, _cache: Path) -> str:
-        self.calls.append((repo_id, revision))
+    def __call__(self, **request: object) -> str:
+        self.requests.append(request)
         return str(self.checkpoint)
 
 
 class _Started:
     """A stand-in server starter that hands back the scripted server."""
 
-    def __init__(self, server: Server, download: _Downloaded) -> None:
+    def __init__(self, server: Server, snapshots: _Snapshots) -> None:
         self.server = server
-        self.download = download
+        self.snapshots = snapshots
         self.commands: list[list[str]] = []
 
     def __call__(self, command: list[str], _socket_path: Path) -> Server:
@@ -67,9 +70,11 @@ def started(
     deploy_config.write_text("stages: []\n", encoding="utf-8")
     deploy_config.parents[1].joinpath("__init__.py").write_text("raise SystemExit\n")
     monkeypatch.syspath_prepend(str(tmp_path / "package"))
+    snapshots = _Snapshots(tmp_path / "checkpoint")
+    monkeypatch.setattr("huggingface_hub.snapshot_download", snapshots)
     process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     server = Server(process, speech_server.server.socket_path)
-    yield _Started(server, _Downloaded(tmp_path / "checkpoint"))
+    yield _Started(server, snapshots)
     process.kill()
     process.wait()
 
@@ -84,7 +89,6 @@ def _design(
         destination,
         destination.parent / "cache",
         start=started,
-        download=started.download,
     )
 
 
@@ -144,9 +148,15 @@ def test_the_server_runs_the_downloaded_pinned_voice_design_snapshot(
     _design(started, tmp_path / "out", count=1)
 
     ((command,),) = [started.commands]
-    assert command[1:3] == ["serve", str(started.download.checkpoint)]
-    assert started.download.calls == [
-        (design_voice.DESIGN_MODEL_ID, design_voice.DESIGN_REVISION)
+    assert command[1:3] == ["serve", str(started.snapshots.checkpoint)]
+    assert started.snapshots.requests == [
+        {
+            "repo_id": design_voice.DESIGN_MODEL_ID,
+            "repo_type": "model",
+            "revision": design_voice.DESIGN_REVISION,
+            "allow_patterns": QWEN_ARTIFACTS,
+            "cache_dir": tmp_path / "cache",
+        }
     ]
 
 
@@ -182,7 +192,7 @@ def test_an_unsupported_language_fails_before_any_download(
     with pytest.raises(ValueError, match="language"):
         _design(started, tmp_path / "out", language="fr")
 
-    assert started.download.calls == []
+    assert started.snapshots.requests == []
 
 
 @pytest.mark.parametrize("count", [0, -1])
@@ -192,7 +202,7 @@ def test_a_count_below_one_fails_before_any_download(
     with pytest.raises(ValueError, match="count"):
         _design(started, tmp_path / "out", count=count)
 
-    assert started.download.calls == []
+    assert started.snapshots.requests == []
 
 
 def test_a_candidate_already_in_the_destination_is_never_overwritten(
@@ -292,3 +302,38 @@ def test_the_console_script_refuses_what_the_design_refuses(
 ) -> None:
     with pytest.raises(refusal):
         _run_main(monkeypatch, tmp_path, *options)
+
+
+def test_the_designs_stop_of_its_own_server_ends_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server_ended = threading.Event()
+    real_start_server = design_voice.start_server
+
+    def recording_start_server(
+        command: Sequence[str],
+        socket_path: Path,
+        *,
+        when_server_ends: Callable[[], None],
+    ) -> Server:
+        def recording_end() -> None:
+            when_server_ends()
+            server_ended.set()
+
+        return real_start_server(command, socket_path, when_server_ends=recording_end)
+
+    monkeypatch.setattr(design_voice, "start_server", recording_start_server)
+    socket_path = tmp_path / "server.sock"
+    command = [sys.executable, str(_FAKE_SERVER), "healthy", "--uds", str(socket_path)]
+
+    server = design_voice.start_until_stopped(command, socket_path)
+    connection = server.connect(5)
+    connection.request("GET", "/quit")
+    connection.getresponse().read()
+    connection.close()
+    server.process.wait()
+    for thread in threading.enumerate():
+        if thread.name == WATCH_THREAD_NAME:
+            thread.join()
+
+    assert server_ended.is_set()

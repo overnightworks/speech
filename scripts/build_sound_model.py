@@ -19,6 +19,7 @@ exist.
 # /// script
 # requires-python = ">=3.14"
 # dependencies = [
+#     "coverage==7.17.0",
 #     "numpy==2.5.4",
 #     "onnx==1.23.2",
 #     "onnxruntime==1.29.0",

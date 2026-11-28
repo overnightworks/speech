@@ -55,7 +55,9 @@ RUN speech-fetch-voice && speech-fetch-hearing-model "$HEARING_MODEL"
 # script pins and hashes every package in its own lock, --locked refuses a
 # header that drifted from it, and --no-build keeps third-party packages
 # wheel-only, as above. The script checks the ONNX against the PyTorch model
-# before it writes anything.
+# before it writes anything. It runs under coverage in every build: the script's
+# own coverage package, started by its .pth from the root pyproject.toml's
+# settings, writes the data file the stage after this one hands out.
 FROM python-base AS sound-model
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_PYTHON_DOWNLOADS=never \
@@ -64,9 +66,18 @@ RUN apt-get update \
  && apt-get install --yes --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
+COPY pyproject.toml pyproject.toml
 COPY scripts/build_sound_model.py scripts/build_sound_model.py.lock scripts/
 COPY scripts/sound_reference/laughter.wav scripts/sound_reference/laughter.wav
-RUN uv run --locked --no-build --script scripts/build_sound_model.py /opt/sound-model
+RUN mkdir /coverage \
+ && COVERAGE_PROCESS_START=/build/pyproject.toml COVERAGE_FILE=/coverage/.coverage.image \
+    uv run --locked --no-build --script scripts/build_sound_model.py /opt/sound-model
+
+# The coverage data of that run alone, for the image job to export with
+# `--target sound-model-coverage`; it is not the last stage, so no build
+# without a target makes it the image.
+FROM scratch AS sound-model-coverage
+COPY --from=sound-model /coverage /
 
 # The gpu image: the same service on the card, with the Qwen voice and the large
 # hearing model. The service venv gains the CUDA 12 libraries CTranslate2 loads
