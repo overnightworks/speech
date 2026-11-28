@@ -183,6 +183,7 @@ def test_build_refuses_a_checkpoint_that_differs_from_its_pin(
     assert list(destination.parent.iterdir()) == []
 
 
+@pytest.mark.usefixtures("upstream")
 def test_build_refuses_a_clip_that_is_not_16_khz_mono_pcm16(
     faked_build: types.ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -205,7 +206,8 @@ def test_the_clips_windows_are_the_services_windows_of_the_clip(
     script: types.ModuleType,
 ) -> None:
     stream = sound_events.SoundStream({})
-    pcm_bytes = script.REFERENCE_CLIP.read_bytes()[44:]
+    with wave.open(str(script.REFERENCE_CLIP), "rb") as reader:
+        pcm_bytes = reader.readframes(reader.getnframes())
     hop_bytes = sound_events.HOP_SAMPLES * 2
     served = []
     for start in range(0, len(pcm_bytes), hop_bytes):
@@ -252,9 +254,15 @@ def test_score_difference_refuses_unsound_scores(
         script.score_difference(found, expected, 2)
 
 
-def test_score_difference_is_the_largest_gap(script: types.ModuleType) -> None:
-    gap = script.score_difference(_scores(0.5, 0.25), _scores(0.25, 0.5), 2)
-    assert gap == pytest.approx(0.25)
-    assert script.score_difference(
-        _scores(0.5, 0.75), _scores(0.5, 0.25), 2
-    ) == pytest.approx(0.5)
+@pytest.mark.parametrize(
+    ("found", "expected", "gap"),
+    [
+        (_scores(0.5, 0.25), _scores(0.25, 0.5), 0.25),
+        (_scores(0.5, 0.75), _scores(0.5, 0.25), 0.5),
+    ],
+    ids=["the_gap_is_absolute", "the_gap_is_the_largest_column"],
+)
+def test_score_difference_is_the_largest_gap(
+    script: types.ModuleType, found: np.ndarray, expected: np.ndarray, gap: float
+) -> None:
+    assert script.score_difference(found, expected, 2) == pytest.approx(gap)
