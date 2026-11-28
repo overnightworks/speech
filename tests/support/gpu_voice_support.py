@@ -48,7 +48,6 @@ from tests.support.launcher_support import (
     server_starts,
     wait_for_starts,
 )
-from tests.support.piper_support import install_fake_piper
 from tests.support.serve_support import RecordedStops, serve_runtime
 from tests.support.speak_support import ASGI_TIMEOUT_SECONDS, wav_body
 from tests.support.tcp_server_support import (
@@ -195,7 +194,13 @@ def install_piper(monkeypatch: pytest.MonkeyPatch, voice_cache: Path) -> None:
         def synthesize(self, _text: str) -> Iterable[SimpleNamespace]:
             return [SimpleNamespace(audio_int16_bytes=PIPER_PCM)]
 
-    install_fake_piper(monkeypatch, lambda _path, **_options: LocalVoice())
+    monkeypatch.setitem(
+        sys.modules,
+        "piper",
+        SimpleNamespace(
+            PiperVoice=SimpleNamespace(load=lambda _path, **_options: LocalVoice())
+        ),
+    )
     voice_cache.mkdir(exist_ok=True)
     for voice in PIPER_VOICES:
         for path in piper_voice_paths(voice_cache, voice.value):
